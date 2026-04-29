@@ -166,23 +166,25 @@ export function AgentModeSettings() {
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5">
         <div className="space-y-4">
-          <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40 p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">Autonomous operating system</h3>
-                <p className="text-xs text-zinc-500 mt-1">The agent can monitor campaigns, process follow-ups, protect deliverability, and surface the highest-value next move.</p>
+          <section className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#050505] p-5 shadow-sm dark:shadow-none">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">Autonomous operating system</h3>
+                  <StatusPill active={draft.enabled} />
+                </div>
+                <p className="text-xs text-zinc-500 mt-1 max-w-3xl">The agent monitors campaigns, processes follow-ups, protects deliverability, and surfaces the highest-value next move.</p>
               </div>
-              <button
-                onClick={() => setField('enabled', !draft.enabled)}
+              <SwitchControl
+                checked={draft.enabled}
                 disabled={!canUseAgent}
-                className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${draft.enabled ? 'bg-[#1ED4A7]' : 'bg-zinc-300 dark:bg-zinc-800'}`}
-              >
-                <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-transform ${draft.enabled ? 'translate-x-5' : 'translate-x-1'}`} />
-              </button>
+                label="Autonomous operating system"
+                onChange={checked => setField('enabled', checked)}
+              />
             </div>
           </section>
 
-          <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
+          <section className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#050505] p-5">
             <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Mode</label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               {[
@@ -192,8 +194,9 @@ export function AgentModeSettings() {
                 <button
                   key={option.id}
                   onClick={() => setField('autonomyLevel', option.id as AgentModeConfig['autonomyLevel'])}
-                  className={`text-left p-4 rounded-lg border transition-all ${draft.autonomyLevel === option.id ? 'border-[#1ED4A7] bg-[#1ED4A7]/10' : 'border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900'}`}
+                  className={`relative text-left p-4 rounded-xl border transition-all overflow-hidden ${draft.autonomyLevel === option.id ? 'border-[#1ED4A7]/70 bg-[#1ED4A7]/10 shadow-[0_0_0_1px_rgba(30,212,167,0.12)_inset]' : 'border-zinc-200 dark:border-white/[0.08] hover:bg-zinc-50 dark:hover:bg-white/[0.03]'}`}
                 >
+                  {draft.autonomyLevel === option.id && <div className="absolute right-3 top-3 w-2 h-2 rounded-full bg-[#1ED4A7]" />}
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
                     {option.id === 'autopilot' ? <Zap className="w-4 h-4 text-[#1ED4A7]" /> : <Shield className="w-4 h-4 text-zinc-400" />}
                     {option.title}
@@ -204,9 +207,9 @@ export function AgentModeSettings() {
             </div>
           </section>
 
-          <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
+          <section className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#050505] p-5">
             <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Permissions</label>
-            <div className="mt-3 divide-y divide-zinc-200 dark:divide-zinc-800">
+            <div className="mt-3 space-y-2">
               <PermissionRow title="Process due follow-ups" desc="Send configured follow-ups when campaign timing rules are met." checked={draft.autoFollowUps} onChange={v => setField('autoFollowUps', v)} />
               <PermissionRow title="Launch prepared campaigns" desc="Autopilot can start campaigns that are ready and under daily action limits." checked={draft.autoLaunchCampaigns} onChange={v => setField('autoLaunchCampaigns', v)} />
               <PermissionRow title="Pause weak campaigns" desc="Flag or pause campaigns when bounce, reply, or click signals move outside guardrails." checked={draft.autoPauseLowQuality} onChange={v => setField('autoPauseLowQuality', v)} />
@@ -221,7 +224,7 @@ export function AgentModeSettings() {
             </div>
           </section>
 
-          <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 space-y-4">
+          <section className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#050505] p-5 space-y-4">
             <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Guardrails</label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Field label="Max daily actions">
@@ -284,6 +287,46 @@ export function AgentModeSettings() {
 
 const inputClass = 'w-full px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1ED4A7]/20 focus:border-[#1ED4A7]/50';
 
+function StatusPill({ active }: { active: boolean }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${active ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]' : 'bg-zinc-100 text-zinc-500 dark:bg-white/[0.06] dark:text-zinc-500'}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-[#1ED4A7]' : 'bg-zinc-400 dark:bg-zinc-600'}`} />
+      {active ? 'Active' : 'Paused'}
+    </span>
+  );
+}
+
+function SwitchControl({ checked, disabled, label, onChange }: {
+  checked: boolean;
+  disabled?: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`group relative h-8 w-[56px] flex-shrink-0 rounded-full border p-1 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#1ED4A7]/30 disabled:cursor-not-allowed disabled:opacity-45 ${
+        checked
+          ? 'border-[#1ED4A7]/70 bg-[#1ED4A7] shadow-[0_0_18px_rgba(30,212,167,0.22)]'
+          : 'border-zinc-300 bg-zinc-200 dark:border-white/[0.08] dark:bg-white/[0.08]'
+      }`}
+    >
+      <span
+        className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-[0_2px_8px_rgba(0,0,0,0.22)] transition-transform duration-200 ${
+          checked ? 'translate-x-6' : 'translate-x-0'
+        }`}
+      />
+      <span className={`absolute left-2 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full transition-opacity ${checked ? 'opacity-100 bg-white/80' : 'opacity-0'}`} />
+      <span className={`absolute right-2 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full transition-opacity ${checked ? 'opacity-0' : 'opacity-100 bg-zinc-500 dark:bg-zinc-400'}`} />
+    </button>
+  );
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
@@ -302,21 +345,18 @@ function PermissionRow({ title, desc, checked, disabled, icon, onChange }: {
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="py-3 first:pt-0 last:pb-0 flex items-start justify-between gap-4">
+    <div className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-4 transition-colors ${checked ? 'border-[#1ED4A7]/25 bg-[#1ED4A7]/[0.04]' : 'border-zinc-200 bg-zinc-50 dark:border-white/[0.06] dark:bg-white/[0.02]'} ${disabled ? 'opacity-60' : 'hover:bg-zinc-100 dark:hover:bg-white/[0.04]'}`}>
       <div className="flex items-start gap-3 min-w-0">
-        {icon && <div className="mt-0.5">{icon}</div>}
+        {icon && <div className="mt-0.5 flex-shrink-0">{icon}</div>}
         <div>
-          <p className="text-sm font-medium text-zinc-900 dark:text-white">{title}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium text-zinc-900 dark:text-white">{title}</p>
+            {disabled && <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500 dark:bg-white/[0.08]">Locked</span>}
+          </div>
           <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
         </div>
       </div>
-      <button
-        onClick={() => onChange(!checked)}
-        disabled={disabled}
-        className={`relative w-10 h-6 rounded-full transition-colors disabled:opacity-40 flex-shrink-0 ${checked ? 'bg-[#1ED4A7]' : 'bg-zinc-300 dark:bg-zinc-800'}`}
-      >
-        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-5' : 'translate-x-1'}`} />
-      </button>
+      <SwitchControl checked={checked} disabled={disabled} label={title} onChange={onChange} />
     </div>
   );
 }
