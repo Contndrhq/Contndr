@@ -330,6 +330,8 @@ app.get("/visitor-stats", async (c) => {
 app.get("/activity", async (c) => {
   try {
     const { user, supabase } = await getAuthenticatedUser(c);
+    const dashboardMode = c.req.query("dashboard") === "1" || c.req.query("fast") === "1";
+    const requestedLimit = Math.min(30, Math.max(6, Number(c.req.query("limit") || 12)));
 
     // PARALLELIZED KV FETCHES with timeout protection
     const timeout = (ms: number) => new Promise((_, reject) => 
@@ -339,11 +341,11 @@ app.get("/activity", async (c) => {
     const [teamMemberIdsRes, memberMapRes] = await Promise.allSettled([
       Promise.race([
         getTeamMemberIds(user.id),
-        timeout(5000)
+        timeout(dashboardMode ? 1500 : 5000)
       ]),
       Promise.race([
         getMemberMap(user.id),
-        timeout(5000)
+        timeout(dashboardMode ? 1500 : 5000)
       ]),
     ]);
 
@@ -357,7 +359,7 @@ app.get("/activity", async (c) => {
 
     await overrideCurrentUserName(memberMap, user);
 
-    const oneWeekAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const oneWeekAgo = new Date(Date.now() - (dashboardMode ? 14 : 30) * 24 * 60 * 60 * 1000).toISOString();
     const activities: any[] = [];
 
     // Helper to resolve member info
@@ -367,6 +369,124 @@ app.get("/activity", async (c) => {
     };
 
     console.log(`[TEAM ACTIVITY] Loading activity for ${teamMemberIds.length} members, since ${oneWeekAgo}, memberIds: ${teamMemberIds.join(", ")}`);
+
+    if (dashboardMode) {
+      const [sentEmailsRes, campaignsRes, leadsRes] = await Promise.allSettled([
+        supabase
+          .from("emails")
+          .select("id, subject, user_id, created_at, status, open_count, click_count, leads(business_name, contact_name)")
+          .in("user_id", teamMemberIds)
+          .in("status", ["sent", "delivered", "opened", "clicked", "replied"])
+          .gte("created_at", oneWeekAgo)
+          .order("created_at", { ascending: false })
+          .limit(requestedLimit),
+        supabase
+          .from("campaigns")
+          .select("id, name, user_id, created_at")
+          .in("user_id", teamMemberIds)
+          .gte("created_at", oneWeekAgo)
+          .order("created_at", { ascending: false })
+          .limit(6),
+        supabase
+          .from("leads")
+          .select("id, business_name, contact_name, user_id, created_at")
+          .in("user_id", teamMemberIds)
+          .gte("created_at", oneWeekAgo)
+          .order("created_at", { ascending: false })
+          .limit(8),
+      ]);
+
+      const sentEmails = sentEmailsRes.status === "fulfilled" ? sentEmailsRes.value.data || [] : [];
+      sentEmails.forEach((email: any) => {
+        const { name, isYou } = memberInfo(email.user_id);
+        const biz = email.leads?.business_name || email.leads?.contact_name || "a lead";
+        const engagement: any = {};
+        if (email.open_count > 0) engagement.opens = email.open_count;
+        if (email.click_count > 0) engagement.clicks = email.click_count;
+        if (email.status === "replied") engagement.replied = true;
+        if (["opened", "clicked", "replied"].includes(email.status)) engagement.status = email.status;
+
+        activities.push({
+          id: `sent-${email.id}`,
+          type: "email_sent",
+          message: isYou ? `You emailed ${biz}` : `${name} emailed ${biz}`,
+          timestamp: email.created_at,
+          metadata: { subject: email.subject || "", ...engagement },
+          member_name: name,
+          is_you: isYou,
+        });
+
+        const baseTs = new Date(email.created_at).getTime();
+        if (email.open_count > 0 || ["opened", "clicked", "replied"].includes(email.status)) {
+          activities.push({
+            id: `synth-open-${email.id}`,
+            type: "email_opened",
+            message: isYou ? `${biz} opened your email` : `${biz} opened ${name}'s email`,
+            timestamp: new Date(baseTs + 60000).toISOString(),
+            metadata: { subject: email.subject || "", email_id: email.id, opens: email.open_count || 1 },
+            member_name: name,
+            is_you: isYou,
+          });
+        }
+        if (email.click_count > 0 || email.status === "clicked") {
+          activities.push({
+            id: `synth-click-${email.id}`,
+            type: "email_clicked",
+            message: isYou ? `${biz} clicked a link in your email` : `${biz} clicked a link in ${name}'s email`,
+            timestamp: new Date(baseTs + 120000).toISOString(),
+            metadata: { subject: email.subject || "", email_id: email.id, clicks: email.click_count || 1 },
+            member_name: name,
+            is_you: isYou,
+          });
+        }
+        if (email.status === "replied") {
+          activities.push({
+            id: `synth-reply-${email.id}`,
+            type: "email_replied",
+            message: isYou ? `${biz} replied to your email` : `${biz} replied to ${name}'s email`,
+            timestamp: new Date(baseTs + 180000).toISOString(),
+            metadata: { subject: email.subject || "", email_id: email.id },
+            member_name: name,
+            is_you: isYou,
+          });
+        }
+      });
+
+      const campaigns = campaignsRes.status === "fulfilled" ? campaignsRes.value.data || [] : [];
+      campaigns.forEach((camp: any) => {
+        const { name, isYou } = memberInfo(camp.user_id);
+        activities.push({
+          id: `camp-${camp.id}`,
+          type: "campaign_created",
+          message: "",
+          timestamp: camp.created_at,
+          metadata: { campaign_name: camp.name },
+          member_name: name,
+          is_you: isYou,
+        });
+      });
+
+      const leads = leadsRes.status === "fulfilled" ? leadsRes.value.data || [] : [];
+      leads.forEach((lead: any) => {
+        const { name, isYou } = memberInfo(lead.user_id);
+        activities.push({
+          id: `lead-${lead.id}`,
+          type: "lead_added",
+          message: "",
+          timestamp: lead.created_at,
+          metadata: { business_name: lead.business_name || lead.contact_name || "a new lead" },
+          member_name: name,
+          is_you: isYou,
+        });
+      });
+
+      activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      c.header("Cache-Control", "private, max-age=20, stale-while-revalidate=60");
+      return c.json({
+        activities: activities.slice(0, requestedLimit),
+        team_size: teamMemberIds.length,
+      });
+    }
 
     // ── 1. Email engagement events (opens, clicks, replies) ──
     // Two-step approach: get team email IDs first, then query events

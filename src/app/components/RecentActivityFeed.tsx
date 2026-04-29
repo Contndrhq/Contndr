@@ -92,6 +92,17 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
       setLoading(false);
       return;
     }
+
+    let cancelled = false;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled || !session?.user?.id) return;
+      const cached = getCachedActivity(session.user.id);
+      if (cached) {
+        setActivities(cached.activities);
+        setTeamSize(cached.teamSize || 1);
+        setLoading(false);
+      }
+    }).catch(() => {});
     
     loadActivities();
 
@@ -112,22 +123,54 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
       .subscribe();
 
     return () => {
+      cancelled = true;
       subscription.unsubscribe();
     };
   }, [isDemoMode]);
+
+  function getActivityCacheKey(userId: string) {
+    return `contndr:dashboard-activity:${userId}`;
+  }
+
+  function getCachedActivity(userId: string): { activities: Activity[]; teamSize: number } | null {
+    try {
+      const raw = sessionStorage.getItem(getActivityCacheKey(userId));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed?.savedAt || Date.now() - parsed.savedAt > 5 * 60 * 1000) return null;
+      if (!Array.isArray(parsed.activities)) return null;
+      return { activities: parsed.activities, teamSize: Number(parsed.teamSize || 1) };
+    } catch {
+      return null;
+    }
+  }
+
+  function setCachedActivity(userId: string, nextActivities: Activity[], nextTeamSize: number) {
+    try {
+      sessionStorage.setItem(getActivityCacheKey(userId), JSON.stringify({
+        savedAt: Date.now(),
+        activities: nextActivities.slice(0, 12),
+        teamSize: nextTeamSize || 1,
+      }));
+    } catch {
+      // Non-critical cache.
+    }
+  }
 
   async function loadActivities() {
     try {
       // Check if demo account
       let isDemo = false;
+      let userId = '';
       try {
         const { data: { session } } = await supabase.auth.getSession();
         isDemo = session?.user?.email === 'demo@contndr.com';
+        userId = session?.user?.id || '';
       } catch (_) { /* non-fatal */ }
 
       // Try team-wide activity first (covers solo users too — they get their own activity back)
       const teamResponse = await authenticatedFetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/team/activity`
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/team/activity?dashboard=1&limit=12`
       );
 
       if (teamResponse.ok) {
@@ -138,11 +181,14 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
           types: teamData.activities?.reduce((acc: any, a: any) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {}),
           error: teamData.error 
         });
-        setTeamSize(teamData.team_size || 1);
+        const nextTeamSize = teamData.team_size || 1;
+        setTeamSize(nextTeamSize);
 
         // Show ALL team activity (sent, opens, clicks, replies, campaigns, leads)
         if (teamData.activities && teamData.activities.length > 0) {
-          setActivities(teamData.activities.slice(0, 12));
+          const nextActivities = teamData.activities.slice(0, 12);
+          setActivities(nextActivities);
+          if (userId) setCachedActivity(userId, nextActivities, nextTeamSize);
           setLoading(false);
           return;
         }
