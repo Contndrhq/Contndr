@@ -41,6 +41,23 @@ interface AICallCampaignBuilderProps {
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6;
 
+type IntentTriggerMode = 'known_campaign_visitor' | 'form_request' | 'high_intent_company';
+
+interface IntentTriggerConfig {
+  enabled: boolean;
+  mode: IntentTriggerMode;
+  threshold: number;
+  delayMinutes: number;
+  pages: string[];
+  requireKnownLead: boolean;
+  requireConsent: boolean;
+  formEnabled: boolean;
+  formFields: string[];
+  consentText: string;
+  cooldownHours: number;
+  maxDailyCalls: number;
+}
+
 interface CampaignData {
   name: string;
   brand: string;
@@ -76,6 +93,7 @@ interface CampaignData {
   maxAttempts: number;
   delayBetweenAttempts: number;
   timezoneDetection: boolean;
+  intentTrigger: IntentTriggerConfig;
 }
 
 interface LocationSuggestion {
@@ -120,6 +138,59 @@ const LABEL_CLS = "block text-[11px] sm:text-xs font-medium text-zinc-500 dark:t
 const CARD_SELECTED = "border-[#1ED4A7]/60 bg-[#1ED4A7]/5";
 const CARD_DEFAULT = "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700";
 
+const DEFAULT_INTENT_TRIGGER: IntentTriggerConfig = {
+  enabled: false,
+  mode: 'known_campaign_visitor',
+  threshold: 75,
+  delayMinutes: 2,
+  pages: ['pricing', 'demo', 'contact'],
+  requireKnownLead: true,
+  requireConsent: true,
+  formEnabled: true,
+  formFields: ['name', 'email', 'phone', 'company'],
+  consentText: 'I agree to receive an immediate call from Contndr about my request.',
+  cooldownHours: 24,
+  maxDailyCalls: 25,
+};
+
+const normalizeIntentTriggerForState = (raw?: any): IntentTriggerConfig => {
+  if (!raw) return { ...DEFAULT_INTENT_TRIGGER };
+  return {
+    ...DEFAULT_INTENT_TRIGGER,
+    enabled: Boolean(raw.enabled),
+    mode: (raw.mode || DEFAULT_INTENT_TRIGGER.mode) as IntentTriggerMode,
+    threshold: Number(raw.threshold ?? DEFAULT_INTENT_TRIGGER.threshold),
+    delayMinutes: Number(raw.delay_minutes ?? raw.delayMinutes ?? DEFAULT_INTENT_TRIGGER.delayMinutes),
+    pages: Array.isArray(raw.pages) && raw.pages.length ? raw.pages : DEFAULT_INTENT_TRIGGER.pages,
+    requireKnownLead: raw.require_known_lead ?? raw.requireKnownLead ?? DEFAULT_INTENT_TRIGGER.requireKnownLead,
+    requireConsent: raw.require_consent ?? raw.requireConsent ?? DEFAULT_INTENT_TRIGGER.requireConsent,
+    formEnabled: raw.form_enabled ?? raw.formEnabled ?? DEFAULT_INTENT_TRIGGER.formEnabled,
+    formFields: Array.isArray(raw.form_fields || raw.formFields) ? (raw.form_fields || raw.formFields) : DEFAULT_INTENT_TRIGGER.formFields,
+    consentText: raw.consent_text || raw.consentText || DEFAULT_INTENT_TRIGGER.consentText,
+    cooldownHours: Number(raw.cooldown_hours ?? raw.cooldownHours ?? DEFAULT_INTENT_TRIGGER.cooldownHours),
+    maxDailyCalls: Number(raw.max_daily_calls ?? raw.maxDailyCalls ?? DEFAULT_INTENT_TRIGGER.maxDailyCalls),
+  };
+};
+
+const toIntentTriggerPayload = (trigger?: IntentTriggerConfig) => {
+  const normalized = normalizeIntentTriggerForState(trigger);
+  return {
+    enabled: normalized.enabled,
+    mode: normalized.mode,
+    threshold: normalized.threshold,
+    delay_minutes: normalized.delayMinutes,
+    pages: normalized.pages,
+    require_known_lead: normalized.requireKnownLead,
+    require_consent: normalized.requireConsent,
+    form_enabled: normalized.formEnabled,
+    form_fields: normalized.formFields,
+    consent_text: normalized.consentText,
+    cooldown_hours: normalized.cooldownHours,
+    max_daily_calls: normalized.maxDailyCalls,
+    plan_gate: 'scale_enterprise',
+  };
+};
+
 export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCampaign }: AICallCampaignBuilderProps) {
   const { t } = useTranslation();
   const [currentStep, setCurrentStep] = useState<Step>(1);
@@ -132,6 +203,7 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
   const [scheduleValue, setScheduleValue] = useState<ScheduleValue>({ mode: 'now' });
   const [availableAgents, setAvailableAgents] = useState<ElevenLabsAgent[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
 
   const getInitialCampaignData = (): Partial<CampaignData> => {
     if (editingCampaign) {
@@ -172,7 +244,8 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
         callingHours: editingCampaign.calling_hours || { start: '09:00', end: '17:00' },
         maxAttempts: editingCampaign.max_attempts || 3,
         delayBetweenAttempts: editingCampaign.delay_between_attempts || 24,
-        timezoneDetection: editingCampaign.timezone_detection !== false
+        timezoneDetection: editingCampaign.timezone_detection !== false,
+        intentTrigger: normalizeIntentTriggerForState(editingCampaign.intent_trigger)
       };
     }
     return {
@@ -192,7 +265,8 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
       closeAction: 'Would you have 15 minutes this week to see what we can create for you? I can show you our portfolio and discuss your specific needs.',
       callingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
       callingHours: { start: '09:00', end: '17:00' },
-      maxAttempts: 3, delayBetweenAttempts: 24, timezoneDetection: true
+      maxAttempts: 3, delayBetweenAttempts: 24, timezoneDetection: true,
+      intentTrigger: { ...DEFAULT_INTENT_TRIGGER }
     };
   };
 
@@ -235,6 +309,7 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
         close_action: campaignData.closeAction, calling_days: campaignData.callingDays,
         calling_hours: campaignData.callingHours, max_attempts: campaignData.maxAttempts,
         delay_between_attempts: campaignData.delayBetweenAttempts, timezone_detection: campaignData.timezoneDetection,
+        intent_trigger: toIntentTriggerPayload(campaignData.intentTrigger),
         status: 'draft', created_at: new Date().toISOString(),
         total_calls: 0, completed_calls: 0, in_progress: 0, booked_meetings: 0
       };
@@ -276,6 +351,21 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
       }
     };
     fetchCustomAgents();
+
+    const fetchSubscriptionStatus = async () => {
+      try {
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/billing/status`,
+          { headers: await getAuthHeaders() }
+        );
+        if (response.ok) {
+          setSubscriptionStatus(await response.json());
+        }
+      } catch (error) {
+        console.warn('Failed to load subscription status', error);
+      }
+    };
+    fetchSubscriptionStatus();
 
     const fetchVoices = async () => {
       try {
@@ -354,6 +444,8 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
   const stepTitles: Record<number, string> = {
     1: t('aiCalls.campaignBuilder.basics'), 2: t('aiCalls.campaignBuilder.leadSource'), 3: t('aiCalls.campaignBuilder.aiConfig'), 4: t('aiCalls.campaignBuilder.rules'), 5: t('aiCalls.campaignBuilder.script'), 6: t('aiCalls.campaignBuilder.schedule')
   };
+  const currentPlan = String(subscriptionStatus?.plan || 'none').toLowerCase();
+  const canUseIntentTriggers = ['scale', 'enterprise'].includes(currentPlan) || subscriptionStatus?.isWhitelisted === true;
 
   return (
     <div className="flex flex-col h-full sm:max-h-[88dvh]" style={{ maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - 1.5rem)' }}>
@@ -393,7 +485,7 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
         {currentStep === 3 && <Step3AIConfiguration data={campaignData} update={updateCampaignData} playingVoice={playingVoice} playVoicePreview={playVoicePreview} availableVoices={availableVoices} loadingVoices={loadingVoices} voicesError={voicesError} availableAgents={availableAgents} loadingAgents={loadingAgents} customAgents={customAgents} loadingCustomAgents={loadingCustomAgents} />}
         {currentStep === 4 && <Step4ConversationRules data={campaignData} update={updateCampaignData} />}
         {currentStep === 5 && <Step5ScriptBuilder data={campaignData} update={updateCampaignData} />}
-        {currentStep === 6 && <Step6Scheduling data={campaignData} update={updateCampaignData} scheduleValue={scheduleValue} onScheduleChange={setScheduleValue} />}
+        {currentStep === 6 && <Step6Scheduling data={campaignData} update={updateCampaignData} scheduleValue={scheduleValue} onScheduleChange={setScheduleValue} canUseIntentTriggers={canUseIntentTriggers} planName={subscriptionStatus?.plan || 'Growth'} />}
       </div>
 
       {/* Footer */}
@@ -1218,11 +1310,28 @@ function Step5ScriptBuilder({ data, update }: { data: Partial<CampaignData>; upd
 }
 
 // ── Step 6: Scheduling ──
-function Step6Scheduling({ data, update, scheduleValue, onScheduleChange }: {
+function Step6Scheduling({ data, update, scheduleValue, onScheduleChange, canUseIntentTriggers, planName }: {
   data: Partial<CampaignData>; update: (d: Partial<CampaignData>) => void;
   scheduleValue: ScheduleValue; onScheduleChange: (v: ScheduleValue) => void;
+  canUseIntentTriggers: boolean; planName: string;
 }) {
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const trigger = normalizeIntentTriggerForState(data.intentTrigger);
+  const updateTrigger = (updates: Partial<IntentTriggerConfig>) => {
+    update({ intentTrigger: { ...trigger, ...updates } });
+  };
+  const pageOptions = [
+    { id: 'pricing', label: 'Pricing' },
+    { id: 'demo', label: 'Demo' },
+    { id: 'contact', label: 'Contact' },
+    { id: 'case_study', label: 'Case Study' },
+    { id: 'checkout', label: 'Checkout' },
+  ];
+  const triggerModes: Array<{ id: IntentTriggerMode; label: string; description: string }> = [
+    { id: 'known_campaign_visitor', label: 'Known visitor', description: 'Call a prospect already tied to an email campaign click.' },
+    { id: 'form_request', label: 'Form request', description: 'Call after the embedded form captures phone and consent.' },
+    { id: 'high_intent_company', label: 'High-intent company', description: 'Queue a review when company traffic matches the ICP.' },
+  ];
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -1311,6 +1420,162 @@ function Step6Scheduling({ data, update, scheduleValue, onScheduleChange }: {
           <p className="text-[10px] text-zinc-500">Call leads at appropriate local times</p>
         </div>
       </label>
+
+      <div className={`rounded-lg border p-3 sm:p-4 space-y-4 ${
+        trigger.enabled && canUseIntentTriggers
+          ? 'border-[#1ED4A7]/50 bg-[#1ED4A7]/5'
+          : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40'
+      }`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-zinc-900 dark:bg-white flex items-center justify-center flex-shrink-0">
+              <Zap className="w-4 h-4 text-white dark:text-black" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="text-xs sm:text-sm font-semibold text-zinc-900 dark:text-white">Intent-triggered AI calling</h4>
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide bg-zinc-900 text-white dark:bg-white dark:text-black">Scale + Enterprise</span>
+              </div>
+              <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 leading-relaxed">
+                Automatically queue this caller when campaign traffic shows buying intent, or let a visitor request an instant AI call from the page.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={!canUseIntentTriggers}
+            onClick={() => updateTrigger({ enabled: !trigger.enabled })}
+            className={`relative w-10 h-5 rounded-full flex-shrink-0 transition-colors ${
+              trigger.enabled && canUseIntentTriggers ? 'bg-[#1ED4A7]' : 'bg-zinc-300 dark:bg-zinc-700'
+            } ${!canUseIntentTriggers ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+              trigger.enabled && canUseIntentTriggers ? 'translate-x-5' : 'translate-x-0.5'
+            }`} />
+          </button>
+        </div>
+
+        {!canUseIntentTriggers && (
+          <div className="flex items-start gap-2 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+            <AlertCircle className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0 mt-0.5" />
+            <p className="text-[10px] sm:text-xs text-zinc-500 leading-relaxed">
+              Your current plan is {planName}. Upgrade to Scale or Enterprise to save and activate automated visitor-triggered calls.
+            </p>
+          </div>
+        )}
+
+        <div className={`${!trigger.enabled || !canUseIntentTriggers ? 'opacity-50 pointer-events-none' : ''} space-y-4`}>
+          <div>
+            <label className={LABEL_CLS}>Trigger Mode</label>
+            <div className="grid sm:grid-cols-3 gap-2">
+              {triggerModes.map((mode) => (
+                <button
+                  type="button"
+                  key={mode.id}
+                  onClick={() => updateTrigger({ mode: mode.id })}
+                  className={`text-left p-3 rounded-lg border transition-all ${
+                    trigger.mode === mode.id ? CARD_SELECTED : CARD_DEFAULT
+                  }`}
+                >
+                  <p className="text-xs font-semibold text-zinc-900 dark:text-white">{mode.label}</p>
+                  <p className="text-[10px] text-zinc-500 mt-1 leading-relaxed">{mode.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className={LABEL_CLS}>High Intent Pages</label>
+            <div className="flex flex-wrap gap-1.5">
+              {pageOptions.map((page) => {
+                const selected = trigger.pages.includes(page.id);
+                return (
+                  <button
+                    type="button"
+                    key={page.id}
+                    onClick={() => updateTrigger({ pages: selected ? trigger.pages.filter(p => p !== page.id) : [...trigger.pages, page.id] })}
+                    className={`px-2.5 py-1.5 rounded-lg border text-[10px] sm:text-xs font-medium transition-all ${
+                      selected ? 'border-[#1ED4A7]/60 bg-[#1ED4A7]/10 text-[#0F8D70]' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:border-zinc-300 dark:hover:border-zinc-700'
+                    }`}
+                  >
+                    {page.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+            <div>
+              <label className={LABEL_CLS}>Intent Score</label>
+              <select value={trigger.threshold} onChange={(e) => updateTrigger({ threshold: parseInt(e.target.value) })} className={INPUT_CLS}>
+                <option value={60}>60+</option>
+                <option value={75}>75+</option>
+                <option value={90}>90+</option>
+              </select>
+            </div>
+            <div>
+              <label className={LABEL_CLS}>Call Delay</label>
+              <select value={trigger.delayMinutes} onChange={(e) => updateTrigger({ delayMinutes: parseInt(e.target.value) })} className={INPUT_CLS}>
+                <option value={0}>Instant</option>
+                <option value={2}>2 min</option>
+                <option value={5}>5 min</option>
+                <option value={15}>15 min</option>
+              </select>
+            </div>
+            <div>
+              <label className={LABEL_CLS}>Cooldown</label>
+              <select value={trigger.cooldownHours} onChange={(e) => updateTrigger({ cooldownHours: parseInt(e.target.value) })} className={INPUT_CLS}>
+                <option value={6}>6 hours</option>
+                <option value={24}>24 hours</option>
+                <option value={72}>72 hours</option>
+              </select>
+            </div>
+            <div>
+              <label className={LABEL_CLS}>Daily Cap</label>
+              <select value={trigger.maxDailyCalls} onChange={(e) => updateTrigger({ maxDailyCalls: parseInt(e.target.value) })} className={INPUT_CLS}>
+                <option value={10}>10 calls</option>
+                <option value={25}>25 calls</option>
+                <option value={50}>50 calls</option>
+                <option value={100}>100 calls</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-3 gap-2">
+            {[
+              { key: 'requireKnownLead', label: 'Known lead required', hint: 'Uses campaign clicks and CRM identity.' },
+              { key: 'requireConsent', label: 'Require consent', hint: 'Best for instant form-triggered calls.' },
+              { key: 'formEnabled', label: 'Show call form', hint: 'Embed a short request-call form.' },
+            ].map((item) => (
+              <label key={item.key} className="flex items-start gap-2.5 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(trigger[item.key as keyof IntentTriggerConfig])}
+                  onChange={(e) => updateTrigger({ [item.key]: e.target.checked } as Partial<IntentTriggerConfig>)}
+                  className="mt-0.5 accent-[#1ED4A7]"
+                />
+                <span>
+                  <span className="block text-xs font-medium text-zinc-900 dark:text-white">{item.label}</span>
+                  <span className="block text-[10px] text-zinc-500 mt-0.5 leading-relaxed">{item.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {(trigger.formEnabled || trigger.requireConsent) && (
+            <div>
+              <label className={LABEL_CLS}>Form Consent Text</label>
+              <textarea
+                value={trigger.consentText}
+                onChange={(e) => updateTrigger({ consentText: e.target.value })}
+                rows={2}
+                className={INPUT_CLS}
+              />
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Compliance */}
       <div className="flex items-start gap-2.5 p-3 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg">

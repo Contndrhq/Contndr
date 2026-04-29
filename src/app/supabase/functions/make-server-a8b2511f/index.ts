@@ -16892,6 +16892,50 @@ app.post("/make-server-a8b2511f/careers/apply", async (c) => {
 // AI CALL CAMPAIGNS CRUD ROUTES
 // ============================================================================
 
+const AI_CALL_INTENT_PLANS = new Set(['scale', 'enterprise']);
+const AI_CALL_INTENT_MODES = new Set(['known_campaign_visitor', 'form_request', 'high_intent_company']);
+const AI_CALL_INTENT_PAGES = new Set(['pricing', 'demo', 'contact', 'case_study', 'checkout']);
+
+async function getAICallIntentTriggerGate(user: any) {
+  try {
+    const subscription = await getUserSubscriptionStatus(user);
+    const plan = String(subscription?.plan || '').toLowerCase();
+    return {
+      allowed: AI_CALL_INTENT_PLANS.has(plan) || subscription?.isWhitelisted === true,
+      plan: plan || 'none',
+      subscription,
+    };
+  } catch (error) {
+    console.warn('[AI CAMPAIGNS] Failed to resolve trigger plan gate:', error?.message || error);
+    return { allowed: false, plan: 'none', subscription: null };
+  }
+}
+
+function normalizeAICallIntentTrigger(raw: any, canUseTrigger: boolean) {
+  const source = raw || {};
+  const mode = AI_CALL_INTENT_MODES.has(source.mode) ? source.mode : 'known_campaign_visitor';
+  const pages = Array.isArray(source.pages)
+    ? source.pages.filter((page: string) => AI_CALL_INTENT_PAGES.has(page)).slice(0, 8)
+    : ['pricing', 'demo', 'contact'];
+  return {
+    enabled: Boolean(source.enabled && canUseTrigger),
+    mode,
+    threshold: Math.min(100, Math.max(50, Number(source.threshold ?? 75))),
+    delay_minutes: Math.min(60, Math.max(0, Number(source.delay_minutes ?? source.delayMinutes ?? 2))),
+    pages: pages.length ? pages : ['pricing', 'demo', 'contact'],
+    require_known_lead: source.require_known_lead ?? true,
+    require_consent: source.require_consent ?? true,
+    form_enabled: source.form_enabled ?? true,
+    form_fields: Array.isArray(source.form_fields) && source.form_fields.length
+      ? source.form_fields.filter((field: string) => ['name', 'email', 'phone', 'company'].includes(field))
+      : ['name', 'email', 'phone', 'company'],
+    consent_text: String(source.consent_text || 'I agree to receive an immediate call about my request.').slice(0, 500),
+    cooldown_hours: Math.min(168, Math.max(1, Number(source.cooldown_hours ?? 24))),
+    max_daily_calls: Math.min(250, Math.max(1, Number(source.max_daily_calls ?? 25))),
+    plan_gate: 'scale_enterprise',
+  };
+}
+
 // GET /ai-call-campaigns - List all AI call campaigns
 app.get("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
   try {
@@ -16936,6 +16980,14 @@ app.post("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
     }
 
     const campaignData = await c.req.json();
+    const triggerGate = await getAICallIntentTriggerGate(user);
+    if (campaignData.intent_trigger?.enabled && !triggerGate.allowed) {
+      return c.json({
+        error: "Intent-triggered AI calling is available on Scale and Enterprise plans.",
+        code: "scale_enterprise_required",
+        plan: triggerGate.plan,
+      }, 403);
+    }
     
     // Use client-provided ID if available, otherwise generate one
     const campaignId = campaignData.id || `campaign_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -16948,6 +17000,7 @@ app.post("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
       status: campaignData.status || 'draft',
       calls_made: campaignData.calls_made || 0,
       total_leads: campaignData.selected_leads?.length || campaignData.total_leads || 0,
+      intent_trigger: normalizeAICallIntentTrigger(campaignData.intent_trigger, triggerGate.allowed),
       created_at: campaignData.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -16978,6 +17031,14 @@ app.put("/make-server-a8b2511f/ai-call-campaigns/:id", async (c) => {
 
     const campaignId = c.req.param('id');
     const campaignData = await c.req.json();
+    const triggerGate = await getAICallIntentTriggerGate(user);
+    if (campaignData.intent_trigger?.enabled && !triggerGate.allowed) {
+      return c.json({
+        error: "Intent-triggered AI calling is available on Scale and Enterprise plans.",
+        code: "scale_enterprise_required",
+        plan: triggerGate.plan,
+      }, 403);
+    }
     
     // Get existing campaign
     const campaignKey = `ai-call-campaign:${user.id}:${campaignId}`;
@@ -16994,6 +17055,7 @@ app.put("/make-server-a8b2511f/ai-call-campaigns/:id", async (c) => {
       id: campaignId,
       user_id: user.id,
       total_leads: campaignData.selected_leads?.length || campaignData.total_leads || existingCampaign.total_leads || 0,
+      intent_trigger: normalizeAICallIntentTrigger(campaignData.intent_trigger ?? existingCampaign.intent_trigger, triggerGate.allowed),
       updated_at: new Date().toISOString()
     };
     
@@ -17029,6 +17091,17 @@ app.patch("/make-server-a8b2511f/ai-call-campaigns/:id/status", async (c) => {
     
     if (!campaign) {
       return c.json({ error: "Campaign not found" }, 404);
+    }
+
+    if (status === 'active' && campaign.intent_trigger?.enabled) {
+      const triggerGate = await getAICallIntentTriggerGate(user);
+      if (!triggerGate.allowed) {
+        return c.json({
+          error: "Intent-triggered AI calling is available on Scale and Enterprise plans.",
+          code: "scale_enterprise_required",
+          plan: triggerGate.plan,
+        }, 403);
+      }
     }
     
     // Update status (clear pause_reason when resuming)
