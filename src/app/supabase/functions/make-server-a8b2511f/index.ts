@@ -2503,47 +2503,98 @@ app.post("/make-server-a8b2511f/admin/users/plan", async (c) => {
       return c.json({ error: 'Unauthorized' }, 403);
     }
     
-    const { userId, plan, charge } = await c.req.json();
+    const { userId, userEmail, plan, charge, interval } = await c.req.json();
     if (!userId || !plan) return c.json({ error: "User ID and plan required" }, 400);
+    if (!['growth', 'scale', 'enterprise'].includes(plan)) {
+      return c.json({ error: "Invalid plan. Use growth, scale, or enterprise." }, 400);
+    }
 
     const subKey = `contndr_sub:${userId}`;
     const existingSub = await kv.get(subKey) || {};
+    const requestedInterval = interval === 'yearly' ? 'yearly' : 'monthly';
+    let billingAction = charge ? 'pending' : 'bypassed';
+    let stripeSubId = existingSub.stripe_sub_id;
 
     // Handle Stripe Update if charge is requested
     if (charge) {
       const stripeClient = await getStripe();
       if (!stripeClient) return c.json({ error: "Stripe not configured on server" }, 500);
       
-      const stripeSubId = existingSub.stripe_sub_id;
-      if (!stripeSubId) {
-        return c.json({ error: "No active Stripe subscription found. Cannot charge user." }, 400);
-      }
-
       try {
-        // 1. Fetch current subscription to get item ID and interval
-        const sub = await stripeClient.subscriptions.retrieve(stripeSubId);
-        const itemId = sub.items.data[0].id;
-        const currentPrice = sub.items.data[0].price;
-        const interval = currentPrice.recurring?.interval === 'year' ? 'yearly' : 'monthly';
-
-        // 2. Get new price ID
+        let priceInterval = requestedInterval;
+        if (stripeSubId) {
+          const sub = await stripeClient.subscriptions.retrieve(stripeSubId);
+          priceInterval = sub.items.data[0]?.price?.recurring?.interval === 'year' ? 'yearly' : 'monthly';
+        }
         // @ts-ignore
-        const newPriceId = PLANS[plan]?.[interval];
+        const newPriceId = PLANS[plan]?.[priceInterval];
         
-        if (!newPriceId) {
-          return c.json({ error: `No price configured for ${plan} (${interval})` }, 400);
+        if (!newPriceId || String(newPriceId).startsWith('price_1Q...')) {
+          return c.json({ error: `No price configured for ${plan} (${priceInterval})` }, 400);
         }
 
-        // 3. Update subscription
-        await stripeClient.subscriptions.update(stripeSubId, {
-          items: [{
-            id: itemId,
-            price: newPriceId,
-          }],
-          proration_behavior: 'create_prorations',
-        });
-        
-        console.log(`[ADMIN] Upcharged user ${userId} to ${plan} (${interval}) via Stripe`);
+        if (stripeSubId) {
+          const sub = await stripeClient.subscriptions.retrieve(stripeSubId);
+          const itemId = sub.items.data[0]?.id;
+          if (!itemId) return c.json({ error: "Stripe subscription has no billable item." }, 400);
+
+          await stripeClient.subscriptions.update(stripeSubId, {
+            items: [{ id: itemId, price: newPriceId }],
+            proration_behavior: 'always_invoice',
+            payment_behavior: 'error_if_incomplete',
+            metadata: {
+              ...(sub.metadata || {}),
+              userId,
+              planType: plan,
+              admin_updated_by: user.email,
+            },
+          });
+          billingAction = 'charged';
+          console.log(`[ADMIN] Updated and invoiced Stripe subscription ${stripeSubId} for user ${userId} to ${plan} (${priceInterval})`);
+        } else {
+          let customerId = await kv.get(`stripe_customer:${userId}`);
+          if (!customerId && userEmail) {
+            const existingCustomers = await stripeClient.customers.list({ email: userEmail, limit: 1 });
+            customerId = existingCustomers.data[0]?.id || null;
+            if (customerId) {
+              await kv.set(`stripe_customer:${userId}`, customerId);
+              await kv.set(`stripe_customer_reverse:${customerId}`, userId);
+            }
+          }
+
+          if (!customerId) {
+            return c.json({ error: "No Stripe customer found. Send the user through checkout first or bypass without charging." }, 400);
+          }
+
+          const customer = await stripeClient.customers.retrieve(customerId);
+          if ((customer as any).deleted) return c.json({ error: "Stripe customer was deleted." }, 400);
+          let paymentMethod = (customer as any).invoice_settings?.default_payment_method || (customer as any).default_source || null;
+          if (!paymentMethod) {
+            const methods = await stripeClient.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
+            paymentMethod = methods.data[0]?.id || null;
+          }
+          if (!paymentMethod) {
+            return c.json({ error: "No card on file for this Stripe customer." }, 400);
+          }
+
+          const createdSub = await stripeClient.subscriptions.create({
+            customer: customerId,
+            items: [{ price: newPriceId }],
+            default_payment_method: typeof paymentMethod === 'string' ? paymentMethod : paymentMethod.id,
+            collection_method: 'charge_automatically',
+            payment_behavior: 'error_if_incomplete',
+            metadata: {
+              userId,
+              planType: plan,
+              interval: priceInterval,
+              admin_created_by: user.email,
+            },
+          });
+          stripeSubId = createdSub.id;
+          await kv.set(`stripe_customer_reverse:${customerId}`, userId);
+          billingAction = 'charged';
+          console.log(`[ADMIN] Created charged Stripe subscription ${stripeSubId} for user ${userId} on ${plan} (${priceInterval})`);
+        }
 
       } catch (stripeError) {
         console.error('[ADMIN] Stripe update failed:', stripeError);
@@ -2555,6 +2606,7 @@ app.post("/make-server-a8b2511f/admin/users/plan", async (c) => {
       ...existingSub,
       plan: plan,
       status: 'active', // Ensure it is active if we are assigning a plan
+      stripe_sub_id: stripeSubId,
       updated_at: new Date().toISOString(),
       updated_by: user.email // Audit trail
     };
@@ -2577,7 +2629,7 @@ app.post("/make-server-a8b2511f/admin/users/plan", async (c) => {
       console.log('[ADMIN] Team check (non-fatal):', teamErr?.message || teamErr);
     }
     
-    return c.json({ success: true, subscription: newSub, teamNote });
+    return c.json({ success: true, subscription: newSub, teamNote, billingAction });
   } catch (error) {
     console.error('[ADMIN] Error updating user plan:', error);
     return c.json({ error: error.message }, 500);
@@ -16381,7 +16433,7 @@ app.post("/make-server-a8b2511f/billing/save-recommendation", async (c) => {
     const { user } = await getAuthenticatedUser(c);
     const { recommendedPlan, reasons } = await c.req.json();
     
-    if (!recommendedPlan || !['starter', 'professional', 'growth'].includes(recommendedPlan)) {
+    if (!recommendedPlan || !['growth', 'scale', 'enterprise'].includes(recommendedPlan)) {
       return c.json({ error: 'Invalid plan' }, 400);
     }
 

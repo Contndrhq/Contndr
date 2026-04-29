@@ -8,7 +8,7 @@ import {
   UserX, Trash2, Mail, Zap, RotateCcw, Link2, MousePointerClick,
   Users as UsersIcon, TrendingUp, DollarSign, ChevronDown, ChevronUp,
   Copy, Wallet, ExternalLink, BarChart3, Eye, Database, AlertTriangle,
-  UserPlus, EyeOff, Percent, Shield, Activity,
+  UserPlus, EyeOff, Percent, Shield, Activity, CreditCard,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LoadingSpinner } from './LoadingSpinner';
@@ -990,6 +990,7 @@ export function AdminDashboard() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [shouldCharge, setShouldCharge] = useState(false);
+  const [billingInterval, setBillingInterval] = useState<'monthly' | 'yearly'>('monthly');
   const [syncing, setSyncing] = useState(false);
   const [inspectData, setInspectData] = useState<any>(null);
   const [inspectingUserId, setInspectingUserId] = useState<string | null>(null);
@@ -1019,6 +1020,7 @@ export function AdminDashboard() {
   useEffect(() => {
     if (editingUser) {
       setShouldCharge(false);
+      setBillingInterval('monthly');
       if (!editingUser.subscription?.stripe_sub_id) {
         handleSyncStripe(editingUser.id, editingUser.email);
       }
@@ -1327,20 +1329,26 @@ export function AdminDashboard() {
   }
 
   async function handleUpdatePlan(userId: string, newPlan: string) {
-    const action = shouldCharge ? `upgrade/downgrade to ${newPlan} AND CHARGE them via Stripe` : `change the plan to ${newPlan} (Bypass Payment)`;
+    const action = shouldCharge ? `upgrade/downgrade to ${newPlan} and charge the card on file via Stripe` : `change the plan to ${newPlan} (bypass payment)`;
     if (!confirm(`Are you sure you want to ${action}?`)) return;
     setProcessingId(userId);
     try {
       const headers = await getAuthHeaders();
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/plan`,
-        { method: 'POST', headers, body: JSON.stringify({ userId, plan: newPlan, charge: shouldCharge }) }
+        { method: 'POST', headers, body: JSON.stringify({ userId, userEmail: editingUser?.email, plan: newPlan, charge: shouldCharge, interval: billingInterval }) }
       );
       if (response.ok) {
-        toast.success('Plan Updated', { description: `User is now on ${newPlan} plan.` });
+        const data = await response.json();
+        toast.success('Plan Updated', {
+          description: data.billingAction === 'charged'
+            ? `User is now on ${newPlan}. Stripe billing was updated.`
+            : `User is now on ${newPlan} plan.`,
+        });
         fetchUsers();
         setEditingUser(null);
         setShouldCharge(false);
+        setBillingInterval('monthly');
       } else {
         const error = await response.json();
         toast.error('Update Failed', { description: error.error || 'An error occurred' });
@@ -2293,41 +2301,64 @@ export function AdminDashboard() {
                 Update plan for <span className="font-semibold text-white">{editingUser.email}</span>
               </p>
 
-              {editingUser.subscription?.stripe_sub_id ? (
-                <div className="bg-zinc-100 dark:bg-white/5 p-3 rounded-xl border border-zinc-200 dark:border-white/10 mb-4">
+              <div className="bg-zinc-100 dark:bg-white/5 p-3 rounded-xl border border-zinc-200 dark:border-white/10 mb-4 space-y-3">
+                {editingUser.subscription?.stripe_sub_id ? (
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] font-mono text-zinc-500">
                       Stripe ID: {editingUser.subscription.stripe_sub_id}
                     </span>
                   </div>
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <div className="relative flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={shouldCharge}
-                        onChange={(e) => setShouldCharge(e.target.checked)}
-                        className="w-4 h-4 rounded border-zinc-600 accent-[#1ED4A7] text-[#1ED4A7] focus:ring-[#1ED4A7] bg-zinc-900"
-                      />
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium text-white leading-none mb-1">Charge via Stripe</span>
-                      <span className="text-xs text-zinc-400 leading-snug">
-                        Immediately charge card on file for the new plan.
-                      </span>
-                    </div>
-                  </label>
-                </div>
-              ) : (
-                <div className="mb-4 p-3 bg-zinc-100 dark:bg-white/5 rounded-xl border border-zinc-200 dark:border-white/10">
+                ) : (
                   <div className="flex items-start gap-2">
                     <UserX className="w-4 h-4 text-zinc-400 mt-0.5 shrink-0" />
                     <div className="flex flex-col flex-1">
-                      <span className="text-xs font-medium text-zinc-300">Stripe Billing Unavailable</span>
+                      <span className="text-xs font-medium text-zinc-300">No Stripe subscription linked</span>
                       <span className="text-[10px] text-zinc-500 mt-0.5">
-                        No Stripe subscription ID linked. Webhook may have been missed.
+                        Bypass still works. Charge mode will try the Stripe customer/card on file, or fail safely if none exists.
                       </span>
                     </div>
                   </div>
+                )}
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <div className="relative flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={shouldCharge}
+                      onChange={(e) => setShouldCharge(e.target.checked)}
+                      className="w-4 h-4 rounded border-zinc-600 accent-[#1ED4A7] text-[#1ED4A7] focus:ring-[#1ED4A7] bg-zinc-900"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-white leading-none mb-1">Charge card on file</span>
+                    <span className="text-xs text-zinc-400 leading-snug">
+                      Updates an existing Stripe subscription or creates one with the saved payment method.
+                    </span>
+                  </div>
+                </label>
+                {shouldCharge && (
+                  <div>
+                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-widest font-semibold mb-2">
+                      <CreditCard className="w-3 h-3" />
+                      Billing interval
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['monthly', 'yearly'] as const).map(interval => (
+                        <button
+                          key={interval}
+                          onClick={() => setBillingInterval(interval)}
+                          className={`px-3 py-2 rounded-lg border text-xs font-semibold capitalize transition-colors ${
+                            billingInterval === interval
+                              ? 'bg-[#1ED4A7]/10 border-[#1ED4A7]/30 text-[#1ED4A7]'
+                              : 'border-white/10 text-zinc-400 hover:bg-white/5'
+                          }`}
+                        >
+                          {interval}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {!editingUser.subscription?.stripe_sub_id && (
                   <button
                     onClick={() => handleSyncStripe(editingUser.id, editingUser.email)}
                     disabled={syncing}
@@ -2339,8 +2370,8 @@ export function AdminDashboard() {
                       <><RotateCcw className="w-3 h-3" /> Sync from Stripe</>
                     )}
                   </button>
-                </div>
-              )}
+                )}
+              </div>
 
               {!shouldCharge && (
                 <div className="text-xs text-zinc-400 bg-zinc-500/10 p-2 rounded-lg border border-zinc-500/20">
@@ -2350,7 +2381,7 @@ export function AdminDashboard() {
             </div>
 
             <div className="flex flex-col gap-2">
-              {['starter', 'professional', 'growth'].map(plan => (
+              {['growth', 'scale', 'enterprise'].map(plan => (
                 <button
                   key={plan}
                   onClick={() => handleUpdatePlan(editingUser.id, plan)}
