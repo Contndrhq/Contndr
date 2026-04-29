@@ -11,7 +11,7 @@ import * as kv from "./kv-retry.tsx";
 import { getTeamMemberIds } from "./team.tsx";
 import { getUserSubscriptionStatus } from "./contndr-billing.tsx";
 import { verifyEmailBatch, checkMxRecords, type EmailVerification } from "./email-verify.tsx";
-import { searchPool, saveToPool, getPoolStats, type PoolLead, type SearchCriteria } from "./lead-pool.tsx";
+import { searchPool, saveToPool, getPoolStats, hydrateLeadsFromExistingContacts, type PoolLead, type SearchCriteria } from "./lead-pool.tsx";
 
 // ── Plan Lead Limits (mirrored from index.tsx for module isolation) ──
 const PLAN_LEAD_LIMITS: Record<string, number> = {
@@ -815,6 +815,24 @@ async function hybridEnrichPeople(
   const withPhone = [...revealedMap.values()].filter(l => l.phone_numbers?.length > 0).length;
   console.log(`[ENRICH] Phase 1 done: ${apolloRevealCount} revealed, ${withEmail} with email, ${withPhone} with phone`);
   send("activity", { message: `Contact reveal complete — ${withEmail} emails, ${withPhone} phone numbers found`, type: "success" });
+
+  // ── Phase 1.5: Reuse emails already stored in CRM before paid enrichment ──
+  let crmHydrated = 0;
+  if (!isCancelledFn()) {
+    const currentLeads = [...revealedMap.values()];
+    send("phase", { phase: 4.5, name: `Checking existing CRM contacts (${currentLeads.length})`, status: "processing" });
+    try {
+      const hydration = await hydrateLeadsFromExistingContacts(currentLeads);
+      crmHydrated = hydration.hydrated;
+      if (crmHydrated > 0) {
+        send("activity", { message: `Reused ${crmHydrated} known emails from the CRM database`, type: "success" });
+      }
+      console.log(`[ENRICH] CRM hydration found ${crmHydrated}/${hydration.candidates} emails from existing contacts (${hydration.rowsScanned} rows scanned)`);
+    } catch (err: any) {
+      console.warn(`[ENRICH] CRM hydration failed: ${err.message}`);
+    }
+    send("phase", { phase: 4.5, name: "Checking existing CRM contacts", status: "complete", found: crmHydrated });
+  }
 
   // ── Phase 2: Hunter.io for leads missing email (also grabs phone if returned) ──
   // Now we have full names + org website_urls from the reveal

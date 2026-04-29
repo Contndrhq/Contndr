@@ -691,6 +691,191 @@ function sanitizeForFilter(s: string): string {
   return s.replace(/[%_\\().,'"]/g, "").trim();
 }
 
+function sanitizeDomainForFilter(s: string): string {
+  return s.replace(/[^a-z0-9.-]/gi, "").trim();
+}
+
+function normalizeLookupText(s: string | null | undefined): string {
+  return (s || "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeCompanyLookup(s: string | null | undefined): string {
+  return normalizeLookupText(s)
+    .replace(/\b(llc|l l c|inc|incorporated|corp|corporation|co|company|ltd|limited|pllc|pa|lp|llp)\b/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeLinkedinUrl(s: string | null | undefined): string {
+  return (s || "")
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/$/, "")
+    .trim();
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
+function hasUsefulLeadEmail(email: string | null | undefined): boolean {
+  const e = (email || "").trim();
+  return !!e && e.includes("@") && !e.toLowerCase().startsWith("info@") && !e.toLowerCase().startsWith("contact@");
+}
+
+/**
+ * Hydrate newly discovered candidates with emails/phones already stored in the
+ * CRM lead table. This is intentionally batched by name/domain/company/LinkedIn
+ * so People Finder can reuse first-party data without one Supabase query per row.
+ */
+export async function hydrateLeadsFromExistingContacts<T extends any>(
+  leads: T[],
+): Promise<{ hydrated: number; candidates: number; rowsScanned: number }> {
+  const candidates = leads.filter((lead: any) => {
+    if (hasUsefulLeadEmail(lead?.email)) return false;
+    const first = normalizeLookupText(lead?.first_name);
+    const last = normalizeLookupText(lead?.last_name);
+    return !!first && !!last;
+  });
+
+  if (candidates.length === 0) {
+    return { hydrated: 0, candidates: 0, rowsScanned: 0 };
+  }
+
+  const sb = adminClient();
+  const SELECT_COLS = "id, contact_name, email, phone, website, city, state, country, category, business_name, employees, annual_revenue, notes, person_linkedin_url, linkedin, source, created_at, job_title";
+
+  const names = [...new Set(candidates.map((lead: any) => normalizeLookupText(lead?.name || `${lead?.first_name || ""} ${lead?.last_name || ""}`)).filter(Boolean))];
+  const domains = [...new Set(candidates.map((lead: any) => extractDomain(lead?.organization?.website_url || "")).filter(Boolean))];
+  const companies = [...new Set(candidates.map((lead: any) => normalizeCompanyLookup(lead?.organization?.name || "")).filter(c => c.length >= 3))];
+  const linkedins = [...new Set(candidates.map((lead: any) => normalizeLinkedinUrl(lead?.linkedin_url || "")).filter(Boolean))];
+
+  const rowsById = new Map<string, any>();
+  const addRows = (rows: any[] | null | undefined) => {
+    for (const row of rows || []) {
+      if (!row?.id || !hasUsefulLeadEmail(row.email)) continue;
+      rowsById.set(row.id, row);
+    }
+  };
+
+  for (const chunk of chunkArray(names, 20)) {
+    const parts = chunk.flatMap((name) => {
+      const words = name.split(" ").map(sanitizeForFilter).filter(w => w.length >= 2).slice(0, 3);
+      if (words.length < 2) return [];
+      return [`contact_name.ilike.%${words.join("%")}%`];
+    });
+    if (parts.length === 0) continue;
+    const { data, error } = await sb.from("leads").select(SELECT_COLS)
+      .or(parts.join(","))
+      .not("email", "is", null).neq("email", "")
+      .limit(1000)
+      .order("created_at", { ascending: false });
+    if (error) console.warn(`[LEAD POOL DB] Existing-contact name hydration error: ${error.message}`);
+    else addRows(data);
+  }
+
+  for (const chunk of chunkArray(domains, 20)) {
+    const parts = chunk.flatMap((domain) => {
+      const d = sanitizeDomainForFilter(domain.toLowerCase());
+      return d.length >= 3 ? [`website.ilike.%${d}%`, `email.ilike.%@${d}`] : [];
+    });
+    if (parts.length === 0) continue;
+    const { data, error } = await sb.from("leads").select(SELECT_COLS)
+      .or(parts.join(","))
+      .not("email", "is", null).neq("email", "")
+      .limit(2000)
+      .order("created_at", { ascending: false });
+    if (error) console.warn(`[LEAD POOL DB] Existing-contact domain hydration error: ${error.message}`);
+    else addRows(data);
+  }
+
+  for (const chunk of chunkArray(companies, 20)) {
+    const parts = chunk.map((company) => `business_name.ilike.%${sanitizeForFilter(company)}%`);
+    if (parts.length === 0) continue;
+    const { data, error } = await sb.from("leads").select(SELECT_COLS)
+      .or(parts.join(","))
+      .not("email", "is", null).neq("email", "")
+      .limit(1000)
+      .order("created_at", { ascending: false });
+    if (error) console.warn(`[LEAD POOL DB] Existing-contact company hydration error: ${error.message}`);
+    else addRows(data);
+  }
+
+  for (const chunk of chunkArray(linkedins, 20)) {
+    const parts = chunk.flatMap((url) => {
+      const safe = sanitizeForFilter(url.replace(/^linkedin\.com\//, ""));
+      return safe ? [`person_linkedin_url.ilike.%${safe}%`, `linkedin.ilike.%${safe}%`] : [];
+    });
+    if (parts.length === 0) continue;
+    const { data, error } = await sb.from("leads").select(SELECT_COLS)
+      .or(parts.join(","))
+      .not("email", "is", null).neq("email", "")
+      .limit(500)
+      .order("created_at", { ascending: false });
+    if (error) console.warn(`[LEAD POOL DB] Existing-contact LinkedIn hydration error: ${error.message}`);
+    else addRows(data);
+  }
+
+  const rows = [...rowsById.values()];
+  let hydrated = 0;
+
+  for (const lead of candidates as any[]) {
+    const leadName = normalizeLookupText(lead?.name || `${lead?.first_name || ""} ${lead?.last_name || ""}`);
+    const leadDomain = extractDomain(lead?.organization?.website_url || "");
+    const leadCompany = normalizeCompanyLookup(lead?.organization?.name || "");
+    const leadLinkedin = normalizeLinkedinUrl(lead?.linkedin_url || "");
+
+    let best: any = null;
+    for (const row of rows) {
+      const rowName = normalizeLookupText(row.contact_name);
+      const rowDomain = extractDomain(row.website || row.email?.split("@")[1] || "");
+      const rowCompany = normalizeCompanyLookup(row.business_name || "");
+      const rowLinkedin = normalizeLinkedinUrl(row.person_linkedin_url || row.linkedin || "");
+
+      const linkedinMatch = !!leadLinkedin && !!rowLinkedin && (leadLinkedin === rowLinkedin || rowLinkedin.includes(leadLinkedin) || leadLinkedin.includes(rowLinkedin));
+      const nameMatch = !!leadName && !!rowName && leadName === rowName;
+      const domainMatch = !!leadDomain && !!rowDomain && leadDomain === rowDomain;
+      const companyMatch = !!leadCompany && !!rowCompany && (leadCompany === rowCompany || leadCompany.includes(rowCompany) || rowCompany.includes(leadCompany));
+
+      if (linkedinMatch || (nameMatch && (domainMatch || companyMatch))) {
+        best = row;
+        break;
+      }
+    }
+
+    if (!best || !hasUsefulLeadEmail(best.email)) continue;
+
+    const pooled = transformDbLeadToPool(best);
+    lead.email = pooled.email;
+    lead.email_status = pooled.email_status || "verified";
+    lead.email_verification = lead.email_verification || { status: "valid", mx_valid: true, source: "crm_existing" };
+    lead._enrichment_source = "crm_existing";
+    if (!lead.linkedin_url && pooled.linkedin_url) lead.linkedin_url = pooled.linkedin_url;
+    if ((!lead.phone_numbers || lead.phone_numbers.length === 0) && pooled.phone_numbers?.length) lead.phone_numbers = pooled.phone_numbers;
+    if (!lead.title && pooled.title) lead.title = pooled.title;
+    if (!lead.seniority && pooled.seniority) lead.seniority = pooled.seniority;
+    if (lead.organization && pooled.organization) {
+      if (!lead.organization.name && pooled.organization.name) lead.organization.name = pooled.organization.name;
+      if (!lead.organization.website_url && pooled.organization.website_url) lead.organization.website_url = pooled.organization.website_url;
+      if (!lead.organization.industry && pooled.organization.industry) lead.organization.industry = pooled.organization.industry;
+      if (!lead.organization.estimated_num_employees && pooled.organization.estimated_num_employees) lead.organization.estimated_num_employees = pooled.organization.estimated_num_employees;
+      if (!lead.organization.annual_revenue_printed && pooled.organization.annual_revenue_printed) lead.organization.annual_revenue_printed = pooled.organization.annual_revenue_printed;
+    }
+    hydrated++;
+  }
+
+  console.log(`[LEAD POOL DB] Existing-contact hydration: ${hydrated}/${candidates.length} candidates hydrated from ${rows.length} scanned CRM rows`);
+  return { hydrated, candidates: candidates.length, rowsScanned: rows.length };
+}
+
 async function searchLeadsTable(criteria: SearchCriteria, maxResults: number): Promise<PoolLead[]> {
   try {
     // Skip DB search if no criteria provided (would return random leads)

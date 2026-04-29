@@ -14,7 +14,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
 import { getTeamMemberIds } from "./team.tsx";
 import { guessEmails, verifyEmailBatch } from "./email-verify.tsx";
-import { searchPool, saveToPool, getPoolStats, type PoolLead, type SearchCriteria } from "./lead-pool.tsx";
+import { searchPool, saveToPool, getPoolStats, hydrateLeadsFromExistingContacts, type PoolLead, type SearchCriteria } from "./lead-pool.tsx";
 // Note: isValidPersonName & getRoleTier exist in enrichment_agent.tsx but are unused here.
 // This file uses its own local isCleanPersonName() and inferSeniority() instead.
 import { enrichPhoneNumbers, verifyPhoneNumbers, type DeepPhoneLead } from "./phone-enrichment.tsx";
@@ -2211,7 +2211,28 @@ app.post("/search-stream", async (c) => {
 
           console.log(`[DEEP PROSPECT] Phase 4: ${leadsWithDomain.length} leads have domains, ${leadsNoDomain.length} without`);
 
-          // ── Phase 4a: First-party email pattern resolver ──
+          // ── Phase 4a: First-party CRM hydration ──
+          // Reuse emails we already know before paid providers. This runs as
+          // batched Supabase lookups by name/company/domain/LinkedIn, not one
+          // query per lead.
+          let crmHydrated = 0;
+          if (leads.length > 0 && !isCancelled) {
+            send("phase", { phase: 4.1, name: `Checking existing CRM contacts (${leads.length})`, status: "processing" });
+            try {
+              const hydration = await hydrateLeadsFromExistingContacts(leads);
+              crmHydrated = hydration.hydrated;
+              if (crmHydrated > 0) {
+                send("activity", { message: `Reused ${crmHydrated} known emails from the CRM database`, type: "success" });
+                send("people", { people: leads.filter(l => l.email), partial: true, preview: false });
+              }
+              console.log(`[DEEP PROSPECT] CRM hydration found ${crmHydrated}/${hydration.candidates} emails from existing contacts (${hydration.rowsScanned} rows scanned)`);
+            } catch (err: any) {
+              console.warn(`[DEEP PROSPECT] CRM hydration failed: ${err.message}`);
+            }
+            send("phase", { phase: 4.1, name: "Checking existing CRM contacts", status: "complete", found: crmHydrated });
+          }
+
+          // ── Phase 4b: First-party email pattern resolver ──
           // Cheaper than paid providers: learn same-domain formats from the
           // local pool/current batch, generate one high-confidence candidate,
           // and keep it only after verification.
@@ -2273,7 +2294,7 @@ app.post("/search-stream", async (c) => {
             send("phase", { phase: 4.5, name: "Resolving email patterns", status: "complete", found: patternGuessed });
           }
 
-          // ── Phase 4b: Hunter.io email finder ──
+          // ── Phase 4c: Hunter.io email finder ──
           let hunterFound = 0;
           let hunterPhoneFound = 0;
 
@@ -2847,6 +2868,7 @@ app.post("/search-stream", async (c) => {
           } catch {}
 
           const enrichmentSources = {
+            crm_existing: crmHydrated,
             hunter: hunterFound,
             findymail: findymailFound,
             web_sources: 0,
