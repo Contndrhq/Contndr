@@ -3536,10 +3536,10 @@ app.post("/save-people-to-crm", async (c) => {
 
     // ── Lead limit check ──
     const { getUserSubscriptionStatus } = await import("./contndr-billing.tsx");
+    const { getLeadLimitForPlan } = await import("./plan-entitlements.ts");
     const sub = await getUserSubscriptionStatus(user);
     const plan = sub?.plan || "none";
-    const PLAN_LIMITS: Record<string, number> = { none: 100, starter: 2500, professional: 10000, growth: -1 };
-    const limit = PLAN_LIMITS[(plan || "none").toLowerCase()] ?? 100;
+    const limit = getLeadLimitForPlan(plan);
     const { count: currentCount } = await supabase
       .from("leads")
       .select("*", { count: "exact", head: true })

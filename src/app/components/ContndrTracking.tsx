@@ -5,17 +5,21 @@ export function ContndrTracking() {
   const originalPushState = useRef<typeof history.pushState | null>(null);
 
   useEffect(() => {
-    // 1. Check for Lead ID in URL parameters (from Contndr emails)
+    // 1. Check for campaign attribution in URL parameters (from Contndr emails)
     const urlParams = new URLSearchParams(window.location.search);
-    const lid = urlParams.get('lid');
+    const lid = urlParams.get('lid') || urlParams.get('ct_lead') || urlParams.get('lead_id');
+    const campaignId = urlParams.get('ct_campaign') || urlParams.get('campaign_id');
+    const emailId = urlParams.get('ct_email') || urlParams.get('email_id');
     
-    // 2. Persist Lead ID if present
-    if (lid) {
-      localStorage.setItem('contndr_lid', lid);
-    }
+    // 2. Persist attribution if present so SPA route changes keep the session tied to the campaign.
+    if (lid) localStorage.setItem('contndr_lid', lid);
+    if (campaignId) localStorage.setItem('contndr_campaign_id', campaignId);
+    if (emailId) localStorage.setItem('contndr_email_id', emailId);
     
-    // 3. Get Lead ID from storage (if any)
+    // 3. Get attribution from storage (if any)
     const storedLid = localStorage.getItem('contndr_lid');
+    const storedCampaignId = localStorage.getItem('contndr_campaign_id');
+    const storedEmailId = localStorage.getItem('contndr_email_id');
     
     // 3b. Check for affiliate ref from multiple sources:
     //   - URL param ?ref=slug (direct affiliate link in email signatures)
@@ -31,11 +35,10 @@ export function ContndrTracking() {
       // sessionStorage may be blocked in some browsers
     }
     
-    // 4. Send "Page View" Heartbeat
-    const track = async () => {
+    const postEvent = async (eventType: 'page_view' | 'click', extra: Record<string, unknown> = {}) => {
       // Optional: Try to get precise location if permission is already granted
       let coords: Record<string, number> = {};
-      try {
+      if (eventType === 'page_view') try {
         if ("geolocation" in navigator && "permissions" in navigator) {
           // @ts-ignore
           const perm = await navigator.permissions.query({ name: 'geolocation' });
@@ -66,10 +69,14 @@ export function ContndrTracking() {
             account_id: '6001f3ec-1907-4d28-b732-a0a60ae23002', // Identifies the Contndr account
             brand: 'contndr', // Explicitly set the brand
             lead_id: storedLid, // Can be null for anonymous
+            campaign_id: storedCampaignId,
+            email_id: storedEmailId,
+            event_type: eventType,
             affiliate_ref: affiliateRef, // Which rep's affiliate link brought this visitor (if any)
             url: window.location.href,
             title: document.title,
             timestamp: Date.now(),
+            ...extra,
             ...coords
           })
         });
@@ -88,6 +95,9 @@ export function ContndrTracking() {
         // Silently handle network errors during tracking
       }
     };
+
+    // 4. Send "Page View" heartbeat
+    const track = () => postEvent('page_view');
     
     // Track immediately on mount
     track();
@@ -100,7 +110,19 @@ export function ContndrTracking() {
     };
     
     const handlePopState = () => track();
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      const element = target?.closest?.('a,button,[role="button"]') as HTMLElement | null;
+      if (!element) return;
+      const anchor = element instanceof HTMLAnchorElement ? element : element.closest('a');
+      postEvent('click', {
+        element_text: (element.innerText || element.getAttribute('aria-label') || '').slice(0, 160),
+        element_href: anchor?.href || null,
+      });
+    };
+
     window.addEventListener('popstate', handlePopState);
+    document.addEventListener('click', handleClick, { capture: true });
 
     return () => {
       // Restore original pushState on unmount
@@ -108,6 +130,7 @@ export function ContndrTracking() {
         history.pushState = originalPushState.current;
       }
       window.removeEventListener('popstate', handlePopState);
+      document.removeEventListener('click', handleClick, { capture: true });
     };
   }, []);
 

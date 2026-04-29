@@ -25,6 +25,18 @@ export function getTrackingBaseUrl(): string {
   return `${SUPABASE_URL}${BASE_PATH}`;
 }
 
+function appendTrackingAttribution(url: string, emailId: string, leadId?: string, campaignId?: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set('ct_email', emailId);
+    if (leadId) parsed.searchParams.set('ct_lead', leadId);
+    if (campaignId) parsed.searchParams.set('ct_campaign', campaignId);
+    return parsed.toString();
+  } catch (_) {
+    return url;
+  }
+}
+
 /**
  * Minimal valid 1x1 transparent GIF (43 bytes).
  * Returned by the open-tracking endpoint.
@@ -83,6 +95,7 @@ export async function injectClickTracking(
   emailId: string,
   userId: string,
   leadId?: string,
+  campaignId?: string,
 ): Promise<string> {
   const baseUrl = getTrackingBaseUrl();
 
@@ -104,6 +117,7 @@ export async function injectClickTracking(
 
   for (const { fullMatch, url } of matches) {
     const trackingId = `${emailId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const destinationUrl = appendTrackingAttribution(url, emailId, leadId, campaignId);
 
     // ── Self-contained redirect URL ───────────────────────────────────────
     // Encode the destination URL as base64url in a ?u= query param so the
@@ -113,11 +127,11 @@ export async function injectClickTracking(
     let encodedDestination = '';
     try {
       // base64url: standard base64, then swap +→- /→_ and strip = padding
-      const b64 = btoa(url);
+      const b64 = btoa(destinationUrl);
       encodedDestination = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
     } catch (_) {
       // btoa fails on non-Latin chars — fall back to encodeURIComponent
-      encodedDestination = encodeURIComponent(url);
+      encodedDestination = encodeURIComponent(destinationUrl);
     }
 
     const trackingUrl = `${baseUrl}/track/click/${trackingId}?u=${encodedDestination}`;
@@ -127,8 +141,10 @@ export async function injectClickTracking(
     // A KV timeout/failure no longer prevents the tracking URL from being
     // injected — the redirect destination is already encoded in the URL.
     kv.set(`click_track:${trackingId}`, {
-      url,
+      url: destinationUrl,
+      original_url: url,
       email_id: emailId,
+      campaign_id: campaignId || null,
       user_id: userId,
       lead_id: leadId || null,
       created_at: new Date().toISOString(),
@@ -155,6 +171,7 @@ export async function wrapBareUrlsWithTracking(
   emailId: string,
   userId: string,
   leadId?: string,
+  campaignId?: string,
 ): Promise<string> {
   const baseUrl = getTrackingBaseUrl();
 
@@ -178,22 +195,25 @@ export async function wrapBareUrlsWithTracking(
   for (let i = matches.length - 1; i >= 0; i--) {
     const { url } = matches[i];
     const trackingId = `${emailId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const destinationUrl = appendTrackingAttribution(url, emailId, leadId, campaignId);
 
     // ── Self-contained redirect URL (same as injectClickTracking) ─────────
     let encodedDestination = '';
     try {
-      const b64 = btoa(url);
+      const b64 = btoa(destinationUrl);
       encodedDestination = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
     } catch (_) {
-      encodedDestination = encodeURIComponent(url);
+      encodedDestination = encodeURIComponent(destinationUrl);
     }
 
     const trackingUrl = `${baseUrl}/track/click/${trackingId}?u=${encodedDestination}`;
 
     // Fire-and-forget KV write for analytics only
     kv.set(`click_track:${trackingId}`, {
-      url,
+      url: destinationUrl,
+      original_url: url,
       email_id: emailId,
+      campaign_id: campaignId || null,
       user_id: userId,
       lead_id: leadId || null,
       created_at: new Date().toISOString(),
@@ -220,12 +240,14 @@ export async function wrapBareUrlsWithTracking(
  * @param emailId  The DB email record UUID (must be a real ID, not a temp one)
  * @param userId   The sending user's ID
  * @param leadId   The recipient lead's ID (optional, for lead-level analytics)
+ * @param campaignId The campaign ID (optional, for live campaign attribution)
  */
 export async function injectAllTracking(
   html: string,
   emailId: string,
   userId: string,
   leadId?: string,
+  campaignId?: string,
 ): Promise<string> {
   // 0. Resolve and persist the sending provider for analytics
   try {
@@ -236,7 +258,7 @@ export async function injectAllTracking(
   }
 
   // 1. Rewrite existing <a href> links
-  let tracked = await injectClickTracking(html, emailId, userId, leadId);
+  let tracked = await injectClickTracking(html, emailId, userId, leadId, campaignId);
 
   // 2. Append open-tracking pixel
   tracked = injectOpenPixel(tracked, emailId);

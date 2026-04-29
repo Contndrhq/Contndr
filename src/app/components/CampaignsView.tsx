@@ -154,28 +154,22 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
       
       try {
         const batchResponse = await authenticatedFetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${target.campaignId}/send-batch?limit=5`,
-          { method: 'POST' }
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${target.campaignId}/launch`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ batchSize: 5 }),
+            signal: AbortSignal.timeout(15_000),
+          }
         );
         
         if (batchResponse.ok) {
-          const batchResult = await batchResponse.json();
-          
-          if (batchResult.sent > 0) {
-            toast(`Auto-sent ${batchResult.sent} emails`, {
-              description: `Campaign has ${batchResult.remaining || 0} remaining`,
-              duration: 3000,
-            });
-          }
-          
-          if (batchResult.campaign_complete) {
-            toast('Campaign completed', {
-              description: 'All emails have been sent',
-              duration: 4000,
-            });
-            apiCache.invalidate('campaigns:*');
-            loadCampaigns();
-          }
+          toast('Campaign resumed', {
+            description: 'Emails are sending in the background',
+            duration: 3000,
+          });
+          apiCache.invalidate('campaigns:*');
+          loadCampaigns();
           
           // Update pending state with new remaining count
           const updatedPending = pending.map((p: any) => {

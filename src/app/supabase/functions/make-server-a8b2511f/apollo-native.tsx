@@ -12,15 +12,7 @@ import { getTeamMemberIds } from "./team.tsx";
 import { getUserSubscriptionStatus } from "./contndr-billing.tsx";
 import { verifyEmailBatch, checkMxRecords, type EmailVerification } from "./email-verify.tsx";
 import { searchPool, saveToPool, getPoolStats, hydrateLeadsFromExistingContacts, type PoolLead, type SearchCriteria } from "./lead-pool.tsx";
-
-// ── Plan Lead Limits (mirrored from index.tsx for module isolation) ──
-const PLAN_LEAD_LIMITS: Record<string, number> = {
-  none: 100, starter: 2500, professional: 10000, growth: -1,
-};
-
-function getLeadLimitForPlan(plan: string | undefined | null): number {
-  return PLAN_LEAD_LIMITS[(plan || 'none').toLowerCase()] ?? PLAN_LEAD_LIMITS.none;
-}
+import { getLeadLimitForPlan } from "./plan-entitlements.ts";
 
 async function checkLeadLimitApollo(user: any, supabase: any, additionalCount: number) {
   const sub = await getUserSubscriptionStatus(user);

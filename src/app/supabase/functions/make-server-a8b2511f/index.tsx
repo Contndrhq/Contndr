@@ -78,6 +78,9 @@ import { resetCircuit } from "./kv-retry.tsx";
 import { createSequence, getSequence, updateSequence, deleteSequence, listSequences, enrollLeads, getEnrollment, getSequenceStats, processSequences, handleReplyDetected, processAllSequences } from "./sequence-engine.tsx";
 import { recordUnsubscribe, isUnsubscribed, getUnsubscribes, removeUnsubscribe, addToBlacklist, removeFromBlacklist, getBlacklist, isBlacklisted, parseBlacklistCSV, checkCompliance, getComplianceStats, injectUnsubscribeLink } from "./compliance.tsx";
 import { startWarmup, listWarmupAccounts, pauseWarmup, resumeWarmup, deleteWarmup, updateWarmupProgress, canSendWarmup, getSenderAccounts, addSenderAccount, removeSenderAccount, updateSenderAccount, getRotationConfig, setRotationConfig, pickNextSender, getRotationStats } from "./warmup-engine.tsx";
+import { getLeadLimitForPlan } from "./plan-entitlements.ts";
+
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
 // ─── Server-side send-batch in-flight lock ────────────────────────────
 // Prevents two concurrent HTTP requests for the same campaign from racing
@@ -665,20 +668,6 @@ async function ensureAffiliateSlug(user: any): Promise<string> {
     }
   } catch (e) { console.warn('[AFFILIATE] Auto-enroll failed:', e); }
   return '';
-}
-
-// ─── Plan Lead Limits ────────────────────────────────────────────────
-// Defines the maximum number of CRM contacts allowed per subscription tier.
-// -1 means unlimited.
-const PLAN_LEAD_LIMITS: Record<string, number> = {
-  none:         100,
-  starter:      2500,
-  professional: 10000,
-  growth:       -1,    // unlimited
-};
-
-function getLeadLimitForPlan(plan: string | undefined | null): number {
-  return PLAN_LEAD_LIMITS[(plan || 'none').toLowerCase()] ?? PLAN_LEAD_LIMITS.none;
 }
 
 // Returns the user's current lead count from the DB
@@ -6088,11 +6077,16 @@ app.post("/make-server-a8b2511f/track/web", async (c) => {
 
     const body = await c.req.json();
     console.log('[TRACKING] Received visit:', JSON.stringify(body, null, 2));
-    let { account_id, lead_id, url, title, timestamp, city, country, region, latitude, longitude, brand } = body;
+    let { account_id, lead_id, campaign_id, email_id, event_type, element_text, element_href, url, title, timestamp, city, country, region, latitude, longitude, brand } = body;
 
     // Sanitize string fields to prevent injection
     if (url && typeof url === 'string') url = url.slice(0, 2048);
     if (title && typeof title === 'string') title = title.slice(0, 512);
+    if (campaign_id && typeof campaign_id === 'string') campaign_id = campaign_id.slice(0, 128);
+    if (email_id && typeof email_id === 'string') email_id = email_id.slice(0, 128);
+    if (event_type && typeof event_type === 'string') event_type = event_type.slice(0, 48);
+    if (element_text && typeof element_text === 'string') element_text = element_text.slice(0, 200);
+    if (element_href && typeof element_href === 'string') element_href = element_href.slice(0, 2048);
     const affiliate_ref = body.affiliate_ref || null; // Optional: affiliate slug that brought this visitor
     let geoOrg = null;
     let geoIsp = null; // Raw ISP name — always stored even for residential ISPs
@@ -6483,6 +6477,11 @@ app.post("/make-server-a8b2511f/track/web", async (c) => {
       // If anonymous, store the mock lead data directly in the visit record
       anonymous_lead: isAnonymous ? anonymousInfo : null,
       brand: visitBrand, // Store brand explicitly for easier attribution
+      campaign_id: campaign_id || null,
+      email_id: email_id || null,
+      event_type: event_type || 'page_view',
+      element_text: element_text || null,
+      element_href: element_href || null,
       url, 
       title, 
       timestamp: new Date().toISOString(),
@@ -12633,7 +12632,7 @@ ABSOLUTE RULES:
         htmlBody = await injectUnsubscribeLink(user.id, lead.email, htmlBody);
 
         if (preInsertedId) {
-          htmlBody = await injectAllTracking(htmlBody, preInsertedId, user.id, lead.id);
+          htmlBody = await injectAllTracking(htmlBody, preInsertedId, user.id, lead.id, isUuid ? campaignId : undefined);
           console.log(`[SEND-BATCH] ✅ Injected tracking for email ${preInsertedId} (open pixel + click tracking)`);
         } else {
           console.warn(`[SEND-BATCH] ⚠️ No email ID available for tracking injection - tracking will NOT work for ${lead.email}`);
@@ -12945,6 +12944,81 @@ app.post("/make-server-a8b2511f/campaigns/enqueue/:id", async (c) => {
     return c.json({ success: true, state });
   } catch (error: any) {
     console.error('[WORKER] Enqueue error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /campaigns/:id/launch - Enqueue and continue sending off the request path
+app.post("/make-server-a8b2511f/campaigns/:id/launch", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const batchSize = Math.min(Math.max(Number(body.batchSize || 5), 1), 10);
+    const maxBatches = Math.min(Math.max(Number(body.maxBatches || 200), 1), 500);
+    const authHeader = c.req.header('Authorization') || '';
+
+    const state = await enqueueCampaign(user.id, campaignId, batchSize);
+
+    EdgeRuntime.waitUntil((async () => {
+      const baseUrl = Deno.env.get('SUPABASE_URL');
+      if (!baseUrl || !authHeader) {
+        console.warn('[CAMPAIGN-LAUNCH] Missing SUPABASE_URL or auth header; queued campaign will rely on cron auto-resume');
+        return;
+      }
+
+      let consecutiveErrors = 0;
+      for (let batch = 0; batch < maxBatches; batch++) {
+        try {
+          const response = await fetch(
+            `${baseUrl}/functions/v1/make-server-a8b2511f/campaigns/${campaignId}/send-batch?limit=${batchSize}`,
+            {
+              method: 'POST',
+              headers: { Authorization: authHeader },
+              signal: AbortSignal.timeout(120_000),
+            }
+          );
+
+          if (response.status === 409) {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            continue;
+          }
+
+          if (!response.ok) {
+            consecutiveErrors++;
+            const text = await response.text().catch(() => '');
+            console.warn(`[CAMPAIGN-LAUNCH] Batch ${batch + 1} failed (${response.status}): ${text.slice(0, 200)}`);
+            if (consecutiveErrors >= 5) break;
+            await new Promise(resolve => setTimeout(resolve, 2000 * consecutiveErrors));
+            continue;
+          }
+
+          consecutiveErrors = 0;
+          const result = await response.json().catch(() => ({}));
+          if (result.campaign_complete || (result.sent || 0) === 0 && (result.remaining || 0) === 0) {
+            console.log(`[CAMPAIGN-LAUNCH] Campaign ${campaignId} completed after ${batch + 1} batch(es)`);
+            break;
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (err: any) {
+          consecutiveErrors++;
+          console.warn(`[CAMPAIGN-LAUNCH] Background batch error for ${campaignId}:`, err?.message || err);
+          if (consecutiveErrors >= 5) break;
+          await new Promise(resolve => setTimeout(resolve, 3000 * consecutiveErrors));
+        }
+      }
+    })());
+
+    return c.json({
+      success: true,
+      queued: true,
+      background: true,
+      state,
+      message: 'Campaign queued and sending in the background',
+    });
+  } catch (error: any) {
+    console.error('[CAMPAIGN-LAUNCH] Error:', error);
     return c.json({ error: error.message }, 500);
   }
 });

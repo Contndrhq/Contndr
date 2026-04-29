@@ -73,21 +73,23 @@ export function useCampaignMonitor(userId: string | null, isDemoMode: boolean) {
       const pending = data.pending || [];
       if (pending.length === 0) return;
 
-      // Send a batch for the first pending campaign (batch of 5 in background)
+      // Ask the edge worker to continue the campaign; keep the app thread out of the send loop.
       const target = pending[0];
       try {
-        const batchResp = await authenticatedFetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${target.campaignId}/send-batch?limit=5`,
-          { method: 'POST', signal: AbortSignal.timeout(60000) }
-        );
-        if (batchResp.ok) {
-          const result = await batchResp.json();
-          if (result.sent > 0) {
-            console.log(`[CAMPAIGN-MONITOR] Auto-sent ${result.sent} emails, ${result.remaining} remaining, retry_queue=${result.retry_queue_depth || 0}`);
+        const launchResp = await authenticatedFetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${target.campaignId}/launch`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ batchSize: 5 }),
+            signal: AbortSignal.timeout(15000),
           }
+        );
+        if (launchResp.ok) {
+          console.log(`[CAMPAIGN-MONITOR] Launched background resume for campaign ${target.campaignId}`);
         }
-      } catch (batchErr) {
-        console.warn('[CAMPAIGN-MONITOR] Batch send error:', batchErr);
+      } catch (launchErr) {
+        console.warn('[CAMPAIGN-MONITOR] Campaign launch error:', launchErr);
         state.consecutiveErrors++;
       }
     } catch (err) {

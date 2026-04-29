@@ -8,15 +8,7 @@ import { toTitleCase } from "./apollo-native.tsx";
 import { getUserSubscriptionStatus } from "./contndr-billing.tsx";
 import { saveToPool, type PoolLead } from "./lead-pool.tsx";
 import { checkMxRecords } from "./email-verify.tsx";
-
-// ── Plan Lead Limits (mirrored for module isolation) ──
-const PLAN_LEAD_LIMITS: Record<string, number> = {
-  none: 100, starter: 2500, professional: 10000, growth: -1,
-};
-
-function getLeadLimitForPlan(plan: string | undefined | null): number {
-  return PLAN_LEAD_LIMITS[(plan || 'none').toLowerCase()] ?? PLAN_LEAD_LIMITS.none;
-}
+import { getLeadLimitForPlan } from "./plan-entitlements.ts";
 
 async function checkLeadLimitEngine(user: any, supabase: any, additionalCount: number) {
   const sub = await getUserSubscriptionStatus(user);
