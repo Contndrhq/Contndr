@@ -3965,6 +3965,7 @@ function NoResultsState({
   onBroaden: () => void;
   onReSearch: () => void;
 }) {
+  const { t } = useTranslation();
   const [autoCountdown, setAutoCountdown] = useState(autoEnabled ? 10 : -1);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
