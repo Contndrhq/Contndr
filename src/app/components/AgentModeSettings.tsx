@@ -175,10 +175,9 @@ export function AgentModeSettings() {
                 </div>
                 <p className="text-xs text-zinc-500 mt-1 max-w-3xl">The agent monitors campaigns, processes follow-ups, protects deliverability, and surfaces the highest-value next move.</p>
               </div>
-              <SwitchControl
+              <ToggleSwitch
                 checked={draft.enabled}
                 disabled={!canUseAgent}
-                label="Autonomous operating system"
                 onChange={checked => setField('enabled', checked)}
               />
             </div>
@@ -296,33 +295,31 @@ function StatusPill({ active }: { active: boolean }) {
   );
 }
 
-function SwitchControl({ checked, disabled, label, onChange }: {
+function ToggleSwitch({ checked, disabled, onChange }: {
   checked: boolean;
   disabled?: boolean;
-  label: string;
   onChange: (checked: boolean) => void;
 }) {
   return (
     <button
-      type="button"
       role="switch"
       aria-checked={checked}
-      aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`group relative h-8 w-[56px] flex-shrink-0 rounded-full border p-1 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#1ED4A7]/30 disabled:cursor-not-allowed disabled:opacity-45 ${
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out shrink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
         checked
-          ? 'border-[#1ED4A7]/70 bg-[#1ED4A7] shadow-[0_0_18px_rgba(30,212,167,0.22)]'
-          : 'border-zinc-300 bg-zinc-200 dark:border-white/[0.08] dark:bg-white/[0.08]'
+          ? 'bg-zinc-900 dark:bg-white'
+          : 'bg-zinc-200 dark:bg-white/[0.12]'
       }`}
     >
       <span
-        className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-[0_2px_8px_rgba(0,0,0,0.22)] transition-transform duration-200 ${
-          checked ? 'translate-x-6' : 'translate-x-0'
+        className={`inline-block h-4.5 w-4.5 transform rounded-full transition-all duration-200 ease-in-out shadow-sm ${
+          checked
+            ? 'translate-x-[22px] bg-white dark:bg-zinc-900'
+            : 'translate-x-[3px] bg-white dark:bg-zinc-400'
         }`}
+        style={{ width: 18, height: 18 }}
       />
-      <span className={`absolute left-2 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full transition-opacity ${checked ? 'opacity-100 bg-white/80' : 'opacity-0'}`} />
-      <span className={`absolute right-2 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full transition-opacity ${checked ? 'opacity-0' : 'opacity-100 bg-zinc-500 dark:bg-zinc-400'}`} />
     </button>
   );
 }
@@ -356,7 +353,7 @@ function PermissionRow({ title, desc, checked, disabled, icon, onChange }: {
           <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
         </div>
       </div>
-      <SwitchControl checked={checked} disabled={disabled} label={title} onChange={onChange} />
+      <ToggleSwitch checked={checked} disabled={disabled} onChange={onChange} />
     </div>
   );
 }
