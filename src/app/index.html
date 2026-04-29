@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Rebuild: 2026-03-17T08:00 — force recompile after palette cleanup -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+    
+    <!-- Preconnect to important origins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://api.mapbox.com" />
+
+    <!-- Mapbox GL CSS -->
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+    <style>
+      .mapboxgl-map {
+        overflow: hidden;
+        position: relative;
+        /* Mapbox JS checks for this class to ensure CSS is loaded */
+      }
+    </style>
+
+    <link rel="dns-prefetch" href="https://images.unsplash.com" />
+    
+    <!-- SEO Meta Tags -->
+    <title>Contndr - Sales Automation Platform | Streamline Your Entire Sales Stack</title>
+    <meta name="description" content="The operating system for modern sales teams. Contndr works with the tools you already use to streamline prospecting, outreach, scheduling, and pipeline management in one platform." />
+    <meta name="keywords" content="sales automation, CRM, email campaigns, sales platform, lead generation, sales tools, AI calling, outbound sales, B2B sales, sales engagement, sales software, email automation, cold email, sales CRM, prospecting tools, lead enrichment" />
+    <meta name="author" content="Contndr" />
+    
+    <!-- Additional SEO -->
+    <meta name="application-name" content="Contndr" />
+    <meta name="apple-mobile-web-app-title" content="Contndr" />
+    <meta name="theme-color" content="#050505" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="format-detection" content="telephone=no" />
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Explicitly allow indexing -->
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow" />
+    
+    <!-- 
+      CRITICAL SEO FIX: Synchronous inline script to intercept and neutralize 
+      any platform-injected noindex meta tags BEFORE the parser finishes <head>.
+      This runs synchronously during HTML parsing, not deferred like type="module".
+    -->
+    <script>
+      (function() {
+        // Immediately remove any existing noindex tags already in the DOM
+        document.querySelectorAll('meta[name="robots"]').forEach(function(tag) {
+          if (tag.getAttribute('content') && tag.getAttribute('content').indexOf('noindex') !== -1) {
+            tag.setAttribute('content', 'index, follow');
+          }
+        });
+        
+        // Set up MutationObserver to catch platform-injected noindex tags in real-time
+        var observer = new MutationObserver(function(mutations) {
+          for (var i = 0; i < mutations.length; i++) {
+            var nodes = mutations[i].addedNodes;
+            for (var j = 0; j < nodes.length; j++) {
+              var node = nodes[j];
+              if (node.nodeName === 'META') {
+                var name = node.getAttribute('name');
+                var httpEquiv = node.getAttribute('http-equiv');
+                var content = node.getAttribute('content') || '';
+                
+                if ((name === 'robots' || httpEquiv === 'X-Robots-Tag') && content.indexOf('noindex') !== -1) {
+                  // Override content to allow indexing instead of removing
+                  // (removing may cause the platform to re-inject)
+                  node.setAttribute('content', 'index, follow');
+                }
+              }
+            }
+          }
+        });
+        
+        observer.observe(document.head, { childList: true, subtree: true });
+        
+        // Also observe documentElement in case tags are added outside <head>
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+        
+        // Keep the observer running - don't disconnect
+        window.__seoObserver = observer;
+      })();
+    </script>
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://contndr.com/" />
+    <meta property="og:title" content="Contndr - Sales Automation Platform | Streamline Your Entire Sales Stack" />
+    <meta property="og:description" content="The operating system for modern sales teams. Contndr works with the tools you already use to streamline prospecting, outreach, scheduling, and pipeline management in one platform." />
+    <meta property="og:site_name" content="Contndr" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content="https://contndr.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Contndr - All-in-one sales automation platform" />
+    
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@contndr" />
+    <meta name="twitter:creator" content="@contndr" />
+    <meta name="twitter:url" content="https://contndr.com/" />
+    <meta name="twitter:title" content="Contndr - Sales Automation Platform" />
+    <meta name="twitter:description" content="The operating system for modern sales teams. Contndr works with the tools you already use to streamline prospecting, outreach, scheduling, and pipeline management in one platform." />
+    <meta name="twitter:image" content="https://contndr.com/og-image.png" />
+    <meta name="twitter:image:alt" content="Contndr - All-in-one sales automation platform" />
+    
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://contndr.com/" />
+    
+    <!-- Sitemap discovery -->
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
+    
+    <!-- Alternate / Language -->
+    <link rel="alternate" hreflang="en" href="https://contndr.com/" />
+    <link rel="alternate" hreflang="x-default" href="https://contndr.com/" />
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="https://zylftkvcasvznhkmyzfj.supabase.co/storage/v1/object/public/assets/Fav%20Icon%2032.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="https://zylftkvcasvznhkmyzfj.supabase.co/storage/v1/object/public/assets/Fav%20icon%20180.png" />
+    
+    <!-- ══════════════════════════════════════════════════════════════════════════ -->
+    <!-- Instant Theme Background (Prevents White Flash) -->
+    <!-- ══════════════════════════════════════════════════════════════════════════ -->
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem('theme');
+          var isDark = true; // Default to dark for Contndr
+          if (stored === 'light') isDark = false;
+          else if (stored === 'system') {
+            isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          }
+          
+          var themeColor = isDark ? '#050505' : '#F9FAFB';
+          var textColor = isDark ? '#ffffff' : '#18181b';
+          
+          document.documentElement.style.backgroundColor = themeColor;
+          if (isDark) document.documentElement.classList.add('dark');
+          
+          // Inject dynamic CSS to ensure body and root match instantly
+          var style = document.createElement('style');
+          style.textContent = `
+            body { 
+              margin: 0; 
+              padding: 0; 
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; 
+              background-color: ${themeColor}; 
+              color: ${textColor}; 
+            } 
+            #root { min-height: 100vh; }
+          `;
+          document.head.appendChild(style);
+        } catch (e) {
+          // Fallback to dark if localStorage is blocked
+          document.documentElement.style.backgroundColor = '#050505';
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <!-- Fast Social OAuth callback: intercept before React loads so the popup
+         sends BroadcastChannel + postMessage and closes instantly. -->
+    <script>
+      (function(){
+        if(window.location.pathname!=='/social-oauth-callback')return;
+        var p=new URLSearchParams(window.location.search);
+        var payload={type:'social-oauth-result'};
+        var err=p.get('social_error');
+        if(err){payload.social_error=err}
+        else if(p.get('linkedin_select_account')==='true'){payload.linkedin_select_account=true}
+        else if(p.get('meta_select_pages')==='true'){payload.meta_select_pages=true}
+        else{
+          var sc=p.get('social_connected');
+          if(sc)payload.social_connected=sc;
+          var sn=p.get('social_name');
+          if(sn)payload.social_name=sn;
+        }
+        try{var bc=new BroadcastChannel('contndr-social-oauth');bc.postMessage(payload);setTimeout(function(){try{bc.close()}catch(e){}},500)}catch(e){}
+        try{if(window.opener&&!window.opener.closed){window.opener.postMessage(payload,'*')}}catch(e){}
+        window.__socialOAuthHandled=true;
+        document.documentElement.style.background='#050505';
+        document.body.innerHTML='<div style="font-family:system-ui;background:#050505;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh"><p style="color:#52525b;font-size:13px">Closing...</p></div>';
+        try{window.close()}catch(e){}
+        setTimeout(function(){try{window.close()}catch(e){}},150);
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,1797 @@
+// Contndr Lead Enrichment Agent v3.0
+// Production-grade email enrichment: every email MUST be verified before delivery.
+// Zero-tolerance for bounces. If it can't be verified, it's not returned as a contact.
+// Multi-provider: Hunter.io (primary) → Findymail (fallback) → Pattern+MX (last resort)
+
+export interface EnrichmentInput {
+  company_name: string;
+  company_domain: string;
+  company_website_url?: string;
+  company_location?: string;
+  company_industry?: string;
+  company_size?: string;
+  notes?: string;
+}
+
+export interface DecisionMaker {
+  full_name: string;
+  title: string;
+  email: string;
+  phone?: string;
+  linkedin_url?: string;
+  photo_url?: string;
+  verification_status: 'verified' | 'catch_all' | 'risky' | 'unverifiable' | 'no_email';
+  confidence_score: number;
+  source: string;
+  why_selected: string;
+  email_patterns_tried?: number;
+}
+
+export interface EnrichmentOutput {
+  success: boolean;
+  company: {
+    name: string;
+    domain: string;
+    website: string;
+    linkedin_url?: string;
+    estimated_revenue?: string;
+    employee_count?: string;
+  };
+  status: "enriched" | "rejected" | "needs_review";
+  reason?: string;
+  decision_makers: DecisionMaker[];
+  excluded_emails_found: string[];
+  notes?: string;
+  verification_summary?: {
+    total_candidates: number;
+    verified: number;
+    catch_all: number;
+    failed: number;
+    domain_mx_valid: boolean;
+  };
+}
+
+// ── Role tiers (expanded) ───────────────────────────────────────────────
+const TIER_1_ROLES = [
+  "owner", "founder", "co-founder", "cofounder", "ceo", "chief executive",
+  "president", "managing partner", "principal", "managing director", "general manager",
+  "proprietor"
+];
+const TIER_2_ROLES = [
+  "coo", "chief operating", "cto", "chief technology", "cmo", "chief marketing",
+  "cro", "chief revenue", "chief growth", "chief commercial",
+  "head of operations", "operations director", "director of operations",
+  "operations manager", "vp operations", "vice president operations",
+  "head of growth", "head of sales", "head of marketing", "head of business",
+  "vp sales", "vp marketing", "vp business development",
+  "vice president sales", "vice president marketing"
+];
+const TIER_3_ROLES = [
+  "director", "senior director", "regional director", "area director",
+  "vp", "vice president", "senior vice president", "svp", "evp",
+  "partner", "senior partner"
+];
+const TIER_4_ROLES = [
+  "cfo", "chief financial", "controller", "finance director", "head of finance",
+  "compliance", "risk", "vendor management", "procurement director",
+  "head of procurement"
+];
+const TIER_5_ROLES = [
+  "manager", "senior manager", "regional manager", "area manager",
+  "general counsel", "head of", "lead", "team lead", "supervisor",
+  "coordinator"
+];
+
+const ALL_TIERS = [TIER_1_ROLES, TIER_2_ROLES, TIER_3_ROLES, TIER_4_ROLES, TIER_5_ROLES];
+
+export function getRoleTier(title: string): number {
+  const lower = title.toLowerCase();
+  for (let i = 0; i < ALL_TIERS.length; i++) {
+    if (ALL_TIERS[i].some(r => lower.includes(r))) return i + 1;
+  }
+  return 99;
+}
+
+const EXCLUDED_PREFIXES = [
+  "info", "contact", "hello", "support", "sales", "admin", "jobs", "careers",
+  "office", "inquiries", "hr", "team", "help", "marketing", "media", "press",
+  "billing", "accounts", "reception", "frontdesk", "mail", "webmaster", "staff",
+  "noreply", "no-reply", "newsletter", "notifications", "service"
+];
+
+const BLOCKED_DOMAINS = [
+  "yelp.com", "facebook.com", "linkedin.com", "clutch.co", "yellowpages.com",
+  "instagram.com", "tiktok.com", "google.com", "apple.com", "microsoft.com",
+  "bbb.org", "foursquare.com", "tripadvisor.com", "glassdoor.com"
+];
+
+function isExcludedEmail(email: string): boolean {
+  const prefix = email.split("@")[0].toLowerCase();
+  return EXCLUDED_PREFIXES.some(p => prefix === p || prefix.startsWith(p + "+") || prefix.startsWith(p + "."));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CORE VERIFICATION LAYER - Every email must pass through this
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface VerificationResult {
+  email: string;
+  status: 'valid' | 'invalid' | 'catch_all' | 'risky' | 'unknown';
+  deliverable: boolean;
+}
+
+// In-memory verification cache to avoid burning API credits
+const verificationCache = new Map<string, { result: VerificationResult; timestamp: number }>();
+const VERIFY_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MULTI-PROVIDER TRACKING — auto-switch when a provider runs out of credits
+// ═══════════════════════════════════════════════════════════════════════════
+let findymailExhausted = false;   // set on 402/429 from Findymail
+let hunterExhausted    = false;   // set on 429 from Hunter
+
+function markFindymailExhausted(status: number) {
+  if (status === 402 || status === 429 || status === 403) {
+    if (!findymailExhausted) {
+      console.warn(`[PROVIDER] Findymail credit exhaustion detected (HTTP ${status}). Fallback unavailable.`);
+    }
+    findymailExhausted = true;
+  }
+}
+
+function markHunterExhausted(status: number) {
+  if (status === 429 || status === 403) {
+    if (!hunterExhausted) {
+      console.warn(`[PROVIDER] Hunter.io rate limit / exhaustion detected (HTTP ${status}). Switching to Findymail fallback.`);
+    }
+    hunterExhausted = true;
+  }
+}
+
+function getAvailableProviders(): ('findymail' | 'hunter')[] {
+  const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const providers: ('findymail' | 'hunter')[] = [];
+  // Hunter.io is primary, Findymail is fallback
+  if (HUNTER_API_KEY && !hunterExhausted) providers.push('hunter');
+  if (FINDYMAIL_API_KEY && !findymailExhausted) providers.push('findymail');
+  return providers;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HUNTER.IO API LAYER
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Hunter.io email verification (alternative to Findymail verify).
+ */
+async function hunterVerifyEmail(email: string, apiKey: string): Promise<VerificationResult> {
+  try {
+    const response = await fetch(
+      `https://api.hunter.io/v2/email-verifier?email=${encodeURIComponent(email)}&api_key=${apiKey}`
+    );
+
+    if (!response.ok) {
+      markHunterExhausted(response.status);
+      console.warn(`[VERIFY-HUNTER] API returned ${response.status} for ${email}`);
+      return { email, status: 'unknown', deliverable: false };
+    }
+
+    const json = await response.json();
+    const data = json.data || {};
+    const rawStatus = (data.status || data.result || '').toLowerCase();
+
+    let result: VerificationResult;
+
+    if (rawStatus === 'valid' || rawStatus === 'deliverable') {
+      result = { email, status: 'valid', deliverable: true };
+      console.log(`[VERIFY-HUNTER] VALID: ${email}`);
+    } else if (rawStatus === 'accept_all' || rawStatus === 'accept-all') {
+      result = { email, status: 'catch_all', deliverable: true };
+      console.log(`[VERIFY-HUNTER] CATCH-ALL: ${email}`);
+    } else if (rawStatus === 'risky') {
+      result = { email, status: 'risky', deliverable: false };
+      console.log(`[VERIFY-HUNTER] RISKY: ${email}`);
+    } else {
+      result = { email, status: 'invalid', deliverable: false };
+      console.log(`[VERIFY-HUNTER] INVALID: ${email} (status: ${rawStatus})`);
+    }
+
+    verificationCache.set(email.toLowerCase(), { result, timestamp: Date.now() });
+    return result;
+
+  } catch (error) {
+    console.warn(`[VERIFY-HUNTER] Failed for ${email}: ${(error as Error).message}`);
+    return { email, status: 'unknown', deliverable: false };
+  }
+}
+
+/**
+ * Hunter.io email finder (alternative to Findymail search/mail).
+ */
+async function hunterFindEmail(
+  firstName: string, lastName: string, domain: string, apiKey: string
+): Promise<{ email: string; confidence: number } | null> {
+  try {
+    const params = new URLSearchParams({
+      domain,
+      first_name: firstName,
+      last_name: lastName,
+      api_key: apiKey
+    });
+
+    const response = await fetch(`https://api.hunter.io/v2/email-finder?${params}`);
+
+    if (!response.ok) {
+      markHunterExhausted(response.status);
+      return null;
+    }
+
+    const json = await response.json();
+    const data = json.data || {};
+
+    if (data.email) {
+      console.log(`[HUNTER-FINDER] Found email for ${firstName} ${lastName}@${domain}: ${data.email} (confidence: ${data.confidence || 'unknown'})`);
+      return { email: data.email, confidence: data.confidence || 50 };
+    }
+
+    return null;
+  } catch (error) {
+    console.warn(`[HUNTER-FINDER] Failed for ${firstName} ${lastName}: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+/**
+ * Hunter.io domain search (alternative to Findymail domain search).
+ * Returns contacts at a given domain with names, titles, and emails.
+ */
+async function hunterDomainSearch(domain: string, apiKey: string, limit = 20): Promise<{
+  contacts: { full_name: string; title: string; email: string; phone?: string; linkedin_url?: string; confidence: number }[];
+} | null> {
+  try {
+    const params = new URLSearchParams({
+      domain,
+      limit: String(limit),
+      api_key: apiKey
+    });
+
+    const response = await fetch(`https://api.hunter.io/v2/domain-search?${params}`);
+
+    if (!response.ok) {
+      markHunterExhausted(response.status);
+      const errorText = await response.text();
+      console.warn(`[HUNTER-DOMAIN] API returned ${response.status}: ${errorText}`);
+      return null;
+    }
+
+    const json = await response.json();
+    const data = json.data || {};
+    const emails = data.emails || [];
+
+    console.log(`[HUNTER-DOMAIN] Found ${emails.length} contacts for ${domain}`);
+
+    const contacts = emails
+      .filter((e: any) => {
+        const name = `${e.first_name || ''} ${e.last_name || ''}`.trim();
+        return name.length >= 3 && e.value;
+      })
+      .map((e: any) => ({
+        full_name: `${e.first_name || ''} ${e.last_name || ''}`.trim(),
+        title: e.position || e.seniority || 'Unknown',
+        email: e.value,
+        phone: e.phone_number || undefined,
+        linkedin_url: e.linkedin || undefined,
+        confidence: e.confidence || 50,
+      }));
+
+    return { contacts };
+  } catch (error) {
+    console.warn(`[HUNTER-DOMAIN] Failed for ${domain}: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UNIFIED VERIFICATION — tries Hunter.io (primary), then Findymail (fallback)
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function verifyEmailMultiProvider(email: string): Promise<VerificationResult> {
+  if (!email || !email.includes('@')) {
+    return { email, status: 'invalid', deliverable: false };
+  }
+
+  // Check cache first
+  const cached = verificationCache.get(email.toLowerCase());
+  if (cached && (Date.now() - cached.timestamp) < VERIFY_CACHE_TTL) {
+    console.log(`[VERIFY] Cache hit: ${email} = ${cached.result.status}`);
+    return cached.result;
+  }
+
+  const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+
+  // Try Hunter.io first (primary)
+  if (HUNTER_API_KEY && !hunterExhausted) {
+    const result = await hunterVerifyEmail(email, HUNTER_API_KEY);
+    if (result.status !== 'unknown') return result;
+    // If Hunter returned 'unknown' (error), try Findymail
+  }
+
+  // Fallback to Findymail
+  if (FINDYMAIL_API_KEY && !findymailExhausted) {
+    const result = await verifyEmailStrict(email, FINDYMAIL_API_KEY);
+    if (result.status !== 'unknown') return result;
+  }
+
+  return { email, status: 'unknown', deliverable: false };
+}
+
+/**
+ * Unified email finder — tries Findymail finder, then Hunter finder, then pattern+verify.
+ */
+async function findVerifiedEmailMultiProvider(
+  fullName: string,
+  domain: string
+): Promise<{ email: string; status: VerificationResult['status']; patternsTriedCount: number; source: string } | null> {
+  const nameParts = fullName.split(/\s+/);
+  const firstName = nameParts[0];
+  const lastName = nameParts.slice(1).join(" ");
+
+  const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+
+  // ── Strategy 1: Hunter.io email finder (primary) ──
+  if (HUNTER_API_KEY && !hunterExhausted && firstName && lastName) {
+    const hunterResult = await hunterFindEmail(firstName, lastName, domain, HUNTER_API_KEY);
+    if (hunterResult) {
+      const verification = await verifyEmailMultiProvider(hunterResult.email);
+      if (verification.deliverable) {
+        console.log(`[FIND] Hunter finder → verified: ${hunterResult.email}`);
+        return { email: hunterResult.email, status: verification.status, patternsTriedCount: 0, source: 'hunter_finder' };
+      }
+    }
+  }
+
+  // ── Strategy 2: Findymail email finder (fallback) ──
+  if (FINDYMAIL_API_KEY && !findymailExhausted && firstName && lastName) {
+    try {
+      const params = new URLSearchParams({
+        first_name: firstName,
+        last_name: lastName,
+        domain: domain
+      });
+      const response = await fetch(`https://app.findymail.com/api/search/mail?${params}`, {
+        method: "GET",
+        headers: { "Authorization": `Bearer ${FINDYMAIL_API_KEY}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const foundEmail = data.email || data.result?.email;
+        if (foundEmail) {
+          const verification = await verifyEmailMultiProvider(foundEmail);
+          if (verification.deliverable) {
+            console.log(`[FIND] Findymail finder → verified: ${foundEmail}`);
+            return { email: foundEmail, status: verification.status, patternsTriedCount: 0, source: 'findymail_finder' };
+          }
+        }
+      } else {
+        markFindymailExhausted(response.status);
+      }
+    } catch (error) {
+      console.warn(`[FIND] Findymail finder error: ${(error as Error).message}`);
+    }
+  }
+
+  // ── Strategy 3: Pattern generation + multi-provider verification ──
+  const patterns = generateEmailPatterns(fullName, domain);
+  if (patterns.length === 0) return null;
+
+  console.log(`[FIND] Trying ${patterns.length} email patterns for ${fullName}@${domain}`);
+
+  for (let i = 0; i < patterns.length; i += 3) {
+    const batch = patterns.slice(i, i + 3);
+    const results = await Promise.all(
+      batch.map(email => verifyEmailMultiProvider(email))
+    );
+
+    for (const result of results) {
+      if (result.deliverable) {
+        console.log(`[FIND] Pattern match → verified: ${result.email} (${result.status})`);
+        return { email: result.email, status: result.status, patternsTriedCount: i + results.indexOf(result) + 1, source: 'pattern_verified' };
+      }
+    }
+
+    if (i === 0) {
+      const allInvalid = results.every(r => r.status === 'invalid');
+      if (allInvalid && patterns.length > 6) {
+        console.log(`[FIND] First 3 patterns all invalid for ${domain}, stopping early`);
+        return null;
+      }
+    }
+  }
+
+  console.log(`[FIND] No verified email found for ${fullName}@${domain}`);
+  return null;
+}
+
+/**
+ * Verify a single email through Findymail's verification API.
+ * This is the ONLY source of truth for whether an email is deliverable.
+ */
+async function verifyEmailStrict(email: string, apiKey: string): Promise<VerificationResult> {
+  if (!email || !email.includes('@')) {
+    return { email, status: 'invalid', deliverable: false };
+  }
+
+  // Check cache first
+  const cached = verificationCache.get(email.toLowerCase());
+  if (cached && (Date.now() - cached.timestamp) < VERIFY_CACHE_TTL) {
+    console.log(`[VERIFY] Cache hit: ${email} = ${cached.result.status}`);
+    return cached.result;
+  }
+
+  try {
+    const response = await fetch(
+      `https://app.findymail.com/api/verify/single?email=${encodeURIComponent(email)}`,
+      {
+        method: "GET",
+        headers: { "Authorization": `Bearer ${apiKey}` }
+      }
+    );
+
+    if (!response.ok) {
+      markFindymailExhausted(response.status);
+      console.warn(`[VERIFY] Findymail API returned ${response.status} for ${email}`);
+      return { email, status: 'unknown', deliverable: false };
+    }
+
+    const data = await response.json();
+    const rawStatus = (data.status || data.result || data.email_status || '').toLowerCase();
+
+    let result: VerificationResult;
+
+    if (rawStatus === 'valid' || rawStatus === 'verified' || rawStatus === 'deliverable') {
+      result = { email, status: 'valid', deliverable: true };
+      console.log(`[VERIFY] VALID: ${email}`);
+    } else if (rawStatus === 'catch_all' || rawStatus === 'catch-all' || rawStatus === 'accept_all' || rawStatus === 'accept-all') {
+      // Catch-all domains accept everything at SMTP level but may silently discard
+      // We allow these but with a lower confidence score
+      result = { email, status: 'catch_all', deliverable: true };
+      console.log(`[VERIFY] CATCH-ALL: ${email} (domain accepts all, delivery uncertain)`);
+    } else if (rawStatus === 'risky') {
+      // Risky means it might bounce - only include with warning
+      result = { email, status: 'risky', deliverable: false };
+      console.log(`[VERIFY] RISKY: ${email} (may bounce)`);
+    } else {
+      // invalid, bounced, unknown, undeliverable, etc.
+      result = { email, status: 'invalid', deliverable: false };
+      console.log(`[VERIFY] INVALID: ${email} (status: ${rawStatus})`);
+    }
+
+    // Cache the result
+    verificationCache.set(email.toLowerCase(), { result, timestamp: Date.now() });
+    return result;
+
+  } catch (error) {
+    console.warn(`[VERIFY] Verification failed for ${email}: ${(error as Error).message}`);
+    return { email, status: 'unknown', deliverable: false };
+  }
+}
+
+/**
+ * Check if a domain has valid MX records (can receive email at all).
+ * Uses Google DNS-over-HTTPS for reliability in serverless.
+ */
+const mxCache = new Map<string, { valid: boolean; timestamp: number }>();
+
+async function checkDomainMX(domain: string): Promise<boolean> {
+  const cached = mxCache.get(domain);
+  if (cached && (Date.now() - cached.timestamp) < VERIFY_CACHE_TTL) {
+    return cached.valid;
+  }
+
+  try {
+    const dnsUrl = `https://dns.google/resolve?name=${domain}&type=MX`;
+    const response = await fetch(dnsUrl, {
+      headers: { 'Accept': 'application/dns-json' }
+    });
+
+    if (!response.ok) {
+      mxCache.set(domain, { valid: true, timestamp: Date.now() }); // fail open
+      return true;
+    }
+
+    const data = await response.json();
+    const hasMX = data.Answer && data.Answer.some((a: any) => a.type === 15);
+
+    if (!hasMX) {
+      // Fallback: check for A record
+      const aUrl = `https://dns.google/resolve?name=${domain}&type=A`;
+      const aResponse = await fetch(aUrl, { headers: { 'Accept': 'application/dns-json' } });
+      const aData = await aResponse.json();
+      const hasA = aData.Answer && aData.Answer.some((a: any) => a.type === 1);
+
+      mxCache.set(domain, { valid: hasA, timestamp: Date.now() });
+
+      if (!hasA) {
+        console.log(`[VERIFY] Domain ${domain} has NO mail servers (no MX or A records)`);
+      }
+      return hasA;
+    }
+
+    mxCache.set(domain, { valid: true, timestamp: Date.now() });
+    return true;
+  } catch (error) {
+    console.warn(`[VERIFY] MX check failed for ${domain}: ${(error as Error).message}`);
+    mxCache.set(domain, { valid: true, timestamp: Date.now() }); // fail open
+    return true;
+  }
+}
+
+/**
+ * Generate all common email patterns for a person at a domain.
+ * Returns patterns in order of most common to least common.
+ */
+function generateEmailPatterns(fullName: string, domain: string): string[] {
+  const parts = fullName.toLowerCase().trim().split(/\s+/).filter(p => p.length > 1);
+  if (parts.length < 2) return [];
+
+  const first = parts[0].replace(/[^a-z]/g, '');
+  const last = parts[parts.length - 1].replace(/[^a-z]/g, '');
+
+  if (!first || !last) return [];
+
+  return [
+    `${first}.${last}@${domain}`,      // john.smith@
+    `${first}${last}@${domain}`,        // johnsmith@
+    `${first[0]}${last}@${domain}`,     // jsmith@
+    `${first}@${domain}`,               // john@
+    `${first}${last[0]}@${domain}`,     // johns@
+    `${first[0]}.${last}@${domain}`,    // j.smith@
+    `${first}_${last}@${domain}`,       // john_smith@
+    `${last}.${first}@${domain}`,       // smith.john@
+    `${last}${first}@${domain}`,        // smithjohn@
+    `${first}-${last}@${domain}`,       // john-smith@
+  ];
+}
+
+/**
+ * Try multiple email patterns and verify each until we find a deliverable one.
+ * This is the production-grade approach for Apollo/LinkedIn-sourced contacts.
+ */
+async function findVerifiedEmail(
+  fullName: string,
+  domain: string,
+  apiKey: string
+): Promise<{ email: string; status: VerificationResult['status']; patternsTriedCount: number } | null> {
+  // First, try Findymail's email finder API (most reliable)
+  const nameParts = fullName.split(/\s+/);
+  const firstName = nameParts[0];
+  const lastName = nameParts.slice(1).join(" ");
+
+  if (firstName && lastName) {
+    try {
+      const params = new URLSearchParams({
+        first_name: firstName,
+        last_name: lastName,
+        domain: domain
+      });
+
+      const response = await fetch(`https://app.findymail.com/api/search/mail?${params}`, {
+        method: "GET",
+        headers: { "Authorization": `Bearer ${apiKey}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const foundEmail = data.email || data.result?.email;
+
+        if (foundEmail) {
+          // Even Findymail's finder result gets verified
+          const verification = await verifyEmailStrict(foundEmail, apiKey);
+          if (verification.deliverable) {
+            console.log(`[VERIFY] Findymail finder found verified email: ${foundEmail}`);
+            return { email: foundEmail, status: verification.status, patternsTriedCount: 0 };
+          }
+          console.log(`[VERIFY] Findymail finder email ${foundEmail} failed verification (${verification.status})`);
+        }
+      }
+    } catch (error) {
+      console.warn(`[VERIFY] Findymail email finder failed for ${fullName}: ${(error as Error).message}`);
+    }
+  }
+
+  // Findymail finder didn't work, try email pattern generation + verification
+  const patterns = generateEmailPatterns(fullName, domain);
+  console.log(`[VERIFY] Trying ${patterns.length} email patterns for ${fullName}@${domain}`);
+
+  // Verify patterns in batches of 3 to be efficient
+  for (let i = 0; i < patterns.length; i += 3) {
+    const batch = patterns.slice(i, i + 3);
+    const results = await Promise.all(
+      batch.map(email => verifyEmailStrict(email, apiKey))
+    );
+
+    for (const result of results) {
+      if (result.deliverable) {
+        console.log(`[VERIFY] Found verified email via pattern: ${result.email} (${result.status})`);
+        return { email: result.email, status: result.status, patternsTriedCount: i + results.indexOf(result) + 1 };
+      }
+    }
+
+    // If the first 3 common patterns all fail, the rest are very unlikely to work
+    // Unless it's a catch-all domain (which would pass on the first try anyway)
+    if (i === 0) {
+      // Check if all failed with 'invalid' - if so, stop early
+      const allInvalid = results.every(r => r.status === 'invalid');
+      if (allInvalid && patterns.length > 6) {
+        console.log(`[VERIFY] First 3 patterns all invalid for ${domain}, stopping early`);
+        return null;
+      }
+    }
+  }
+
+  console.log(`[VERIFY] No verified email found for ${fullName}@${domain} after ${patterns.length} patterns`);
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MAIN ENRICHMENT FUNCTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<EnrichmentOutput> {
+  const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+
+  const providers = getAvailableProviders();
+  console.log(`[ENRICH] Available providers: ${providers.length > 0 ? providers.join(', ') : 'NONE'}`);
+
+  // 1) Validate lead before enrichment
+  if (!input.company_domain || BLOCKED_DOMAINS.some(d => input.company_domain.toLowerCase().includes(d))) {
+    return {
+      success: false,
+      company: { name: input.company_name, domain: input.company_domain || "", website: input.company_website_url || "" },
+      status: "rejected",
+      reason: "missing_or_invalid_company_domain",
+      decision_makers: [],
+      excluded_emails_found: []
+    };
+  }
+
+  if (!FINDYMAIL_API_KEY && !HUNTER_API_KEY) {
+    return {
+      success: false,
+      company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
+      status: "needs_review",
+      reason: "NO_ENRICHMENT_API_KEYS — set FINDYMAIL_API_KEY or HUNTER_API_KEY",
+      decision_makers: [],
+      excluded_emails_found: []
+    };
+  }
+
+  // 1.5) MX record check
+  const domainCanReceiveEmail = await checkDomainMX(input.company_domain);
+  if (!domainCanReceiveEmail) {
+    return {
+      success: false,
+      company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
+      status: "rejected",
+      reason: "domain_has_no_mail_servers",
+      decision_makers: [],
+      excluded_emails_found: [],
+      notes: `Domain ${input.company_domain} has no MX or A records. Cannot receive email.`,
+      verification_summary: { total_candidates: 0, verified: 0, catch_all: 0, failed: 0, domain_mx_valid: false }
+    };
+  }
+
+  // 2) Company intelligence in parallel
+  const companyIntel = await searchCompanyIntelligence(input);
+
+  // 3) Domain search — try Hunter.io first (primary), then Findymail (fallback)
+  let domainSearchResult: EnrichmentOutput | null = null;
+
+  if (HUNTER_API_KEY && !hunterExhausted) {
+    domainSearchResult = await tryHunterDomainSearchEnrich(input, HUNTER_API_KEY);
+  }
+
+  if (!domainSearchResult?.decision_makers?.length && FINDYMAIL_API_KEY && !findymailExhausted) {
+    console.log(`[ENRICH] Hunter.io domain search yielded 0 contacts, trying Findymail fallback...`);
+    domainSearchResult = await tryFindymailDomainSearch(input, FINDYMAIL_API_KEY);
+  }
+
+  // 4) Apollo.io via SerpAPI — uses multi-provider email finding
+  const apolloResult = !domainSearchResult?.decision_makers?.length
+    ? await findDecisionMakerViaSerpApiMulti(input)
+    : null;
+
+  // 5) LinkedIn via SerpAPI — uses multi-provider email finding
+  const linkedinResult = (!domainSearchResult?.decision_makers?.length && !apolloResult?.decision_makers?.length)
+    ? await findDecisionMakerViaLinkedInMulti(input)
+    : null;
+
+  // 6) Merge results from all sources
+  const allDMs: DecisionMaker[] = [];
+  const allExcluded: string[] = [];
+  let totalCandidates = 0;
+
+  for (const result of [domainSearchResult, apolloResult, linkedinResult]) {
+    if (!result) continue;
+    for (const dm of result.decision_makers) {
+      if (!allDMs.some(existing => existing.email.toLowerCase() === dm.email.toLowerCase())) {
+        allDMs.push(dm);
+      }
+    }
+    allExcluded.push(...result.excluded_emails_found);
+    totalCandidates += result.verification_summary?.total_candidates || 0;
+  }
+
+  const deliverableContacts = allDMs.filter(
+    dm => dm.verification_status === 'verified' || dm.verification_status === 'catch_all'
+  );
+
+  deliverableContacts.sort((a, b) => {
+    const tierDiff = getRoleTier(a.title) - getRoleTier(b.title);
+    if (tierDiff !== 0) return tierDiff;
+    return b.confidence_score - a.confidence_score;
+  });
+
+  const topContacts = deliverableContacts.slice(0, 3);
+  const withLinkedIn = await backfillLinkedInUrls(topContacts, input.company_name);
+
+  const verifiedCount = withLinkedIn.filter(dm => dm.verification_status === 'verified').length;
+  const catchAllCount = withLinkedIn.filter(dm => dm.verification_status === 'catch_all').length;
+  const providerNote = findymailExhausted ? ' (Findymail exhausted, used Hunter.io)' : '';
+
+  const verificationSummary = {
+    total_candidates: totalCandidates,
+    verified: verifiedCount,
+    catch_all: catchAllCount,
+    failed: totalCandidates - verifiedCount - catchAllCount,
+    domain_mx_valid: true
+  };
+
+  if (withLinkedIn.length > 0) {
+    return mergeCompanyIntel({
+      success: true,
+      company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
+      status: "enriched",
+      decision_makers: withLinkedIn,
+      excluded_emails_found: allExcluded.slice(0, 5),
+      notes: (catchAllCount > 0
+        ? `${verifiedCount} verified email${verifiedCount !== 1 ? 's' : ''}, ${catchAllCount} on catch-all domain.`
+        : `${verifiedCount} verified email${verifiedCount !== 1 ? 's' : ''} found.`) + providerNote,
+      verification_summary: verificationSummary
+    }, companyIntel);
+  }
+
+  return mergeCompanyIntel({
+    success: false,
+    company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
+    status: "needs_review",
+    reason: "no_verified_emails_found",
+    decision_makers: [],
+    excluded_emails_found: allExcluded.slice(0, 5),
+    notes: `Searched ${providers.join(', ') || 'no providers available'}, Apollo, and LinkedIn. Found ${totalCandidates} candidate${totalCandidates !== 1 ? 's' : ''} but none passed verification.`,
+    verification_summary: verificationSummary
+  }, companyIntel);
+}
+
+// ── Company Intelligence Search (Revenue, LinkedIn, Employee Count) ─────
+interface CompanyIntel {
+  linkedin_url?: string;
+  estimated_revenue?: string;
+  employee_count?: string;
+}
+
+function mergeCompanyIntel(result: EnrichmentOutput, intel: CompanyIntel): EnrichmentOutput {
+  return {
+    ...result,
+    company: {
+      ...result.company,
+      linkedin_url: intel.linkedin_url || result.company.linkedin_url,
+      estimated_revenue: intel.estimated_revenue || result.company.estimated_revenue,
+      employee_count: intel.employee_count || result.company.employee_count,
+    }
+  };
+}
+
+async function searchCompanyIntelligence(input: EnrichmentInput): Promise<CompanyIntel> {
+  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  if (!SERPAPI_API_KEY) return {};
+
+  const intel: CompanyIntel = {};
+
+  try {
+    const [linkedinData, revenueData] = await Promise.allSettled([
+      searchCompanyLinkedIn(input.company_name, input.company_domain, SERPAPI_API_KEY),
+      searchCompanyRevenue(input.company_name, input.company_domain, SERPAPI_API_KEY),
+    ]);
+
+    if (linkedinData.status === "fulfilled" && linkedinData.value) {
+      intel.linkedin_url = linkedinData.value;
+    }
+
+    if (revenueData.status === "fulfilled" && revenueData.value) {
+      intel.estimated_revenue = revenueData.value.revenue;
+      intel.employee_count = revenueData.value.employees;
+    }
+
+    console.log(`[ENRICH] Company intel for ${input.company_name}: LinkedIn=${intel.linkedin_url || 'none'}, Revenue=${intel.estimated_revenue || 'none'}, Employees=${intel.employee_count || 'none'}`);
+  } catch (err) {
+    console.warn(`[ENRICH] Company intelligence search failed:`, (err as Error).message);
+  }
+
+  return intel;
+}
+
+async function searchCompanyLinkedIn(companyName: string, domain: string, apiKey: string): Promise<string | null> {
+  try {
+    const query = `site:linkedin.com/company "${companyName}" OR site:linkedin.com/company "${domain.replace(/\.\w+$/, '')}"`;
+    const params = new URLSearchParams({ engine: "google", q: query, api_key: apiKey, num: "5" });
+
+    const response = await fetch(`https://serpapi.com/search?${params}`);
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const results = data.organic_results || [];
+
+    for (const r of results) {
+      const link = r.link || "";
+      if (link.match(/linkedin\.com\/company\/[a-z0-9-]+/i)) {
+        return link;
+      }
+    }
+    return null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function searchCompanyRevenue(companyName: string, domain: string, apiKey: string): Promise<{ revenue?: string; employees?: string } | null> {
+  try {
+    const query = `"${companyName}" "${domain}" (revenue OR "annual revenue" OR "estimated revenue" OR employees OR "company size")`;
+    const params = new URLSearchParams({ engine: "google", q: query, api_key: apiKey, num: "10" });
+
+    const response = await fetch(`https://serpapi.com/search?${params}`);
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const results = data.organic_results || [];
+
+    let revenue: string | undefined;
+    let employees: string | undefined;
+
+    if (data.answer_box) {
+      const answerText = JSON.stringify(data.answer_box).toLowerCase();
+      const revMatch = answerText.match(/revenue[:\s]*\$?([\d,.]+\s*(?:million|billion|m|b|k))/i);
+      if (revMatch) revenue = revMatch[1].trim();
+    }
+
+    for (const r of results) {
+      const snippet = (r.snippet || "").toLowerCase();
+      const title = (r.title || "").toLowerCase();
+      const combined = `${title} ${snippet}`;
+
+      if (!revenue) {
+        const revenuePatterns = [
+          /(?:revenue|annual revenue|estimated revenue)[:\s]*\$?([\d,.]+\s*(?:million|billion|m|b|k))/i,
+          /\$\s*([\d,.]+\s*(?:million|billion|m|b))\s*(?:in\s+)?(?:revenue|annual|yearly)/i,
+          /(?:revenue|sales)[:\s]*\$\s*([\d,.]+\s*(?:million|billion|m|b|k))/i,
+          /(?:generates?|earns?|makes?)\s*\$\s*([\d,.]+\s*(?:million|billion|m|b|k))/i,
+          /\$([\d,.]+(?:m|b|k))\s*(?:in\s+)?(?:revenue|sales)/i,
+        ];
+        for (const pattern of revenuePatterns) {
+          const match = combined.match(pattern);
+          if (match) {
+            revenue = `$${match[1].trim()}`
+              .replace(/\s*million/i, 'M').replace(/\s*billion/i, 'B').replace(/\s*thousand/i, 'K')
+              .replace(/(\d)m$/i, '$1M').replace(/(\d)b$/i, '$1B').replace(/(\d)k$/i, '$1K');
+            break;
+          }
+        }
+      }
+
+      if (!employees) {
+        const empPatterns = [
+          /(\d[\d,]*)\s*(?:\+\s*)?(?:employees|staff|workers|team members)/i,
+          /(?:employees|staff|team|headcount|company size)[:\s]*(\d[\d,]*)/i,
+          /(?:has|with|over|about|approximately)\s*(\d[\d,]*)\s*(?:\+\s*)?(?:employees|people|staff)/i,
+          /([\d,]+-[\d,]+)\s*employees/i,
+        ];
+        for (const pattern of empPatterns) {
+          const match = combined.match(pattern);
+          if (match) { employees = match[1].trim(); break; }
+        }
+      }
+
+      if (revenue && employees) break;
+    }
+
+    if (revenue || employees) return { revenue, employees };
+    return null;
+  } catch (err) {
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FINDYMAIL DOMAIN SEARCH (Fallback) - WITH STRICT VERIFICATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function tryFindymailDomainSearch(input: EnrichmentInput, apiKey: string): Promise<EnrichmentOutput | null> {
+  try {
+    console.log(`[ENRICH] Findymail domain search for ${input.company_domain}...`);
+
+    const params = new URLSearchParams();
+    params.append("domain", input.company_domain);
+    params.append("limit", "20");
+
+    const response = await fetch(`https://app.findymail.com/api/domain/search?${params.toString()}`, {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${apiKey}` }
+    });
+
+    if (!response.ok) {
+      markFindymailExhausted(response.status);
+      const errorText = await response.text();
+      console.warn(`[ENRICH] Findymail API returned ${response.status}: ${errorText}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const contacts = data.contacts || data.emails || [];
+
+    console.log(`[ENRICH] Findymail returned ${contacts.length} contacts for ${input.company_domain}`);
+
+    if (contacts.length === 0) return null;
+
+    const candidates: { dm: DecisionMaker; roleTier: number; originalEmail: string }[] = [];
+    const excludedEmails: string[] = [];
+    let totalCandidates = 0;
+
+    for (const contact of contacts) {
+      const email = contact.email;
+      if (!email) continue;
+
+      const title = (contact.position || contact.title || contact.job_title || "").toLowerCase();
+      const name = contact.full_name || contact.name || `${contact.first_name || ""} ${contact.last_name || ""}`.trim();
+
+      // Skip contacts without real names
+      if (!name || name === "Unknown" || name.trim().length < 3) continue;
+
+      // Check excluded email prefixes
+      if (isExcludedEmail(email)) {
+        excludedEmails.push(email);
+        continue;
+      }
+
+      totalCandidates++;
+
+      const roleTier = title ? getRoleTier(title) : 99;
+
+      candidates.push({
+        dm: {
+          full_name: name,
+          title: contact.position || contact.title || contact.job_title || "Unknown",
+          email: email,
+          phone: contact.phone_number || contact.phone || contact.direct_phone,
+          linkedin_url: contact.linkedin_url || contact.linkedin || contact.li_url || contact.social_linkedin || contact.linkedin_profile || undefined,
+          verification_status: 'unverifiable', // Will be updated after verification
+          confidence_score: 0, // Will be set based on verification
+          source: "findymail",
+          why_selected: roleTier < 99 ? `Tier ${roleTier} role match: ${title}` : "Personal contact at company"
+        },
+        roleTier,
+        originalEmail: email
+      });
+    }
+
+    // Sort by role tier (best roles first)
+    candidates.sort((a, b) => a.roleTier - b.roleTier);
+
+    // Take top 6 candidates and verify their emails
+    const topCandidates = candidates.slice(0, 6);
+    console.log(`[ENRICH] Verifying ${topCandidates.length} candidate emails from Findymail...`);
+
+    const verifiedDMs: DecisionMaker[] = [];
+
+    for (const candidate of topCandidates) {
+      const verification = await verifyEmailStrict(candidate.originalEmail, apiKey);
+
+      if (verification.deliverable) {
+        verifiedDMs.push({
+          ...candidate.dm,
+          email: candidate.originalEmail,
+          verification_status: verification.status === 'catch_all' ? 'catch_all' : 'verified',
+          confidence_score: verification.status === 'valid' ? 95 : (verification.status === 'catch_all' ? 70 : 60),
+        });
+        console.log(`  [OK] ${candidate.dm.full_name} (${candidate.dm.title}) - ${candidate.originalEmail} = ${verification.status}`);
+      } else {
+        console.log(`  [FAIL] ${candidate.dm.full_name} - ${candidate.originalEmail} = ${verification.status}`);
+
+        // If the direct email failed, try to find a verified alternative via patterns
+        const altResult = await findVerifiedEmail(candidate.dm.full_name, input.company_domain, apiKey);
+        if (altResult && altResult.email !== candidate.originalEmail) {
+          verifiedDMs.push({
+            ...candidate.dm,
+            email: altResult.email,
+            verification_status: altResult.status === 'catch_all' ? 'catch_all' : 'verified',
+            confidence_score: altResult.status === 'valid' ? 90 : 65,
+            email_patterns_tried: altResult.patternsTriedCount,
+          });
+          console.log(`  [RECOVERED] Found alt email for ${candidate.dm.full_name}: ${altResult.email}`);
+        }
+      }
+
+      // Cap at 3 verified contacts
+      if (verifiedDMs.length >= 3) break;
+    }
+
+    const verifiedCount = verifiedDMs.filter(dm => dm.verification_status === 'verified').length;
+    const catchAllCount = verifiedDMs.filter(dm => dm.verification_status === 'catch_all').length;
+
+    return {
+      success: verifiedDMs.length > 0,
+      company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
+      status: verifiedDMs.length > 0 ? "enriched" : "needs_review",
+      reason: verifiedDMs.length === 0 ? "findymail_contacts_failed_verification" : undefined,
+      decision_makers: verifiedDMs,
+      excluded_emails_found: excludedEmails.slice(0, 5),
+      notes: verifiedDMs.length === 0
+        ? `Found ${totalCandidates} contacts but none passed email verification.`
+        : undefined,
+      verification_summary: {
+        total_candidates: totalCandidates,
+        verified: verifiedCount,
+        catch_all: catchAllCount,
+        failed: totalCandidates - verifiedCount - catchAllCount,
+        domain_mx_valid: true
+      }
+    };
+
+  } catch (error) {
+    console.warn("[ENRICH] Findymail domain search failed:", (error as Error).message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// APOLLO via SERPAPI (Fallback 1) - WITH STRICT VERIFICATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function findDecisionMakerViaSerpApi(input: EnrichmentInput, findymailApiKey: string): Promise<EnrichmentOutput | null> {
+  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  if (!SERPAPI_API_KEY) return null;
+
+  console.log(`[ENRICH] Searching Apollo.io via SerpAPI for: ${input.company_name} (${input.company_domain})`);
+
+  const targetRolesQuery = "(CEO OR Founder OR Owner OR President OR Director OR VP OR Head OR Manager OR Partner)";
+  const query = `site:apollo.io/people "${input.company_name}" ${targetRolesQuery}`;
+
+  const params = new URLSearchParams({
+    engine: "google", q: query, api_key: SERPAPI_API_KEY, num: "15"
+  });
+
+  try {
+    const response = await fetch(`https://serpapi.com/search?${params}`);
+    if (!response.ok) throw new Error(`SerpAPI returned ${response.status}`);
+
+    const data = await response.json();
+    const results = data.organic_results || [];
+
+    console.log(`[ENRICH] Apollo SerpAPI returned ${results.length} results`);
+
+    const candidates: { name: string; title: string; roleTier: number; linkedinUrl?: string }[] = [];
+
+    for (const result of results) {
+      const titleSnippet = result.title || "";
+      const snippet = result.snippet || "";
+
+      const cleanTitle = titleSnippet
+        .replace(/\s*\|\s*Apollo\.io/i, "")
+        .replace(/\s*-\s*Apollo\.io/i, "")
+        .replace(/\s*·\s*Apollo\.io/i, "");
+
+      const parts = cleanTitle.split(/ - | – | \| | at /);
+
+      if (parts.length >= 2) {
+        let name = parts[0].trim();
+        let jobTitle = parts[1].trim();
+
+        if (!jobTitle || jobTitle.length < 3) {
+          const snippetMatch = snippet.match(/(?:is|as)\s+(?:a\s+|the\s+)?([A-Z][a-z]+(?: [A-Z][a-z]+)*)/);
+          if (snippetMatch) jobTitle = snippetMatch[1];
+        }
+
+        if (!isValidPersonName(name)) continue;
+
+        const roleTier = getRoleTier(jobTitle);
+        if (roleTier === 99) continue;
+
+        candidates.push({
+          name,
+          title: jobTitle,
+          roleTier,
+          linkedinUrl: result.link?.includes("apollo.io") ? undefined : result.link,
+        });
+      }
+    }
+
+    if (candidates.length === 0) return null;
+
+    // Deduplicate by name
+    const uniqueCandidates = candidates.filter((c, i, self) =>
+      i === self.findIndex(t => t.name.toLowerCase() === c.name.toLowerCase())
+    );
+
+    // Sort by role tier
+    uniqueCandidates.sort((a, b) => a.roleTier - b.roleTier);
+
+    console.log(`[ENRICH] Verifying emails for ${uniqueCandidates.length} Apollo candidates...`);
+
+    const verifiedDMs: DecisionMaker[] = [];
+    let totalCandidates = 0;
+
+    // Try to find verified emails for top candidates
+    for (const candidate of uniqueCandidates.slice(0, 5)) {
+      totalCandidates++;
+      const emailResult = await findVerifiedEmail(candidate.name, input.company_domain, findymailApiKey);
+
+      if (emailResult) {
+        verifiedDMs.push({
+          full_name: candidate.name,
+          title: candidate.title,
+          email: emailResult.email,
+          linkedin_url: candidate.linkedinUrl,
+          verification_status: emailResult.status === 'catch_all' ? 'catch_all' : 'verified',
+          confidence_score: emailResult.status === 'valid' ? 90 : 65,
+          source: "apollo_serpapi+findymail_verified",
+          why_selected: `Tier ${candidate.roleTier} match from Apollo, email verified via Findymail`,
+          email_patterns_tried: emailResult.patternsTriedCount,
+        });
+        console.log(`  [OK] ${candidate.name}: ${emailResult.email} (${emailResult.status})`);
+      } else {
+        console.log(`  [FAIL] ${candidate.name}: no verified email found`);
+      }
+
+      if (verifiedDMs.length >= 3) break;
+    }
+
+    if (verifiedDMs.length === 0) return null;
+
+    return {
+      success: true,
+      company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
+      status: "enriched",
+      decision_makers: verifiedDMs,
+      excluded_emails_found: [],
+      notes: `Found via Apollo.io, all emails verified through Findymail.`,
+      verification_summary: {
+        total_candidates: totalCandidates,
+        verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,
+        catch_all: verifiedDMs.filter(dm => dm.verification_status === 'catch_all').length,
+        failed: totalCandidates - verifiedDMs.length,
+        domain_mx_valid: true
+      }
+    };
+
+  } catch (error) {
+    console.warn(`[ENRICH] Apollo SerpAPI search failed: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LINKEDIN via SERPAPI (Fallback 2) - WITH STRICT VERIFICATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function findDecisionMakerViaLinkedIn(input: EnrichmentInput, findymailApiKey: string): Promise<EnrichmentOutput | null> {
+  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  if (!SERPAPI_API_KEY) return null;
+
+  console.log(`[ENRICH] Searching LinkedIn via SerpAPI for: ${input.company_name}`);
+
+  const query = `site:linkedin.com/in "${input.company_name}" (CEO OR Founder OR Owner OR Director OR Manager OR President OR VP OR Head)`;
+
+  const params = new URLSearchParams({
+    engine: "google", q: query, api_key: SERPAPI_API_KEY, num: "10"
+  });
+
+  try {
+    const response = await fetch(`https://serpapi.com/search?${params}`);
+    if (!response.ok) throw new Error(`SerpAPI returned ${response.status}`);
+
+    const data = await response.json();
+    const results = data.organic_results || [];
+
+    console.log(`[ENRICH] LinkedIn SerpAPI returned ${results.length} results`);
+
+    const candidates: { name: string; title: string; roleTier: number; linkedinUrl?: string }[] = [];
+
+    for (const result of results) {
+      const titleSnippet = result.title || "";
+      const snippet = result.snippet || "";
+      const link = result.link || "";
+
+      const cleanTitle = titleSnippet
+        .replace(/\s*\|\s*LinkedIn/i, "")
+        .replace(/\s*-\s*LinkedIn/i, "");
+
+      const parts = cleanTitle.split(/ - | – | \| /);
+
+      if (parts.length >= 2) {
+        const name = parts[0].trim();
+        let jobTitle = parts[1].trim();
+
+        if (!isValidPersonName(name)) continue;
+
+        // Verify this person is actually at the target company
+        const companyNameLower = input.company_name.toLowerCase();
+        const allText = `${titleSnippet} ${snippet}`.toLowerCase();
+        const companyWords = companyNameLower.split(/\s+/).filter(w => w.length > 2);
+        const matchesCompany = companyWords.some(w => allText.includes(w));
+        if (!matchesCompany) continue;
+
+        const roleTier = getRoleTier(jobTitle);
+        if (roleTier === 99) continue;
+
+        candidates.push({
+          name,
+          title: jobTitle,
+          roleTier,
+          linkedinUrl: link.includes("linkedin.com") ? link : undefined,
+        });
+      }
+    }
+
+    if (candidates.length === 0) return null;
+
+    const uniqueCandidates = candidates.filter((c, i, self) =>
+      i === self.findIndex(t => t.name.toLowerCase() === c.name.toLowerCase())
+    );
+
+    uniqueCandidates.sort((a, b) => a.roleTier - b.roleTier);
+
+    console.log(`[ENRICH] Verifying emails for ${uniqueCandidates.length} LinkedIn candidates...`);
+
+    const verifiedDMs: DecisionMaker[] = [];
+    let totalCandidates = 0;
+
+    for (const candidate of uniqueCandidates.slice(0, 4)) {
+      totalCandidates++;
+      const emailResult = await findVerifiedEmail(candidate.name, input.company_domain, findymailApiKey);
+
+      if (emailResult) {
+        verifiedDMs.push({
+          full_name: candidate.name,
+          title: candidate.title,
+          email: emailResult.email,
+          linkedin_url: candidate.linkedinUrl,
+          verification_status: emailResult.status === 'catch_all' ? 'catch_all' : 'verified',
+          confidence_score: emailResult.status === 'valid' ? 88 : 62,
+          source: "linkedin_serpapi+findymail_verified",
+          why_selected: `Tier ${candidate.roleTier} match from LinkedIn, email verified via Findymail`,
+          email_patterns_tried: emailResult.patternsTriedCount,
+        });
+      }
+
+      if (verifiedDMs.length >= 3) break;
+    }
+
+    if (verifiedDMs.length === 0) return null;
+
+    return {
+      success: true,
+      company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
+      status: "enriched",
+      decision_makers: verifiedDMs,
+      excluded_emails_found: [],
+      notes: `Found via LinkedIn, all emails verified through Findymail.`,
+      verification_summary: {
+        total_candidates: totalCandidates,
+        verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,
+        catch_all: verifiedDMs.filter(dm => dm.verification_status === 'catch_all').length,
+        failed: totalCandidates - verifiedDMs.length,
+        domain_mx_valid: true
+      }
+    };
+
+  } catch (error) {
+    console.warn(`[ENRICH] LinkedIn SerpAPI search failed: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+// ── Backfill LinkedIn URLs ──────────────────────────────────────────────
+async function backfillLinkedInUrls(dms: DecisionMaker[], companyName: string): Promise<DecisionMaker[]> {
+  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  if (!SERPAPI_API_KEY) return dms;
+
+  const results: DecisionMaker[] = [];
+
+  for (const dm of dms) {
+    if (dm.linkedin_url) {
+      results.push(dm);
+      continue;
+    }
+
+    try {
+      const query = `site:linkedin.com/in "${dm.full_name}" "${companyName}"`;
+      const params = new URLSearchParams({ engine: "google", q: query, api_key: SERPAPI_API_KEY, num: "3" });
+
+      const response = await fetch(`https://serpapi.com/search?${params}`);
+      if (!response.ok) {
+        results.push(dm);
+        continue;
+      }
+
+      const data = await response.json();
+      const organic = data.organic_results || [];
+      let foundUrl: string | undefined;
+
+      for (const r of organic) {
+        const link = r.link || "";
+        if (link.match(/linkedin\.com\/in\/[a-z0-9-]+/i)) {
+          const allText = `${r.title || ""} ${r.snippet || ""}`.toLowerCase();
+          const nameParts = dm.full_name.toLowerCase().split(/\s+/);
+          const nameMatch = nameParts.some(part => part.length > 2 && allText.includes(part));
+          if (nameMatch) { foundUrl = link; break; }
+        }
+      }
+
+      results.push(foundUrl ? { ...dm, linkedin_url: foundUrl } : dm);
+    } catch (error) {
+      results.push(dm);
+    }
+  }
+
+  return results;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────
+export function isValidPersonName(name: string): boolean {
+  const INVALID_NAME_PATTERNS = [
+    'property', 'management', 'service', 'company', 'business', 'contact',
+    'email', 'phone', 'address', 'data', 'our', 'your', 'the', 'for', 'and',
+    'into', 'being', 'from', 'with', 'site', 'page', 'home', 'about', 'team',
+    'staff', 'member', 'employee', 'reporting', 'protecting', 'serving',
+    'providing', 'offering', 'renters', 'tenants', 'landlord', 'profile',
+    'login', 'signup', 'apollo', 'linkedin', 'directory', 'search', 'results',
+    'people', 'company', 'solutions', 'inc.', 'llc', 'corp', 'group', 'agency'
+  ];
+
+  const nameLower = name.toLowerCase();
+  const parts = name.trim().split(/\s+/);
+
+  if (parts.length < 2) return false;
+  if (parts.some(p => p.length < 2)) return false;
+  if (INVALID_NAME_PATTERNS.some(pattern => nameLower.includes(pattern))) return false;
+  if (/\d/.test(name)) return false;
+  if (name.length > 50) return false;
+
+  return true;
+}
+
+// ── Standalone verification (exposed for lead-engine.tsx to use) ────────
+export async function verifyEmailExport(email: string): Promise<{
+  email: string;
+  status: string;
+  deliverable: boolean;
+}> {
+  // Use unified multi-provider verification
+  return verifyEmailMultiProvider(email);
+}
+
+function deduplicateByName(dms: DecisionMaker[]): DecisionMaker[] {
+  return dms.filter((dm, index, self) =>
+    index === self.findIndex((t) => t.full_name.toLowerCase() === dm.full_name.toLowerCase())
+  );
+}
+
+// ── Quick Contact Discovery (for search-time decision maker surfacing) ──
+/**
+ * Lightweight contact discovery: Findymail → Hunter.io fallback.
+ * Returns contacts with names and titles WITHOUT email verification.
+ * Used during search to surface decision makers before full enrichment.
+ */
+export async function quickDiscoverContacts(domain: string): Promise<{
+  full_name: string;
+  title: string;
+  email?: string;
+  linkedin_url?: string;
+  role_tier: number;
+}[]> {
+  type QuickContact = { full_name: string; title: string; email?: string; linkedin_url?: string; role_tier: number };
+
+  // ── Try Findymail first ──
+  const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+  if (FINDYMAIL_API_KEY && !findymailExhausted) {
+    try {
+      const params = new URLSearchParams({ domain, limit: "10" });
+      const response = await fetch(
+        `https://app.findymail.com/api/domain/search?${params}`,
+        { headers: { "Authorization": `Bearer ${FINDYMAIL_API_KEY}` } }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const contacts = data.contacts || data.emails || [];
+        const results: QuickContact[] = contacts
+          .filter((c: any) => {
+            const name = c.full_name || c.name || `${c.first_name || ""} ${c.last_name || ""}`.trim();
+            const email = c.email || "";
+            return name && name.length >= 3 && name !== "Unknown" &&
+                   (!email || !isExcludedEmail(email)) && isValidPersonName(name);
+          })
+          .map((c: any) => {
+            const name = c.full_name || c.name || `${c.first_name || ""} ${c.last_name || ""}`.trim();
+            const title = c.position || c.title || c.job_title || "Unknown";
+            return {
+              full_name: name, title,
+              email: c.email || undefined,
+              linkedin_url: c.linkedin_url || c.linkedin || c.li_url || c.social_linkedin || undefined,
+              role_tier: getRoleTier(title)
+            };
+          })
+          .sort((a: QuickContact, b: QuickContact) => a.role_tier - b.role_tier)
+          .slice(0, 3);
+
+        if (results.length > 0) return results;
+      } else {
+        markFindymailExhausted(response.status);
+      }
+    } catch { /* fall through to Hunter */ }
+  }
+
+  // ── Fallback to Hunter.io ──
+  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  if (HUNTER_API_KEY && !hunterExhausted) {
+    try {
+      const hunterResult = await hunterDomainSearch(domain, HUNTER_API_KEY, 10);
+      if (hunterResult && hunterResult.contacts.length > 0) {
+        return hunterResult.contacts
+          .filter(c => isValidPersonName(c.full_name) && (!c.email || !isExcludedEmail(c.email)))
+          .map(c => ({
+            full_name: c.full_name,
+            title: c.title,
+            email: c.email || undefined,
+            linkedin_url: c.linkedin_url || undefined,
+            role_tier: getRoleTier(c.title)
+          }))
+          .sort((a, b) => a.role_tier - b.role_tier)
+          .slice(0, 3);
+      }
+    } catch { /* no contacts */ }
+  }
+
+  return [];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HUNTER.IO DOMAIN SEARCH ENRICHMENT (parallel to Findymail domain search)
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function tryHunterDomainSearchEnrich(input: EnrichmentInput, hunterApiKey: string): Promise<EnrichmentOutput | null> {
+  try {
+    console.log(`[ENRICH] Hunter.io domain search for ${input.company_domain}...`);
+    const hunterResult = await hunterDomainSearch(input.company_domain, hunterApiKey, 20);
+
+    if (!hunterResult || hunterResult.contacts.length === 0) return null;
+
+    const candidates: { dm: DecisionMaker; roleTier: number }[] = [];
+    const excludedEmails: string[] = [];
+    let totalCandidates = 0;
+
+    for (const contact of hunterResult.contacts) {
+      if (!contact.email) continue;
+      if (!contact.full_name || contact.full_name.trim().length < 3) continue;
+      if (!isValidPersonName(contact.full_name)) continue;
+
+      if (isExcludedEmail(contact.email)) {
+        excludedEmails.push(contact.email);
+        continue;
+      }
+
+      totalCandidates++;
+      const roleTier = getRoleTier(contact.title);
+
+      candidates.push({
+        dm: {
+          full_name: contact.full_name,
+          title: contact.title,
+          email: contact.email,
+          phone: contact.phone,
+          linkedin_url: contact.linkedin_url,
+          verification_status: 'unverifiable',
+          confidence_score: 0,
+          source: "hunter",
+          why_selected: roleTier < 99 ? `Tier ${roleTier} role via Hunter.io` : "Contact at company via Hunter.io"
+        },
+        roleTier
+      });
+    }
+
+    candidates.sort((a, b) => a.roleTier - b.roleTier);
+    const topCandidates = candidates.slice(0, 6);
+    console.log(`[ENRICH] Verifying ${topCandidates.length} candidate emails from Hunter.io...`);
+
+    const verifiedDMs: DecisionMaker[] = [];
+
+    for (const candidate of topCandidates) {
+      const verification = await verifyEmailMultiProvider(candidate.dm.email);
+
+      if (verification.deliverable) {
+        verifiedDMs.push({
+          ...candidate.dm,
+          verification_status: verification.status === 'catch_all' ? 'catch_all' : 'verified',
+          confidence_score: verification.status === 'valid' ? 92 : (verification.status === 'catch_all' ? 68 : 58),
+        });
+        console.log(`  [OK] ${candidate.dm.full_name} (${candidate.dm.title}) - ${candidate.dm.email} = ${verification.status}`);
+      } else {
+        console.log(`  [FAIL] ${candidate.dm.full_name} - ${candidate.dm.email} = ${verification.status}`);
+
+        // Try alternate email via multi-provider finder
+        const altResult = await findVerifiedEmailMultiProvider(candidate.dm.full_name, input.company_domain);
+        if (altResult && altResult.email !== candidate.dm.email) {
+          verifiedDMs.push({
+            ...candidate.dm,
+            email: altResult.email,
+            verification_status: altResult.status === 'catch_all' ? 'catch_all' : 'verified',
+            confidence_score: altResult.status === 'valid' ? 88 : 63,
+            source: `hunter+${altResult.source}`,
+            email_patterns_tried: altResult.patternsTriedCount,
+          });
+          console.log(`  [RECOVERED] Alt email for ${candidate.dm.full_name}: ${altResult.email}`);
+        }
+      }
+
+      if (verifiedDMs.length >= 3) break;
+    }
+
+    if (verifiedDMs.length === 0 && totalCandidates === 0) return null;
+
+    return {
+      success: verifiedDMs.length > 0,
+      company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
+      status: verifiedDMs.length > 0 ? "enriched" : "needs_review",
+      reason: verifiedDMs.length === 0 ? "hunter_contacts_failed_verification" : undefined,
+      decision_makers: verifiedDMs,
+      excluded_emails_found: excludedEmails.slice(0, 5),
+      verification_summary: {
+        total_candidates: totalCandidates,
+        verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,
+        catch_all: verifiedDMs.filter(dm => dm.verification_status === 'catch_all').length,
+        failed: totalCandidates - verifiedDMs.length,
+        domain_mx_valid: true
+      }
+    };
+  } catch (error) {
+    console.warn("[ENRICH] Hunter domain search failed:", (error as Error).message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// APOLLO via SERPAPI — MULTI-PROVIDER (uses findVerifiedEmailMultiProvider)
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function findDecisionMakerViaSerpApiMulti(input: EnrichmentInput): Promise<EnrichmentOutput | null> {
+  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  if (!SERPAPI_API_KEY) return null;
+
+  console.log(`[ENRICH-MULTI] Searching Apollo.io via SerpAPI for: ${input.company_name} (${input.company_domain})`);
+
+  const targetRolesQuery = "(CEO OR Founder OR Owner OR President OR Director OR VP OR Head OR Manager OR Partner)";
+  const query = `site:apollo.io/people "${input.company_name}" ${targetRolesQuery}`;
+
+  const params = new URLSearchParams({
+    engine: "google", q: query, api_key: SERPAPI_API_KEY, num: "15"
+  });
+
+  try {
+    const response = await fetch(`https://serpapi.com/search?${params}`);
+    if (!response.ok) throw new Error(`SerpAPI returned ${response.status}`);
+
+    const data = await response.json();
+    const results = data.organic_results || [];
+
+    const candidates: { name: string; title: string; roleTier: number; linkedinUrl?: string }[] = [];
+
+    for (const result of results) {
+      const titleSnippet = result.title || "";
+      const snippet = result.snippet || "";
+
+      const cleanTitle = titleSnippet
+        .replace(/\s*\|\s*Apollo\.io/i, "")
+        .replace(/\s*-\s*Apollo\.io/i, "")
+        .replace(/\s*·\s*Apollo\.io/i, "");
+
+      const parts = cleanTitle.split(/ - | – | \| | at /);
+
+      if (parts.length >= 2) {
+        let name = parts[0].trim();
+        let jobTitle = parts[1].trim();
+
+        if (!jobTitle || jobTitle.length < 3) {
+          const snippetMatch = snippet.match(/(?:is|as)\s+(?:a\s+|the\s+)?([A-Z][a-z]+(?: [A-Z][a-z]+)*)/);
+          if (snippetMatch) jobTitle = snippetMatch[1];
+        }
+
+        if (!isValidPersonName(name)) continue;
+
+        const roleTier = getRoleTier(jobTitle);
+        if (roleTier === 99) continue;
+
+        candidates.push({ name, title: jobTitle, roleTier, linkedinUrl: result.link?.includes("apollo.io") ? undefined : result.link });
+      }
+    }
+
+    if (candidates.length === 0) return null;
+
+    const uniqueCandidates = candidates.filter((c, i, self) =>
+      i === self.findIndex(t => t.name.toLowerCase() === c.name.toLowerCase())
+    );
+    uniqueCandidates.sort((a, b) => a.roleTier - b.roleTier);
+
+    console.log(`[ENRICH-MULTI] Verifying emails for ${uniqueCandidates.length} Apollo candidates (multi-provider)...`);
+
+    const verifiedDMs: DecisionMaker[] = [];
+    let totalCandidates = 0;
+
+    for (const candidate of uniqueCandidates.slice(0, 5)) {
+      totalCandidates++;
+      const emailResult = await findVerifiedEmailMultiProvider(candidate.name, input.company_domain);
+
+      if (emailResult) {
+        verifiedDMs.push({
+          full_name: candidate.name,
+          title: candidate.title,
+          email: emailResult.email,
+          linkedin_url: candidate.linkedinUrl,
+          verification_status: emailResult.status === 'catch_all' ? 'catch_all' : 'verified',
+          confidence_score: emailResult.status === 'valid' ? 90 : 65,
+          source: `apollo_serpapi+${emailResult.source}`,
+          why_selected: `Tier ${candidate.roleTier} match from Apollo, email via ${emailResult.source}`,
+          email_patterns_tried: emailResult.patternsTriedCount,
+        });
+        console.log(`  [OK] ${candidate.name}: ${emailResult.email} (${emailResult.status} via ${emailResult.source})`);
+      } else {
+        console.log(`  [FAIL] ${candidate.name}: no verified email found across providers`);
+      }
+
+      if (verifiedDMs.length >= 3) break;
+    }
+
+    if (verifiedDMs.length === 0) return null;
+
+    return {
+      success: true,
+      company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
+      status: "enriched",
+      decision_makers: verifiedDMs,
+      excluded_emails_found: [],
+      notes: `Found via Apollo.io, emails verified through ${findymailExhausted ? 'Hunter.io' : 'Findymail/Hunter'}.`,
+      verification_summary: {
+        total_candidates: totalCandidates,
+        verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,
+        catch_all: verifiedDMs.filter(dm => dm.verification_status === 'catch_all').length,
+        failed: totalCandidates - verifiedDMs.length,
+        domain_mx_valid: true
+      }
+    };
+  } catch (error) {
+    console.warn(`[ENRICH-MULTI] Apollo SerpAPI search failed: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LINKEDIN via SERPAPI — MULTI-PROVIDER (uses findVerifiedEmailMultiProvider)
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function findDecisionMakerViaLinkedInMulti(input: EnrichmentInput): Promise<EnrichmentOutput | null> {
+  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  if (!SERPAPI_API_KEY) return null;
+
+  console.log(`[ENRICH-MULTI] Searching LinkedIn via SerpAPI for: ${input.company_name}`);
+
+  const query = `site:linkedin.com/in "${input.company_name}" (CEO OR Founder OR Owner OR Director OR Manager OR President OR VP OR Head)`;
+
+  const params = new URLSearchParams({
+    engine: "google", q: query, api_key: SERPAPI_API_KEY, num: "10"
+  });
+
+  try {
+    const response = await fetch(`https://serpapi.com/search?${params}`);
+    if (!response.ok) throw new Error(`SerpAPI returned ${response.status}`);
+
+    const data = await response.json();
+    const results = data.organic_results || [];
+
+    const candidates: { name: string; title: string; roleTier: number; linkedinUrl?: string }[] = [];
+
+    for (const result of results) {
+      const titleSnippet = result.title || "";
+      const snippet = result.snippet || "";
+      const link = result.link || "";
+
+      const cleanTitle = titleSnippet
+        .replace(/\s*\|\s*LinkedIn/i, "")
+        .replace(/\s*-\s*LinkedIn/i, "");
+
+      const parts = cleanTitle.split(/ - | – | \| /);
+
+      if (parts.length >= 2) {
+        const name = parts[0].trim();
+        let jobTitle = parts[1].trim();
+
+        if (!isValidPersonName(name)) continue;
+
+        const companyNameLower = input.company_name.toLowerCase();
+        const allText = `${titleSnippet} ${snippet}`.toLowerCase();
+        const companyWords = companyNameLower.split(/\s+/).filter(w => w.length > 2);
+        const matchesCompany = companyWords.some(w => allText.includes(w));
+        if (!matchesCompany) continue;
+
+        const roleTier = getRoleTier(jobTitle);
+        if (roleTier === 99) continue;
+
+        candidates.push({ name, title: jobTitle, roleTier, linkedinUrl: link.includes("linkedin.com") ? link : undefined });
+      }
+    }
+
+    if (candidates.length === 0) return null;
+
+    const uniqueCandidates = candidates.filter((c, i, self) =>
+      i === self.findIndex(t => t.name.toLowerCase() === c.name.toLowerCase())
+    );
+    uniqueCandidates.sort((a, b) => a.roleTier - b.roleTier);
+
+    const verifiedDMs: DecisionMaker[] = [];
+    let totalCandidates = 0;
+
+    for (const candidate of uniqueCandidates.slice(0, 4)) {
+      totalCandidates++;
+      const emailResult = await findVerifiedEmailMultiProvider(candidate.name, input.company_domain);
+
+      if (emailResult) {
+        verifiedDMs.push({
+          full_name: candidate.name,
+          title: candidate.title,
+          email: emailResult.email,
+          linkedin_url: candidate.linkedinUrl,
+          verification_status: emailResult.status === 'catch_all' ? 'catch_all' : 'verified',
+          confidence_score: emailResult.status === 'valid' ? 88 : 62,
+          source: `linkedin_serpapi+${emailResult.source}`,
+          why_selected: `Tier ${candidate.roleTier} match from LinkedIn, email via ${emailResult.source}`,
+          email_patterns_tried: emailResult.patternsTriedCount,
+        });
+      }
+
+      if (verifiedDMs.length >= 3) break;
+    }
+
+    if (verifiedDMs.length === 0) return null;
+
+    return {
+      success: true,
+      company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
+      status: "enriched",
+      decision_makers: verifiedDMs,
+      excluded_emails_found: [],
+      notes: `Found via LinkedIn, emails verified through ${findymailExhausted ? 'Hunter.io' : 'Findymail/Hunter'}.`,
+      verification_summary: {
+        total_candidates: totalCandidates,
+        verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,
+        catch_all: verifiedDMs.filter(dm => dm.verification_status === 'catch_all').length,
+        failed: totalCandidates - verifiedDMs.length,
+        domain_mx_valid: true
+      }
+    };
+  } catch (error) {
+    console.warn(`[ENRICH-MULTI] LinkedIn SerpAPI search failed: ${(error as Error).message}`);
+    return null;
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "Contndr",
+  "short_name": "Contndr",
+  "description": "The operating system for modern sales teams. Streamline prospecting, outreach, scheduling, and pipeline management.",
+  "start_url": "/app",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#050505",
+  "theme_color": "#050505",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "https://zylftkvcasvznhkmyzfj.supabase.co/storage/v1/object/public/assets/Fav%20Icon%2032.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "https://zylftkvcasvznhkmyzfj.supabase.co/storage/v1/object/public/assets/Fav%20icon%20180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "scope": "/",
+  "lang": "en",
+  "dir": "ltr"
+}

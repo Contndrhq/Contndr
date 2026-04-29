@@ -1,0 +1,37 @@
+Fix: Configure Tailwind CSS v4 for Vercel deployment
+
+Remove conflicting Tailwind v3 configuration files that prevented
+utilities from compiling in production builds on Vercel.
+
+Changes:
+- Delete tailwind.config.js (not needed in v4)
+- Delete postcss.config.cjs (Vite plugin handles this)
+- Remove autoprefixer and postcss dependencies
+- Optimize vite.config.ts with code splitting and faster minification
+- Add .vercelignore to exclude unnecessary files
+- Add .npmrc for consistent package installation
+- Update vercel.json with cache headers and explicit build config
+
+The @tailwindcss/vite plugin in Tailwind v4 is self-contained and
+doesn't require external PostCSS configuration. The old config files
+were causing conflicts that broke production builds.
+
+Technical details:
+- Tailwind v4 auto-detects content (no manual config needed)
+- Built-in autoprefixer (no external dependency)
+- Vite plugin handles all CSS processing
+- Faster builds with esbuild minification
+- Better bundle splitting for improved caching
+
+Fixes:
+- Giant logo issue (proper CSS compilation)
+- No scrolling (CSS flow restored)
+- Missing Tailwind utilities (proper processing)
+- Broken production layout (config conflicts resolved)
+
+Testing:
+✅ Local build successful (npm run build)
+✅ Preview working (npm run preview)
+✅ All Tailwind utilities applied
+✅ Page scrolls naturally
+✅ Responsive layout working

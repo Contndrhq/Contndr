@@ -1,0 +1,1028 @@
+/* mapbox-gl CSS is loaded via <link> tag in index.html — do NOT @import here
+   because bare module specifiers break Tailwind v4's CSS processor */
+
+/* PP Neue Montreal — self-hosted fonts removed (Supabase storage returning 400).
+   App falls back to system font stack: SF Pro on iOS/macOS, system-ui elsewhere.
+   This eliminates 4 × 400 error console entries and saves ~200KB of network. */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@theme {
+  --font-sans: var(--font-family-base);
+  --font-heading: var(--font-family-heading);
+  --font-logo: var(--font-family-logo);
+}
+
+@custom-variant dark (&:is(.dark *));
+
+/* ═══ GLOBAL FOCUS RESET — placed AFTER @tailwind to override all utility layers ═══ */
+/* Kill ALL blue outlines and rings on every element, everywhere */
+*:focus,
+*:focus-visible,
+*:focus-within {
+  outline: none !important;
+  outline-color: transparent !important;
+}
+
+/* Override Tailwind's default ring color variable at the highest specificity */
+*,
+*::before,
+*::after {
+  --tw-ring-color: #71717A !important; /* zinc-500 — neutral */
+}
+
+.dark *,
+.dark *::before,
+.dark *::after {
+  --tw-ring-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* ═══ Sonner toast close button — move to right side ═══ */
+[data-sonner-toaster][data-y-position="top"] {
+  top: max(env(safe-area-inset-top, 16px), 16px) !important;
+}
+
+[data-sonner-toast] [data-close-button] {
+  left: unset !important;
+  right: 0 !important;
+}
+
+/* Buttons, anchors, and interactive elements: no ring/shadow on focus */
+button:focus,
+button:focus-visible,
+a:focus,
+a:focus-visible,
+[role="button"]:focus,
+[role="button"]:focus-visible,
+[tabindex]:focus,
+[tabindex]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Inputs: neutral dark ring on focus instead of blue */
+input:focus,
+textarea:focus,
+select:focus,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none !important;
+  box-shadow: 0 0 0 2px #18181B !important;
+  border-color: transparent !important;
+}
+
+/* Opt-out class for nested inputs (e.g. AI assistant textarea) */
+.no-focus-ring:focus,
+.no-focus-ring:focus-visible {
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+.dark input:focus,
+.dark textarea:focus,
+.dark select:focus,
+.dark input:focus-visible,
+.dark textarea:focus-visible,
+.dark select:focus-visible {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2) !important;
+  border-color: transparent !important;
+}
+
+.dark .no-focus-ring:focus,
+.dark .no-focus-ring:focus-visible {
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+/* Mobile header offset — only applies below lg breakpoint */
+.mobile-header-offset {
+  padding-top: calc(4rem + env(safe-area-inset-top, 0px));
+}
+@media (min-width: 1024px) {
+  .mobile-header-offset {
+    padding-top: 0;
+  }
+}
+
+/* ═══ SCROLL-AWAY HEADER UTILITIES ═══ */
+/* Hides header on scroll down, shows on scroll up — iOS Safari/native pattern */
+.scroll-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.scroll-header.hidden {
+  transform: translateY(-100%);
+}
+
+/* ═══ IOS ZOOM FIX ═══ */
+/* Prevent iOS auto-zoom by forcing inputs to be 16px on mobile viewports */
+@media screen and (max-width: 768px) {
+  @supports (-webkit-touch-callout: none) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
+  }
+}
+
+/* Mobile-only scroll behavior — headers scroll away below lg */
+@media (max-width: 1023px) {
+  .scroll-header-mobile {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 40;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .scroll-header-mobile.hidden {
+    transform: translateY(calc(-100% - env(safe-area-inset-top, 0px)));
+  }
+}
+
+/* Desktop: always visible */
+@media (min-width: 1024px) {
+  .scroll-header-mobile {
+    position: relative;
+    transform: none !important;
+  }
+}
+
+/* Custom scrollbar — thin, zinc-themed, for panels and overflow areas */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(161, 161, 170, 0.35);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(161, 161, 170, 0.55);
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+/* Firefox scrollbar */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(161, 161, 170, 0.35) transparent;
+}
+
+.dark .custom-scrollbar {
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
+/* ═══ VIEW TRANSITION ANIMATIONS ═══ */
+/* Smooth fade-in for lazy-loaded views */
+@keyframes viewFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes viewSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.view-enter {
+  animation: viewFadeIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.view-slide-enter {
+  animation: viewSlideIn 250ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Skeleton shimmer — faster, subtler */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(161, 161, 170, 0.08) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.dark .skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ═══ PERFORMANCE — GPU-composited animations only ═══ */
+/* Inbox thread list items — promote to own layer to prevent layout thrash */
+.thread-item {
+  will-change: opacity;
+  contain: content;
+}
+
+/* Lazy view panels — defer off-screen rendering cost */
+.view-panel {
+  contain: layout style;
+}
+
+/* Fast tap response on mobile — remove 300ms click delay */
+a, button, [role="button"], [tabindex] {
+  touch-action: manipulation;
+}
+
+/* Modal entrance — premium feel */
+@keyframes modalEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modal-enter {
+  animation: modalEnter 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Overlay entrance */
+@keyframes overlayEnter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.overlay-enter {
+  animation: overlayEnter 150ms ease-out both;
+}
+
+/* Custom backdrop blur utility */
+.backdrop-blur-heavy {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Premium Dark SaaS Design System - Sendlr */
+
+:root {
+  /* Typography */
+  --font-size: 16px;
+  --font-family-base: 'PP Neue Montreal', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  --font-family-logo: 'PP Neue Montreal', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-family-heading: 'PP Neue Montreal', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  
+  /* Core Colors */
+  --color-teal-glow: #1ED4A7;
+  --color-teal-dim: #159c7b;
+  --color-charcoal-deep: #050505;
+  --color-charcoal-light: #0f0f0f;
+  
+  /* Semantic Tokens - Light Mode Default */
+  --bg-page: #FDFDFD;
+  --bg-surface: #FFFFFF;
+  --bg-surface-2: #F4F4F5;
+  --border-color: rgba(0, 0, 0, 0.08);
+  --text-main: #18181B;
+  --text-muted: #71717A;
+  --accent: var(--color-teal-glow);
+  --accent-dim: var(--color-teal-dim);
+
+  /* Text */
+  --text-primary: var(--text-main);
+  --text-secondary: var(--text-muted);
+  --text-tertiary: #A1A1AA;
+  
+  /* Glassmorphism Specs */
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+  
+  /* Legacy/Compatibility Mappings (remapped to monochrome/teal) */
+  --indigo-600: var(--color-teal-glow);
+  --indigo-500: var(--color-teal-glow);
+  --indigo-400: var(--color-teal-dim);
+  --indigo-100: rgba(30, 212, 167, 0.1);
+  
+  --sky-600: var(--color-teal-glow);
+  --sky-500: var(--color-teal-glow);
+  
+  --emerald-600: var(--color-teal-glow);
+  --emerald-500: var(--color-teal-glow);
+  --emerald-400: #34D399;
+  
+  /* Light Mode Design Tokens */
+  --background: var(--bg-page);
+  --foreground: var(--text-main);
+  --foreground-muted: var(--text-muted);
+  --border: var(--border-color);
+  
+  /* Radius */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  
+  /* Transitions */
+  --transition: 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Shadcn/Tailwind Mappings */
+  --primary: #18181B;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F4F4F5;
+  --secondary-foreground: #18181B;
+  --muted: #F4F4F5;
+  --muted-foreground: #71717A;
+  --accent: #F4F4F5;
+  --accent-foreground: #18181B;
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  --input: rgba(0, 0, 0, 0.08);
+  --ring: #1ED4A7;
+}
+
+/* Dark Mode Configuration */
+.dark {
+  /* Semantic Tokens - Dark Mode */
+  --bg-page: #050505;
+  --bg-surface: rgba(255, 255, 255, 0.03);
+  --bg-surface-2: rgba(255, 255, 255, 0.05);
+  --border-color: rgba(255, 255, 255, 0.08);
+  --text-main: #FFFFFF;
+  --text-muted: #A1A1AA;
+
+  --background: var(--bg-page);
+  --foreground: var(--text-main);
+  --foreground-muted: var(--text-muted);
+  
+  --border: var(--border-color);
+  --border-light: rgba(255, 255, 255, 0.06);
+
+  /* Shadcn/Tailwind Mappings Dark */
+  --primary: #FFFFFF;
+  --primary-foreground: #050505;
+  --secondary: rgba(255, 255, 255, 0.05);
+  --secondary-foreground: #FFFFFF;
+  --muted: rgba(255, 255, 255, 0.05);
+  --muted-foreground: #A1A1AA;
+  --accent: rgba(255, 255, 255, 0.05);
+  --accent-foreground: #FFFFFF;
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #1ED4A7;
+}
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  /* ✅ Scoped touch-action for app UI only (not map internals) */
+  body, #root, button, a, input, textarea, select {
+    touch-action: manipulation;
+  }
+
+  /* Brand green checkboxes */
+  input[type="checkbox"] {
+    accent-color: #1ED4A7;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+    color-scheme: light;
+  }
+
+  /* Dark mode: tell the browser to render native form controls dark */
+  .dark input[type="checkbox"] {
+    color-scheme: dark;
+  }
+
+  /* ✅ iOS Safari auto-zoom fix — inputs below 16px trigger zoom on focus.
+     Force 16px minimum on mobile for all form elements. Map zoom is unaffected. */
+  @media screen and (max-width: 767px) {
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    input[type="number"],
+    input[type="tel"],
+    input[type="url"],
+    input[type="search"],
+    input:not([type]),
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+
+  html {
+    font-size: var(--font-size);
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    height: 100%;
+    width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  body {
+    font-family: var(--font-family-base);
+    font-weight: 300; /* Setting to light (300) so you can see it. If you want regular, change to 400 */
+    background-color: var(--background);
+    color: var(--foreground);
+    /* Default body font size = 14px (text-sm) with readable line-height */
+    font-size: 0.875rem; /* 14px */
+    line-height: 1.5;
+    min-height: 100vh;
+    min-height: 100dvh;
+    position: relative;
+    /* Prevent overscroll bounce on iOS Safari */
+    overscroll-behavior-y: none;
+  }
+  
+  /* Add texture only in dark mode to avoid dirty look in light mode */
+  .dark body {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E"),
+      radial-gradient(circle at 0% 0%, rgba(30, 212, 167, 0.08), transparent 40%),
+      radial-gradient(circle at 100% 100%, rgba(5, 5, 5, 1), transparent 40%);
+    background-repeat: repeat, no-repeat, no-repeat;
+    background-size: 120px 120px, cover, cover;
+  }
+  
+  #root {
+    min-height: 100vh;
+    min-height: 100dvh;
+    width: 100%;
+  }
+
+  /* Standardized Typography Scale - Sendlr Dark Theme */
+  /* Hard rule: No text smaller than 12px (text-xs) in production */
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-family-heading);
+  }
+
+  h1 {
+    font-size: 1.5rem; /* 24px - text-2xl */
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    color: var(--foreground);
+  }
+  
+  @media (min-width: 768px) {
+    h1 {
+      font-size: 2rem; /* 32px desktop */
+    }
+  }
+  
+  h2 {
+    font-size: 1rem; /* 16px - text-base */
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    color: var(--foreground);
+  }
+  
+  @media (min-width: 768px) {
+    h2 {
+      font-size: 1.125rem; /* 18px desktop - text-lg */
+    }
+  }
+  
+  h3 {
+    font-size: 0.875rem; /* 14px - text-sm */
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--foreground);
+  }
+  
+  h4, h5, h6 {
+    font-size: 0.875rem; /* 14px - text-sm */
+    font-weight: 500;
+    color: var(--foreground);
+  }
+  
+  p {
+    font-size: 0.875rem; /* 14px - text-sm */
+    line-height: 1.5;
+    color: var(--foreground-muted);
+  }
+  
+  /* Ensure readable contrast on dark backgrounds */
+  .dark p,
+  .dark .text-muted,
+  .dark .text-secondary {
+    color: #D4D4D8; /* zinc-300 - more readable than zinc-400 */
+  }
+  
+  /* Secondary/helper text */
+  small,
+  .text-secondary {
+    font-size: 0.75rem; /* 12px - text-xs minimum */
+    line-height: 1.25;
+    color: var(--foreground-muted);
+  }
+  
+  /* Labels and badges - minimum 12px */
+  label,
+  .label-text {
+    font-size: 0.75rem; /* 12px - text-xs */
+    font-weight: 500;
+    color: var(--foreground);
+  }
+}
+
+@layer components {
+  /* Glass Card - Adaptive */
+  .glass-card {
+    @apply bg-white border border-zinc-200 shadow-sm rounded-2xl; /* Light mode default */
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.3s ease;
+  }
+  
+  .dark .glass-card {
+    @apply bg-[#050505]/80 backdrop-blur-xl border-white/10 shadow-xl; /* Dark mode override - Stealth Theme */
+  }
+  
+  .glass-card:hover {
+    @apply border-zinc-300;
+  }
+  
+  .dark .glass-card:hover {
+    @apply border-white/20;
+    transform: translateY(-2px);
+  }
+
+  /* Glass Button - Primary */
+  .glass-button-primary {
+    @apply relative overflow-hidden rounded-full px-6 py-2.5 font-medium text-white transition-all duration-300 bg-zinc-900 hover:bg-zinc-800; /* Light mode */
+  }
+  
+  .dark .glass-button-primary {
+    color: white;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
+    border: 1px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(10px);
+  }
+
+  .dark .glass-button-primary::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to right, transparent, rgba(30, 212, 167, 0.2), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.5s ease;
+  }
+
+  .dark .glass-button-primary:hover {
+    @apply border-[#1ED4A7]/50 shadow-[0_0_20px_rgba(30,212,167,0.3)];
+    transform: scale(1.02);
+  }
+
+  .dark .glass-button-primary:hover::before {
+    transform: translateX(100%);
+  }
+
+  /* Glass Button - Secondary */
+  .glass-button-secondary {
+    @apply rounded-full px-6 py-2.5 font-medium text-zinc-700 bg-zinc-100 border border-zinc-200 transition-all duration-300 hover:bg-zinc-200; /* Light mode */
+  }
+  
+  .dark .glass-button-secondary {
+    @apply text-zinc-300 bg-white/5 border-white/10;
+  }
+
+  .dark .glass-button-secondary:hover {
+    @apply bg-white/10 text-white border-white/20;
+  }
+
+  /* Progress Bar */
+  .progress-bar-track {
+    @apply h-1.5 w-full bg-zinc-100 dark:bg-white/10 rounded-full overflow-hidden;
+  }
+
+  .progress-bar-fill {
+    @apply h-full rounded-full transition-all duration-700 ease-out;
+    background: linear-gradient(90deg, #1ED4A7, #159c7b);
+    box-shadow: 0 0 10px rgba(30, 212, 167, 0.3);
+  }
+  
+  /* Toggle Switch */
+  .toggle-switch {
+    @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none;
+  }
+  
+  .toggle-switch[data-state="checked"] {
+    background-color: rgba(30, 212, 167, 0.2);
+    border: 1px solid rgba(30, 212, 167, 0.5);
+  }
+  
+  .toggle-switch[data-state="unchecked"] {
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .toggle-thumb {
+    @apply inline-block h-4 w-4 transform rounded-full bg-white transition-transform;
+  }
+  
+  .toggle-switch[data-state="checked"] .toggle-thumb {
+    @apply translate-x-6 bg-[#1ED4A7] shadow-[0_0_8px_#1ED4A7];
+  }
+  
+  .toggle-switch[data-state="unchecked"] .toggle-thumb {
+    @apply translate-x-1 bg-zinc-400;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar,
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Animations */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; box-shadow: 0 0 10px rgba(30, 212, 167, 0.2); }
+  50% { opacity: 0.8; box-shadow: 0 0 20px rgba(30, 212, 167, 0.4); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.35s ease-out forwards;
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.25s ease-out forwards;
+}
+
+/* ===== Mapbox GL Overrides ===== */
+/* Hide branding */
+.mapboxgl-ctrl-logo,
+.mapboxgl-ctrl-attrib {
+  display: none !important;
+}
+
+/* Popup styling - kept minimal since we now use custom React popups instead of Mapbox popups */
+.mapboxgl-popup {
+  display: none !important; /* We no longer use Mapbox GL popups - using custom React overlay instead */
+}
+
+/* Canvas focus outline */
+.mapboxgl-canvas:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* ✅ CRITICAL: Undo touch-action for Mapbox (prevent interaction blocking in Safari/trackpad) */
+.mapboxgl-map,
+.mapboxgl-map *,
+.mapboxgl-canvas,
+.mapboxgl-marker {
+  touch-action: auto !important;
+}
+
+/* Keep markers visible above the canvas - CRITICAL for production */
+.mapboxgl-marker {
+  z-index: 999 !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  display: block !important;
+  pointer-events: auto !important;
+}
+
+/* Fix Tailwind box-sizing conflict - target specific elements instead of wildcard */
+.mapboxgl-popup-content,
+.mapboxgl-popup-content * {
+  box-sizing: border-box !important;
+}
+
+/* Custom marker dot styling - CSP-safe, no inline styles except color */
+.custom-marker-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  cursor: pointer;
+  position: relative;
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+  transform: translateZ(0);
+  will-change: transform;
+  /* Note: background-color is set inline per marker for dynamic coloring */
+}
+
+/* Hover scale effect */
+.custom-marker-dot:hover {
+  transform: scale(1.4);
+  transition: transform 0.2s ease;
+}
+
+/* Pulse animation - uses inline background color */
+@keyframes markerPulse {
+  0% {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 0 0 rgba(30, 212, 167, 0.7);
+  }
+  70% {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 0 10px rgba(30, 212, 167, 0);
+  }
+  100% {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 0 0 rgba(30, 212, 167, 0);
+  }
+}
+
+.custom-marker-dot.is-pulsing {
+  animation: markerPulse 2s ease-in-out infinite;
+}
+
+/* ═══ MOBILE PWA & SAFE AREA SUPPORT ═══ */
+
+/* Safe-area padding utilities for iOS notch / home indicator */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-left {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.safe-area-right {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Mobile scroll container — single smooth scroll with iOS momentum */
+.mobile-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  /* Default padding for normal browser mode (no app nav bar) */
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+/* Adjust padding when running as a PWA or inside a native webview */
+@media (display-mode: standalone) {
+  main .mobile-scroll, body.is-native-app main .mobile-scroll {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 24px));
+  }
+}
+
+body.is-native-app main .mobile-scroll {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom, 24px));
+}
+
+@media (min-width: 1024px) {
+  .mobile-scroll, body.is-native-app main .mobile-scroll {
+    padding-bottom: 0;
+  }
+}
+
+/* ═══ MOBILE BOTTOM SHEET OPTIMIZATIONS FOR iOS WEBVIEW ═══ */
+
+/* Height presets for bottom sheets */
+.mobile-sheet-small {
+  height: auto;
+  max-height: min(35vh, 400px);
+}
+
+.mobile-sheet-medium {
+  height: auto;
+  max-height: min(60vh, 600px);
+}
+
+.mobile-sheet-large {
+  height: auto;
+  max-height: min(85vh, calc(100dvh - env(safe-area-inset-top, 1rem) - 1rem));
+}
+
+.mobile-sheet-auto {
+  height: auto;
+  max-height: calc(100dvh - env(safe-area-inset-top, 1rem) - 1rem);
+}
+
+/* Mobile webview detection breakpoint */
+@media screen and (max-width: 767px) {
+  /* Bottom sheet should fill more space on mobile */
+  .mobile-sheet-medium {
+    max-height: min(70vh, calc(100dvh - 80px));
+  }
+  
+  .mobile-sheet-large {
+    max-height: calc(100dvh - env(safe-area-inset-top, 1rem) - 1rem);
+  }
+  
+  /* Modal overlays on mobile should use full-width bottom sheets */
+  .modal-as-bottom-sheet {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    max-width: 100%;
+    margin: 0;
+    border-radius: 28px 28px 0 0;
+    /* Limit to 85vh to ensure header is always visible on iPhone */
+    max-height: 85vh;
+  }
+}
+
+/* Keyboard avoidance - ensure forms scroll properly when keyboard is open */
+@media screen and (max-width: 767px) {
+  .mobile-form-container {
+    /* Small buffer — bottom sheets have their own sticky footers */
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  }
+  
+  /* When keyboard is visible, ensure bottom buttons are accessible */
+  .keyboard-aware-footer {
+    position: sticky;
+    bottom: 0;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+    background: white;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+  }
+  
+  .dark .keyboard-aware-footer {
+    background: #111111;
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Minimum tap target size — Apple HIG recommends 44px */
+@media screen and (max-width: 767px) {
+  /* Ensure all interactive elements have adequate tap targets */
+  button:not(.tap-target-override),
+  [role="button"]:not(.tap-target-override),
+  a:not(.tap-target-override) {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Compact nav buttons need smaller targets */
+  .nav-compact button,
+  .nav-compact a {
+    min-height: 40px;
+    min-width: auto;
+  }
+  
+  /* Chip/tag groups - ensure proper wrapping and touch targets */
+  .mobile-chip-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: -0.25rem; /* Negative margin to compensate for item spacing */
+  }
+  
+  .mobile-chip {
+    min-height: 44px;
+    padding: 0.625rem 1rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+}
+
+/* PWA standalone mode adjustments */
+@media all and (display-mode: standalone) {
+  /* In standalone PWA mode, account for the iOS status bar */
+  .pwa-status-bar-offset {
+    padding-top: env(safe-area-inset-top, 20px);
+  }
+  
+  /* Ensure bottom content clears the home indicator */
+  .pwa-bottom-offset {
+    padding-bottom: env(safe-area-inset-bottom, 20px);
+  }
+}
+
+/* Active/pressed state for native feel on mobile */
+@media (hover: none) and (pointer: coarse) {
+  button:active,
+  [role="button"]:active,
+  a:active {
+    opacity: 0.85;
+    transform: scale(0.98);
+    transition: opacity 0.1s, transform 0.1s;
+  }
+}
+
+/* ═══ PRINT STYLES — Competitive Report PDF Export ═══ */
+@media print {
+  body {
+    background: white !important;
+    background-image: none !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print\:hidden,
+  nav, aside, header,
+  [data-sidebar], [data-topbar] {
+    display: none !important;
+  }
+  .print\:block {
+    display: block !important;
+  }
+  .print\:p-0 { padding: 0 !important; }
+  .print\:bg-white { background: white !important; }
+  .print\:max-h-none { max-height: none !important; }
+  .print\:overflow-visible { overflow: visible !important; }
+  .print\:border-0 { border: none !important; }
+  .print\:rounded-none { border-radius: 0 !important; }
+  .print\:max-w-none { max-width: none !important; }
+}

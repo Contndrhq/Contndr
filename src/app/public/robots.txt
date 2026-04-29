@@ -1,0 +1,84 @@
+# ─────────────────────────────────────────────────────
+# Contndr — robots.txt
+# https://contndr.com
+# Last updated: 2026-02-12
+# ─────────────────────────────────────────────────────
+
+# Allow all well-behaved crawlers
+User-agent: *
+Allow: /
+Allow: /about
+Allow: /security
+Allow: /contact
+Allow: /careers
+Allow: /blog
+Allow: /blog/
+Allow: /privacy
+Allow: /terms
+
+# Block protected/private areas
+Disallow: /app
+Disallow: /app/
+Disallow: /auth
+Disallow: /auth/
+Disallow: /accept-invite
+Disallow: /r/
+
+# Block API / server endpoints
+Disallow: /functions/
+Disallow: /api/
+
+# Block utility files
+Disallow: /*.json$
+Disallow: /assets/
+
+# Crawl-delay to be polite
+Crawl-delay: 1
+
+# ─────────────────────────────────────────────────────
+# Googlebot-specific (Google ignores Crawl-delay)
+# ─────────────────────────────────────────────────────
+User-agent: Googlebot
+Allow: /
+Disallow: /app
+Disallow: /app/
+Disallow: /auth
+Disallow: /accept-invite
+Disallow: /r/
+Disallow: /functions/
+
+# ─────────────────────────────────────────────────────
+# Bingbot
+# ─────────────────────────────────────────────────────
+User-agent: Bingbot
+Allow: /
+Disallow: /app
+Disallow: /app/
+Disallow: /auth
+Disallow: /accept-invite
+Disallow: /r/
+Disallow: /functions/
+Crawl-delay: 2
+
+# ─────────────────────────────────────────────────────
+# Block AI training bots (optional, protects your content)
+# ─────────────────────────────────────────────────────
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+# ─────────────────────────────────────────────────────
+# Sitemaps
+# ─────────────────────────────────────────────────────
+Sitemap: https://contndr.com/sitemap.xml

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contndr — OAuth Complete</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #050505;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    /* Subtle background glow */
+    .glow {
+      position: fixed;
+      top: 30%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 400px;
+      height: 400px;
+      border-radius: 50%;
+      pointer-events: none;
+      opacity: 0.15;
+      filter: blur(80px);
+      transition: background 0.5s ease;
+    }
+    .glow.ok { background: #1ED4A7; }
+    .glow.err { background: #ef4444; }
+    .glow.loading { background: #fff; }
+
+    .wrap { text-align: center; max-width: 340px; padding: 0 24px; position: relative; z-index: 1; }
+
+    /* Icon container */
+    .icon-ring {
+      width: 72px;
+      height: 72px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      transition: all 0.4s ease;
+      position: relative;
+    }
+    .icon-ring.ok { background: rgba(30,212,167,0.1); border: 1px solid rgba(30,212,167,0.2); }
+    .icon-ring.err { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); }
+    .icon-ring.loading { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+
+    /* Animated ping on success */
+    .icon-ring.ok::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 16px;
+      background: rgba(30,212,167,0.15);
+      animation: ping 2s cubic-bezier(0, 0, 0.2, 1) 1;
+    }
+    @keyframes ping {
+      0% { transform: scale(1); opacity: 0.5; }
+      100% { transform: scale(1.6); opacity: 0; }
+    }
+
+    .icon-ring svg {
+      width: 32px;
+      height: 32px;
+      transition: all 0.3s ease;
+    }
+    .icon-ring.ok svg { color: #1ED4A7; }
+    .icon-ring.err svg { color: #ef4444; }
+    .icon-ring.loading svg { color: rgba(255,255,255,0.4); animation: spin 1s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    .title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      opacity: 0;
+      animation: fadeUp 0.4s ease 0.1s forwards;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #71717a;
+      line-height: 1.5;
+      opacity: 0;
+      animation: fadeUp 0.4s ease 0.2s forwards;
+    }
+    .detail {
+      font-size: 13px;
+      font-weight: 500;
+      color: #a1a1aa;
+      margin-top: 4px;
+      opacity: 0;
+      animation: fadeUp 0.4s ease 0.25s forwards;
+    }
+
+    /* Badge */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 20px;
+      opacity: 0;
+      animation: fadeUp 0.4s ease 0.3s forwards;
+    }
+    .badge.ok { background: rgba(30,212,167,0.1); color: #1ED4A7; }
+    .badge.err { background: rgba(239,68,68,0.1); color: #ef4444; }
+    .badge .dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    .badge.ok .dot { background: #1ED4A7; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    .hint {
+      color: #52525b;
+      font-size: 13px;
+      margin-top: 12px;
+      opacity: 0;
+      animation: fadeUp 0.4s ease 0.35s forwards;
+    }
+
+    /* Close button */
+    .close-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 16px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.6);
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      opacity: 0;
+      animation: fadeUp 0.4s ease 0.4s forwards;
+    }
+    .close-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+    .back-link {
+      display: inline-block;
+      margin-top: 16px;
+      padding: 8px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #fff;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      text-decoration: none;
+      transition: all 0.2s ease;
+      opacity: 0;
+      animation: fadeUp 0.4s ease 0.35s forwards;
+    }
+    .back-link:hover { background: rgba(255,255,255,0.08); }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow loading" id="glow"></div>
+  <div class="wrap" id="wrap">
+    <div class="icon-ring loading" id="iconRing">
+      <svg id="iconSvg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+      </svg>
+    </div>
+    <p class="title" id="title">Processing...</p>
+    <p class="subtitle" id="subtitle">Completing your connection</p>
+  </div>
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var email = params.get('oauth_email');
+      var error = params.get('oauth_error');
+
+      var glow = document.getElementById('glow');
+      var ring = document.getElementById('iconRing');
+      var svg = document.getElementById('iconSvg');
+      var title = document.getElementById('title');
+      var subtitle = document.getElementById('subtitle');
+      var wrap = document.getElementById('wrap');
+
+      if (email) {
+        // Success state
+        glow.className = 'glow ok';
+        ring.className = 'icon-ring ok';
+        svg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />';
+        title.textContent = 'Email Connected';
+        subtitle.textContent = email;
+
+        var badge = document.createElement('div');
+        badge.className = 'badge ok';
+        badge.innerHTML = '<span class="dot"></span>Result sent to Contndr';
+        wrap.appendChild(badge);
+
+        var hint = document.createElement('p');
+        hint.className = 'hint';
+        hint.textContent = 'You can safely close this tab.';
+        wrap.appendChild(hint);
+
+        var btn = document.createElement('button');
+        btn.className = 'close-btn';
+        btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>Close Tab';
+        btn.onclick = function() { try { window.close(); } catch(e) {} };
+        wrap.appendChild(btn);
+      } else if (error) {
+        // Error state
+        glow.className = 'glow err';
+        ring.className = 'icon-ring err';
+        svg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />';
+        title.textContent = 'Connection Failed';
+        subtitle.textContent = error;
+
+        var badge = document.createElement('div');
+        badge.className = 'badge err';
+        badge.innerHTML = 'Error reported to app';
+        wrap.appendChild(badge);
+
+        var link = document.createElement('a');
+        link.className = 'back-link';
+        link.href = '/settings';
+        link.textContent = 'Back to Settings';
+        wrap.appendChild(link);
+      }
+
+      // Notify parent app via BroadcastChannel (works even when COOP
+      // from Google/Microsoft has severed the window.opener relationship)
+      try {
+        var bc = new BroadcastChannel('contndr-oauth-result');
+        bc.postMessage({
+          type: email ? 'oauth-connected' : 'oauth-error',
+          email: email || null,
+          error: error || null
+        });
+        setTimeout(function () { try { bc.close(); } catch (e) {} }, 1000);
+      } catch (e) {}
+
+      // Also try postMessage to opener (fallback)
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage({
+            type: email ? 'oauth-connected' : 'oauth-error',
+            email: email || null,
+            error: error || null
+          }, '*');
+        }
+      } catch (e) {}
+
+      // Try to auto-close (best effort — usually blocked by COOP)
+      try { window.close(); } catch (e) {}
+      setTimeout(function () { try { window.close(); } catch (e) {} }, 1500);
+    })();
+  </script>
+</body>
+</html>

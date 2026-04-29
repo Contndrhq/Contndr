@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+.DS_Store
+supabase/.temp/
+src/app/supabase/.temp/
+src/app/tmp/
+src/app/imports/*
+!src/app/imports/svg-*.tsx
+.vercel

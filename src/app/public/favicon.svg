@@ -1,0 +1,13 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+<style>
+  .mark { fill: #18181b; }
+  @media (prefers-color-scheme: dark) {
+    .mark { fill: #ffffff; }
+  }
+</style>
+<g transform="translate(4 6.6) scale(0.2373)">
+  <path d="M167.024 0V25.5283H210.319V68.8128H235.847V0H167.024Z" class="mark"/>
+  <path d="M96.5837 25.5283H149.903V0H86.016L0 86.016H36.096L96.5837 25.5283Z" class="mark"/>
+  <path d="M210.319 187.75H96.5837L36.096 127.263H0L86.016 213.279H235.848V144.466H210.319V187.75Z" class="mark"/>
+</g>
+</svg>

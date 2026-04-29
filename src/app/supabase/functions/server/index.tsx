@@ -1,0 +1,19761 @@
+import { Hono } from "npm:hono";
+import { cors } from "npm:hono/cors";
+// svix is loaded dynamically inside the webhook handler to avoid crashing
+// the server on cold-start if the npm package fails to resolve.
+import { createClient } from "npm:@supabase/supabase-js@2";
+// scraper.tsx — lazy-loaded on demand to reduce bundle
+// email-scraper-improved.tsx — lazy-loaded if needed
+// contact-scraper.tsx — lazy-loaded if needed
+// enrichment_agent.tsx — lazy-loaded if needed
+import * as kv from "./kv-retry.tsx";
+import { handleBounceAutoDelete, getBouncedLeads, purgeBouncedLeads, markLeadBouncedByEmail } from "./bounce-handler.tsx";
+import { checkDuplicatesAndFilter } from "./duplicate-check.tsx";
+// follow-ups.tsx — lazy-loaded on demand (transitively bundled via campaign-worker.tsx)
+import { processAutomationRule } from "./automation.tsx";
+// sourcr-knowledge.tsx — not directly used in index.tsx (used by ai-agent.tsx internally)
+import { sendEmail, getSenderEmail, sendWaitlistConfirmation, sendInviteEmail, sendSystemEmail, sendAccessGrantedEmail } from "./email-sender.tsx";
+import {
+  createOAuthState, verifyOAuthState,
+  getGmailAuthUrl, exchangeGmailCode, getGmailUserInfo, storeGmailTokens,
+  getOutlookAuthUrl, exchangeOutlookCode, getOutlookUserInfo, storeOutlookTokens,
+  disconnectProvider, getEmailSettingsFromKV, saveSmtpConfigToKV, kvProviderKey,
+  storeRotationTokens,
+} from "./oauth-email.tsx";
+// ai-agent.tsx — lazy-loaded if needed
+import { getRevenueMetrics, getConversionFunnel, getPaymentsByBrand, syncHistoricalPayments, syncStripeSubscriptions, deduplicatePayments } from "./stripe-integration.tsx";
+import { getConversations, markConversationAsRead, getInboxStats } from "./inbox.tsx";
+// ab-testing.tsx — lazy-loaded if needed
+import { createKnowledgeBaseEntry, updateKnowledgeBaseEntry, deleteKnowledgeBaseEntry, getKnowledgeBaseByBrand, getKnowledgeBaseContext, getKBWritingOverrides, initializeKnowledgeBase } from "./knowledge-base.tsx";
+import telnyxApp from "./telnyx.tsx";
+import quoApp from "./quo.tsx";
+import quoWebrtcApp from "./quo-webrtc.tsx";
+import elevenLabsApp from "./elevenlabs.tsx";
+import calendlyApp from "./calendly.tsx";
+import aiCallProcessorApp from "./ai-call-processor.tsx";
+import aiCreditsApp from "./ai-credits.tsx";
+import { allocateCredits as allocateAICredits, hasCredits as hasAICredits, deductCredits as deductAICredits } from "./ai-credits.tsx";
+import leadEngineApp from "./lead-engine.tsx";
+import apolloNativeApp from "./apollo-native.tsx";
+import { toTitleCase } from "./apollo-native.tsx";
+import { normalizeIndustry, normalizeName, normalizeJobTitle, normalizeLocation } from "./industry-normalizer.tsx";
+import deepProspectApp from "./deep-prospect.tsx";
+import companySearchApp from "./company-search.tsx";
+import creatorFinderApp from "./creator-finder.tsx";
+import hubspotApp from "./hubspot.tsx";
+import salesforceApp from "./salesforce.tsx";
+import slackApp from "./slack.tsx";
+import quickbooksApp from "./quickbooks.tsx";
+import teamSharingApp from "./team-sharing.tsx";
+import salesLeaderboardApp from "./sales-leaderboard.tsx";
+import gravatarApp from "./gravatar.tsx";
+import aiAssistantApp from "./ai-assistant.tsx";
+import pipelineApp from "./pipeline.tsx";
+import { firePipelineTrigger } from "./pipeline.tsx";
+import { validateEmailDeep, validateEmailFast } from "./email-verifier.tsx";
+import { generateAI, generateAIWithRetries } from "./ai-provider.tsx";
+// analytics-service.tsx — lazy-loaded on demand to reduce bundle
+import { getUserSubscriptionStatus, createCheckoutSession, handleStripeWebhook, isUserWhitelisted, getStripe, PLANS, syncStripeSubscription, cancelUserSubscription, getUserMarket, saveUserMarket } from "./contndr-billing.tsx";
+import { getTeamId, getTeamMembers, inviteMember, acceptInvite, removeMember, cancelInvite } from "./team.tsx";
+import { listSharedLeads, revealSharedLead, getUserEntitlements as getLeadEntitlements, getCachedSourceUserIds } from "./global-leads.tsx";
+// Lazy-loaded: api-diagnostics, city-cleanup, demo-seeder, country-backfill (admin utils — dynamic import to reduce bundle)
+// htmlResponse removed — OAuth callbacks now use 302 redirects to static oauth-callback.html
+import { scoreLead, scoreAllLeads, getLeadScoreBreakdown, calculateLeadScore } from "./lead-scoring.tsx";
+import { enqueueCampaign, getPendingCampaigns, processAllFollowUps, getFollowUpsDueCount, processAllUsersFollowUps, maybeRunGlobalCron } from "./campaign-worker.tsx";
+import { enqueueRetry, getDueRetries, removeFromQueue, getRetryQueue, getRetryStats, classifyFailure, retryDeadLetters, getDeadLetterQueue, getCampaignsWithRetries, updateRetryStats } from "./job-queue.tsx";
+// gmail-sync.tsx — lazy-loaded on demand to reduce bundle
+// country-backfill.tsx — lazy-loaded via dynamic import in route handlers
+import { TRACKING_PIXEL_GIF, injectAllTracking, textToHtml, getEmailProvider, storeTrackingUserAgent, classifyUserAgent } from "./email-tracking.tsx";
+import intentEngineApp from "./intent-engine.tsx";
+import { recordIntentSignal } from "./intent-engine.tsx";
+import adminEventsApp from "./admin-events.tsx";
+import { logAdminEvent } from "./admin-events.tsx";
+import socialApp from "./social-syncer.tsx";
+import socialTrackerApp from "./social-tracker.tsx";
+import { runFullCronCycle, resumeAllUsersCampaigns, getFullCronStatus, registerDenoCron, getNotifications, markNotificationRead, markAllNotificationsRead, getUnreadCount, deleteNotification, rescoreAllUsersLeads, cleanupOldClickTracking } from "./cron-scheduler.tsx";
+import { runCleanup, getKVStats } from "./kv-cleanup.tsx";
+import { resetCircuit } from "./kv-retry.tsx";
+
+import { createSequence, getSequence, updateSequence, deleteSequence, listSequences, enrollLeads, getEnrollment, getSequenceStats, processSequences, handleReplyDetected, processAllSequences } from "./sequence-engine.tsx";
+import { recordUnsubscribe, isUnsubscribed, getUnsubscribes, removeUnsubscribe, addToBlacklist, removeFromBlacklist, getBlacklist, isBlacklisted, parseBlacklistCSV, checkCompliance, getComplianceStats, injectUnsubscribeLink } from "./compliance.tsx";
+import { startWarmup, listWarmupAccounts, pauseWarmup, resumeWarmup, deleteWarmup, updateWarmupProgress, canSendWarmup, getSenderAccounts, addSenderAccount, removeSenderAccount, updateSenderAccount, getRotationConfig, setRotationConfig, pickNextSender, getRotationStats } from "./warmup-engine.tsx";
+
+// ─── Server-side send-batch in-flight lock ────────────────────────────
+// Prevents two concurrent HTTP requests for the same campaign from racing
+// inside the same Edge Function isolate (e.g. BroadcastContext loop +
+// campaign-monitor firing at the same 30s tick).
+// Key = "<userId>:<campaignId>" → ISO timestamp of acquisition.
+// Cleared on cold boot — that's intentional (no send was in-flight on a
+// fresh isolate).
+const campaignSendInFlight = new Map<string, string>();
+
+// ─── Supabase Admin Client Singleton ─────────────────────────────────
+// Re-uses a single service-role client instead of calling createClient()
+// on every request, avoiding redundant TCP/TLS handshakes.
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null;
+
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+        global: {
+          fetch: (url, init) => {
+            // Add timeout to all Supabase requests
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s global timeout
+            
+            return fetch(url, {
+              ...init,
+              signal: controller.signal,
+            }).finally(() => clearTimeout(timeoutId));
+          },
+        },
+      }
+    );
+  }
+  return _supabaseAdmin;
+}
+
+/** Reset singleton so next call creates a fresh TCP connection */
+function resetSupabaseAdmin() {
+  _supabaseAdmin = null;
+}
+
+// ─── withDbRetry — schema-cache-aware retry for direct Supabase queries ──────
+// PostgREST returns "Could not query the database for the schema cache. Retrying."
+// (PGRST002) transiently on cold starts.  kv-retry.tsx already covers KV
+// operations; this wrapper covers raw supabase.from() calls in route handlers.
+//
+// Usage:
+//   const { data, error } = await withDbRetry(() =>
+//     supabase.from('leads').select('id').eq('user_id', uid)
+//   );
+const DB_RETRY_ATTEMPTS = 3;
+const DB_RETRY_BASE_MS  = 800;  // 800ms → 1.6s → 3.2s (plus extra 1.5s for schema-cache)
+
+async function withDbRetry<T>(
+  fn: () => Promise<T>,
+  label = 'db-query'
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < DB_RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      const msg: string = err?.message ?? String(err);
+      // Hard stops — DB statement timeout / our own wrapper timeout must NOT be retried.
+      // Retrying a timed-out query just adds more load to an already-slow DB.
+      const isStatementTimeout =
+        msg.includes('canceling statement due to') ||
+        msg.includes('57014') ||            // PostgreSQL statement_timeout error code
+        msg.includes('Query timeout after'); // kv-retry wrapper timeout
+      if (isStatementTimeout) {
+        throw err;
+      }
+      const isSchemaCache = msg.includes('schema cache') || msg.includes('PGRST002');
+      const isTransient   = isSchemaCache
+        || msg.includes('Connection reset')
+        || msg.includes('connection reset')
+        || msg.includes('ECONNRESET')
+        || msg.includes('broken pipe')
+        || msg.includes('Failed to fetch')
+        || msg.includes('fetch failed')
+        || msg.includes('server closed the connection');
+      if (isTransient && attempt < DB_RETRY_ATTEMPTS - 1) {
+        const delay = DB_RETRY_BASE_MS * Math.pow(2, attempt) + (isSchemaCache ? 1500 : 0);
+        console.warn(`[DB-RETRY] ${label} attempt ${attempt + 1}/${DB_RETRY_ATTEMPTS} failed (${msg.slice(0, 100)}), retrying in ${delay}ms…`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
+// ─── Connection Health Monitoring ─────────────────────────────────────
+// Track consecutive connection errors and proactively reset the client
+let _consecutiveConnectionErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 3;
+let _lastClientReset = Date.now();
+const CLIENT_MAX_AGE_MS = 300000; // 5 minutes - reset client periodically
+
+function recordConnectionError() {
+  _consecutiveConnectionErrors++;
+  if (_consecutiveConnectionErrors >= MAX_CONSECUTIVE_ERRORS) {
+    console.warn(`[CONNECTION-HEALTH] ${_consecutiveConnectionErrors} consecutive errors detected - resetting Supabase client`);
+    resetSupabaseAdmin();
+    _lastClientReset = Date.now();
+    _consecutiveConnectionErrors = 0;
+  }
+}
+
+function recordConnectionSuccess() {
+  if (_consecutiveConnectionErrors > 0) {
+    _consecutiveConnectionErrors = 0;
+  }
+  
+  // Proactively reset client if it's been alive for too long
+  if (Date.now() - _lastClientReset > CLIENT_MAX_AGE_MS) {
+    console.debug('[CONNECTION-HEALTH] Client age exceeded 5min - proactive reset');
+    resetSupabaseAdmin();
+    _lastClientReset = Date.now();
+  }
+}
+
+const app = new Hono();
+
+// Expose the Hono app instance on globalThis so internal modules (e.g. cron-scheduler)
+// can call routes directly without going through the Supabase API gateway.
+(globalThis as any).__honoApp = app;
+
+// Global Error Handler to prevent crashes
+app.onError((err, c) => {
+  // Client disconnections are expected (SSE close, navigation, aborted fetches) — ignore
+  const msg = err?.message || '';
+  if (isConnectionClosedMsg(msg) || err?.name === 'Http' || err?.name === 'AbortError') {
+    return c.text('', 499 as any);
+  }
+  // Forward auth errors with their proper status code (401) so the frontend
+  // can trigger token refresh instead of treating them as server crashes.
+  const status = (err as any)?.status;
+  if (status && status >= 400 && status < 500) {
+    return c.json({ error: err.message }, status);
+  }
+  console.error('🔥 Global Server Error:', err);
+  // Never expose stack traces to clients — log them server-side only
+  return c.json({ 
+    error: "Internal Server Error", 
+    message: err.message
+  }, 500);
+});
+
+// Global Not Found Handler
+app.notFound((c) => {
+  return c.json({ error: "Endpoint not found", path: c.req.path }, 404);
+});
+
+// Server version for debugging
+console.log('[SERVER] Contndr Server v3.5.3 - Social Tracker: tertiary SerpAPI search for posts/views via stat sites + secondary LinkedIn/FB posts search');
+
+// ─── Register Deno.cron (if available) ────────────────────���──────────
+// Attempts to register automatic cron jobs for follow-ups & campaign resume.
+// Falls back gracefully to external cron + opportunistic triggers.
+registerDenoCron();
+
+// ─── Suppress harmless Deno runtime connection errors ────────────────
+// "Http: connection closed before message completed" fires at the Deno
+// respondWith() level — AFTER the Hono handler has returned a Response —
+// when the client disconnects (navigation, tab close, aborted fetch).
+// Neither Hono onError nor Deno.serve onError can catch it because it
+// happens inside the runtime's TCP write path.  Global listeners are the
+// only reliable way to prevent it from crashing the worker.
+
+function isConnectionClosedMsg(msg: string): boolean {
+  return (
+    msg.includes("connection closed before message completed") ||
+    msg.includes("connection closed") ||
+    msg.includes("resource closed") ||
+    msg.includes("operation completed with an error") ||
+    msg.includes("request or response body error") ||
+    msg.includes("The stream controller cannot close or enqueue") ||
+    msg.includes("broken pipe") ||
+    msg.includes("EPIPE") ||
+    msg.includes("error writing a body to connection")
+  );
+}
+
+// ─── Suppress connection errors BEFORE they reach console ────────────
+// Patch console.error to filter out benign connection closed messages
+const originalConsoleError = console.error;
+console.error = (...args: any[]) => {
+  const msg = args.join(' ');
+  // Suppress connection closed errors that are expected and handled
+  if (isConnectionClosedMsg(msg) || msg.includes('name: "Http"') || /^Http[:\s]/i.test(msg)) {
+    return; // silently ignore
+  }
+  originalConsoleError.apply(console, args);
+};
+
+globalThis.addEventListener("unhandledrejection", (e) => {
+  const err = e.reason;
+  const msg = err?.message || String(err);
+  if (isConnectionClosedMsg(msg) || err?.name === "Http") {
+    e.preventDefault(); // swallow — totally expected in edge-function environments
+    return;
+  }
+  // Let other genuine unhandled rejections propagate normally
+});
+
+// Also catch synchronous runtime errors (some Deno versions surface
+// connection-closed as a thrown Error, not a rejected Promise).
+globalThis.addEventListener("error", (e) => {
+  const msg = e.message || e.error?.message || String(e.error) || '';
+  if (isConnectionClosedMsg(msg) || (e.error && e.error.name === "Http")) {
+    e.preventDefault();
+    return;
+  }
+});
+
+// Simple in-memory cache for expensive operations (TTL: 2 minutes)
+const cache = new Map<string, { data: any; expires: number }>();
+const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+let lastCacheCleanup = Date.now();
+
+function getCached(key: string) {
+  const cached = cache.get(key);
+  if (cached && cached.expires > Date.now()) {
+    return cached.data;
+  }
+  cache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: any, ttl?: number) {
+  cache.set(key, { data, expires: Date.now() + (ttl || CACHE_TTL) });
+  
+  // Cleanup expired entries every 5 minutes (instead of on every set)
+  const now = Date.now();
+  if (now - lastCacheCleanup > 5 * 60 * 1000) {
+    for (const [k, v] of cache.entries()) {
+      if (v.expires < now) {
+        cache.delete(k);
+      }
+    }
+    lastCacheCleanup = now;
+  }
+  
+  // Hard limit: Keep max 200 items
+  if (cache.size > 200) {
+    const firstKey = cache.keys().next().value;
+    cache.delete(firstKey);
+  }
+}
+
+// ─── Resilient KV helpers ────────────────────────────────────────────
+// Wraps kv operations with a single retry on transient 502/5xx errors.
+// Returns undefined (for get) or swallows (for set) instead of crashing.
+async function kvGetSafe<T = any>(key: string, fallback?: T): Promise<T | undefined> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await kv.get(key) ?? fallback;
+    } catch (err: any) {
+      if (attempt === 0 && isTransientError(err)) {
+        await new Promise(r => setTimeout(r, 300));
+        continue;
+      }
+      console.debug(`[KV] get("${key}") failed:`, truncateError(err));
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
+async function kvSetSafe(key: string, value: any): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await kv.set(key, value);
+      return true;
+    } catch (err: any) {
+      if (attempt === 0 && isTransientError(err)) {
+        await new Promise(r => setTimeout(r, 300));
+        continue;
+      }
+      console.debug(`[KV] set("${key}") failed:`, truncateError(err));
+      return false;
+    }
+  }
+  return false;
+}
+
+// Safe getByPrefix with retry (LIKE queries are prone to 57014 timeouts)
+async function kvGetByPrefixSafe(prefix: string, fallback: any[] = []): Promise<any[]> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return (await kv.getByPrefix(prefix)) || fallback;
+    } catch (err: any) {
+      if (attempt < 2 && isTransientError(err)) {
+        const delay = 400 * (attempt + 1);
+        console.debug(`[KV] getByPrefix("${prefix}") transient error (attempt ${attempt + 1}/3), retrying in ${delay}ms:`, truncateError(err));
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      console.error(`[KV] getByPrefix("${prefix}") failed after retries:`, truncateError(err));
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
+function isTransientError(err: any): boolean {
+  const msg = err?.message || err?.code || String(err);
+  return msg.includes('502') || msg.includes('503') || msg.includes('504')
+    || msg.includes('Bad gateway') || msg.includes('Bad Gateway')
+    || msg.includes('ECONNRESET') || msg.includes('timeout') || msg.includes('57014')
+    || msg.includes('<!DOCTYPE')
+    || msg.includes('schema cache') || msg.includes('PGRST002')
+    || msg.includes('Database error') || msg.includes('Unexpected failure')
+    || msg.includes('fetch failed') || msg.includes('Failed to fetch')
+    || msg.includes('connection reset') || msg.includes('error sending request');
+}
+
+function truncateError(err: any): string {
+  const msg = err?.message || String(err);
+  if (msg.includes('<!DOCTYPE') || msg.length > 200) {
+    return msg.slice(0, 120).replace(/\n/g, ' ') + '… (truncated HTML/long error)';
+  }
+  return msg;
+}
+
+// Note: logger() middleware disabled because it interferes with JSON responses
+// app.use('*', logger());
+app.use('*', cors({
+  origin: '*',
+  allowHeaders: ['Authorization', 'Content-Type', 'X-Requested-With', 'apikey'],
+  allowMethods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  exposeHeaders: ['Content-Length'],
+  maxAge: 600,
+  credentials: false,
+}));
+
+// The cors() middleware handles OPTIONS preflights automatically.
+// A separate app.options('*') handler was removed because it was overriding
+// the cors middleware response, stripping CORS headers from preflights.
+
+// Helper: Create an error with an HTTP status so catch blocks can return the
+// correct status code instead of a blanket 500. Auth failures → 401.
+function authError(message: string, status = 401): Error {
+  const err = new Error(message);
+  (err as any).status = status;
+  return err;
+}
+
+// Helper: check whether an error is an auth/401 error thrown by authError() or getAuthenticatedUser()
+function isAuthError(err: any): boolean {
+  if (err?.status === 401) return true;
+  const msg = err?.message || '';
+  return msg.includes('Authentication failed') || msg.includes('Session expired')
+    || msg.includes('No Authorization header') || msg.includes('Invalid Authorization header');
+}
+
+// Helper: Get authenticated user (uses singleton admin client)
+async function getAuthenticatedUser(c: any) {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) {
+    throw authError("Authentication failed: No Authorization header");
+  }
+
+  // Extract the JWT token from "Bearer TOKEN" format
+  const token = authHeader.replace('Bearer ', '').trim();
+  if (!token || token === authHeader || token === 'undefined' || token === 'null') {
+    throw authError("Authentication failed: Invalid Authorization header format");
+  }
+
+  // Use singleton service role client
+  const supabase = getSupabaseAdmin();
+
+  // ── Service-key impersonation (for cron / internal calls) ──
+  // If the token matches the service role key AND the X-Cron-As-User header is set,
+  // look up that user via admin API instead of JWT auth. This lets the cron system
+  // call authenticated endpoints on behalf of any user without needing their JWT.
+  const serviceKey = (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '').trim();
+  const cronAsUser = c.req.header('X-Cron-As-User');
+  if (serviceKey && token.trim() === serviceKey && cronAsUser) {
+    try {
+      const { data, error } = await supabase.auth.admin.getUserById(cronAsUser);
+      if (error) throw error;
+      if (!data?.user) throw new Error('User not found');
+      console.log(`[AUTH] Service-key impersonation for user ${data.user.email} (cron)`);
+      return { user: data.user, supabase };
+    } catch (err: any) {
+      console.error('[AUTH] Service-key impersonation failed:', err.message);
+      throw authError(`Cron impersonation failed: ${err.message}`);
+    }
+  }
+  
+  // Verify the user's JWT token (with retry for transient connection resets)
+  let user;
+  const AUTH_MAX_RETRIES = 5;
+  const AUTH_TIMEOUT_MS = 15000; // 15s timeout for auth operations
+  for (let _authAttempt = 0; _authAttempt < AUTH_MAX_RETRIES; _authAttempt++) {
+    try {
+      // Re-fetch client each attempt so resetSupabaseAdmin() takes effect
+      const client = getSupabaseAdmin();
+      
+      // Wrap auth call with timeout protection
+      const result = await Promise.race([
+        client.auth.getUser(token),
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Auth timeout after 15000ms')), AUTH_TIMEOUT_MS)
+        )
+      ]);
+      
+      if (result.error) throw result.error;
+      user = result.data.user;
+      recordConnectionSuccess(); // Track successful auth
+      break; // success
+    } catch (err) {
+      const msg = err?.message ?? String(err);
+      
+      // AbortSignal errors = client cancelled request (navigation, timeout, etc.)
+      // These are NOT recoverable network errors, so don't retry
+      const isAbortError = msg.includes('signal is aborted') || msg.includes('aborted without reason')
+        || msg.includes('operation was aborted') || msg.includes('The operation was aborted');
+      if (isAbortError) {
+        console.debug(`[AUTH] Request aborted by client (navigation/timeout) — ${msg}`);
+        throw authError('Request aborted');
+      }
+      
+      // Check if this is a transient network error worth retrying
+      const isTransientNetwork = msg.includes('connection reset') || msg.includes('error sending request')
+        || msg.includes('ECONNRESET') || msg.includes('os error 104')
+        || msg.includes('broken pipe') || msg.includes('network error')
+        || msg.includes('connection unexpectedly') || msg.includes('client error')
+        || msg.includes('SendRequest') || msg.includes('ConnectionAborted')
+        || msg.includes('connection closed before message completed')
+        || msg.includes('schema cache') || msg.includes('PGRST002')
+        || msg.includes('Database error querying schema') || msg.includes('Unexpected failure')
+        || msg.includes('fetch failed') || msg.includes('Failed to fetch')
+        || msg.includes('tls handshake') || msg.includes('close_notify')
+        || msg.includes('peer closed connection') || msg.includes('Auth timeout')
+        || msg.includes('eof');
+      if (isTransientNetwork && _authAttempt < AUTH_MAX_RETRIES - 1) {
+        // Track connection errors for health monitoring
+        recordConnectionError();
+        
+        // Reset singleton client so next attempt gets a fresh TCP connection
+        resetSupabaseAdmin();
+        const jitter = Math.random() * 200;
+        const delay = 400 * Math.pow(2, _authAttempt) + jitter;
+        // Only log warning on 2nd+ attempt to reduce noise from normal cold-start slowness
+        if (_authAttempt === 0) {
+          console.debug(`[AUTH] Network error (attempt ${_authAttempt + 1}/${AUTH_MAX_RETRIES}), retrying in ${Math.round(delay)}ms — ${msg}`);
+        } else {
+          console.log(`[AUTH] Network error (attempt ${_authAttempt + 1}/${AUTH_MAX_RETRIES}), retrying in ${Math.round(delay)}ms — ${msg}`);
+        }
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      // Suppress "Auth session missing!" logs as they are just expired sessions
+      if (msg === 'Auth session missing!') {
+         throw authError('Session expired');
+      }
+      // Suppress expired-token errors — routine, handled by client-side 401 retry
+      if (msg.includes('token is expired') || msg.includes('token has expired') || msg.includes('invalid JWT')) {
+         throw authError('Session expired');
+      }
+      // Detect "user deleted but JWT still cached" — needs special handling on the frontend
+      if (msg.includes('User from sub claim in JWT does not exist')) {
+         console.warn('[AUTH] User no longer exists in Supabase Auth (deleted account). JWT is stale.');
+         throw authError('USER_NOT_FOUND: The account associated with this session no longer exists.');
+      }
+      console.warn('[AUTH] Authentication failed:', msg);
+      throw authError(`Authentication failed: ${msg}`);
+    }
+  }
+  
+  if (!user) {
+    throw authError("Session expired or invalid - please sign in again");
+  }
+  
+  // Cache email→uid mapping so isAdminEmail() can resolve UIDs automatically
+  // even when callers only pass user.email (avoids changing 40+ call sites)
+  if (user.email && user.id) {
+    _recentEmailToUid.set(user.email.toLowerCase().trim(), user.id);
+  }
+
+  return { user, supabase };
+}
+
+// Module-level email→uid cache populated by getAuthenticatedUser().
+// Used by isAdminEmail() to auto-resolve admin UIDs when only email is passed.
+const _recentEmailToUid = new Map<string, string>();
+
+// Helper: Basic email validation
+function isValidBusinessEmail(email: string): boolean {
+  if (!email || typeof email !== 'string') return false;
+  const emailLower = email.toLowerCase().trim();
+  const invalidPatterns = ['placeholder', 'example', 'test'];
+  return !invalidPatterns.some(p => emailLower.includes(p));
+}
+
+// ─── Centralized Admin Check ─────────────────────────────────────────
+// Single source of truth for admin email addresses.
+// Used across all endpoints that need admin detection.
+// NOTE: Sales reps with @contndr.com emails do NOT have admin access.
+// Only the explicit emails listed below have admin privileges.
+const ADMIN_EMAILS = ['admin@contndr.com', 'or@roadr.com', 'or@contndr.com'];
+const ADMIN_UIDS = ['004b2df9-3e3f-48ec-acfd-5374ab55b09f'];
+
+// ─── Internal / VIP Emails ───────────────────────────────────────────
+// These users always get unlimited leads + VIP billing status (bypass payment).
+// Includes all @contndr.com emails (admins + sales reps).
+// Must mirror the VIP list in contndr-billing.tsx getUserSubscriptionStatus().
+const INTERNAL_EMAILS = ['or@roadr.com', 'admin@contndr.com', 'demo@contndr.com', 'axel@redaxemedia.com', 'or@contndr.com'];
+
+function isInternalEmail(email: string | undefined | null): boolean {
+  if (!email) return false;
+  const e = email.toLowerCase().trim();
+  // VIP status: explicit VIPs + all @contndr.com (includes sales reps)
+  return INTERNAL_EMAILS.includes(e) || e.endsWith('@contndr.com');
+}
+
+// Helper to check if user is internal team member across ALL organization domains
+function isInternalTeamMember(email: string | undefined | null): boolean {
+  if (!email) return false;
+  const e = email.toLowerCase().trim();
+  return INTERNAL_EMAILS.includes(e) || 
+         e.endsWith('@contndr.com') || 
+         e.endsWith('@roadr.com') || 
+         e.endsWith('@sourcr.net') || 
+         e.endsWith('@covera.co');
+}
+
+function isAdminEmail(email: string | undefined | null, uid?: string | undefined | null): boolean {
+  if (uid && ADMIN_UIDS.includes(uid)) return true;
+  if (!email) return false;
+  const e = email.toLowerCase().trim();
+  // Auto-resolve UID from the email→uid cache populated by getAuthenticatedUser()
+  // This means callers don't need to explicitly pass user.id — the UID check
+  // fires automatically for any recently-authenticated user.
+  if (!uid) {
+    const cachedUid = _recentEmailToUid.get(e);
+    if (cachedUid && ADMIN_UIDS.includes(cachedUid)) return true;
+  }
+  // Only explicit admin emails have admin access - sales reps do NOT
+  return ADMIN_EMAILS.includes(e);
+}
+
+// ─── Affiliate Auto-Enrollment Helper ────────────────────────────────
+async function ensureAffiliateSlug(user: any): Promise<string> {
+  if (isAdminEmail(user.email, user.id)) return '';
+  
+  // ✅ FIX: Only external users should get affiliate tracking links
+  // Sales reps and internal team members should NOT get affiliate slugs
+  if (isInternalTeamMember(user.email)) {
+    console.log(`[AFFILIATE] Skipping affiliate enrollment for internal team member: ${user.email}`);
+    return ''; // No affiliate tracking for internal team
+  }
+  
+  try {
+    const affRaw = await kv.get(`affiliate:${user.id}`);
+    if (affRaw) {
+      const aff = typeof affRaw === 'string' ? JSON.parse(affRaw) : affRaw;
+      if (aff.slug) return aff.slug;
+    }
+    const namePart = (user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'user')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    let slug = namePart || 'rep';
+    let existing = await kv.get(`affiliate_slug:${slug}`);
+    let a = 0;
+    while (existing && a < 10) { slug = `${namePart}-${Math.random().toString(36).substring(2,6)}`; existing = await kv.get(`affiliate_slug:${slug}`); a++; }
+    if (!existing) {
+      await kv.set(`affiliate:${user.id}`, { slug, userId: user.id, email: user.email, name: user.user_metadata?.full_name || user.user_metadata?.name || user.email, commission_rate: 0.10, status: 'active', created_at: new Date().toISOString(), paypal_email: null, payout_method: 'paypal' });
+      await kv.set(`affiliate_slug:${slug}`, user.id);
+      await kv.set(`affiliate:${user.id}:referrals`, []);
+      console.log(`[AFFILIATE] Auto-enrolled ${user.email} slug: ${slug}`);
+      return slug;
+    }
+  } catch (e) { console.warn('[AFFILIATE] Auto-enroll failed:', e); }
+  return '';
+}
+
+// ─── Plan Lead Limits ────────────────────────────────────────────────
+// Defines the maximum number of CRM contacts allowed per subscription tier.
+// -1 means unlimited.
+const PLAN_LEAD_LIMITS: Record<string, number> = {
+  none:         100,
+  starter:      2500,
+  professional: 10000,
+  growth:       -1,    // unlimited
+};
+
+function getLeadLimitForPlan(plan: string | undefined | null): number {
+  return PLAN_LEAD_LIMITS[(plan || 'none').toLowerCase()] ?? PLAN_LEAD_LIMITS.none;
+}
+
+// Returns the user's current lead count from the DB
+async function getUserLeadCount(supabase: ReturnType<typeof createClient>, userId: string): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from('leads')
+      .select('id', { count: 'estimated', head: true })
+      .eq('user_id', userId);
+    if (error) {
+      console.error('[LEAD LIMIT] Error counting leads for user:', userId, error?.message || error);
+      return 0;
+    }
+    return count || 0;
+  } catch (err: any) {
+    console.error('[LEAD LIMIT] Exception counting leads for user:', userId, err?.message || err);
+    return 0;
+  }
+}
+
+// Checks if importing `additionalCount` leads would exceed the user's plan limit.
+// Returns { allowed, currentCount, limit, plan } — the caller decides what to do.
+async function checkLeadLimit(user: any, supabase: ReturnType<typeof createClient>, additionalCount: number = 0) {
+  const sub = await getUserSubscriptionStatus(user);
+  const plan = sub?.plan || 'none';
+  const limit = getLeadLimitForPlan(plan);
+  const currentCount = await getUserLeadCount(supabase, user.id);
+  const allowed = limit === -1 || (currentCount + additionalCount) <= limit;
+  return { allowed, currentCount, limit, plan, remaining: limit === -1 ? -1 : Math.max(0, limit - currentCount) };
+}
+
+// Helper: Verify that the authenticated user owns a given lead
+// Returns the lead row if found, or null if the user doesn't own the lead
+async function verifyLeadOwnership(
+  supabase: ReturnType<typeof createClient>,
+  leadId: string,
+  userId: string
+): Promise<any | null> {
+  const { data: lead, error } = await supabase
+    .from('leads')
+    .select('id, user_id')
+    .eq('id', leadId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(`[AUTH] Lead ownership check error for lead=${leadId}, user=${userId}:`, error.message);
+    return null;
+  }
+  return lead;
+}
+
+// Middleware to protect sensitive sub-apps
+// This allows us to disable "Enforce JWT Verification" at the gateway level
+// while keeping these specific modules secure.
+const protectRoute = async (c: any, next: any) => {
+  if (c.req.method === 'OPTIONS') return next();
+  
+  // Skip protection for webhooks if they are ever added under these paths
+  if (c.req.path.includes('/webhooks') || c.req.path.includes('/webhook')) return next();
+
+  try {
+    await getAuthenticatedUser(c);
+    await next();
+  } catch (e: any) {
+    const msg = e?.message ?? String(e);
+    // If the auth failure was caused by a transient network error (all retries
+    // exhausted), return 503 so the frontend knows to retry rather than treating
+    // it as a real auth failure that would trigger a logout.
+    const isTransient = msg.includes('connection reset') || msg.includes('error sending request')
+      || msg.includes('fetch failed') || msg.includes('Failed to fetch')
+      || msg.includes('ECONNRESET') || msg.includes('network error')
+      || msg.includes('SendRequest') || msg.includes('ConnectionAborted')
+      || msg.includes('broken pipe') || msg.includes('client error');
+    if (isTransient) {
+      console.warn('[protectRoute] Transient network error during auth — returning 503:', msg);
+      return c.json({ error: "Temporary service error — please retry" }, 503);
+    }
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+};
+
+// Apply protection to sensitive modules
+app.use("/make-server-a8b2511f/telnyx/*", protectRoute);
+app.use("/make-server-a8b2511f/quo/*", protectRoute);
+app.use("/make-server-a8b2511f/quo-webrtc/*", protectRoute);
+app.use("/make-server-a8b2511f/elevenlabs/*", protectRoute);
+app.use("/make-server-a8b2511f/calendly/*", protectRoute);
+// ai-call-processor handles its own auth, but double protection is safe
+app.use("/make-server-a8b2511f/ai-call/*", protectRoute);
+app.use("/make-server-a8b2511f/lead-engine/*", protectRoute);
+app.use("/make-server-a8b2511f/creator-finder/*", protectRoute);
+
+// Mount sub-apps
+// NOTE: dynamic import() does NOT work for sub-apps in Deno edge functions
+// because the bundler only includes statically-imported modules. These must
+// remain as static imports + app.route().
+
+// ─── Lightweight health-check (registered BEFORE sub-apps for fast cold-start response) ──
+app.get("/make-server-a8b2511f/ping", (c) => c.json({ ok: true, ts: Date.now(), version: '3.2.0' }));
+app.get("/make-server-a8b2511f/health", (c) => c.json({ ok: true, ts: Date.now(), version: '3.2.0' }));
+
+// ─── AI Provider test (quick OpenAI connectivity check) ──
+app.get("/make-server-a8b2511f/test-ai", async (c) => {
+  const start = Date.now();
+  try {
+    const result = await generateAI({
+      messages: [{ role: 'user', content: 'Reply with exactly: {"status":"ok"}' }],
+      temperature: 0, maxTokens: 50, jsonMode: true,
+    });
+    return c.json({
+      status: 'ok',
+      provider: result.provider,
+      model: (result as any).model || 'gpt-4o-mini',
+      response: result.text.slice(0, 200),
+      latency_ms: Date.now() - start,
+      version: '3.2.0',
+    });
+  } catch (err: any) {
+    console.error('[TEST-AI] Failed:', err.message);
+    return c.json({
+      status: 'error',
+      error: err.message,
+      openai_key_set: !!Deno.env.get('OPENAI_API_KEY'),
+      latency_ms: Date.now() - start,
+      version: '3.2.0',
+    }, 500);
+  }
+});
+
+// ─── List available OpenAI models (diagnostic) ──
+app.get("/make-server-a8b2511f/list-models", async (c) => {
+  try {
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) return c.json({ error: 'OPENAI_API_KEY not set' }, 500);
+    const resp = await fetch('https://api.openai.com/v1/models', {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      return c.json({ error: `ListModels failed: ${resp.status}`, details: errBody.slice(0, 1000) }, resp.status);
+    }
+    const data = await resp.json();
+    const models = (data.data || [])
+      .filter((m: any) => m.id.includes('gpt'))
+      .map((m: any) => ({
+        id: m.id,
+        owned_by: m.owned_by,
+        created: m.created,
+      }))
+      .sort((a: any, b: any) => b.created - a.created);
+    return c.json({ count: models.length, active_model: 'gpt-4o-mini', models });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.route("/make-server-a8b2511f/telnyx", telnyxApp);
+app.route("/make-server-a8b2511f/quo", quoApp);
+app.route("/make-server-a8b2511f/quo-webrtc", quoWebrtcApp);
+app.route("/make-server-a8b2511f/elevenlabs", elevenLabsApp);
+app.route("/make-server-a8b2511f/calendly", calendlyApp);
+app.route("/make-server-a8b2511f/ai-call", aiCallProcessorApp);
+app.route("/make-server-a8b2511f/ai-credits", aiCreditsApp);
+app.route("/make-server-a8b2511f/lead-engine", leadEngineApp);
+app.route("/make-server-a8b2511f/apollo", apolloNativeApp);
+app.route("/make-server-a8b2511f/company-search", companySearchApp);
+app.route("/make-server-a8b2511f/deep-prospect", deepProspectApp);
+app.route("/make-server-a8b2511f/creator-finder", creatorFinderApp);
+app.route("/make-server-a8b2511f/hubspot", hubspotApp);
+app.route("/make-server-a8b2511f/salesforce", salesforceApp);
+// Slack handles its own auth internally (OAuth callback needs unauthenticated access)
+app.route("/make-server-a8b2511f/slack", slackApp);
+app.route("/make-server-a8b2511f/quickbooks", quickbooksApp);
+app.route("/make-server-a8b2511f/team", teamSharingApp);
+app.route("/make-server-a8b2511f/sales-leaderboard", salesLeaderboardApp);
+app.route("/make-server-a8b2511f/gravatar", gravatarApp);
+app.route("/make-server-a8b2511f/pipeline", pipelineApp);
+console.log('[SERVER INIT] Mounting intent engine at /make-server-a8b2511f/intent');
+app.route("/make-server-a8b2511f/intent", intentEngineApp);
+console.log('[SERVER INIT] Intent engine mounted successfully');
+app.route("/make-server-a8b2511f/admin-events", adminEventsApp);
+app.route("/make-server-a8b2511f/social", socialApp);
+app.route("/make-server-a8b2511f/social-tracker", socialTrackerApp);
+app.route("", aiAssistantApp);
+
+// POST /automation/check-and-run - Check and run pending automations
+app.post("/make-server-a8b2511f/automation/check-and-run", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // Find enabled rules that are due (with retry for transient PGRST002)
+    const now = new Date().toISOString();
+    let rules: any[] | null = null;
+    for (let _autoAttempt = 0; _autoAttempt < 4; _autoAttempt++) {
+      const { data, error } = await supabase
+        .from('automation_rules')
+        .select('id, name, user_id, next_run_at')
+        .eq('enabled', true)
+        .eq('user_id', user.id)
+        .lte('next_run_at', now);
+      if (!error) { rules = data; break; }
+      const errMsg = error?.message || error?.code || '';
+      const isTransient = errMsg.includes('schema cache') || errMsg.includes('PGRST002') || errMsg.includes('Database error') || errMsg.includes('Unexpected failure');
+      if (isTransient && _autoAttempt < 3) {
+        const delay = 600 * Math.pow(2, _autoAttempt);
+        console.warn(`[AUTOMATION] Transient DB error (attempt ${_autoAttempt + 1}/4), retrying in ${delay}ms: ${errMsg}`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw error;
+    }
+    
+    let processed = 0;
+    if (rules && rules.length > 0) {
+      console.log(`[AUTOMATION] Found ${rules.length} due rules for user ${user.email}`);
+      
+      // Process each rule
+      for (const rule of rules) {
+        try {
+          // Process rule
+          await processAutomationRule(rule.id);
+          processed++;
+        } catch (e) {
+          console.error(`[AUTOMATION] Failed to process rule ${rule.id}:`, e);
+        }
+      }
+    }
+    
+    return c.json({ success: true, rules_processed: processed });
+  } catch (error) {
+    if (error.message && (error.message.includes('Session expired') || error.message.includes('No Authorization') || error.message.includes('Authentication failed'))) {
+         return c.json({ error: "Unauthorized" }, 401);
+    }
+    console.error('[AUTOMATION] Check-and-run error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /auth/signup-v2 - Create a new user (Version 2)
+app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
+  try {
+    const { email, password, name, company, businessType, monthlyLeadVolume, teamSize, annualRevenue, ref } = await c.req.json();
+    
+    console.log('[AUTH] Signup V2 request for:', email, ref ? `(referred by: ${ref})` : '');
+    
+    if (!email || !password) {
+      return c.json({ error: "Email and password are required" }, 400);
+    }
+    
+    const normalizedEmail = email.toLowerCase().trim();
+    
+    // Admin bypass
+    const isAdmin = isAdminEmail(normalizedEmail);
+
+    // Enforce Waitlist / Invite-Only Access (Soft Gate)
+    // Logic: Allow signup, but set status to 'pending' if not approved.
+    
+    let isApproved = false;
+    let subscriptionStatus = 'pending';
+    let subscriptionPlan = 'waitlist';
+
+    // Admin bypass - ONLY admins get automatic active access
+    if (isAdmin) {
+        isApproved = true;
+        subscriptionStatus = 'active';
+        subscriptionPlan = 'growth'; // Admins get full access
+    }
+    // Note: For non-admin users, we don't set approval status during signup
+    // The billing service will check waitlist approval status on each login
+    
+    // We proceed to create the user regardless of approval status.
+    // If not approved, they get 'pending' status and will see the 'Pending' screen.
+
+    const supabase = getSupabaseAdmin();
+
+    // Create the user
+    const { data, error } = await supabase.auth.admin.createUser({
+      email: normalizedEmail,
+      password,
+      user_metadata: { 
+        name: name || 'User',
+        brand: company || name || 'My Brand',
+        businessType: businessType || 'Unknown',
+        monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
+        teamSize: teamSize || 'Unknown',
+        annualRevenue: annualRevenue || 'Unknown'
+      },
+      email_confirm: true
+    });
+
+    if (error) {
+      // Handle "email already exists" gracefully — user should sign in instead
+      if (error.code === 'email_exists' || error.message?.includes('already been registered')) {
+        console.log('[AUTH] Signup skipped — email already registered:', normalizedEmail);
+        return c.json({ error: 'An account with this email already exists. Please sign in instead.' }, 409);
+      }
+      console.error('[AUTH] Signup error:', error);
+      return c.json({ error: `Signup failed: ${error.message}` }, 400);
+    }
+
+    // Set subscription/access status in KV store
+    if (data.user) {
+        console.log('[AUTH] User created successfully:', data.user.id);
+        
+        // Log admin event for new signup
+        logAdminEvent('new_signup', 'New Signup', `${name || 'User'} (${normalizedEmail}) just signed up`, {
+          email: normalizedEmail,
+          metadata: { name, company, businessType, plan: subscriptionPlan, status: subscriptionStatus }
+        }).catch(() => {});
+        await kv.set(`contndr_sub:${data.user.id}`, {
+            status: subscriptionStatus,
+            plan: subscriptionPlan,
+            created_at: new Date().toISOString()
+        });
+        
+        // Waitlist Management
+        try {
+            const waitlistId = await kv.get(`waitlist:email:${normalizedEmail}`);
+            if (waitlistId) {
+                // Update existing waitlist entry
+                const entry = await kv.get(`waitlist:${waitlistId}`);
+                if (entry) {
+                    entry.userId = data.user.id;
+                    // If they are approved, they are fully signed up.
+                    // If pending, they are 'pending_signup' (signed up but waiting)
+                    entry.status = isApproved ? 'signed_up' : 'pending_signup';
+                    await kv.set(`waitlist:${waitlistId}`, entry);
+                }
+            } else if (!isApproved) {
+                 // If NOT on waitlist and NOT approved (direct signup attempt),
+                 // automatically add them to the waitlist.
+                 
+                 const entryId = crypto.randomUUID();
+                 const entry = {
+                   id: entryId,
+                   name: name || 'User',
+                   email: normalizedEmail,
+                   businessType: businessType || 'Unknown',
+                   monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
+                   teamSize: teamSize || 'Unknown',
+                   annualRevenue: annualRevenue || 'Unknown',
+                   status: 'pending_signup', // Distinct status for signed-up-but-waiting
+                   created_at: new Date().toISOString(),
+                   userId: data.user.id,
+                   source: 'direct_signup'
+                 };
+                 
+                 await kv.set(`waitlist:${entryId}`, entry);
+                 await kv.set(`waitlist:email:${normalizedEmail}`, entryId);
+                 
+                 // Add to list
+                 const listKey = 'waitlist_entries_list';
+                 const existingList = (await kv.get(listKey)) || [];
+                 await kv.set(listKey, [entryId, ...existingList].slice(0, 5000));
+                 
+                 // Update global count
+                 const countKey = 'waitlist_count';
+                 const currentCount = (await kv.get(countKey)) || 127;
+                 await kv.set(countKey, currentCount + 1);
+            }
+        } catch (e) {
+            console.error('Error updating waitlist on signup:', e);
+        }
+
+        // Affiliate referral tracking
+        if (ref && typeof ref === 'string') {
+            try {
+                const affiliateUserId = await kv.get(`affiliate_slug:${ref}`);
+                if (affiliateUserId) {
+                    console.log(`[AFFILIATE] Tracking referral: slug=${ref}, affiliate=${affiliateUserId}, newUser=${data.user.id}`);
+                    
+                    // Store which affiliate referred this user (for conversion tracking later)
+                    await kv.set(`affiliate_ref:${data.user.id}`, affiliateUserId);
+                    
+                    // Add to affiliate's referrals list
+                    const referrals = (await kv.get(`affiliate:${affiliateUserId}:referrals`)) || [];
+                    referrals.push({
+                        id: crypto.randomUUID(),
+                        referred_user_id: data.user.id,
+                        referred_email: normalizedEmail,
+                        signed_up_at: new Date().toISOString(),
+                        status: 'signup', // Will become 'converted'/'active' when they subscribe
+                    });
+                    await kv.set(`affiliate:${affiliateUserId}:referrals`, referrals);
+                } else {
+                    console.log(`[AFFILIATE] No affiliate found for slug: ${ref}`);
+                }
+            } catch (e) {
+                console.error('[AFFILIATE] Error tracking referral on signup:', e);
+            }
+        }
+    }
+
+    return c.json({ 
+      success: true, 
+      user: data.user,
+      message: "User created successfully" 
+    });
+  } catch (error) {
+    console.error('[AUTH] Unexpected signup error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /auth/complete-oauth-profile - Collect business info from OAuth users who bypassed signup-v2
+app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { company, businessType, monthlyLeadVolume, teamSize, annualRevenue } = await c.req.json();
+    
+    const userEmail = user.email?.toLowerCase().trim();
+    const userName = user.user_metadata?.full_name || user.user_metadata?.name || user.user_metadata?.user_name || 'OAuth User';
+    const provider = user.app_metadata?.provider || 'oauth';
+    
+    console.log(`[AUTH] Complete OAuth profile for: ${userEmail} (${provider})`);
+    
+    if (!company || !businessType) {
+      return c.json({ error: 'Company and business type are required' }, 400);
+    }
+    
+    const supabase = getSupabaseAdmin();
+    
+    // 1. Update user_metadata with business info
+    const { error: updateError } = await supabase.auth.admin.updateUserById(user.id, {
+      user_metadata: {
+        ...user.user_metadata,
+        brand: company,
+        businessType: businessType || 'Unknown',
+        monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
+        teamSize: teamSize || 'Unknown',
+        annualRevenue: annualRevenue || 'Unknown',
+        oauth_onboarding_completed: true,
+      },
+    });
+    
+    if (updateError) {
+      console.error('[AUTH] Failed to update user metadata:', updateError);
+      return c.json({ error: `Failed to update profile: ${updateError.message}` }, 500);
+    }
+    
+    // 2. Create/update subscription record as pending/waitlist
+    await kv.set(`contndr_sub:${user.id}`, {
+      status: 'pending',
+      plan: 'waitlist',
+      created_at: new Date().toISOString(),
+      signup_method: provider,
+      oauth_onboarding_completed: true,
+    });
+    
+    // 3. Create/update waitlist entry with business info
+    let waitlistId = await kv.get(`waitlist:email:${userEmail}`);
+    if (!waitlistId) {
+      waitlistId = `wl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await kv.set(`waitlist:email:${userEmail}`, waitlistId);
+    }
+    
+    await kv.set(`waitlist:${waitlistId}`, {
+      id: waitlistId,
+      email: userEmail,
+      name: userName,
+      company: company,
+      businessType: businessType,
+      monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
+      teamSize: teamSize || 'Unknown',
+      annualRevenue: annualRevenue || 'Unknown',
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      source: `oauth_${provider}`,
+      userId: user.id,
+    });
+    
+    // 4. Log admin event for new OAuth signup
+    logAdminEvent('new_signup', 'New OAuth Signup', `${userName} (${userEmail}) signed up via ${provider}`, {
+      email: userEmail,
+      metadata: { name: userName, company, businessType, plan: 'waitlist', status: 'pending', provider }
+    }).catch(() => {});
+    
+    console.log(`[AUTH] OAuth profile completed for ${userEmail} — waitlist entry: ${waitlistId}`);
+    
+    return c.json({ success: true, message: 'Profile completed successfully' });
+  } catch (error) {
+    console.error('[AUTH] Error completing OAuth profile:', error);
+    return c.json({ error: error.message || 'Internal server error' }, 500);
+  }
+});
+
+// POST /org/setup-contndr - Create or ensure the Contndr org account exists
+app.post("/make-server-a8b2511f/org/setup-contndr", async (c) => {
+  try {
+    // Require an existing admin to trigger org setup
+    const { user: callerUser } = await getAuthenticatedUser(c);
+    const callerEmail = callerUser.email?.toLowerCase().trim();
+    if (!isAdminEmail(callerEmail, callerUser.id)) {
+      return c.json({ error: 'Only existing admins can set up the org account' }, 403);
+    }
+    console.log(`[ORG] Setup triggered by admin: ${callerEmail}`);
+
+    const supabase = getSupabaseAdmin();
+    const orgEmail = 'or@contndr.com';
+    const orgPassword = 'Angola1975$';
+    const orgName = 'Or';
+    const orgCompany = 'Contndr';
+
+    console.log('[ORG] Setting up Contndr org account:', orgEmail);
+
+    // Check if user already exists
+    const { data: existingUsers } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const existingUser = existingUsers?.users?.find((u: any) => u.email?.toLowerCase() === orgEmail);
+
+    let userId: string;
+
+    if (existingUser) {
+      console.log('[ORG] User already exists:', existingUser.id);
+      userId = existingUser.id;
+
+      // Update password to ensure it's correct
+      const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
+        password: orgPassword,
+        user_metadata: {
+          ...existingUser.user_metadata,
+          name: orgName,
+          brand: orgCompany,
+          role: 'org_admin',
+          org: 'contndr',
+        },
+        email_confirm: true,
+      });
+      if (updateError) {
+        console.error('[ORG] Error updating user:', updateError);
+      }
+    } else {
+      // Create the user
+      const { data, error } = await supabase.auth.admin.createUser({
+        email: orgEmail,
+        password: orgPassword,
+        user_metadata: {
+          name: orgName,
+          brand: orgCompany,
+          role: 'org_admin',
+          org: 'contndr',
+          businessType: 'SaaS',
+          monthlyLeadVolume: '20000_plus',
+        },
+        email_confirm: true,
+      });
+
+      if (error) {
+        console.error('[ORG] Error creating org account:', error);
+        return c.json({ error: `Failed to create org account: ${error.message}` }, 400);
+      }
+      userId = data.user.id;
+      console.log('[ORG] Created org account:', userId);
+    }
+
+    // Set subscription to active/growth (bypass payment)
+    await kv.set(`contndr_sub:${userId}`, {
+      status: 'active',
+      plan: 'growth',
+      isWhitelisted: true,
+      updated_at: new Date().toISOString(),
+      updated_by: 'org_setup',
+      org: 'contndr',
+    });
+
+    // Store org config
+    await kv.set('org:contndr:config', {
+      owner_id: userId,
+      owner_email: orgEmail,
+      name: 'Contndr',
+      domain: 'contndr.com',
+      created_at: new Date().toISOString(),
+      bypass_payment: true,
+      plan: 'growth',
+    });
+
+    // Initialize team if not exists
+    const existingTeam = await kv.get(`team:${userId}:members`);
+    if (!existingTeam) {
+      await kv.set(`team:${userId}:members`, [{
+        id: userId,
+        email: orgEmail,
+        name: orgName,
+        role: 'owner',
+        joined_at: new Date().toISOString(),
+      }]);
+    }
+
+    console.log('[ORG] ✅ Contndr org setup complete');
+    return c.json({
+      success: true,
+      userId,
+      email: orgEmail,
+      message: 'Contndr org account is ready. Sign in with or@contndr.com.',
+    });
+  } catch (error: any) {
+    console.error('[ORG] Setup error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /org/onboard-rep - Onboard a new sales rep to the Contndr org
+app.post("/make-server-a8b2511f/org/onboard-rep", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const userEmail = user.email?.toLowerCase().trim();
+
+    // Only @contndr.com admins can onboard reps
+    if (!isAdminEmail(userEmail, user.id)) {
+      return c.json({ error: 'Only Contndr org admins can onboard sales reps' }, 403);
+    }
+
+    const { email, password, name, role } = await c.req.json();
+    if (!email || !password || !name) {
+      return c.json({ error: 'Email, password, and name are required' }, 400);
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    console.log(`[ORG] Onboarding sales rep: ${normalizedEmail} (by ${userEmail})`);
+
+    const supabase = getSupabaseAdmin();
+
+    // Check if user already exists
+    const { data: existingUsers } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const existingUser = existingUsers?.users?.find((u: any) => u.email?.toLowerCase() === normalizedEmail);
+
+    let repUserId: string;
+
+    if (existingUser) {
+      console.log('[ORG] Rep already exists, updating:', existingUser.id);
+      repUserId = existingUser.id;
+      await supabase.auth.admin.updateUserById(repUserId, {
+        password,
+        user_metadata: {
+          ...existingUser.user_metadata,
+          name,
+          brand: 'Contndr',
+          role: role || 'sales_rep',
+          org: 'contndr',
+        },
+        email_confirm: true,
+      });
+    } else {
+      const { data, error } = await supabase.auth.admin.createUser({
+        email: normalizedEmail,
+        password,
+        user_metadata: {
+          name,
+          brand: 'Contndr',
+          role: role || 'sales_rep',
+          org: 'contndr',
+          businessType: 'SaaS',
+        },
+        email_confirm: true,
+      });
+
+      if (error) {
+        console.error('[ORG] Error creating rep:', error);
+        return c.json({ error: `Failed to create rep: ${error.message}` }, 400);
+      }
+      repUserId = data.user.id;
+    }
+
+    // Set subscription to active/growth (bypass payment via org)
+    await kv.set(`contndr_sub:${repUserId}`, {
+      status: 'active',
+      plan: 'growth',
+      isWhitelisted: true,
+      updated_at: new Date().toISOString(),
+      updated_by: userEmail,
+      org: 'contndr',
+    });
+
+    // Link rep to org owner's team
+    const orgConfig = await kv.get('org:contndr:config');
+    const ownerId = orgConfig?.owner_id || user.id;
+    await kv.set(`user:${repUserId}:team`, ownerId);
+
+    // Add to team members list
+    const teamMembers = (await kv.get(`team:${ownerId}:members`)) || [];
+    const alreadyInTeam = teamMembers.some((m: any) => m.id === repUserId || m.email?.toLowerCase() === normalizedEmail);
+    if (!alreadyInTeam) {
+      teamMembers.push({
+        id: repUserId,
+        email: normalizedEmail,
+        name,
+        role: role || 'sales_rep',
+        joined_at: new Date().toISOString(),
+        onboarded_by: userEmail,
+      });
+      await kv.set(`team:${ownerId}:members`, teamMembers);
+    }
+
+    // Store in org reps list
+    const reps = (await kv.get('org:contndr:reps')) || [];
+    const repEntry = {
+      id: repUserId,
+      email: normalizedEmail,
+      name,
+      role: role || 'sales_rep',
+      onboarded_at: new Date().toISOString(),
+      onboarded_by: userEmail,
+      status: 'active',
+    };
+    const existingIdx = reps.findIndex((r: any) => r.email === normalizedEmail);
+    if (existingIdx >= 0) {
+      reps[existingIdx] = { ...reps[existingIdx], ...repEntry };
+    } else {
+      reps.push(repEntry);
+    }
+    await kv.set('org:contndr:reps', reps);
+
+    console.log(`[ORG] ✅ Sales rep onboarded: ${normalizedEmail} (${repUserId})`);
+    return c.json({
+      success: true,
+      rep: repEntry,
+      message: `Sales rep ${name} (${normalizedEmail}) onboarded successfully.`,
+    });
+  } catch (error: any) {
+    console.error('[ORG] Onboard rep error:', error);
+    if (error.status === 401) return c.json({ error: 'Unauthorized' }, 401);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /org/promote-admin - Promote an existing user to org admin by UID
+app.post("/make-server-a8b2511f/org/promote-admin", async (c) => {
+  try {
+    const { user: caller } = await getAuthenticatedUser(c);
+    const callerEmail = caller.email?.toLowerCase().trim();
+
+    if (!isAdminEmail(callerEmail, caller.id)) {
+      return c.json({ error: 'Only existing admins can promote users to org admin' }, 403);
+    }
+
+    const { userId } = await c.req.json();
+    if (!userId) return c.json({ error: 'userId is required' }, 400);
+
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+
+    // 1. Fetch the target user
+    const { data: { user: targetUser }, error: fetchErr } = await supabase.auth.admin.getUserById(userId);
+    if (fetchErr || !targetUser) {
+      return c.json({ error: `User not found: ${fetchErr?.message || 'unknown'}` }, 404);
+    }
+    const targetEmail = targetUser.email?.toLowerCase().trim() || '';
+    const targetName = targetUser.user_metadata?.name || targetUser.user_metadata?.full_name || targetEmail.split('@')[0];
+    console.log(`[ORG] Promoting user ${targetEmail} (${userId}) to org admin — triggered by ${callerEmail}`);
+
+    // 2. Update user_metadata → role: admin, org: contndr
+    const { error: updateErr } = await supabase.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...targetUser.user_metadata,
+        role: 'admin',
+        org: 'contndr',
+        brand: 'contndr',
+      },
+    });
+    if (updateErr) {
+      console.error('[ORG] Error updating user metadata:', updateErr);
+      return c.json({ error: `Failed to update user metadata: ${updateErr.message}` }, 500);
+    }
+
+    // 3. Set subscription to active/growth (bypass payment)
+    await kv.set(`contndr_sub:${userId}`, {
+      status: 'active',
+      plan: 'growth',
+      isWhitelisted: true,
+      updated_at: new Date().toISOString(),
+      updated_by: callerEmail,
+      org: 'contndr',
+      promoted_to: 'org_admin',
+    });
+
+    // 4. Link to org owner's team
+    const orgConfig = await kv.get('org:contndr:config');
+    const ownerId = orgConfig?.owner_id || caller.id;
+    await kv.set(`user:${userId}:team`, ownerId);
+
+    // 5. Add to team members list
+    const teamMembers = (await kv.get(`team:${ownerId}:members`)) || [];
+    const alreadyInTeam = teamMembers.some((m: any) => m.id === userId || m.email?.toLowerCase() === targetEmail);
+    if (!alreadyInTeam) {
+      teamMembers.push({
+        id: userId,
+        email: targetEmail,
+        name: targetName,
+        role: 'org_admin',
+        joined_at: new Date().toISOString(),
+        promoted_by: callerEmail,
+      });
+      await kv.set(`team:${ownerId}:members`, teamMembers);
+    } else {
+      // Update existing entry to admin role
+      const idx = teamMembers.findIndex((m: any) => m.id === userId || m.email?.toLowerCase() === targetEmail);
+      if (idx >= 0) {
+        teamMembers[idx].role = 'org_admin';
+        teamMembers[idx].promoted_by = callerEmail;
+        teamMembers[idx].promoted_at = new Date().toISOString();
+        await kv.set(`team:${ownerId}:members`, teamMembers);
+      }
+    }
+
+    // 6. Add/update in org reps list
+    const reps = (await kv.get('org:contndr:reps')) || [];
+    const repEntry = {
+      id: userId,
+      email: targetEmail,
+      name: targetName,
+      role: 'org_admin',
+      promoted_at: new Date().toISOString(),
+      promoted_by: callerEmail,
+      status: 'active',
+    };
+    const existingIdx = reps.findIndex((r: any) => r.id === userId || r.email === targetEmail);
+    if (existingIdx >= 0) {
+      reps[existingIdx] = { ...reps[existingIdx], ...repEntry };
+    } else {
+      reps.push(repEntry);
+    }
+    await kv.set('org:contndr:reps', reps);
+
+    console.log(`[ORG] ✅ User ${targetEmail} (${userId}) promoted to org_admin`);
+    return c.json({
+      success: true,
+      userId,
+      email: targetEmail,
+      name: targetName,
+      role: 'org_admin',
+      message: `${targetName} (${targetEmail}) has been promoted to org admin with full campaign access.`,
+    });
+  } catch (error: any) {
+    console.error('[ORG] Promote admin error:', error);
+    if (error.status === 401) return c.json({ error: 'Unauthorized' }, 401);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /org/reps - List all onboarded sales reps
+app.get("/make-server-a8b2511f/org/reps", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const userEmail = user.email?.toLowerCase().trim();
+
+    if (!isAdminEmail(userEmail, user.id)) {
+      return c.json({ error: 'Only Contndr org admins can view reps' }, 403);
+    }
+
+    const reps = (await kv.get('org:contndr:reps')) || [];
+    const orgConfig = await kv.get('org:contndr:config');
+    return c.json({ reps, orgConfig });
+  } catch (error: any) {
+    if (error.status === 401) return c.json({ error: 'Unauthorized' }, 401);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// DELETE /org/reps/:email - Remove a sales rep
+app.delete("/make-server-a8b2511f/org/reps/:email", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const userEmail = user.email?.toLowerCase().trim();
+
+    if (!isAdminEmail(userEmail, user.id)) {
+      return c.json({ error: 'Only Contndr org admins can remove reps' }, 403);
+    }
+
+    const repEmail = decodeURIComponent(c.req.param('email')).toLowerCase().trim();
+    console.log(`[ORG] Removing rep: ${repEmail} (by ${userEmail})`);
+
+    // Remove from reps list
+    const reps = (await kv.get('org:contndr:reps')) || [];
+    const filtered = reps.filter((r: any) => r.email !== repEmail);
+    await kv.set('org:contndr:reps', filtered);
+
+    // Remove from team
+    const orgConfig = await kv.get('org:contndr:config');
+    const ownerId = orgConfig?.owner_id || user.id;
+    const teamMembers = (await kv.get(`team:${ownerId}:members`)) || [];
+    const filteredTeam = teamMembers.filter((m: any) => m.email?.toLowerCase() !== repEmail);
+    await kv.set(`team:${ownerId}:members`, filteredTeam);
+
+    // Deactivate subscription
+    const removedRep = reps.find((r: any) => r.email === repEmail);
+    if (removedRep?.id) {
+      await kv.set(`contndr_sub:${removedRep.id}`, {
+        status: 'canceled',
+        plan: 'none',
+        updated_at: new Date().toISOString(),
+        updated_by: userEmail,
+        reason: 'removed_from_org',
+      });
+    }
+
+    return c.json({ success: true, message: `Rep ${repEmail} removed` });
+  } catch (error: any) {
+    if (error.status === 401) return c.json({ error: 'Unauthorized' }, 401);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /auth/forgot-password - Send password reset code via email
+app.post("/make-server-a8b2511f/auth/forgot-password", async (c) => {
+  try {
+    const { email } = await c.req.json();
+    
+    console.log('[AUTH] Password reset request for:', email);
+    
+    if (!email) {
+      return c.json({ error: "Email is required" }, 400);
+    }
+    
+    const normalizedEmail = email.toLowerCase().trim();
+    
+    const supabase = getSupabaseAdmin();
+    
+    // Check if user exists
+    const { data: userData, error: userError } = await supabase.auth.admin.listUsers();
+    const userExists = userData?.users?.some(u => u.email?.toLowerCase() === normalizedEmail);
+    
+    console.log('[AUTH] User exists check for', normalizedEmail, ':', userExists);
+    
+    if (userExists) {
+      // Generate 6-digit verification code
+      const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      console.log('[AUTH] 🔑 RESET CODE FOR', normalizedEmail, ':', resetCode);
+      console.log('[AUTH] 🔑 Copy this code if email delivery is delayed');
+      
+      // Store code with 15 minute expiration
+      const codeKey = `password_reset:${normalizedEmail}`;
+      await kv.set(codeKey, {
+        code: resetCode,
+        email: normalizedEmail,
+        created_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString() // 15 minutes
+      });
+      
+      console.log('[AUTH] Code stored in KV with key:', codeKey);
+      
+      // Send email with code
+      try {
+        console.log('[AUTH] Attempting to send email to:', normalizedEmail);
+        const emailResult = await sendSystemEmail({
+          from: 'Contndr <noreply@contndr.com>',
+          to: normalizedEmail,
+          subject: 'Your Contndr Password Reset Code',
+          html: `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="utf-8">
+              <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background: #050505; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+                .content { background: #f9f9f9; padding: 40px 30px; border-radius: 0 0 8px 8px; }
+                .code-box { background: white; border: 2px solid #050505; padding: 30px; text-align: center; margin: 30px 0; border-radius: 8px; }
+                .code { font-size: 48px; font-weight: bold; letter-spacing: 8px; color: #050505; font-family: 'Courier New', monospace; }
+                .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+                .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h1 style="margin: 0;">Password Reset Code</h1>
+                </div>
+                <div class="content">
+                  <p>Hello,</p>
+                  <p>You requested to reset your password for your Contndr account. Use the verification code below to complete the process:</p>
+                  
+                  <div class="code-box">
+                    <div class="code">${resetCode}</div>
+                  </div>
+                  
+                  <div class="warning">
+                    <strong>⏰ This code expires in 15 minutes</strong><br>
+                    For security reasons, do not share this code with anyone.
+                  </div>
+                  
+                  <p>If you didn't request this password reset, you can safely ignore this email. Your password will remain unchanged.</p>
+                  
+                  <p>Best regards,<br><strong>The Contndr Team</strong></p>
+                </div>
+                <div class="footer">
+                  <p>This is an automated message from Contndr. Please do not reply to this email.</p>
+                </div>
+              </div>
+            </body>
+            </html>
+          `,
+          text: `Your Contndr password reset code is: ${resetCode}\n\nThis code expires in 15 minutes.\n\nIf you didn't request this, please ignore this email.`
+        });
+        
+        if (emailResult.success) {
+          console.log('[AUTH] ✅ Password reset code sent successfully!');
+          console.log('[AUTH] To:', normalizedEmail);
+          console.log('[AUTH] Message ID:', emailResult.messageId);
+          console.log('[AUTH] Code:', resetCode, '(valid for 15 minutes)');
+        } else {
+          console.error('[AUTH] ❌ Failed to send reset email:', emailResult.error);
+        }
+      } catch (emailError) {
+        console.error('[AUTH] ❌ Exception while sending reset email:', emailError);
+        // Don't reveal the error to the user for security
+      }
+    } else {
+      console.log('[AUTH] User does not exist, skipping email send (security: same response)');
+    }
+    
+    // Always return success to prevent email enumeration
+    console.log('[AUTH] Returning success response to client');
+    return c.json({ 
+      success: true, 
+      message: "If an account exists with this email, you will receive a verification code." 
+    });
+  } catch (error) {
+    console.error('[AUTH] Unexpected password reset error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /auth/reset-password - Update password with verification code
+app.post("/make-server-a8b2511f/auth/reset-password", async (c) => {
+  try {
+    const { email, code, password } = await c.req.json();
+    
+    console.log('[AUTH] Password update request for:', email);
+    
+    if (!email || !code || !password) {
+      return c.json({ error: "Email, code, and password are required" }, 400);
+    }
+    
+    if (password.length < 6) {
+      return c.json({ error: "Password must be at least 6 characters" }, 400);
+    }
+    
+    const normalizedEmail = email.toLowerCase().trim();
+    
+    // Verify the code
+    const codeKey = `password_reset:${normalizedEmail}`;
+    const storedData = await kv.get(codeKey);
+    
+    if (!storedData) {
+      return c.json({ error: "Invalid or expired verification code" }, 400);
+    }
+    
+    // Check if code matches
+    if (storedData.code !== code) {
+      return c.json({ error: "Invalid verification code" }, 400);
+    }
+    
+    // Check if code has expired
+    const expiresAt = new Date(storedData.expires_at).getTime();
+    if (Date.now() > expiresAt) {
+      await kv.del(codeKey); // Clean up expired code
+      return c.json({ error: "Verification code has expired" }, 400);
+    }
+    
+    const supabase = getSupabaseAdmin();
+    
+    // Find user by email
+    const { data: userData, error: userError } = await supabase.auth.admin.listUsers();
+    const user = userData?.users?.find(u => u.email?.toLowerCase() === normalizedEmail);
+    
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+    
+    // Update the user's password
+    const { error: updateError } = await supabase.auth.admin.updateUserById(
+      user.id,
+      { password }
+    );
+    
+    if (updateError) {
+      console.error('[AUTH] Password update error:', updateError);
+      return c.json({ error: "Failed to update password" }, 500);
+    }
+    
+    // Delete the used code
+    await kv.del(codeKey);
+    
+    console.log('[AUTH] Password updated successfully for user:', user.id);
+    
+    return c.json({ 
+      success: true, 
+      message: "Password updated successfully" 
+    });
+  } catch (error) {
+    console.error('[AUTH] Unexpected password update error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /user/me - Get current user status/subscription
+app.get("/make-server-a8b2511f/user/me", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const sub = await kv.get(`contndr_sub:${user.id}`);
+    
+    c.header('Cache-Control', 'private, max-age=15, stale-while-revalidate=30');
+    return c.json({ 
+        id: user.id,
+        email: user.email,
+        subscription: sub || { status: 'none' }
+    });
+  } catch (error) {
+    // If auth fails, return 401
+    return c.json({ error: error.message }, 401);
+  }
+});
+
+// GET /user/onboarding - Get onboarding readiness steps
+app.get("/make-server-a8b2511f/user/onboarding", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+
+    c.header('Cache-Control', 'private, max-age=30, stale-while-revalidate=60');
+
+    // Always build readiness steps from actual user state so the UI
+    // can show progress even when re-opened manually via the Setup button.
+    const adminDb = getSupabaseAdmin();
+    let emailSettings: any = null;
+    let signatureRaw: any = null;
+    let leadsCount = 0;
+    let campaignsCount = 0;
+
+    try {
+      const [es, sig, leadsRes, campsRes] = await Promise.all([
+        getEmailSettingsFromKV(user.id),
+        kv.get(`signature:${user.id}`),
+        adminDb.from('leads').select('id', { count: 'estimated', head: true }).eq('user_id', user.id),
+        adminDb.from('campaigns').select('id', { count: 'estimated', head: true }).eq('user_id', user.id),
+      ]);
+      emailSettings = es;
+      signatureRaw = sig;
+      leadsCount = leadsRes?.count ?? 0;
+      campaignsCount = campsRes?.count ?? 0;
+    } catch (innerErr: any) {
+      console.log('[ONBOARDING] Error fetching readiness data (non-fatal):', innerErr?.message);
+      // Continue with defaults — steps will all show as incomplete
+    }
+
+    const hasEmail = !!(emailSettings && (emailSettings.provider === 'gmail' || emailSettings.provider === 'outlook' || emailSettings.provider === 'gmail_oauth' || emailSettings.provider === 'outlook_oauth' || emailSettings.smtp_host));
+    // Parse signatureRaw — it's stored as a JSON string in KV
+    const parsedSig = signatureRaw ? (typeof signatureRaw === 'string' ? (() => { try { return JSON.parse(signatureRaw); } catch { return signatureRaw; } })() : signatureRaw) : null;
+    const hasSignature = !!(parsedSig && typeof parsedSig === 'object' && (parsedSig.full_name || parsedSig.name || parsedSig.custom_html || parsedSig.html));
+    const hasLeads = leadsCount > 0;
+    const hasCampaign = campaignsCount > 0;
+
+    // Check if user has added any tracked websites
+    // Uses fast index path first to avoid LIKE query 57014 timeouts
+    let hasTracking = false;
+    try {
+      const siteIndex = await getTrackedSitesIndex(user.id);
+      if (siteIndex && siteIndex.length > 0) {
+        hasTracking = true;
+      } else {
+        // Fallback to LIKE-based prefix query with retry
+        const trackedSites = await kvGetByPrefixSafe(`tracked_site:${user.id}:`, []);
+        hasTracking = trackedSites.length > 0;
+        // If we found sites via prefix but no index existed, rebuild it
+        if (hasTracking) {
+          const siteIds = trackedSites.filter(Boolean).map((s: any) => s.id).filter(Boolean);
+          setTrackedSitesIndex(user.id, siteIds).catch(() => {});
+        }
+      }
+    } catch (trackErr: any) {
+      console.log('[ONBOARDING] Error checking tracked sites (non-fatal):', trackErr?.message);
+    }
+
+    const steps = [
+      { id: 'email', label: 'Connect Email', completed: hasEmail },
+      { id: 'signature', label: 'Set Up Signature', completed: hasSignature },
+      { id: 'tracking', label: 'Website Tracking', completed: hasTracking },
+      { id: 'leads', label: 'Import Leads', completed: hasLeads, detail: leadsCount },
+      { id: 'campaign', label: 'Send First Campaign', completed: hasCampaign, detail: campaignsCount },
+    ];
+
+    const allDone = steps.every(s => s.completed);
+    if (allDone) {
+      await kv.set(`user_onboarding:${user.id}`, { completed: true });
+    }
+
+    // Always return steps so the UI can display them
+    return c.json({ completed: allDone, steps });
+  } catch (error: any) {
+    console.log('[ONBOARDING] Error:', error?.message);
+    return c.json({ error: error?.message || 'Unknown error' }, 401);
+  }
+});
+
+// POST /user/onboarding - Update onboarding progress
+app.post("/make-server-a8b2511f/user/onboarding", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    
+    // If completed is explicitly true, mark as complete
+    if (body.completed) {
+        await kv.set(`user_onboarding:${user.id}`, { 
+            completed: true, 
+            completed_at: new Date().toISOString() 
+        });
+    } else if (typeof body.step === 'number') {
+        // Update progress step
+        await kv.set(`user_onboarding:${user.id}`, { 
+            completed: false, 
+            step: body.step,
+            last_updated: new Date().toISOString()
+        });
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    return c.json({ error: error.message }, 401);
+  }
+});
+
+// GET /user/account-readiness - Check real account readiness for sending campaigns
+app.get("/make-server-a8b2511f/user/account-readiness", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+
+    // 1. Email provider configured? Use the shared helper from oauth-email.tsx
+    const emailSettings = await getEmailSettingsFromKV(user.id);
+    const provider = emailSettings.provider;
+    const connectedEmail = emailSettings.connected_email;
+    // Check if a real email provider (Gmail/Outlook/SMTP) is actually connected.
+    // Admin Resend fallback doesn't count for setup — users should explicitly connect a provider.
+    const emailReady = provider !== 'resend' && !!connectedEmail;
+
+    // 2. Signature configured?
+    const sigRaw = await kv.get(`signature:${user.id}`);
+    let hasSignature = false;
+    if (sigRaw) {
+      try {
+        const sig = JSON.parse(sigRaw);
+        hasSignature = !!(sig.full_name && sig.full_name.trim());
+      } catch { hasSignature = false; }
+    }
+
+    // 3. Has leads?
+    const { count: leadCount } = await supabase
+      .from('leads')
+      .select('id', { count: 'estimated', head: true })
+      .eq('user_id', user.id);
+
+    const hasLeads = (leadCount || 0) > 0;
+
+    // 4. Has campaigns?
+    const { count: campaignCount } = await supabase
+      .from('campaigns')
+      .select('id', { count: 'estimated', head: true })
+      .eq('user_id', user.id);
+
+    const hasCampaigns = (campaignCount || 0) > 0;
+
+    const steps = [
+      { id: 'email', label: 'Email Provider', completed: emailReady, detail: provider || 'resend' },
+      { id: 'signature', label: 'Email Signature', completed: hasSignature },
+      { id: 'leads', label: 'Import Leads', completed: hasLeads, detail: leadCount || 0 },
+      { id: 'campaign', label: 'First Campaign', completed: hasCampaigns, detail: campaignCount || 0 },
+    ];
+
+    const completedCount = steps.filter(s => s.completed).length;
+    const readyToSend = emailReady && hasSignature && hasLeads;
+
+    return c.json({
+      steps,
+      completedCount,
+      totalSteps: steps.length,
+      percentage: Math.round((completedCount / steps.length) * 100),
+      readyToSend,
+      connectedEmail,
+    });
+  } catch (error: any) {
+    console.error('[READINESS] Error checking account readiness:', error);
+    return c.json({ error: error.message }, 401);
+  }
+});
+
+// POST /user/avatar - Upload avatar image
+app.post("/make-server-a8b2511f/user/avatar", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const formData = await c.req.formData();
+    const file = formData.get('file');
+
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: 'No file uploaded' }, 400);
+    }
+
+    if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      return c.json({ error: 'File size too large (max 5MB)' }, 400);
+    }
+
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+    const filePath = `avatars/${fileName}`;
+
+    // Ensure bucket exists (private by default as per instructions)
+    const bucketName = 'make-a8b2511f';
+    const { data: buckets } = await supabase.storage.listBuckets();
+    if (!buckets?.some(b => b.name === bucketName)) {
+      await supabase.storage.createBucket(bucketName);
+    }
+
+    // Upload file
+    const { error: uploadError } = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, file, {
+        contentType: file.type,
+        upsert: true
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    // Get signed URL (valid for 10 years essentially, or handle refresh in frontend)
+    // Since we can't easily refresh in frontend without logic, let's set a long expiry.
+    // 365 days = 31536000 seconds
+    const { data: signedUrlData, error: signError } = await supabase.storage
+      .from(bucketName)
+      .createSignedUrl(filePath, 315360000); // 10 years
+
+    if (signError) {
+      throw signError;
+    }
+
+    // Update user metadata with the new avatar URL
+    await supabase.auth.admin.updateUserById(user.id, {
+      user_metadata: { avatar_url: signedUrlData.signedUrl }
+    });
+
+    return c.json({ 
+      success: true, 
+      url: signedUrlData.signedUrl 
+    });
+
+  } catch (error) {
+    console.error('[AVATAR] Upload error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /contact - Save contact form submission
+app.post("/make-server-a8b2511f/contact", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { name, email, company, message } = body;
+    
+    if (!email || !message) {
+      return c.json({ error: "Email and message are required" }, 400);
+    }
+    
+    // Validate email
+    if (!isValidBusinessEmail(email)) {
+       // We still accept it but flag it? Or just allow it.
+       // For a contact form, we should probably be permissive.
+    }
+    
+    const submissionId = crypto.randomUUID();
+    const submission = {
+      id: submissionId,
+      name: name || '',
+      email,
+      company: company || '',
+      message,
+      created_at: new Date().toISOString(),
+      status: 'new'
+    };
+    
+    // Store in KV store
+    // We'll store a list of submission IDs in a 'contact_submissions' key
+    // AND store the actual submission in `contact:${id}`
+    
+    // 1. Store the individual submission
+    await kv.set(`contact:${submissionId}`, submission);
+    
+    // 2. Update the list (fetch, append, set)
+    // Note: KV store operations are not atomic, so race conditions are possible under high load.
+    // Given the expected volume, this is acceptable.
+    const listKey = 'contact_submissions_list';
+    const existingList = (await kv.get(listKey)) || [];
+    await kv.set(listKey, [submissionId, ...existingList].slice(0, 1000)); // Keep last 1000
+    
+    console.log(`[CONTACT] New submission from ${email} (${submissionId})`);
+    
+    return c.json({ success: true, message: "Message received" });
+  } catch (error) {
+    console.error('[CONTACT] Error processing submission:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /waitlist - Join the priority access waitlist
+app.post("/make-server-a8b2511f/waitlist", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { name, email, businessType, monthlyLeadVolume } = body;
+
+    if (!name || !email) {
+      return c.json({ error: "Name and email are required" }, 400);
+    }
+
+    // Check for duplicate email
+    const existing = await kv.get(`waitlist:email:${email.toLowerCase()}`);
+    if (existing) {
+      return c.json({ error: "You're already on the waitlist! We'll reach out soon." }, 409);
+    }
+
+    const entryId = crypto.randomUUID();
+    const entry = {
+      id: entryId,
+      name,
+      email: email.toLowerCase(),
+      businessType: businessType || '',
+      monthlyLeadVolume: monthlyLeadVolume || '',
+      created_at: new Date().toISOString(),
+      status: 'pending',
+    };
+
+    // Store entry
+    await kv.set(`waitlist:${entryId}`, entry);
+    // Index by email for dedup
+    await kv.set(`waitlist:email:${email.toLowerCase()}`, entryId);
+
+    // Update the ordered list
+    const listKey = 'waitlist_entries_list';
+    const existingList = (await kv.get(listKey)) || [];
+    await kv.set(listKey, [entryId, ...existingList].slice(0, 5000));
+
+    // Update count
+    const countKey = 'waitlist_count';
+    const currentCount = (await kv.get(countKey)) || 127; // Base count
+    await kv.set(countKey, currentCount + 1);
+
+    console.log(`[WAITLIST] New entry from ${email} - ${businessType} - ${monthlyLeadVolume} (${entryId})`);
+
+    // Log admin event
+    logAdminEvent('waitlist_join', 'New Waitlist Entry', `${name} (${email}) joined the waitlist — ${businessType || 'Unknown business'}`, {
+      email: email.toLowerCase(),
+      metadata: { name, businessType, monthlyLeadVolume, position: currentCount + 1 }
+    }).catch(() => {});
+
+    // Send confirmation email
+    try {
+      await sendWaitlistConfirmation(email, name);
+    } catch (emailErr) {
+      console.error('[WAITLIST] Failed to send confirmation email:', emailErr);
+      // Don't fail the request if email fails
+    }
+
+    return c.json({ success: true, position: currentCount + 1 });
+  } catch (error) {
+    console.error('[WAITLIST] Error processing waitlist entry:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/waitlist/approve - Approve a waitlist entry and send invite
+app.post("/make-server-a8b2511f/admin/waitlist/approve", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const { id, email } = await c.req.json();
+    
+    // Update waitlist entry
+    let entry = await kv.get(`waitlist:${id}`);
+    if (!entry) {
+       // If not found by ID, try email
+       const waitlistId = await kv.get(`waitlist:email:${email.toLowerCase()}`);
+       if (waitlistId) {
+          entry = await kv.get(`waitlist:${waitlistId}`);
+       }
+    }
+    
+    if (entry) {
+       console.log(`[ADMIN] Found waitlist entry for ${email}, current status: ${entry.status}`);
+       entry.status = 'approved';
+       entry.approved_at = new Date().toISOString();
+       await kv.set(`waitlist:${entry.id}`, entry);
+       console.log(`[ADMIN] Updated waitlist status to 'approved' for entry ${entry.id}`);
+       
+       // Don't update subscription status here - billing service will detect
+       // approval status and show paywall on next login
+       console.log(`[ADMIN] User approved - will see paywall on next login`);
+    } else {
+       console.log(`[ADMIN] No waitlist entry found for ${email}, creating one`);
+       // Create a new entry if doesn't exist
+       const newEntryId = crypto.randomUUID();
+       entry = {
+         id: newEntryId,
+         email: email.toLowerCase(),
+         name: 'Approved User',
+         status: 'approved',
+         approved_at: new Date().toISOString(),
+         created_at: new Date().toISOString(),
+         source: 'admin_approval'
+       };
+       await kv.set(`waitlist:${newEntryId}`, entry);
+       await kv.set(`waitlist:email:${email.toLowerCase()}`, newEntryId);
+       console.log(`[ADMIN] Created new approved waitlist entry ${newEntryId}`);
+    }
+    
+    // Whitelist the email for signup
+    await kv.set(`whitelist:${email.toLowerCase()}`, true);
+
+    // Log admin event
+    logAdminEvent('waitlist_approved', 'User Approved', `${entry?.name || email} was approved and invited`, {
+      email: email.toLowerCase(),
+      metadata: { name: entry?.name, approvedBy: user.email }
+    }).catch(() => {});
+    
+    // Send invite email
+    try {
+      await sendInviteEmail(email, entry?.name || 'there');
+    } catch (e) {
+      console.error('[ADMIN] Failed to send invite email:', e);
+      return c.json({ success: true, warning: 'Approved but email failed to send' });
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('[ADMIN] Error approving user:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/waitlist/reject - Reject a waitlist entry
+app.post("/make-server-a8b2511f/admin/waitlist/reject", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const { id } = await c.req.json();
+    
+    const entry = await kv.get(`waitlist:${id}`);
+    if (entry) {
+       entry.status = 'rejected';
+       await kv.set(`waitlist:${id}`, entry);
+    }
+    
+    // Also remove from whitelist if present
+    if (entry?.email) {
+       await kv.del(`whitelist:${entry.email.toLowerCase()}`);
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('[ADMIN] Error rejecting user:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /waitlist/count - Get current waitlist stats
+app.get("/make-server-a8b2511f/waitlist/count", async (c) => {
+  try {
+    const count = (await kv.get('waitlist_count')) || 127;
+    // Spots left cycles weekly: 25 base, minus entries this week
+    const spotsLeft = Math.max(3, 25 - (count % 25));
+    c.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    return c.json({ count, spotsLeft });
+  } catch (error) {
+    console.error('[WAITLIST] Error getting count:', error);
+    return c.json({ count: 127, spotsLeft: 18 });
+  }
+});
+
+// GET /admin/waitlist - Get all waitlist entries (Admin Only)
+app.get("/make-server-a8b2511f/admin/waitlist", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    
+    // Admin check
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized: Admin access required' }, 403);
+    }
+    
+    // Fetch all waitlist entries
+    // getByPrefix('waitlist:') returns values for keys starting with prefix
+    const allValues = await kv.getByPrefix('waitlist:');
+    
+    // Filter out index entries (which are simple strings) and keep full entry objects
+    const entries = allValues.filter(v => 
+      typeof v === 'object' && 
+      v !== null && 
+      v.email && 
+      v.id && 
+      v.status
+    ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    return c.json({ entries });
+  } catch (error) {
+    console.error('[ADMIN] Error fetching waitlist:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/waitlist/:id/approve - Approve a waitlist entry
+app.post("/make-server-a8b2511f/admin/waitlist/:id/approve", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) return c.json({ error: 'Unauthorized' }, 403);
+    
+    const id = c.req.param('id');
+    const entry = await kv.get(`waitlist:${id}`);
+    
+    if (!entry) return c.json({ error: 'Entry not found' }, 404);
+    
+    entry.status = 'approved';
+    await kv.set(`waitlist:${id}`, entry);
+    
+    // Send email
+    try {
+        await sendAccessGrantedEmail(entry.email, entry.name);
+    } catch (e) {
+        console.error('Failed to send approval email:', e);
+    }
+    
+    return c.json({ success: true, entry });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/waitlist/:id/decline - Decline a waitlist entry
+app.post("/make-server-a8b2511f/admin/waitlist/:id/decline", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) return c.json({ error: 'Unauthorized' }, 403);
+    
+    const id = c.req.param('id');
+    const entry = await kv.get(`waitlist:${id}`);
+    
+    if (!entry) return c.json({ error: 'Entry not found' }, 404);
+    
+    entry.status = 'declined';
+    await kv.set(`waitlist:${id}`, entry);
+    
+    return c.json({ success: true, entry });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// DELETE /admin/waitlist/:id - Delete a waitlist entry
+app.delete("/make-server-a8b2511f/admin/waitlist/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) return c.json({ error: 'Unauthorized' }, 403);
+    
+    const id = c.req.param('id');
+    const entry = await kv.get(`waitlist:${id}`);
+    
+    if (entry) {
+        // Remove from email index
+        await kv.del(`waitlist:email:${entry.email}`);
+    }
+    
+    // Remove from main storage
+    await kv.del(`waitlist:${id}`);
+    
+    // Remove from list
+    const listKey = 'waitlist_entries_list';
+    const list = await kv.get(listKey) || [];
+    const newList = list.filter((i: string) => i !== id);
+    await kv.set(listKey, newList);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /admin/users - Get all registered users (Admin Only)
+app.get("/make-server-a8b2511f/admin/users", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // Admin check
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized: Admin access required' }, 403);
+    }
+    
+    // Fetch users using supabase.auth.admin.listUsers()
+    // Note: listUsers() is paginated. For now we fetch first 50.
+    const { data: { users }, error } = await supabase.auth.admin.listUsers({
+       page: 1,
+       perPage: 100
+    });
+    
+    if (error) throw error;
+
+    // FIX: kv.mget uses Supabase .in() which does NOT preserve input order and
+    // does NOT return null for missing keys — only existing rows in arbitrary DB
+    // order. This caused team links (and potentially subs) to be assigned to the
+    // wrong users.  Use individual kv.get via Promise.all to guarantee correct
+    // index alignment.
+    const subValues = await Promise.all(users.map(u => kv.get(`contndr_sub:${u.id}`)));
+    const teamValues = await Promise.all(users.map(u => kv.get(`user:${u.id}:team`)));
+    
+    // Fetch lead counts for ALL users in parallel
+    const leadCountValues = await Promise.all(users.map(u => getUserLeadCount(supabase, u.id)));
+    const leadCountMap: Record<string, number> = {};
+    for (let i = 0; i < users.length; i++) {
+      leadCountMap[users[i].id] = leadCountValues[i];
+    }
+
+    // Build a lookup map keyed by user ID
+    const subMap: Record<string, any> = {};
+    for (let i = 0; i < users.length; i++) {
+      const sub = subValues[i] || { status: 'none' };
+      const teamOwnerId = teamValues[i] || null;
+      
+      // If user is a team member, enrich their subscription with team info
+      // so the admin dashboard can see they inherit from a team owner
+      if (teamOwnerId && teamOwnerId !== users[i].id) {
+        sub.isTeamMember = true;
+        sub.teamOwnerId = teamOwnerId;
+        
+        // Enrich with team owner's name, email, and org for admin display
+        const ownerIdx = users.findIndex(u => u.id === teamOwnerId);
+        if (ownerIdx >= 0) {
+          const ownerUser = users[ownerIdx];
+          sub.teamOwnerName = ownerUser.user_metadata?.full_name || ownerUser.user_metadata?.name || null;
+          sub.teamOwnerEmail = ownerUser.email || null;
+          sub.teamOwnerOrg = ownerUser.user_metadata?.organization || ownerUser.user_metadata?.company || null;
+        }
+        
+        // If their own sub is not active, show inherited plan from team owner
+        if (sub.status !== 'active') {
+          const ownerSub = ownerIdx >= 0 ? subValues[ownerIdx] : null;
+          if (ownerSub && ownerSub.status === 'active') {
+            sub._inheritedPlan = ownerSub.plan;
+            sub._inheritedStatus = 'active';
+          }
+        }
+      }
+      
+      subMap[users[i].id] = sub;
+    }
+    
+    const usersWithSubs = users.map(u => {
+      const sub = subMap[u.id] || { status: 'none' };
+      // Internal/VIP users always get growth/unlimited regardless of stored KV plan
+      const internal = isInternalEmail(u.email);
+      const plan = internal ? 'growth' : (sub?.plan || 'none');
+      const leadCount = leadCountMap[u.id] || 0;
+      const leadLimit = getLeadLimitForPlan(plan);
+      // Enrich the sub object for display so admin dashboard shows the effective plan
+      if (internal && (!sub.plan || sub.plan === 'none' || sub.plan === 'waitlist')) {
+        sub.plan = 'growth';
+        sub.status = 'active';
+        sub.isWhitelisted = true;
+        sub._internalOverride = true;
+      }
+      return {
+        id: u.id,
+        email: u.email,
+        created_at: u.created_at,
+        last_sign_in_at: u.last_sign_in_at,
+        user_metadata: u.user_metadata,
+        subscription: sub,
+        leadCount,
+        leadLimit,
+      };
+    });
+    
+    // Compute total leads across all users for admin summary
+    const totalLeads = Object.values(leadCountMap).reduce((sum: number, c: number) => sum + c, 0);
+    
+    return c.json({ users: usersWithSubs, totalLeads });
+  } catch (error) {
+    console.error('[ADMIN] Error fetching users:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/users/delete - Delete a user
+app.post("/make-server-a8b2511f/admin/users/delete", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const { userId } = await c.req.json();
+    if (!userId) return c.json({ error: "User ID required" }, 400);
+    
+    const { error } = await supabase.auth.admin.deleteUser(userId);
+    if (error) throw error;
+    
+    // Cleanup KV subscription
+    await kv.del(`contndr_sub:${userId}`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('[ADMIN] Error deleting user:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/users/plan - Change user plan (Admin Only)
+app.post("/make-server-a8b2511f/admin/users/plan", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const { userId, plan, charge } = await c.req.json();
+    if (!userId || !plan) return c.json({ error: "User ID and plan required" }, 400);
+
+    const subKey = `contndr_sub:${userId}`;
+    const existingSub = await kv.get(subKey) || {};
+
+    // Handle Stripe Update if charge is requested
+    if (charge) {
+      const stripeClient = await getStripe();
+      if (!stripeClient) return c.json({ error: "Stripe not configured on server" }, 500);
+      
+      const stripeSubId = existingSub.stripe_sub_id;
+      if (!stripeSubId) {
+        return c.json({ error: "No active Stripe subscription found. Cannot charge user." }, 400);
+      }
+
+      try {
+        // 1. Fetch current subscription to get item ID and interval
+        const sub = await stripeClient.subscriptions.retrieve(stripeSubId);
+        const itemId = sub.items.data[0].id;
+        const currentPrice = sub.items.data[0].price;
+        const interval = currentPrice.recurring?.interval === 'year' ? 'yearly' : 'monthly';
+
+        // 2. Get new price ID
+        // @ts-ignore
+        const newPriceId = PLANS[plan]?.[interval];
+        
+        if (!newPriceId) {
+          return c.json({ error: `No price configured for ${plan} (${interval})` }, 400);
+        }
+
+        // 3. Update subscription
+        await stripeClient.subscriptions.update(stripeSubId, {
+          items: [{
+            id: itemId,
+            price: newPriceId,
+          }],
+          proration_behavior: 'create_prorations',
+        });
+        
+        console.log(`[ADMIN] Upcharged user ${userId} to ${plan} (${interval}) via Stripe`);
+
+      } catch (stripeError) {
+        console.error('[ADMIN] Stripe update failed:', stripeError);
+        return c.json({ error: `Stripe update failed: ${stripeError.message}` }, 500);
+      }
+    }
+    
+    const newSub = {
+      ...existingSub,
+      plan: plan,
+      status: 'active', // Ensure it is active if we are assigning a plan
+      updated_at: new Date().toISOString(),
+      updated_by: user.email // Audit trail
+    };
+
+    await kv.set(subKey, newSub);
+    
+    // NOTE: Team propagation removed. Admin plan bypass should ONLY affect the
+    // targeted user. Team members already inherit the owner's plan automatically
+    // via getUserSubscriptionStatus(). Propagating here caused unintended side
+    // effects (e.g. activating wrong user's subscription when mget indices were
+    // misaligned). If you need to activate a team owner, do it explicitly.
+    let teamNote = '';
+    try {
+      const teamId = await kv.get(`user:${userId}:team`);
+      if (teamId && teamId !== userId) {
+        teamNote = `Note: This user is a team member (owner: ${teamId}). Team inheritance is automatic — no propagation was done.`;
+        console.log(`[ADMIN] ℹ️ ${teamNote}`);
+      }
+    } catch (teamErr) {
+      console.log('[ADMIN] Team check (non-fatal):', teamErr?.message || teamErr);
+    }
+    
+    return c.json({ success: true, subscription: newSub, teamNote });
+  } catch (error) {
+    console.error('[ADMIN] Error updating user plan:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/users/sync-stripe - Sync subscription from Stripe (heals missed webhooks)
+app.post("/make-server-a8b2511f/admin/users/sync-stripe", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const { userId, userEmail } = await c.req.json();
+    if (!userId || !userEmail) return c.json({ error: "User ID and email required" }, 400);
+
+    const result = await syncStripeSubscription(userId, userEmail);
+    return c.json(result);
+  } catch (error) {
+    console.error('[ADMIN] Error syncing Stripe subscription:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/kv-gc - Run KV store garbage collection (Admin Only)
+app.post("/make-server-a8b2511f/admin/kv-gc", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    console.log('[ADMIN] Manual KV cleanup triggered by:', user.email);
+    const stats = await runCleanup();
+    
+    // Also reset the circuit breaker after successful cleanup
+    resetCircuit();
+    
+    return c.json({ 
+      success: true, 
+      stats,
+      message: `Cleaned up ${stats.totalDeleted} old entries in ${stats.duration}ms. Circuit breaker reset.`
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] Error running KV cleanup:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /admin/kv-stats - Get KV store statistics (Admin Only)
+app.get("/make-server-a8b2511f/admin/kv-stats", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const stats = await getKVStats();
+    return c.json({ success: true, stats });
+  } catch (error: any) {
+    console.error('[ADMIN] Error getting KV stats:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/circuit-reset - Manually reset the KV circuit breaker (Admin Only)
+app.post("/make-server-a8b2511f/admin/circuit-reset", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    console.log('[ADMIN] Circuit breaker reset triggered by:', user.email);
+    resetCircuit();
+    
+    return c.json({ 
+      success: true, 
+      message: 'Circuit breaker has been reset. Writes are now re-enabled.'
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] Error resetting circuit breaker:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// ROLE MANAGEMENT ROUTES
+// ═══════════════════════════════════════════════════════════════════════
+
+// Helper: Check if user has master or admin role
+async function hasAdminAccess(email: string, supabase: any): Promise<{ hasAccess: boolean; role?: string; isMaster?: boolean }> {
+  if (!email) return { hasAccess: false };
+  
+  // Check if email is in ADMIN_EMAILS list (legacy admin check)
+  if (isAdminEmail(email)) {
+    return { hasAccess: true, role: 'admin' };
+  }
+  
+  // Check user metadata for role
+  try {
+    const { data: { users }, error } = await supabase.auth.admin.listUsers();
+    if (error) throw error;
+    
+    const user = users?.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+    if (user?.user_metadata?.role) {
+      const role = user.user_metadata.role;
+      return {
+        hasAccess: role === 'master' || role === 'admin' || role === 'org_admin',
+        role,
+        isMaster: role === 'master'
+      };
+    }
+  } catch (err) {
+    console.error('[ROLE] Error checking user role:', err);
+  }
+  
+  return { hasAccess: false };
+}
+
+// GET /admin/roles/users - Get all users with their roles
+app.get("/make-server-a8b2511f/admin/roles/users", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    const access = await hasAdminAccess(user.email, supabase);
+    if (!access.hasAccess) {
+      return c.json({ error: 'Unauthorized - Admin or Master access required' }, 403);
+    }
+    
+    // Get all users from Supabase Auth
+    const { data: { users }, error } = await supabase.auth.admin.listUsers();
+    if (error) throw error;
+    
+    // Map users to include role info
+    const usersWithRoles = users.map((u: any) => ({
+      id: u.id,
+      email: u.email,
+      created_at: u.created_at,
+      last_sign_in_at: u.last_sign_in_at,
+      user_metadata: u.user_metadata,
+      role: u.user_metadata?.role || 'user',
+      can_signup: u.user_metadata?.can_signup,
+      restricted_features: u.user_metadata?.restricted_features || []
+    }));
+    
+    // Calculate stats
+    const stats = {
+      totalUsers: usersWithRoles.length,
+      masterCount: usersWithRoles.filter((u: any) => u.role === 'master').length,
+      adminCount: usersWithRoles.filter((u: any) => u.role === 'admin').length,
+      affiliateCount: usersWithRoles.filter((u: any) => u.role === 'affiliate').length,
+      userCount: usersWithRoles.filter((u: any) => u.role === 'user').length
+    };
+    
+    return c.json({ users: usersWithRoles, stats });
+  } catch (error) {
+    console.error('[ROLE] Error fetching users:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/roles/update - Update a user's role
+app.post("/make-server-a8b2511f/admin/roles/update", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    const access = await hasAdminAccess(user.email, supabase);
+    if (!access.hasAccess) {
+      return c.json({ error: 'Unauthorized - Admin or Master access required' }, 403);
+    }
+    
+    const { userId, role } = await c.req.json();
+    if (!userId || !role) {
+      return c.json({ error: 'User ID and role required' }, 400);
+    }
+    
+    // Validate role
+    const validRoles = ['user', 'affiliate', 'admin', 'master', 'sales_rep', 'org_admin', 'account_exec', 'sdr', 'team_lead'];
+    if (!validRoles.includes(role)) {
+      return c.json({ error: 'Invalid role' }, 400);
+    }
+    
+    // Only master can assign master role
+    if (role === 'master' && !access.isMaster) {
+      return c.json({ error: 'Only Master can assign Master role' }, 403);
+    }
+    
+    // Get target user
+    const { data: targetUser, error: getUserError } = await supabase.auth.admin.getUserById(userId);
+    if (getUserError) throw getUserError;
+    
+    // Update user metadata
+    const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...targetUser.user.user_metadata,
+        role
+      }
+    });
+    
+    if (updateError) throw updateError;
+    
+    console.log(`[ROLE] ${user.email} assigned role ${role} to ${targetUser.user.email}`);
+    return c.json({ success: true, role });
+  } catch (error) {
+    console.error('[ROLE] Error updating role:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/roles/restrictions - Update feature restrictions
+app.post("/make-server-a8b2511f/admin/roles/restrictions", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    const access = await hasAdminAccess(user.email, supabase);
+    if (!access.hasAccess) {
+      return c.json({ error: 'Unauthorized - Admin or Master access required' }, 403);
+    }
+    
+    const { userId, restrictions } = await c.req.json();
+    if (!userId || !Array.isArray(restrictions)) {
+      return c.json({ error: 'User ID and restrictions array required' }, 400);
+    }
+    
+    // Get target user
+    const { data: targetUser, error: getUserError } = await supabase.auth.admin.getUserById(userId);
+    if (getUserError) throw getUserError;
+    
+    // Master role cannot be restricted
+    if (targetUser.user.user_metadata?.role === 'master') {
+      return c.json({ error: 'Master role cannot be restricted' }, 403);
+    }
+    
+    // Update user metadata
+    const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...targetUser.user.user_metadata,
+        restricted_features: restrictions
+      }
+    });
+    
+    if (updateError) throw updateError;
+    
+    console.log(`[ROLE] ${user.email} updated restrictions for ${targetUser.user.email}`);
+    return c.json({ success: true, restrictions });
+  } catch (error) {
+    console.error('[ROLE] Error updating restrictions:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/roles/signup-access - Toggle signup access for affiliates
+app.post("/make-server-a8b2511f/admin/roles/signup-access", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    const access = await hasAdminAccess(user.email, supabase);
+    if (!access.hasAccess) {
+      return c.json({ error: 'Unauthorized - Admin or Master access required' }, 403);
+    }
+    
+    const { userId, canSignup } = await c.req.json();
+    if (!userId || typeof canSignup !== 'boolean') {
+      return c.json({ error: 'User ID and canSignup boolean required' }, 400);
+    }
+    
+    // Get target user
+    const { data: targetUser, error: getUserError } = await supabase.auth.admin.getUserById(userId);
+    if (getUserError) throw getUserError;
+    
+    // Update user metadata
+    const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...targetUser.user.user_metadata,
+        can_signup: canSignup
+      }
+    });
+    
+    if (updateError) throw updateError;
+    
+    console.log(`[ROLE] ${user.email} ${canSignup ? 'enabled' : 'disabled'} signup for ${targetUser.user.email}`);
+    return c.json({ success: true, canSignup });
+  } catch (error) {
+    console.error('[ROLE] Error updating signup access:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/roles/create - Create a new user with a role
+app.post("/make-server-a8b2511f/admin/roles/create", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    const access = await hasAdminAccess(user.email, supabase);
+    if (!access.hasAccess) {
+      return c.json({ error: 'Unauthorized - Admin or Master access required' }, 403);
+    }
+    
+    const { email, password, name, role, can_signup } = await c.req.json();
+    if (!email || !password) {
+      return c.json({ error: 'Email and password required' }, 400);
+    }
+    
+    // Validate role
+    const validRoles = ['user', 'affiliate', 'admin', 'master', 'sales_rep', 'org_admin', 'account_exec', 'sdr', 'team_lead'];
+    if (!validRoles.includes(role)) {
+      return c.json({ error: 'Invalid role' }, 400);
+    }
+    
+    // Only master can create master accounts
+    if (role === 'master' && !access.isMaster) {
+      return c.json({ error: 'Only Master can create Master accounts' }, 403);
+    }
+    
+    // Create user
+    const { data, error: createError } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true, // Auto-confirm email
+      user_metadata: {
+        name: name || email.split('@')[0],
+        role,
+        can_signup: role === 'affiliate' ? can_signup : undefined,
+        restricted_features: []
+      }
+    });
+    
+    if (createError) throw createError;
+    
+    console.log(`[ROLE] ${user.email} created new ${role} account: ${email}`);
+    return c.json({ success: true, userId: data.user.id, email, role });
+  } catch (error) {
+    console.error('[ROLE] Error creating user:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/roles/delete - Delete a user
+app.post("/make-server-a8b2511f/admin/roles/delete", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    const access = await hasAdminAccess(user.email, supabase);
+    if (!access.hasAccess) {
+      return c.json({ error: 'Unauthorized - Admin or Master access required' }, 403);
+    }
+    
+    const { userId } = await c.req.json();
+    if (!userId) {
+      return c.json({ error: 'User ID required' }, 400);
+    }
+    
+    // Get target user to check role
+    const { data: targetUser, error: getUserError } = await supabase.auth.admin.getUserById(userId);
+    if (getUserError) throw getUserError;
+    
+    // Prevent deleting master accounts (unless you are master)
+    if (targetUser.user.user_metadata?.role === 'master' && !access.isMaster) {
+      return c.json({ error: 'Only Master can delete Master accounts' }, 403);
+    }
+    
+    // Prevent self-deletion
+    if (userId === user.id) {
+      return c.json({ error: 'Cannot delete your own account' }, 403);
+    }
+    
+    // Delete user
+    const { error: deleteError } = await supabase.auth.admin.deleteUser(userId);
+    if (deleteError) throw deleteError;
+    
+    console.log(`[ROLE] ${user.email} deleted user: ${targetUser.user.email}`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('[ROLE] Error deleting user:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /admin/bounced-leads - Get all bounced leads from KV audit log (Admin Only)
+app.get("/make-server-a8b2511f/admin/bounced-leads", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const bouncedLeads = await getBouncedLeads();
+    
+    return c.json({ bounced_leads: bouncedLeads, total: bouncedLeads.length });
+  } catch (error) {
+    console.error('[ADMIN] Error fetching bounced leads:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// DELETE /admin/bounced-leads/purge - Purge all bounce logs and force-delete remaining bounced leads (Admin Only)
+app.delete("/make-server-a8b2511f/admin/bounced-leads/purge", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const result = await purgeBouncedLeads(supabaseAdmin);
+    
+    console.log(`[ADMIN] Purged ${result.purged} bounce logs and force-deleted ${result.leadsDeleted} remaining leads`);
+    return c.json({ 
+      success: true, 
+      purged_logs: result.purged, 
+      deleted_leads: result.leadsDeleted 
+    });
+  } catch (error) {
+    console.error('[ADMIN] Error purging bounced leads:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ─── KV Garbage Collection (fixes "Database shared memory exhausted") ─────
+// Uses raw SQL DELETE with LIKE patterns so it works even when the DB
+// can't handle SELECT queries due to memory exhaustion.
+async function runKvGarbageCollection(): Promise<{
+  dpx_deleted: number;
+  dp_deleted: number;
+  admin_events_deleted: number;
+  click_track_deleted: number;
+  email_track_deleted: number;
+  misc_deleted: number;
+  errors: string[];
+}> {
+  const supabase = getSupabaseAdmin();
+  const TABLE = 'kv_store_a8b2511f';
+  const result = {
+    dpx_deleted: 0,
+    dp_deleted: 0,
+    admin_events_deleted: 0,
+    click_track_deleted: 0,
+    email_track_deleted: 0,
+    misc_deleted: 0,
+    errors: [] as string[],
+  };
+
+  // Use delete WITHOUT .select('key') so it works even when DB memory is low.
+  // We estimate counts via a separate lightweight head-only count first.
+  async function deleteByPrefix(prefix: string): Promise<number> {
+    let count = 0;
+    try {
+      // Try to get a count first (lightweight head query)
+      const { count: c } = await supabase
+        .from(TABLE)
+        .select('key', { count: 'exact', head: true })
+        .like('key', `${prefix}%`);
+      count = c || 0;
+    } catch {
+      // If count fails due to memory, just proceed with delete anyway
+      count = -1; // Unknown count
+    }
+    try {
+      const { error } = await supabase
+        .from(TABLE)
+        .delete()
+        .like('key', `${prefix}%`);
+      if (error) throw new Error(error.message);
+      return count >= 0 ? count : 1; // Return at least 1 if we know rows existed
+    } catch (err: any) {
+      result.errors.push(`${prefix}*: ${err.message}`);
+      return 0;
+    }
+  }
+
+  console.log('[KV-GC] Starting garbage collection...');
+
+  // 1. Delete ALL dpx: index keys (search indices — rebuilt on next save)
+  result.dpx_deleted = await deleteByPrefix('dpx:');
+  console.log(`[KV-GC] Deleted ${result.dpx_deleted} dpx: index keys`);
+
+  // 2. Delete ALL dp: lead pool cache entries (can be re-fetched from Apollo)
+  result.dp_deleted = await deleteByPrefix('dp:');
+  console.log(`[KV-GC] Deleted ${result.dp_deleted} dp: pool cache keys`);
+
+  // 3. Delete old admin events + reset index
+  result.admin_events_deleted = await deleteByPrefix('admin_event:');
+  try { await kv.set('admin_events_index', []); } catch {}
+  console.log(`[KV-GC] Deleted ${result.admin_events_deleted} admin_event: keys`);
+
+  // 4. Delete click tracking data
+  result.click_track_deleted = await deleteByPrefix('click_track:');
+  console.log(`[KV-GC] Deleted ${result.click_track_deleted} click_track: keys`);
+
+  // 5. Delete email tracking pixel data
+  result.email_track_deleted = await deleteByPrefix('email_track:');
+  console.log(`[KV-GC] Deleted ${result.email_track_deleted} email_track: keys`);
+
+  // 6. Delete misc caches
+  let miscCount = 0;
+  for (const prefix of ['scraper_cache:', 'brandfetch:', 'company_cache:', 'domain_cache:', 'enrichment_cache:']) {
+    miscCount += await deleteByPrefix(prefix);
+  }
+  result.misc_deleted = miscCount;
+  console.log(`[KV-GC] Deleted ${miscCount} misc cache keys`);
+
+  // Also delete dp_meta
+  try { await supabase.from(TABLE).delete().eq('key', 'dp_meta'); } catch {}
+
+  const total = result.dpx_deleted + result.dp_deleted + result.admin_events_deleted
+    + result.click_track_deleted + result.email_track_deleted + result.misc_deleted;
+  console.log(`[KV-GC] GC complete. Total deleted: ${total} keys. Errors: ${result.errors.length}`);
+
+  // Reset the circuit breaker now that we've freed memory
+  try {
+    const { resetCircuit } = await import("./kv-retry.tsx");
+    resetCircuit();
+  } catch {}
+
+  return result;
+}
+
+// POST /admin/kv-gc — Run KV garbage collection to free database memory (Admin Only)
+app.post("/make-server-a8b2511f/admin/kv-gc", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const gcResult = await runKvGarbageCollection();
+    const total = gcResult.dpx_deleted + gcResult.dp_deleted + gcResult.admin_events_deleted
+      + gcResult.click_track_deleted + gcResult.email_track_deleted + gcResult.misc_deleted;
+
+    console.log(`[ADMIN] KV GC completed: ${total} keys freed`);
+    return c.json({ success: true, total_deleted: total, ...gcResult });
+  } catch (error: any) {
+    console.error('[ADMIN] KV GC error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /admin/kv-stats — Check KV table row count by prefix (Admin Only)
+app.get("/make-server-a8b2511f/admin/kv-stats", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const supabase = getSupabaseAdmin();
+    const prefixes = ['dp:', 'dpx:', 'admin_event:', 'click_track:', 'email_track:', 'user:', 'leads:', 'team:', 'campaign:', 'affiliate:'];
+    const counts: Record<string, number> = {};
+
+    for (const prefix of prefixes) {
+      try {
+        const { count, error } = await supabase
+          .from('kv_store_a8b2511f')
+          .select('key', { count: 'exact', head: true })
+          .like('key', `${prefix}%`);
+        if (!error) counts[prefix + '*'] = count || 0;
+      } catch {
+        counts[prefix + '*'] = -1;
+      }
+    }
+
+    try {
+      const { count, error } = await supabase
+        .from('kv_store_a8b2511f')
+        .select('key', { count: 'exact', head: true });
+      if (!error) counts['TOTAL'] = count || 0;
+    } catch {
+      counts['TOTAL'] = -1;
+    }
+
+    return c.json({ success: true, counts });
+  } catch (error: any) {
+    console.error('[ADMIN] KV stats error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ─── Admin Lead Browser ──────────────────────────────────────────────
+// GET /admin/leads/browse - Browse ALL leads in the database with filters (Admin Only)
+app.get("/make-server-a8b2511f/admin/leads/browse", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const supabase = getSupabaseAdmin();
+    
+    // Validate and parse query parameters
+    const pageParam = c.req.query('page') || '1';
+    const perPageParam = c.req.query('per_page') || '50';
+    const page = Math.max(1, parseInt(pageParam) || 1);
+    const perPage = Math.min(Math.max(1, parseInt(perPageParam) || 50), 500); // Cap at 500
+    
+    const search = c.req.query('search') || '';
+    const category = c.req.query('category') || '';
+    const industry = c.req.query('industry') || '';
+    const state = c.req.query('state') || '';
+    const city = c.req.query('city') || '';
+    const country = c.req.query('country') || '';
+    const hasEmail = c.req.query('has_email') === 'true';
+    const hasPhone = c.req.query('has_phone') === 'true';
+    const ownerUserId = c.req.query('owner_user_id') || '';
+
+    const from = (page - 1) * perPage;
+    const to = from + perPage - 1;
+
+    const selectCols = 'id,user_id,business_name,contact_name,email,phone,website,city,state,country,category,status,source,brand,industry,created_at';
+
+    // Use estimated count to avoid timeouts on large tables
+    let dataQuery = supabase.from('leads').select(selectCols).order('created_at', { ascending: false });
+    let countQuery = supabase.from('leads').select('id', { count: 'estimated', head: true });
+
+    if (search) {
+      const sp = `%${search}%`;
+      const orClause = [
+        `business_name.ilike.${sp}`,
+        `contact_name.ilike.${sp}`,
+        `email.ilike.${sp}`,
+        `phone.ilike.${sp}`,
+        `city.ilike.${sp}`,
+        `category.ilike.${sp}`,
+        `industry.ilike.${sp}`,
+      ].join(',');
+      dataQuery = dataQuery.or(orClause);
+      countQuery = countQuery.or(orClause);
+    }
+    
+    // Handle multiple categories/industries (pipe-separated)
+    const categoryOrIndustry = category || industry;
+    if (categoryOrIndustry && categoryOrIndustry !== 'all') {
+      const values = categoryOrIndustry.split('|').filter(Boolean);
+      if (values.length > 0) {
+        // Build OR clause for multiple categories/industries
+        const orClause = values.map(v => {
+          const escaped = v.replace(/[%_]/g, '\\$&'); // Escape SQL wildcards
+          return `category.ilike.${escaped},industry.ilike.${escaped}`;
+        }).join(',');
+        dataQuery = dataQuery.or(orClause);
+        countQuery = countQuery.or(orClause);
+      }
+    }
+    
+    if (state && state !== 'all') { dataQuery = dataQuery.eq('state', state); countQuery = countQuery.eq('state', state); }
+    if (city && city !== 'all') { dataQuery = dataQuery.eq('city', city); countQuery = countQuery.eq('city', city); }
+    if (country && country !== 'all') { dataQuery = dataQuery.eq('country', country); countQuery = countQuery.eq('country', country); }
+    if (hasEmail) { dataQuery = dataQuery.not('email', 'is', null); countQuery = countQuery.not('email', 'is', null); }
+    if (hasPhone) { dataQuery = dataQuery.not('phone', 'is', null); countQuery = countQuery.not('phone', 'is', null); }
+    if (ownerUserId) { dataQuery = dataQuery.eq('user_id', ownerUserId); countQuery = countQuery.eq('user_id', ownerUserId); }
+
+    dataQuery = dataQuery.range(from, to);
+
+    const [dataRes, countRes] = await Promise.all([dataQuery, countQuery]);
+
+    if (dataRes.error) {
+      console.error('[ADMIN LEADS] Data query error:', dataRes.error);
+      // Retry once with smaller select on timeout
+      if (dataRes.error.code === '57014' || dataRes.error.code === 'PGRST002' || dataRes.error.message?.includes('timeout') || dataRes.error.message?.includes('schema cache') || dataRes.error.message?.includes('shared memory') || dataRes.error.message?.includes('Database error')) {
+        console.warn('[ADMIN LEADS] Timeout detected, retrying with lightweight select...');
+        await new Promise(r => setTimeout(r, 600));
+        const lightCols = 'id,user_id,business_name,contact_name,email,phone,city,state,category,created_at';
+        let retryQ = supabase.from('leads').select(lightCols).order('created_at', { ascending: false }).range(from, to);
+        if (search) {
+          const sp = `%${search}%`;
+          retryQ = retryQ.or([`business_name.ilike.${sp}`,`contact_name.ilike.${sp}`,`email.ilike.${sp}`,`category.ilike.${sp}`].join(','));
+        }
+        // Apply category/industry filter to retry query too
+        if (categoryOrIndustry && categoryOrIndustry !== 'all') {
+          const values = categoryOrIndustry.split('|').filter(Boolean);
+          if (values.length > 0) {
+            const orClause = values.map(v => {
+              const escaped = v.replace(/[%_]/g, '\\$&');
+              return `category.ilike.${escaped},industry.ilike.${escaped}`;
+            }).join(',');
+            retryQ = retryQ.or(orClause);
+          }
+        }
+        if (state && state !== 'all') retryQ = retryQ.eq('state', state);
+        if (city && city !== 'all') retryQ = retryQ.eq('city', city);
+        if (country && country !== 'all') retryQ = retryQ.eq('country', country);
+        if (hasEmail) retryQ = retryQ.not('email', 'is', null);
+        if (hasPhone) retryQ = retryQ.not('phone', 'is', null);
+        if (ownerUserId) retryQ = retryQ.eq('user_id', ownerUserId);
+        const retryRes = await retryQ;
+        if (!retryRes.error) {
+          const total = countRes.count ?? ((retryRes.data?.length === perPage) ? (page * perPage) + perPage : ((page - 1) * perPage) + (retryRes.data?.length || 0));
+          console.log(`[ADMIN LEADS] Retry succeeded: page=${page}, results=${retryRes.data?.length || 0}`);
+          return c.json({ leads: retryRes.data || [], total, page, per_page: perPage });
+        }
+        console.error('[ADMIN LEADS] Retry also failed:', retryRes.error);
+        return c.json({ error: retryRes.error.message }, 500);
+      }
+      return c.json({ error: dataRes.error.message }, 500);
+    }
+
+    // Estimate total: use count if available, otherwise estimate from page data length
+    let total = countRes.count ?? 0;
+    if (!total && dataRes.data && dataRes.data.length > 0) {
+      total = dataRes.data.length === perPage ? (page * perPage) + perPage : ((page - 1) * perPage) + dataRes.data.length;
+    }
+
+    console.log(`[ADMIN LEADS] Browse: page=${page}, results=${dataRes.data?.length || 0}, total=${total}`);
+    return c.json({ leads: dataRes.data || [], total, page, per_page: perPage });
+  } catch (error: any) {
+    console.error('[ADMIN LEADS] Error browsing leads:', error);
+    const errorMsg = error?.message || 'Unknown error';
+    const statusCode = error?.status || (errorMsg.includes('Unauthorized') ? 403 : 500);
+    return c.json({ error: errorMsg }, statusCode);
+  }
+});
+
+// GET /admin/leads/filters - Get distinct filter options across ALL leads (Admin Only)
+// Now uses same logic as CRM filter-options: groups cities by country+state, states by country
+app.get("/make-server-a8b2511f/admin/leads/filters", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const supabase = getSupabaseAdmin();
+    const LIMIT = 5000;
+
+    const [catRes, countryRes, stateRes, cityRes, industryRes] = await Promise.all([
+      supabase.from('leads').select('category').not('category', 'is', null).not('category', 'eq', '').limit(LIMIT),
+      supabase.from('leads').select('country').not('country', 'is', null).not('country', 'eq', '').limit(LIMIT),
+      supabase.from('leads').select('state, country').not('state', 'is', null).not('state', 'eq', '').limit(LIMIT),
+      supabase.from('leads').select('city, state, country').not('city', 'is', null).not('city', 'eq', '').limit(LIMIT),
+      supabase.from('leads').select('industry').not('industry', 'is', null).not('industry', 'eq', '').limit(LIMIT),
+    ]);
+
+    const categories = Array.from(new Set((catRes.data || []).map((r: any) => r.category).filter(Boolean))).sort();
+    const countries = Array.from(new Set((countryRes.data || []).map((r: any) => r.country).filter(Boolean))).sort();
+    const industries = Array.from(new Set((industryRes.data || []).map((r: any) => r.industry).filter(Boolean))).sort();
+
+    // Group states by country (same as CRM logic)
+    const statesByCountry: Record<string, string[]> = {};
+    for (const row of (stateRes.data || [])) {
+      if (!row.state || !row.country) continue;
+      if (!statesByCountry[row.country]) statesByCountry[row.country] = [];
+      if (!statesByCountry[row.country].includes(row.state)) {
+        statesByCountry[row.country].push(row.state);
+      }
+    }
+    for (const key of Object.keys(statesByCountry)) {
+      statesByCountry[key].sort();
+    }
+
+    // Group cities by country+state (same as CRM logic)
+    const citiesByLocation: Record<string, string[]> = {};
+    for (const row of (cityRes.data || [])) {
+      if (!row.city || !row.country) continue;
+      const key = row.state ? `${row.country}|${row.state}` : row.country;
+      if (!citiesByLocation[key]) citiesByLocation[key] = [];
+      if (!citiesByLocation[key].includes(row.city)) {
+        citiesByLocation[key].push(row.city);
+      }
+    }
+    for (const key of Object.keys(citiesByLocation)) {
+      citiesByLocation[key].sort();
+    }
+
+    console.log(`[ADMIN LEADS] Filter options: ${categories.length} categories, ${countries.length} countries, ${Object.keys(statesByCountry).length} state groups, ${Object.keys(citiesByLocation).length} city groups, ${industries.length} industries`);
+    return c.json({ categories, countries, statesByCountry, citiesByLocation, industries });
+  } catch (error: any) {
+    console.error('[ADMIN LEADS] Error fetching filters:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/leads/assign - Copy/assign selected leads to a target user (Admin Only)
+app.post("/make-server-a8b2511f/admin/leads/assign", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const body = await c.req.json();
+    const { lead_ids, target_user_id, mode } = body;
+
+    if (!lead_ids || !Array.isArray(lead_ids) || lead_ids.length === 0) {
+      return c.json({ error: 'No leads selected' }, 400);
+    }
+    if (!target_user_id) {
+      return c.json({ error: 'No target user specified' }, 400);
+    }
+
+    const supabase = getSupabaseAdmin();
+    const assignMode = mode || 'copy';
+
+    if (assignMode === 'move') {
+      // Batch update to avoid URL length limits
+      const BATCH_SIZE = 100;
+      let totalUpdated = 0;
+      
+      for (let i = 0; i < lead_ids.length; i += BATCH_SIZE) {
+        const batch = lead_ids.slice(i, i + BATCH_SIZE);
+        const { error, count } = await supabase
+          .from('leads')
+          .update({ user_id: target_user_id, updated_at: new Date().toISOString() })
+          .in('id', batch);
+
+        if (error) {
+          console.error(`[ADMIN LEADS] Move error for batch ${i}-${i + BATCH_SIZE}:`, error);
+          return c.json({ error: error.message, partial_updated: totalUpdated }, 500);
+        }
+        
+        totalUpdated += (count || batch.length);
+      }
+
+      console.log(`[ADMIN LEADS] Moved ${totalUpdated} leads to user ${target_user_id} by admin ${user.email}`);
+      return c.json({ success: true, assigned: totalUpdated, mode: 'move' });
+    }
+
+    // Copy mode
+    // Batch fetch leads to avoid URL length limits (max ~100 IDs per query)
+    const BATCH_SIZE = 100;
+    let sourcLeads: any[] = [];
+    
+    for (let i = 0; i < lead_ids.length; i += BATCH_SIZE) {
+      const batch = lead_ids.slice(i, i + BATCH_SIZE);
+      const { data: batchLeads, error: fetchErr } = await supabase
+        .from('leads')
+        .select('*')
+        .in('id', batch);
+
+      if (fetchErr) {
+        console.error(`[ADMIN LEADS] Fetch error for batch ${i}-${i + BATCH_SIZE}:`, fetchErr);
+        return c.json({ error: fetchErr.message }, 500);
+      }
+      
+      if (batchLeads) {
+        sourcLeads.push(...batchLeads);
+      }
+    }
+
+    if (sourcLeads.length === 0) {
+      return c.json({ error: 'No leads found with the provided IDs' }, 404);
+    }
+
+    const sourceEmails = sourcLeads.map(l => l.email).filter(Boolean);
+    let existingEmails = new Set<string>();
+    if (sourceEmails.length > 0) {
+      // Batch check existing emails to avoid URL length limits
+      for (let i = 0; i < sourceEmails.length; i += BATCH_SIZE) {
+        const emailBatch = sourceEmails.slice(i, i + BATCH_SIZE);
+        const { data: existing } = await supabase
+          .from('leads')
+          .select('email')
+          .eq('user_id', target_user_id)
+          .in('email', emailBatch);
+        
+        if (existing) {
+          existing.forEach((e: any) => {
+            if (e.email) existingEmails.add(e.email.toLowerCase());
+          });
+        }
+      }
+    }
+
+    const newLeads = sourcLeads
+      .filter(l => !l.email || !existingEmails.has(l.email.toLowerCase()))
+      .map(l => {
+        const { id, user_id, created_at, updated_at, ...rest } = l;
+        return {
+          ...rest,
+          user_id: target_user_id,
+          source: l.source ? `${l.source} (admin-assigned)` : 'admin-assigned',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+      });
+
+    const skipped = sourcLeads.length - newLeads.length;
+
+    if (newLeads.length === 0) {
+      return c.json({ success: true, assigned: 0, skipped, mode: 'copy', message: 'All leads already exist for this user' });
+    }
+
+    let inserted = 0;
+    for (let i = 0; i < newLeads.length; i += 500) {
+      const chunk = newLeads.slice(i, i + 500);
+      const { error: insertErr } = await supabase.from('leads').insert(chunk);
+      if (insertErr) {
+        console.error(`[ADMIN LEADS] Insert chunk error at ${i}:`, insertErr);
+        return c.json({ error: insertErr.message, partial_inserted: inserted }, 500);
+      }
+      inserted += chunk.length;
+    }
+
+    console.log(`[ADMIN LEADS] Copied ${inserted} leads to user ${target_user_id} (${skipped} duplicates skipped) by admin ${user.email}`);
+    return c.json({ success: true, assigned: inserted, skipped, mode: 'copy' });
+  } catch (error: any) {
+    console.error('[ADMIN LEADS] Error assigning leads:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/leads/assign-filtered - Assign ALL leads matching filters to a target user (Admin Only)
+app.post("/make-server-a8b2511f/admin/leads/assign-filtered", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const body = await c.req.json();
+    const { target_user_id, category, state, city, country, search, has_email, has_phone, owner_user_id } = body;
+
+    if (!target_user_id) {
+      return c.json({ error: 'No target user specified' }, 400);
+    }
+
+    const supabase = getSupabaseAdmin();
+
+    let query = supabase.from('leads').select('*');
+    if (search) {
+      const sp = `%${search}%`;
+      query = query.or([
+        `business_name.ilike.${sp}`, `contact_name.ilike.${sp}`, `email.ilike.${sp}`,
+        `category.ilike.${sp}`, `industry.ilike.${sp}`
+      ].join(','));
+    }
+    if (category && category !== 'all') query = query.ilike('category', category);
+    if (state && state !== 'all') query = query.eq('state', state);
+    if (city && city !== 'all') query = query.eq('city', city);
+    if (country && country !== 'all') query = query.eq('country', country);
+    if (has_email) query = query.not('email', 'is', null);
+    if (has_phone) query = query.not('phone', 'is', null);
+    if (owner_user_id) query = query.eq('user_id', owner_user_id);
+    query = query.neq('user_id', target_user_id);
+    query = query.limit(5000);
+
+    const { data: sourcLeads, error: fetchErr } = await query;
+    if (fetchErr || !sourcLeads) {
+      return c.json({ error: fetchErr?.message || 'Failed to fetch leads' }, 500);
+    }
+
+    if (sourcLeads.length === 0) {
+      return c.json({ success: true, assigned: 0, skipped: 0, message: 'No matching leads found' });
+    }
+
+    const sourceEmails = sourcLeads.map(l => l.email).filter(Boolean);
+    let existingEmails = new Set<string>();
+    if (sourceEmails.length > 0) {
+      for (let i = 0; i < sourceEmails.length; i += 500) {
+        const batch = sourceEmails.slice(i, i + 500);
+        const { data: existing } = await supabase
+          .from('leads')
+          .select('email')
+          .eq('user_id', target_user_id)
+          .in('email', batch);
+        (existing || []).forEach((e: any) => { if (e.email) existingEmails.add(e.email.toLowerCase()); });
+      }
+    }
+
+    const newLeads = sourcLeads
+      .filter(l => !l.email || !existingEmails.has(l.email.toLowerCase()))
+      .map(l => {
+        const { id, user_id, created_at, updated_at, ...rest } = l;
+        return {
+          ...rest,
+          user_id: target_user_id,
+          source: l.source ? `${l.source} (admin-assigned)` : 'admin-assigned',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+      });
+
+    const skipped = sourcLeads.length - newLeads.length;
+
+    if (newLeads.length === 0) {
+      return c.json({ success: true, assigned: 0, skipped, message: 'All matching leads already exist for target user' });
+    }
+
+    let inserted = 0;
+    for (let i = 0; i < newLeads.length; i += 500) {
+      const chunk = newLeads.slice(i, i + 500);
+      const { error: insertErr } = await supabase.from('leads').insert(chunk);
+      if (insertErr) {
+        console.error(`[ADMIN LEADS] Bulk insert chunk error at ${i}:`, insertErr);
+        return c.json({ error: insertErr.message, partial_inserted: inserted }, 500);
+      }
+      inserted += chunk.length;
+    }
+
+    console.log(`[ADMIN LEADS] Bulk-assigned ${inserted} filtered leads to ${target_user_id} (${skipped} dupes) by ${user.email}`);
+    return c.json({ success: true, assigned: inserted, skipped, total_matched: sourcLeads.length });
+  } catch (error: any) {
+    console.error('[ADMIN LEADS] Error bulk assigning:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /leads - List all leads
+app.get("/make-server-a8b2511f/leads", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    console.log(`[LEADS] Fetching leads for user ${user.email}`);
+    
+    // Simple query - fetch all leads for the user (no limit)
+    // Wrapped in withDbRetry to survive PostgREST cold-start schema-cache errors.
+    const { data: allLeads, error } = await withDbRetry(
+      () => supabase
+        .from('leads')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false }),
+      'GET /leads'
+    );
+    
+    if (error) {
+      console.error('[LEADS] Database error:', error);
+      throw error;
+    }
+
+    console.log(`[LEADS] Returned ${allLeads?.length || 0} leads`);
+    return c.json({ leads: allLeads || [] });
+  } catch (error: any) {
+    if (!error.status) console.error('Error fetching leads:', error);
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// GET /crm/leads/filter-options - Lightweight endpoint returning unique filter values
+// Returns distinct categories, countries, states, cities for the user's leads
+// Much faster than loading all leads just to compute dropdown options
+app.get("/make-server-a8b2511f/crm/leads/filter-options", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const t0 = Date.now();
+
+    const isAdmin = isAdminEmail(user.email);
+    let targetUserIds = [user.id];
+    if (isAdmin) {
+      const adminIds = await getCachedSourceUserIds();
+      targetUserIds = Array.from(new Set([...adminIds, user.id]));
+    }
+
+    // Run all distinct queries in parallel for speed
+    // Limit to 5000 rows per query to avoid timeouts on large tables.
+    // This is enough for distinct filter options (most orgs have <100 unique categories, <50 countries, etc.)
+    const FILTER_LIMIT = 5000;
+    const [catRes, countryRes, stateRes, cityRes, industryRes] = await Promise.all([
+      supabase.from('leads').select('category').in('user_id', targetUserIds).not('category', 'is', null).not('category', 'eq', '').limit(FILTER_LIMIT),
+      supabase.from('leads').select('country').in('user_id', targetUserIds).not('country', 'is', null).not('country', 'eq', '').limit(FILTER_LIMIT),
+      supabase.from('leads').select('state, country').in('user_id', targetUserIds).not('state', 'is', null).not('state', 'eq', '').limit(FILTER_LIMIT),
+      supabase.from('leads').select('city, state, country').in('user_id', targetUserIds).not('city', 'is', null).not('city', 'eq', '').limit(FILTER_LIMIT),
+      supabase.from('leads').select('industry').in('user_id', targetUserIds).not('industry', 'is', null).not('industry', 'eq', '').limit(FILTER_LIMIT),
+    ]);
+
+    // Extract unique values from results
+    const categories = Array.from(new Set((catRes.data || []).map((r: any) => r.category).filter(Boolean))).sort();
+    const countries = Array.from(new Set((countryRes.data || []).map((r: any) => r.country).filter(Boolean))).sort();
+    const industries = Array.from(new Set((industryRes.data || []).map((r: any) => r.industry).filter(Boolean))).sort();
+
+    // Group states by country
+    const statesByCountry: Record<string, string[]> = {};
+    for (const row of (stateRes.data || [])) {
+      if (!row.state || !row.country) continue;
+      if (!statesByCountry[row.country]) statesByCountry[row.country] = [];
+      if (!statesByCountry[row.country].includes(row.state)) {
+        statesByCountry[row.country].push(row.state);
+      }
+    }
+    for (const key of Object.keys(statesByCountry)) {
+      statesByCountry[key].sort();
+    }
+
+    // Group cities by country+state
+    const citiesByLocation: Record<string, string[]> = {};
+    for (const row of (cityRes.data || [])) {
+      if (!row.city || !row.country) continue;
+      const key = row.state ? `${row.country}|${row.state}` : row.country;
+      if (!citiesByLocation[key]) citiesByLocation[key] = [];
+      if (!citiesByLocation[key].includes(row.city)) {
+        citiesByLocation[key].push(row.city);
+      }
+    }
+    for (const key of Object.keys(citiesByLocation)) {
+      citiesByLocation[key].sort();
+    }
+
+    console.log(`[CRM] Filter options loaded in ${Date.now() - t0}ms: ${categories.length} categories, ${countries.length} countries, ${industries.length} industries`);
+    return c.json({ categories, countries, statesByCountry, citiesByLocation, industries });
+  } catch (error: any) {
+    // Suppress expected auth errors (session expired) — these are routine, not bugs
+    if (!isAuthError(error)) {
+      console.error('[CRM] filter-options error:', error);
+    }
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// GET /crm/leads/all-ids - Lightweight endpoint returning ALL lead IDs (no email stats overhead)
+// Used by AI campaign flow to get accurate total counts without pagination limits
+// Query params: has_email, brand, category, group_id
+app.get("/make-server-a8b2511f/crm/leads/all-ids", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const t0 = Date.now();
+    
+    const hasEmailFilter = c.req.query('has_email') === 'true';
+    const brandFilter = c.req.query('brand') || '';
+    const categoryFilter = c.req.query('category') || '';
+    const industryFilter = c.req.query('industry') || '';
+    const groupId = c.req.query('group_id') || '';
+    const searchTerm = c.req.query('search') || '';
+    const cityFilter = c.req.query('city') || '';
+    const stateFilter = c.req.query('state') || '';
+    const countryFilter = c.req.query('country') || '';
+    const contactedFilter = c.req.query('contacted') || '';
+    
+    const isAdmin = isAdminEmail(user.email);
+    let targetUserIds = [user.id];
+    if (isAdmin) {
+      const adminIds = await getCachedSourceUserIds();
+      targetUserIds = Array.from(new Set([...adminIds, user.id]));
+    }
+    
+    // Helper to apply common filters to a query
+    const applyFilters = (q: any) => {
+      if (hasEmailFilter) q = q.not('email', 'is', null);
+      if (brandFilter && brandFilter !== 'all') q = q.eq('brand', brandFilter);
+      
+      if (categoryFilter && categoryFilter !== 'all') {
+        if (categoryFilter.includes('|')) {
+          q = q.or(categoryFilter.split('|').map(v => `category.ilike."${v.replace(/"/g, '""')}"`).join(','));
+        } else {
+          q = q.ilike('category', categoryFilter);
+        }
+      }
+      
+      if (industryFilter && industryFilter !== 'all') {
+        if (industryFilter.includes('|')) {
+          q = q.or(industryFilter.split('|').map(v => `industry.ilike."${v.replace(/"/g, '""')}"`).join(','));
+        } else {
+          q = q.ilike('industry', industryFilter);
+        }
+      }
+      
+      if (cityFilter && cityFilter !== 'all') {
+        if (cityFilter.includes('|')) q = q.in('city', cityFilter.split('|'));
+        else q = q.eq('city', cityFilter);
+      }
+      
+      if (stateFilter && stateFilter !== 'all') {
+        if (stateFilter.includes('|')) q = q.in('state', stateFilter.split('|'));
+        else q = q.eq('state', stateFilter);
+      }
+      
+      if (countryFilter && countryFilter !== 'all') {
+        if (countryFilter.includes('|')) q = q.in('country', countryFilter.split('|'));
+        else q = q.eq('country', countryFilter);
+      }
+
+      if (contactedFilter === 'no') q = q.is('last_contacted', null);
+      if (contactedFilter === 'yes') q = q.not('last_contacted', 'is', null);
+      q = q.neq('bounced', true);
+      if (searchTerm) {
+        const sp = `%${searchTerm}%`;
+        q = q.or([
+          `business_name.ilike.${sp}`,`contact_name.ilike.${sp}`,`email.ilike.${sp}`,
+          `phone.ilike.${sp}`,`city.ilike.${sp}`,`category.ilike.${sp}`,
+        ].join(','));
+      }
+      return q;
+    };
+    
+    // If group_id specified, get leads from that group (groups use 'lists' array column)
+    if (groupId) {
+      let allGroupIds: string[] = [];
+      let offset = 0;
+      const batchSize = 1000;
+      let hasMore = true;
+      
+      while (hasMore) {
+        let q = supabase.from('leads').select('id').in('user_id', targetUserIds).contains('lists', [groupId]);
+        q = applyFilters(q);
+        q = q.range(offset, offset + batchSize - 1);
+        
+        const { data, error } = await q;
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          allGroupIds = allGroupIds.concat(data.map((r: any) => r.id));
+          offset += batchSize;
+          hasMore = data.length === batchSize;
+        } else {
+          hasMore = false;
+        }
+      }
+      
+      console.log(`[CRM] all-ids (group ${groupId}): ${allGroupIds.length} leads in ${Date.now() - t0}ms`);
+      return c.json({ success: true, ids: allGroupIds, total: allGroupIds.length, elapsed: Date.now() - t0 });
+    }
+    
+    // Paginate through ALL leads collecting just IDs
+    let allIds: string[] = [];
+    let offset = 0;
+    const batchSize = 1000;
+    let hasMore = true;
+    
+    while (hasMore) {
+      let q = supabase.from('leads').select('id').in('user_id', targetUserIds);
+      q = applyFilters(q);
+      q = q.range(offset, offset + batchSize - 1);
+      
+      const { data, error } = await q;
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        allIds = allIds.concat(data.map((r: any) => r.id));
+        offset += batchSize;
+        hasMore = data.length === batchSize;
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    console.log(`[CRM] all-ids: ${allIds.length} leads for ${user.email} in ${Date.now() - t0}ms`);
+    return c.json({ success: true, ids: allIds, total: allIds.length, elapsed: Date.now() - t0 });
+  } catch (error: any) {
+    console.error('[CRM] all-ids error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /crm/leads/dedup - Scan ALL leads for duplicates and delete them.
+// Duplicates detected by: matching email (primary) or matching name+company.
+// Keeps the NEWEST entry (latest created_at) for each duplicate group.
+// Body: { dry_run?: boolean } — if true, returns count without deleting.
+app.post("/make-server-a8b2511f/crm/leads/dedup", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const body = await c.req.json().catch(() => ({}));
+    const dryRun = !!body.dry_run;
+    const t0 = Date.now();
+
+    // Fetch ALL leads (id, email, contact_name, business_name, created_at)
+    let allLeads: any[] = [];
+    let offset = 0;
+    const batchSize = 1000;
+    let hasMore = true;
+    while (hasMore) {
+      const { data: batch, error } = await supabase
+        .from('leads')
+        .select('id, email, contact_name, business_name, created_at')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + batchSize - 1);
+      if (error) throw error;
+      if (batch && batch.length > 0) {
+        allLeads = allLeads.concat(batch);
+        offset += batchSize;
+        hasMore = batch.length === batchSize;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    console.log(`[CRM] dedup: scanned ${allLeads.length} leads for user ${user.email}`);
+
+    // Group by email
+    const emailMap = new Map<string, any[]>();
+    const nameCompanyMap = new Map<string, any[]>();
+
+    for (const lead of allLeads) {
+      if (lead.email) {
+        const key = lead.email.trim().toLowerCase();
+        if (!emailMap.has(key)) emailMap.set(key, []);
+        emailMap.get(key)!.push(lead);
+      }
+      const contactName = (lead.contact_name || '').trim().toLowerCase();
+      const bizName = (lead.business_name || '').trim().toLowerCase();
+      if (contactName && bizName) {
+        const key = `${contactName}::${bizName}`;
+        if (!nameCompanyMap.has(key)) nameCompanyMap.set(key, []);
+        nameCompanyMap.get(key)!.push(lead);
+      }
+    }
+
+    const idsToDelete = new Set<string>();
+
+    // Email duplicates — keep newest (already sorted desc)
+    for (const [, entries] of emailMap) {
+      if (entries.length <= 1) continue;
+      for (let i = 1; i < entries.length; i++) {
+        idsToDelete.add(entries[i].id);
+      }
+    }
+
+    // Name+Company duplicates (only for leads not already caught by email)
+    for (const [, entries] of nameCompanyMap) {
+      if (entries.length <= 1) continue;
+      const remaining = entries.filter((e: any) => !idsToDelete.has(e.id));
+      if (remaining.length <= 1) continue;
+      for (let i = 1; i < remaining.length; i++) {
+        idsToDelete.add(remaining[i].id);
+      }
+    }
+
+    const dupCount = idsToDelete.size;
+    console.log(`[CRM] dedup: found ${dupCount} duplicates out of ${allLeads.length} leads in ${Date.now() - t0}ms`);
+
+    if (dryRun || dupCount === 0) {
+      return c.json({
+        success: true,
+        duplicates: dupCount,
+        total: allLeads.length,
+        deleted: 0,
+        dry_run: dryRun,
+      });
+    }
+
+    // Delete in batches of 200
+    const idsArr = Array.from(idsToDelete);
+    let deleted = 0;
+    for (let i = 0; i < idsArr.length; i += 200) {
+      const batch = idsArr.slice(i, i + 200);
+      const { error } = await supabase
+        .from('leads')
+        .delete()
+        .in('id', batch)
+        .eq('user_id', user.id);
+      if (error) {
+        console.error(`[CRM] dedup batch delete error:`, error.message);
+        // Continue with remaining batches
+      } else {
+        deleted += batch.length;
+      }
+    }
+
+    console.log(`[CRM] dedup: deleted ${deleted} duplicates in ${Date.now() - t0}ms`);
+
+    return c.json({
+      success: true,
+      duplicates: dupCount,
+      total: allLeads.length,
+      deleted,
+      remaining: allLeads.length - deleted,
+    });
+  } catch (error: any) {
+    console.error('[CRM] dedup error:', error);
+    return c.json({ error: `Dedup failed: ${error.message}` }, 500);
+  }
+});
+
+// GET /crm/leads - CRM-optimized leads endpoint with pagination & server-side filtering
+// Query params: page, per_page, search, category, state, country, city, brand, contacted, has_email, has_phone
+app.get("/make-server-a8b2511f/crm/leads", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const t0 = Date.now();
+
+    // Parse pagination params
+    const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
+    const perPage = Math.min(100000, Math.max(1, parseInt(c.req.query('per_page') || '100', 10)));
+    const from = (page - 1) * perPage;
+    const to = from + perPage - 1;
+
+    // Parse filter params
+    const searchTerm = c.req.query('search') || '';
+    const categoryFilter = c.req.query('category') || '';
+    const industryFilter = c.req.query('industry') || '';
+    const stateFilter = c.req.query('state') || '';
+    const countryFilter = c.req.query('country') || '';
+    const cityFilter = c.req.query('city') || '';
+    const brandFilter = c.req.query('brand') || '';
+    // Normalize aliases: 'no' → 'not-contacted', 'yes' → 'contacted'
+    const rawContactedFilter = c.req.query('contacted') || '';
+    const contactedFilter = rawContactedFilter === 'no' ? 'not-contacted'
+      : rawContactedFilter === 'yes' ? 'contacted'
+      : rawContactedFilter; // all | contacted | not-contacted | opened | engaged
+    const hasEmailFilter = c.req.query('has_email') === 'true';
+    const hasPhoneFilter = c.req.query('has_phone') === 'true';
+    const excludeBounced = c.req.query('exclude_bounced') === 'true';
+    // Lightweight mode: only return specified columns (comma-separated)
+    // e.g. fields=id,business_name,contact_name,email,category,city
+    // Whitelist of real columns on the `leads` table — computed fields like
+    // emails_sent / description are NOT DB columns and must be stripped.
+    const VALID_LEAD_COLUMNS = new Set([
+      'id','user_id','business_name','contact_name','email','phone','website',
+      'address','city','state','zip','country','category','status','source',
+      'brand','notes','tags','lists','bounced',
+      'last_contacted','created_at','updated_at',
+      'linkedin_url','job_title','annual_revenue',
+      'industry','rating','lat','lng','place_id','timezone',
+    ]);
+    const fieldsParam = c.req.query('fields') || '';
+    let selectColumns = '*';
+    if (fieldsParam) {
+      const requested = fieldsParam.split(',').map((f: string) => f.trim()).filter(Boolean);
+      const valid = requested.filter(f => VALID_LEAD_COLUMNS.has(f));
+      if (valid.length === 0) {
+        console.warn('[CRM] All requested fields invalid, falling back to SELECT *. Requested:', requested);
+      } else {
+        selectColumns = valid.join(',');
+        const dropped = requested.filter(f => !VALID_LEAD_COLUMNS.has(f));
+        if (dropped.length > 0) {
+          console.warn('[CRM] Dropped non-existent fields from SELECT:', dropped);
+        }
+      }
+    }
+
+    // Check if user is an admin
+    const isAdmin = isAdminEmail(user.email);
+    let targetUserIds = [user.id];
+
+    if (isAdmin) {
+       // Admins see all leads owned by ANY admin account as "My Leads"
+       const adminIds = await getCachedSourceUserIds();
+       targetUserIds = Array.from(new Set([...adminIds, user.id]));
+    }
+
+    console.log(`[CRM] Fetching leads for user ${user.email}, page=${page}, per_page=${perPage}, select=${selectColumns === '*' ? 'ALL' : selectColumns}, filters:`, {
+      search: searchTerm,
+      category: categoryFilter,
+      industry: industryFilter,
+      state: stateFilter,
+      country: countryFilter,
+      contacted: contactedFilter,
+      rawContacted: rawContactedFilter,
+      skipStats: c.req.query('skip_stats'),
+      fields: fieldsParam || '(none)',
+    });
+
+    // Build query with filters — use selectColumns for lightweight fetches
+    let leadsQuery = supabase
+      .from('leads')
+      .select(selectColumns)
+      .in('user_id', targetUserIds);
+
+    let countQuery = supabase
+      .from('leads')
+      .select('id', { count: 'estimated', head: true })
+      .in('user_id', targetUserIds);
+
+    // Apply filters to both queries
+    if (searchTerm) {
+      const searchPattern = `%${searchTerm}%`;
+      // Search across primary fields + location/industry for comprehensive results
+      const searchFields = [
+        `business_name.ilike.${searchPattern}`,
+        `contact_name.ilike.${searchPattern}`,
+        `email.ilike.${searchPattern}`,
+        `phone.ilike.${searchPattern}`,
+        `city.ilike.${searchPattern}`,
+        `state.ilike.${searchPattern}`,
+        `country.ilike.${searchPattern}`,
+        `category.ilike.${searchPattern}`,
+        `industry.ilike.${searchPattern}`,
+        `job_title.ilike.${searchPattern}`,
+      ].join(',');
+      leadsQuery = leadsQuery.or(searchFields);
+      countQuery = countQuery.or(searchFields);
+    }
+
+    if (categoryFilter && categoryFilter !== 'all') {
+      if (categoryFilter.includes('|')) {
+        const orCond = categoryFilter.split('|').map(v => `category.ilike."${v.replace(/"/g, '""')}"`).join(',');
+        leadsQuery = leadsQuery.or(orCond);
+        countQuery = countQuery.or(orCond);
+      } else {
+        leadsQuery = leadsQuery.ilike('category', categoryFilter);
+        countQuery = countQuery.ilike('category', categoryFilter);
+      }
+    }
+
+    if (industryFilter && industryFilter !== 'all') {
+      if (industryFilter.includes('|')) {
+        const orCond = industryFilter.split('|').map(v => `industry.ilike."${v.replace(/"/g, '""')}"`).join(',');
+        leadsQuery = leadsQuery.or(orCond);
+        countQuery = countQuery.or(orCond);
+      } else {
+        leadsQuery = leadsQuery.ilike('industry', industryFilter);
+        countQuery = countQuery.ilike('industry', industryFilter);
+      }
+    }
+
+    if (stateFilter && stateFilter !== 'all') {
+      if (stateFilter.includes('|')) {
+        leadsQuery = leadsQuery.in('state', stateFilter.split('|'));
+        countQuery = countQuery.in('state', stateFilter.split('|'));
+      } else {
+        leadsQuery = leadsQuery.eq('state', stateFilter);
+        countQuery = countQuery.eq('state', stateFilter);
+      }
+    }
+
+    if (countryFilter && countryFilter !== 'all') {
+      if (countryFilter.includes('|')) {
+        leadsQuery = leadsQuery.in('country', countryFilter.split('|'));
+        countQuery = countQuery.in('country', countryFilter.split('|'));
+      } else {
+        leadsQuery = leadsQuery.eq('country', countryFilter);
+        countQuery = countQuery.eq('country', countryFilter);
+      }
+    }
+
+    if (cityFilter && cityFilter !== 'all') {
+      if (cityFilter.includes('|')) {
+        leadsQuery = leadsQuery.in('city', cityFilter.split('|'));
+        countQuery = countQuery.in('city', cityFilter.split('|'));
+      } else {
+        leadsQuery = leadsQuery.eq('city', cityFilter);
+        countQuery = countQuery.eq('city', cityFilter);
+      }
+    }
+
+    if (brandFilter && brandFilter !== 'all') {
+      leadsQuery = leadsQuery.eq('brand', brandFilter);
+      countQuery = countQuery.eq('brand', brandFilter);
+    }
+
+    if (hasEmailFilter) {
+      leadsQuery = leadsQuery.not('email', 'is', null);
+      countQuery = countQuery.not('email', 'is', null);
+    }
+
+    if (hasPhoneFilter) {
+      leadsQuery = leadsQuery.not('phone', 'is', null);
+      countQuery = countQuery.not('phone', 'is', null);
+    }
+
+    if (excludeBounced) {
+      leadsQuery = leadsQuery.neq('bounced', true);
+      countQuery = countQuery.neq('bounced', true);
+    }
+
+    // PRE-FILTER: For contacted/opened/engaged filters, query the emails table first
+    // to get matching lead IDs, then apply at the DB level so pagination works correctly.
+    // Previously this was done post-fetch which broke pagination (page might return 0 results).
+    let contactedPreFiltered = false; // true if we successfully applied the filter at DB level
+    let matchingLeadIds: string[] = [];
+    let excludeMode = false; // true for 'not-contacted'
+    let batchedFetchDone = false; // true when large ID set was fetched in batches
+    let batchedPageData: any[] = [];
+    let batchedTotalCount = 0;
+    
+    if (contactedFilter && contactedFilter !== 'all') {
+      try {
+        
+        if (contactedFilter === 'contacted' || contactedFilter === 'not-contacted') {
+          // Use the `last_contacted` DB column directly for contacted/not-contacted.
+          // This is far more efficient than the emails-table pre-filter:
+          // - Works with skip_stats=true (lightweight mode in campaign builder)
+          // - No ID set size limits (no 150-ID URL cap / batching needed)
+          // - Consistent with the /crm/leads/all-ids endpoint
+          if (contactedFilter === 'not-contacted') {
+            leadsQuery = leadsQuery.is('last_contacted', null);
+            countQuery = countQuery.is('last_contacted', null);
+          } else {
+            leadsQuery = leadsQuery.not('last_contacted', 'is', null);
+            countQuery = countQuery.not('last_contacted', 'is', null);
+          }
+          contactedPreFiltered = true;
+        } else if (contactedFilter === 'opened') {
+          const { data: emailLeads } = await supabase
+            .from('emails')
+            .select('lead_id')
+            .in('user_id', targetUserIds)
+            .in('status', ['opened', 'clicked'])
+            .limit(5000);
+          matchingLeadIds = [...new Set((emailLeads || []).map((e: any) => e.lead_id).filter(Boolean))];
+        } else if (contactedFilter === 'engaged') {
+          // Engaged = opened, clicked, or replied (matches client-side definition)
+          // Also includes leads whose status was set to 'engaged' by the tracking
+          // endpoint (e.g. when an email open is recorded, the lead status is
+          // updated from 'contacted' → 'engaged').
+          const [emailRes, statusRes] = await Promise.all([
+            supabase
+              .from('emails')
+              .select('lead_id')
+              .in('user_id', targetUserIds)
+              .in('status', ['opened', 'clicked', 'replied'])
+              .limit(5000),
+            supabase
+              .from('leads')
+              .select('id')
+              .in('user_id', targetUserIds)
+              .in('status', ['replied', 'Replied', 'engaged', 'Engaged', 'interested', 'Interested', 'warm', 'Warm'])
+              .limit(5000),
+          ]);
+          const emailIds = (emailRes.data || []).map((e: any) => e.lead_id).filter(Boolean);
+          const statusIds = (statusRes.data || []).map((l: any) => l.id);
+          matchingLeadIds = [...new Set([...emailIds, ...statusIds])];
+        }
+
+        // URL length limit: each UUID is ~36 chars + separator. 150 IDs ≈ 6KB URL, safe.
+        // Above 150, we use batched queries to avoid HTTP 414 / network errors.
+        const MAX_IDS_PER_QUERY = 150;
+
+        // Skip ID-based filtering if we already applied a DB-level column filter
+        // (e.g. contacted/not-contacted uses last_contacted directly)
+        if (contactedPreFiltered) {
+          // Already handled at DB level — no ID-based filtering needed
+        } else if (excludeMode) {
+          if (matchingLeadIds.length > 0 && matchingLeadIds.length <= MAX_IDS_PER_QUERY) {
+            leadsQuery = leadsQuery.not('id', 'in', `(${matchingLeadIds.join(',')})`);
+            countQuery = countQuery.not('id', 'in', `(${matchingLeadIds.join(',')})`);
+            contactedPreFiltered = true;
+          }
+          // If empty, all leads are not-contacted — no filter needed, mark as handled
+          if (matchingLeadIds.length === 0) contactedPreFiltered = true;
+          // If > MAX_IDS_PER_QUERY in exclude mode, fall through to post-fetch filtering
+        } else {
+          if (matchingLeadIds.length === 0) {
+            // No leads match — return empty immediately
+            return c.json({ leads: [], total: 0, page, per_page: perPage, total_pages: 0 });
+          }
+          if (matchingLeadIds.length <= MAX_IDS_PER_QUERY) {
+            leadsQuery = leadsQuery.in('id', matchingLeadIds);
+            countQuery = countQuery.in('id', matchingLeadIds);
+            contactedPreFiltered = true;
+          } else {
+            // Batched pre-filter: split IDs into URL-safe batches, run parallel queries,
+            // merge results in memory. This avoids the URL length crash while still
+            // giving correct pagination counts.
+            console.log(`[CRM] Batched pre-filter: ${matchingLeadIds.length} IDs in batches of ${MAX_IDS_PER_QUERY}`);
+            contactedPreFiltered = true; // we handle it here
+
+            // 1) Batched COUNT — sum counts from each ID batch
+            const idBatches: string[][] = [];
+            for (let i = 0; i < matchingLeadIds.length; i += MAX_IDS_PER_QUERY) {
+              idBatches.push(matchingLeadIds.slice(i, i + MAX_IDS_PER_QUERY));
+            }
+
+            // Build a fresh count query per batch (clone filters but swap .in('id'))
+            const buildBatchCountQuery = (ids: string[]) => {
+              let q = supabase.from('leads').select('*', { count: 'estimated', head: true }).in('user_id', targetUserIds);
+              if (searchTerm) {
+                const sp = `%${searchTerm}%`;
+                q = q.or([
+                  `business_name.ilike.${sp}`,`contact_name.ilike.${sp}`,`email.ilike.${sp}`,
+                  `phone.ilike.${sp}`,`city.ilike.${sp}`,`state.ilike.${sp}`,
+                  `country.ilike.${sp}`,`category.ilike.${sp}`,`industry.ilike.${sp}`,
+                  `job_title.ilike.${sp}`,
+                ].join(','));
+              }
+              if (categoryFilter && categoryFilter !== 'all') {
+                if (categoryFilter.includes('|')) {
+                  q = q.or(categoryFilter.split('|').map(v => `category.ilike."${v.replace(/"/g, '""')}"`).join(','));
+                } else {
+                  q = q.ilike('category', categoryFilter);
+                }
+              }
+              if (industryFilter && industryFilter !== 'all') {
+                if (industryFilter.includes('|')) {
+                  q = q.or(industryFilter.split('|').map(v => `industry.ilike."${v.replace(/"/g, '""')}"`).join(','));
+                } else {
+                  q = q.ilike('industry', industryFilter);
+                }
+              }
+              if (stateFilter && stateFilter !== 'all') {
+                if (stateFilter.includes('|')) q = q.in('state', stateFilter.split('|'));
+                else q = q.eq('state', stateFilter);
+              }
+              if (countryFilter && countryFilter !== 'all') {
+                if (countryFilter.includes('|')) q = q.in('country', countryFilter.split('|'));
+                else q = q.eq('country', countryFilter);
+              }
+              if (cityFilter && cityFilter !== 'all') {
+                if (cityFilter.includes('|')) q = q.in('city', cityFilter.split('|'));
+                else q = q.eq('city', cityFilter);
+              }
+              if (brandFilter && brandFilter !== 'all') q = q.eq('brand', brandFilter);
+              if (hasEmailFilter) q = q.not('email', 'is', null);
+              if (hasPhoneFilter) q = q.not('phone', 'is', null);
+              q = q.in('id', ids);
+              return q;
+            };
+
+            // Build a fresh data query per batch
+            const buildBatchDataQuery = (ids: string[], limit: number) => {
+              let q = supabase.from('leads').select(selectColumns).in('user_id', targetUserIds);
+              if (searchTerm) {
+                const sp = `%${searchTerm}%`;
+                q = q.or([
+                  `business_name.ilike.${sp}`,`contact_name.ilike.${sp}`,`email.ilike.${sp}`,
+                  `phone.ilike.${sp}`,`city.ilike.${sp}`,`state.ilike.${sp}`,
+                  `country.ilike.${sp}`,`category.ilike.${sp}`,`industry.ilike.${sp}`,
+                  `job_title.ilike.${sp}`,
+                ].join(','));
+              }
+              if (categoryFilter && categoryFilter !== 'all') {
+                if (categoryFilter.includes('|')) {
+                  q = q.or(categoryFilter.split('|').map(v => `category.ilike."${v.replace(/"/g, '""')}"`).join(','));
+                } else {
+                  q = q.ilike('category', categoryFilter);
+                }
+              }
+              if (industryFilter && industryFilter !== 'all') {
+                if (industryFilter.includes('|')) {
+                  q = q.or(industryFilter.split('|').map(v => `industry.ilike."${v.replace(/"/g, '""')}"`).join(','));
+                } else {
+                  q = q.ilike('industry', industryFilter);
+                }
+              }
+              if (stateFilter && stateFilter !== 'all') {
+                if (stateFilter.includes('|')) q = q.in('state', stateFilter.split('|'));
+                else q = q.eq('state', stateFilter);
+              }
+              if (countryFilter && countryFilter !== 'all') {
+                if (countryFilter.includes('|')) q = q.in('country', countryFilter.split('|'));
+                else q = q.eq('country', countryFilter);
+              }
+              if (cityFilter && cityFilter !== 'all') {
+                if (cityFilter.includes('|')) q = q.in('city', cityFilter.split('|'));
+                else q = q.eq('city', cityFilter);
+              }
+              if (brandFilter && brandFilter !== 'all') q = q.eq('brand', brandFilter);
+              if (hasEmailFilter) q = q.not('email', 'is', null);
+              if (hasPhoneFilter) q = q.not('phone', 'is', null);
+              q = q.in('id', ids);
+              return q.order('created_at', { ascending: false }).limit(limit);
+            };
+
+            // Run batched counts in parallel (max 10 concurrent)
+            let batchedTotal = 0;
+            for (let i = 0; i < idBatches.length; i += 10) {
+              const slice = idBatches.slice(i, i + 10);
+              const results = await Promise.all(slice.map(ids => buildBatchCountQuery(ids)));
+              for (const r of results) batchedTotal += (r.count || 0);
+            }
+
+            // Run batched data queries — each batch fetches up to (from + perPage) rows
+            // so after merging we can sort globally and slice correctly for the page.
+            const neededRows = from + perPage; // worst-case rows to cover the page
+            let allBatchRows: any[] = [];
+            for (let i = 0; i < idBatches.length; i += 10) {
+              const slice = idBatches.slice(i, i + 10);
+              const results = await Promise.all(slice.map(ids => buildBatchDataQuery(ids, neededRows)));
+              for (const r of results) {
+                if (r.error) console.error('[CRM] Batch data error:', r.error);
+                else if (r.data) allBatchRows.push(...r.data);
+              }
+            }
+
+            // Sort merged rows by created_at DESC, then paginate in memory
+            allBatchRows.sort((a, b) => {
+              const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+              const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+              return db - da;
+            });
+            const batchedPageLeads = allBatchRows.slice(from, from + perPage);
+
+            console.log(`[CRM] Batched pre-filter complete: total=${batchedTotal}, page rows=${batchedPageLeads.length}`);
+
+            // Flag that we already have page data — skip normal query path
+            batchedFetchDone = true;
+            batchedPageData = batchedPageLeads;
+            batchedTotalCount = batchedTotal;
+          }
+        }
+        
+        console.log(`[CRM] Contacted pre-filter '${contactedFilter}': ${matchingLeadIds.length} matching IDs, applied=${contactedPreFiltered}, batchedFetch=${batchedFetchDone}`);
+      } catch (preFilterError: any) {
+        console.error('[CRM] Contacted pre-filter error, falling back to post-fetch:', preFilterError);
+      }
+    }
+
+    // If batched fetch already produced results, skip the normal query path entirely
+    let totalCount = 0;
+    let pageLeads: any[] = [];
+
+    if (batchedFetchDone) {
+      totalCount = batchedTotalCount;
+      pageLeads = batchedPageData;
+      console.log(`[CRM] Using batched results: ${pageLeads.length} leads, total=${totalCount}`);
+    } else if (perPage > 1000) {
+
+    // Large page path: need count first to clamp range and avoid empty chunks
+    const { count, error: countError } = await countQuery;
+    if (countError) console.error('[CRM] Count query error:', countError);
+    totalCount = count || 0;
+
+    const actualTo = Math.min(to, Math.max(totalCount - 1, 0));
+
+    if (actualTo >= from) {
+      const actualNeeded = actualTo - from + 1;
+      console.log(`[CRM] Large page requested (${perPage}), actual rows: ${actualNeeded}, chunking...`);
+
+      const CHUNK_SIZE = 1000;
+
+      const buildChunkQuery = (chunkFrom: number, chunkTo: number) => {
+        let q = supabase.from('leads').select(selectColumns).in('user_id', targetUserIds);
+        if (searchTerm) {
+          const sp = `%${searchTerm}%`;
+          q = q.or([
+            `business_name.ilike.${sp}`,`contact_name.ilike.${sp}`,`email.ilike.${sp}`,
+            `phone.ilike.${sp}`,`city.ilike.${sp}`,`state.ilike.${sp}`,
+            `country.ilike.${sp}`,`category.ilike.${sp}`,`industry.ilike.${sp}`,
+            `job_title.ilike.${sp}`,
+          ].join(','));
+        }
+        if (categoryFilter && categoryFilter !== 'all') {
+          if (categoryFilter.includes('|')) {
+            q = q.or(categoryFilter.split('|').map(v => `category.ilike."${v.replace(/"/g, '""')}"`).join(','));
+          } else {
+            q = q.ilike('category', categoryFilter);
+          }
+        }
+        if (industryFilter && industryFilter !== 'all') {
+          if (industryFilter.includes('|')) {
+            q = q.or(industryFilter.split('|').map(v => `industry.ilike."${v.replace(/"/g, '""')}"`).join(','));
+          } else {
+            q = q.ilike('industry', industryFilter);
+          }
+        }
+        if (stateFilter && stateFilter !== 'all') {
+          if (stateFilter.includes('|')) q = q.in('state', stateFilter.split('|'));
+          else q = q.eq('state', stateFilter);
+        }
+        if (countryFilter && countryFilter !== 'all') {
+          if (countryFilter.includes('|')) q = q.in('country', countryFilter.split('|'));
+          else q = q.eq('country', countryFilter);
+        }
+        if (cityFilter && cityFilter !== 'all') {
+          if (cityFilter.includes('|')) q = q.in('city', cityFilter.split('|'));
+          else q = q.eq('city', cityFilter);
+        }
+        if (brandFilter && brandFilter !== 'all') q = q.eq('brand', brandFilter);
+        if (hasEmailFilter) q = q.not('email', 'is', null);
+        if (hasPhoneFilter) q = q.not('phone', 'is', null);
+        if (contactedPreFiltered && matchingLeadIds && matchingLeadIds.length > 0 && matchingLeadIds.length <= 150 && !excludeMode) {
+          q = q.in('id', matchingLeadIds);
+        } else if (contactedPreFiltered && matchingLeadIds && matchingLeadIds.length > 0 && matchingLeadIds.length <= 150 && excludeMode) {
+          q = q.not('id', 'in', `(${matchingLeadIds.join(',')})`);
+        }
+        return q.order('created_at', { ascending: false }).range(chunkFrom, chunkTo);
+      };
+
+      const chunks: any[] = [];
+      for (let offset = from; offset <= actualTo; offset += CHUNK_SIZE) {
+        chunks.push(buildChunkQuery(offset, Math.min(offset + CHUNK_SIZE - 1, actualTo)));
+      }
+      console.log(`[CRM] Created ${chunks.length} chunk(s)`);
+
+      const CONCURRENT_CHUNKS = 10;
+      const chunkResults: any[] = [];
+      for (let i = 0; i < chunks.length; i += CONCURRENT_CHUNKS) {
+        const batch = chunks.slice(i, i + CONCURRENT_CHUNKS);
+        const results = await Promise.all(batch);
+        for (const res of results) {
+          if (res.error) {
+            console.error('[CRM] Chunk error:', res.error);
+          } else if (res.data) {
+            chunkResults.push(...res.data);
+          }
+        }
+      }
+      pageLeads = chunkResults;
+    }
+
+    } else {
+
+    // ── STANDARD PATH: run count + data in PARALLEL ──────────────────
+    // Previously these ran sequentially (~4s + ~4s = 8s timeout).
+    // Running in parallel halves total latency (~4s max).
+    leadsQuery = leadsQuery.order('created_at', { ascending: false }).range(from, to);
+
+    const [countRes, dataRes] = await Promise.all([
+      countQuery,
+      leadsQuery,
+    ]);
+
+    if (countRes.error) {
+      // Count timed out — estimate from data length so the page still loads
+      console.warn('[CRM] Count query failed, estimating total:', countRes.error.message);
+      const dataLen = dataRes.data?.length || 0;
+      totalCount = dataLen >= perPage
+        ? (page * perPage) + perPage   // probably more pages
+        : ((page - 1) * perPage) + dataLen;
+    } else {
+      totalCount = countRes.count || 0;
+    }
+
+    if (dataRes.error) {
+      // If statement timeout (57014) or schema cache error (PGRST002), retry once with a lightweight select
+      if (dataRes.error.code === '57014' || dataRes.error.code === 'PGRST002' || dataRes.error.message?.includes('schema cache') || dataRes.error.message?.includes('shared memory') || dataRes.error.message?.includes('Database error') || dataRes.error.message?.includes('Unexpected failure')) {
+        const CRM_MAX_RETRIES = 4;
+        let retrySuccess = false;
+        for (let _crmRetry = 0; _crmRetry < CRM_MAX_RETRIES; _crmRetry++) {
+          const delay = 600 * Math.pow(2, _crmRetry);
+          console.warn(`[CRM] Data query failed (${dataRes.error.code}), retry ${_crmRetry + 1}/${CRM_MAX_RETRIES} in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          const retryCols = 'id,user_id,business_name,contact_name,email,phone,website,city,state,country,category,status,source,brand,bounced,last_contacted,created_at,updated_at,industry,linkedin_url,job_title,annual_revenue';
+          let retryQ = supabase.from('leads').select(retryCols).in('user_id', targetUserIds);
+          if (searchTerm) {
+            const sp = `%${searchTerm}%`;
+            retryQ = retryQ.or([`business_name.ilike.${sp}`,`contact_name.ilike.${sp}`,`email.ilike.${sp}`,`phone.ilike.${sp}`,`city.ilike.${sp}`,`state.ilike.${sp}`,`country.ilike.${sp}`,`category.ilike.${sp}`,`industry.ilike.${sp}`].join(','));
+          }
+          if (categoryFilter && categoryFilter !== 'all') {
+            if (categoryFilter.includes('|')) retryQ = retryQ.or(categoryFilter.split('|').map(v => `category.ilike."${v.replace(/"/g, '""')}"`).join(','));
+            else retryQ = retryQ.ilike('category', categoryFilter);
+          }
+          if (industryFilter && industryFilter !== 'all') {
+            if (industryFilter.includes('|')) retryQ = retryQ.or(industryFilter.split('|').map(v => `industry.ilike."${v.replace(/"/g, '""')}"`).join(','));
+            else retryQ = retryQ.ilike('industry', industryFilter);
+          }
+          if (stateFilter && stateFilter !== 'all') {
+            if (stateFilter.includes('|')) retryQ = retryQ.in('state', stateFilter.split('|'));
+            else retryQ = retryQ.eq('state', stateFilter);
+          }
+          if (countryFilter && countryFilter !== 'all') {
+            if (countryFilter.includes('|')) retryQ = retryQ.in('country', countryFilter.split('|'));
+            else retryQ = retryQ.eq('country', countryFilter);
+          }
+          if (cityFilter && cityFilter !== 'all') {
+            if (cityFilter.includes('|')) retryQ = retryQ.in('city', cityFilter.split('|'));
+            else retryQ = retryQ.eq('city', cityFilter);
+          }
+          if (brandFilter && brandFilter !== 'all') retryQ = retryQ.eq('brand', brandFilter);
+          if (hasEmailFilter) retryQ = retryQ.not('email', 'is', null);
+          if (hasPhoneFilter) retryQ = retryQ.not('phone', 'is', null);
+          if (excludeBounced) retryQ = retryQ.neq('bounced', true);
+          if (contactedPreFiltered && contactedFilter === 'not-contacted') retryQ = retryQ.is('last_contacted', null);
+          else if (contactedPreFiltered && contactedFilter === 'contacted') retryQ = retryQ.not('last_contacted', 'is', null);
+          retryQ = retryQ.order('created_at', { ascending: false }).range(from, to);
+          const retryRes = await retryQ;
+          if (!retryRes.error) {
+            pageLeads = retryRes.data || [];
+            console.log(`[CRM] Retry ${_crmRetry + 1} succeeded: ${pageLeads.length} leads`);
+            retrySuccess = true;
+            break;
+          }
+          const retryMsg = retryRes.error?.message || retryRes.error?.code || '';
+          const isStillTransient = retryMsg.includes('schema cache') || retryMsg.includes('PGRST002') || retryMsg.includes('Database error') || retryMsg.includes('57014') || retryMsg.includes('shared memory') || retryMsg.includes('Unexpected failure');
+          if (!isStillTransient || _crmRetry === CRM_MAX_RETRIES - 1) {
+            console.error('[CRM] All retries failed:', retryRes.error);
+            throw retryRes.error;
+          }
+        }
+        if (!retrySuccess) throw dataRes.error;
+      } else {
+        console.error('[CRM] Database error:', dataRes.error);
+        throw dataRes.error;
+      }
+    } else {
+      pageLeads = dataRes.data || [];
+    }
+
+    } // end of standard path
+
+    // Fetch email engagement stats ONLY for leads on this page (huge memory savings!)
+    const leadIds = pageLeads.map(l => l.id);
+    
+    // OPTIMIZATION: If fetching huge number of leads (> 2500), skip detailed stats to prevent CPU/Timeout errors
+    // or if the user explicitly requested to skip stats
+    const skipStats = perPage > 2500 || c.req.query('skip_stats') === 'true';
+
+    // Batch email stats queries if we have too many lead IDs (URL length limit ~8000 chars)
+    // Each UUID is ~36 chars + comma = ~40 chars, so batch at 150 IDs to stay safe
+    let emailStats: any[] = [];
+    
+    if (leadIds.length > 0 && !skipStats) {
+      const batchSize = 150;
+      const batches = [];
+      
+      for (let i = 0; i < leadIds.length; i += batchSize) {
+        batches.push(leadIds.slice(i, i + batchSize));
+      }
+      
+      try {
+        // Process in chunks to avoid overwhelming the database connection
+        const CONCURRENCY = 10;
+        const results = [];
+        
+        for (let i = 0; i < batches.length; i += CONCURRENCY) {
+          const chunk = batches.slice(i, i + CONCURRENCY);
+          const chunkResults = await Promise.all(
+            chunk.map(batch =>
+              supabase
+                .from('emails')
+                .select('lead_id, status')
+                .in('lead_id', batch)
+                .then(res => res.data || [])
+            )
+          );
+          results.push(...chunkResults);
+        }
+        
+        emailStats = results.flat();
+      } catch (emailError: any) {
+        console.error('[CRM] Error fetching email stats:', emailError);
+      }
+    }
+
+    // Aggregate email stats by lead
+    const statsByLead: Record<string, { opened: number, clicked: number, replied: number, sent: number }> = {};
+    
+    if (emailStats && emailStats.length > 0) {
+      emailStats.forEach(stat => {
+        if (!statsByLead[stat.lead_id]) {
+          statsByLead[stat.lead_id] = { opened: 0, clicked: 0, replied: 0, sent: 0 };
+        }
+        
+        // Count all emails as sent
+        statsByLead[stat.lead_id].sent++;
+        
+        // Count engagement
+        if (['opened', 'clicked'].includes(stat.status)) statsByLead[stat.lead_id].opened++;
+        if (stat.status === 'clicked') statsByLead[stat.lead_id].clicked++;
+        if (stat.status === 'replied') statsByLead[stat.lead_id].replied++;
+      });
+    }
+
+    // Add computed fields with real engagement data + inline lead score
+    // When skipStats is true and fetching lightweight, skip expensive enrichment for speed
+    let leads: any[];
+    if (skipStats && fieldsParam) {
+      // Lightweight path — skip score computation, just pass leads through
+      leads = pageLeads;
+    } else {
+      leads = pageLeads.map((lead: any) => {
+        const stats = statsByLead[lead.id] || { opened: 0, clicked: 0, replied: 0, sent: 0 };
+
+        // Compute lead score inline using data we already have (no extra DB queries)
+        const scoreResult = calculateLeadScore({
+          ...lead,
+          email_opens: stats.opened,
+          email_clicks: stats.clicked,
+          email_replies: stats.replied,
+          total_emails_sent: stats.sent,
+        });
+
+        return {
+          ...lead,
+          emails_sent: stats.sent,
+          emails_opened: stats.opened,
+          emails_clicked: stats.clicked,
+          email_open: stats.opened > 0,
+          replied: stats.replied > 0 || lead.status === 'replied' || lead.status === 'Replied',
+          score: scoreResult.totalScore,
+        };
+      });
+    }
+
+    // Apply contacted filter post-fetch ONLY if pre-filter didn't handle it (e.g., too many IDs)
+    // Use both `emails_sent` (computed) and `last_contacted` (DB column) to determine contacted status
+    // skip_stats=true mode where `emails_sent` is not computed.
+    if (!contactedPreFiltered && contactedFilter && contactedFilter !== 'all') {
+      console.log(`[CRM] Applying post-fetch contacted filter '${contactedFilter}' on ${leads.length} leads`);
+      if (contactedFilter === 'contacted') {
+        leads = leads.filter(l => (l.emails_sent > 0) || !!l.last_contacted);
+      } else if (contactedFilter === 'not-contacted') {
+        leads = leads.filter(l => {
+          // If emails_sent is computed (stats mode), use it; otherwise fall back to DB column
+          if (typeof l.emails_sent === 'number') return l.emails_sent === 0;
+          return !l.last_contacted;
+        });
+      } else if (contactedFilter === 'opened') {
+        leads = leads.filter(l => l.emails_opened > 0);
+      } else if (contactedFilter === 'engaged') {
+        const engagedStatuses = ['engaged', 'interested', 'warm', 'replied'];
+        leads = leads.filter(l => 
+          l.emails_opened > 0 || l.emails_clicked > 0 || l.replied ||
+          engagedStatuses.includes((l.status || '').toLowerCase())
+        );
+      }
+    }
+
+    // When pre-filtered at DB level, totalCount is already accurate.
+    // When post-filtered, use filtered leads.length as approximate total (single-page only).
+    const finalTotal = contactedPreFiltered ? totalCount : 
+      (!contactedPreFiltered && contactedFilter && contactedFilter !== 'all') ? leads.length : totalCount;
+
+    console.log(`[CRM] Returned page ${page} with ${leads.length} leads (total=${finalTotal}) in ${Date.now() - t0}ms`);
+    return c.json({ 
+      leads, 
+      total: finalTotal,
+      page,
+      per_page: perPage,
+      total_pages: Math.ceil(finalTotal / perPage)
+    });
+  } catch (error: any) {
+    if (!error.status) console.error('[CRM] Error fetching leads:', error);
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// GET /leads/:id/activity - Get activity feed and notes for a lead
+app.get("/make-server-a8b2511f/leads/:id/activity", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const leadId = c.req.param('id');
+    
+    if (!leadId) return c.json({ error: 'Lead ID required' }, 400);
+
+    // Verify lead ownership — regular users can only view their own leads' activity
+    if (!isAdminEmail(user.email)) {
+      const owned = await verifyLeadOwnership(supabase, leadId, user.id);
+      if (!owned) {
+        return c.json({ error: 'Lead not found or access denied' }, 404);
+      }
+    }
+
+    // 1. Fetch Notes from KV Store
+    const notes = await kv.get(`notes:${leadId}`) || [];
+
+    // 2. Fetch Email Activities from DB — scope to user's own emails
+    const { data: emails } = await supabase
+      .from('emails')
+      .select('*')
+      .eq('lead_id', leadId)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    // 3. Combine into a single feed
+    const activityFeed = [
+      ...(notes || []).map((n: any) => ({ ...n, type: 'note' })),
+      ...(emails || []).map((e: any) => ({
+        id: e.id,
+        type: 'email',
+        timestamp: e.created_at,
+        details: {
+          subject: e.subject,
+          status: e.status,
+          opened_at: e.opened_at,
+          clicked_at: e.clicked_at
+        }
+      }))
+    ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    return c.json({ activity: activityFeed });
+  } catch (error: any) {
+    if (error.status) return c.json({ error: error.message }, error.status);
+    console.error('Error fetching lead activity:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/:id/notes - Add a note
+app.post("/make-server-a8b2511f/leads/:id/notes", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const leadId = c.req.param('id');
+    const { text } = await c.req.json();
+
+    if (!leadId || !text) return c.json({ error: 'Lead ID and text required' }, 400);
+
+    // Verify lead ownership — regular users can only add notes to their own leads
+    if (!isAdminEmail(user.email)) {
+      const owned = await verifyLeadOwnership(supabase, leadId, user.id);
+      if (!owned) {
+        return c.json({ error: 'Lead not found or access denied' }, 404);
+      }
+    }
+
+    const existingNotes = await kv.get(`notes:${leadId}`) || [];
+    
+    const newNote = {
+      id: crypto.randomUUID(),
+      text,
+      author: user.user_metadata?.name || user.email,
+      timestamp: new Date().toISOString()
+    };
+
+    const updatedNotes = [newNote, ...existingNotes];
+    await kv.set(`notes:${leadId}`, updatedNotes);
+
+    return c.json({ success: true, note: newNote });
+  } catch (error: any) {
+    if (error.status) return c.json({ error: error.message }, error.status);
+    console.error('Error adding note:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /leads/count - efficient count endpoint (with caching)
+app.get("/make-server-a8b2511f/leads/count", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // Check cache first (30 second TTL for counts)
+    const cacheKey = `leads:count:${user.id}`;
+    const cached = getCached(cacheKey);
+    if (cached !== null) {
+      return c.json({ count: cached });
+    }
+    
+    const { count, error } = await supabase
+      .from('leads')
+      .select('*', { count: 'estimated', head: true })
+      .eq('user_id', user.id);
+      
+    if (error) throw error;
+    setCache(cacheKey, count || 0);
+    return c.json({ count: count || 0 });
+  } catch (error: any) {
+    if (error?.message?.includes('Authentication failed') || error?.message?.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('Error counting leads:', error?.message || error);
+    return c.json({ error: error?.message || 'Failed to count leads' }, 500);
+  }
+});
+
+// GET /dashboard/stats - Combined dashboard statistics endpoint
+// Replaces 7+ individual frontend-to-Supabase count queries with a single server call.
+app.get("/make-server-a8b2511f/dashboard/stats", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const t0 = Date.now();
+    const brand = c.req.query('brand') || 'all';
+
+    // ── L1: In-memory cache (per-isolate, instant) ────────────────────
+    const forceRefresh = c.req.query('force') === '1';
+    const cacheKey = `dashboard:stats:${user.id}:${brand}`;
+    if (!forceRefresh) {
+      const memCached = getCached(cacheKey);
+      if (memCached !== null) {
+        console.log(`[DASHBOARD] L1 cache hit for ${user.email} in ${Date.now() - t0}ms`);
+        return c.json(memCached);
+      }
+    }
+
+    // ── L2: KV cache (shared across all isolates, 60s TTL) ────────────
+    // Critical fix for multi-user / multi-isolate scalability.
+    // Isolate A writes result to KV after computing; isolate B reads KV
+    // immediately without hitting the database again.
+    // force=1 skips KV so real-time refreshes always get truly fresh counts.
+    const kvCacheKey = `dashboard:stats:kv:${user.id}:${brand}`;
+    if (!forceRefresh) {
+      try {
+        const kvCached = await kv.get(kvCacheKey);
+        if (kvCached && kvCached._ts && (Date.now() - kvCached._ts) < 55_000) {
+          setCache(cacheKey, kvCached, 55_000);
+          console.log(`[DASHBOARD] L2 KV cache hit for ${user.email} in ${Date.now() - t0}ms`);
+          return c.json(kvCached);
+        }
+      } catch (_kvErr) {
+        console.warn('[DASHBOARD] KV read failed (non-fatal), computing fresh stats');
+      }
+    }
+
+    // ── Stampede guard ────────────────────────────────────────────────
+    // If another isolate is already computing stats for this user, wait
+    // briefly and serve from KV rather than both hammering the DB.
+    const lockKey = `dashboard:stats:lock:${user.id}:${brand}`;
+    let lockAcquired = false;
+    try {
+      const existingLock = await kv.get(lockKey);
+      if (existingLock && existingLock._at && (Date.now() - existingLock._at) < 8_000) {
+        await new Promise(r => setTimeout(r, 1500));
+        const retryKv = await kv.get(kvCacheKey).catch(() => null);
+        if (retryKv && retryKv._ts && (Date.now() - retryKv._ts) < 55_000) {
+          setCache(cacheKey, retryKv, 55_000);
+          console.log(`[DASHBOARD] L2 KV hit after lock wait for ${user.email} in ${Date.now() - t0}ms`);
+          return c.json(retryKv);
+        }
+      } else {
+        kv.set(lockKey, { _at: Date.now() }).catch(() => {});
+        lockAcquired = true;
+      }
+    } catch (_lockErr) { /* lock ops are best-effort */ }
+
+    const isAdmin = isAdminEmail(user.email);
+    let targetUserIds = [user.id];
+    if (isAdmin) {
+      const adminIds = await getCachedSourceUserIds();
+      targetUserIds = Array.from(new Set([...adminIds, user.id]));
+    }
+
+    // 1. Fetch brands + filtered campaigns in parallel
+    const [brandsRes, allCampaignsRes] = await Promise.all([
+      supabase.from('campaigns').select('brand, product').eq('user_id', user.id),
+      (() => {
+        let q = supabase.from('campaigns').select('id, product, brand, name, status, created_at').eq('user_id', user.id);
+        if (brand !== 'all') {
+          if (brand === 'contndr') {
+            q = q.or('brand.eq.contndr,brand.eq.sendlr,product.ilike.contndr%,product.ilike.sendlr%');
+          } else {
+            q = q.or(`brand.eq.${brand},product.ilike.${brand}%`);
+          }
+        }
+        return q.order('created_at', { ascending: false });
+      })(),
+    ]);
+
+    const brandsSet = new Set<string>(['contndr']);
+    if (brandsRes.data) {
+      for (const cr of brandsRes.data) {
+        if (cr.brand) {
+          const b = cr.brand.toLowerCase();
+          brandsSet.add(b === 'sendlr' ? 'contndr' : b);
+        } else if (cr.product) {
+          const p = cr.product.toLowerCase();
+          if (p.includes('roadr')) brandsSet.add('roadr');
+          else if (p.includes('sourcr')) brandsSet.add('sourcr');
+          else if (p.includes('covera')) brandsSet.add('covera');
+          else if (p.includes('contndr') || p.includes('sendlr')) brandsSet.add('contndr');
+        }
+      }
+    }
+    const availableBrands = Array.from(brandsSet).sort();
+    const filteredCampaigns = allCampaignsRes.data || [];
+    const campaignIds = filteredCampaigns.map((cr: any) => cr.id);
+    const recentCampaigns = filteredCampaigns.slice(0, 5);
+
+    // 2. ALL counts + follow-ups in a single parallel batch
+    // ── Email counts: parallel DB-level HEAD COUNT queries (zero row transfer) ──
+    // Previous approach fetched all email rows and counted in JS — this transferred
+    // 50k–200k rows per request under concurrent load and caused isolate timeouts.
+    // Each HEAD count query returns only a number (~10–40ms each, run in parallel).
+    const leadsCountP = supabase
+      .from('leads')
+      .select('id', { count: 'estimated', head: true })
+      .in('user_id', targetUserIds);
+
+    let emailCountsP: Promise<{ sent: number; opened: number; clicked: number; delivered: number; replied: number }>;
+    if (campaignIds.length > 0) {
+      const campSlice = campaignIds.slice(0, 300);
+      const [sentR, openedR, clickedR, deliveredR, repliedR] = await Promise.all([
+        supabase.from('emails').select('id', { count: 'estimated', head: true })
+          .in('campaign_id', campSlice)
+          .in('status', ['sent','delivered','opened','clicked','bounced','complained']),
+        supabase.from('emails').select('id', { count: 'estimated', head: true })
+          .in('campaign_id', campSlice)
+          .in('status', ['opened','clicked']),
+        supabase.from('emails').select('id', { count: 'estimated', head: true })
+          .in('campaign_id', campSlice)
+          .eq('status', 'clicked'),
+        supabase.from('emails').select('id', { count: 'estimated', head: true })
+          .in('campaign_id', campSlice)
+          .in('status', ['delivered','opened','clicked']),
+        supabase.from('emails').select('id', { count: 'estimated', head: true })
+          .in('campaign_id', campSlice)
+          .eq('status', 'replied'),
+      ]);
+      emailCountsP = Promise.resolve({
+        sent:      sentR.count      ?? 0,
+        opened:    openedR.count    ?? 0,
+        clicked:   clickedR.count   ?? 0,
+        delivered: deliveredR.count ?? 0,
+        replied:   repliedR.count   ?? 0,
+      });
+    } else {
+      emailCountsP = Promise.resolve({ sent: 0, opened: 0, clicked: 0, delivered: 0, replied: 0 });
+    }
+
+    const followUpsP = campaignIds.length > 0
+      ? supabase.from('follow_ups').select('*').in('campaign_id', campaignIds.slice(0, 300)).order('due_date', { ascending: true }).limit(5)
+      : Promise.resolve({ data: [] });
+
+    const [leadsRes2, emailCounts, followUpsRes] = await Promise.all([leadsCountP, emailCountsP, followUpsP]);
+
+    const totalLeads = leadsRes2.count || 0;
+    const totalCampaigns = filteredCampaigns.length;
+    const { sent: emailsSent, opened: emailsOpened, clicked: emailsClicked, delivered: emailsDelivered, replied: emailsReplied } = emailCounts;
+
+    const result: any = {
+      stats: {
+        totalLeads, totalCampaigns, emailsSent, emailsOpened, emailsClicked,
+        openRate: emailsSent > 0 ? (emailsOpened / emailsSent) * 100 : 0,
+        clickRate: emailsSent > 0 ? (emailsClicked / emailsSent) * 100 : 0,
+        deliveryRate: emailsSent > 0 ? (emailsDelivered / emailsSent) * 100 : 0,
+        emailsDelivered, linkClicks: emailsClicked, emailsReplied,
+      },
+      recentCampaigns,
+      upcomingFollowUps: (followUpsRes as any).data || [],
+      availableBrands,
+      campaignIds,
+      _ts: Date.now(), // used by KV freshness check
+    };
+
+    // Write L1 (in-memory) + L2 (KV shared-isolate) caches
+    setCache(cacheKey, result, 60_000);
+    kv.set(kvCacheKey, result).catch((e: any) => console.warn('[DASHBOARD] KV write failed (non-fatal):', e?.message || e));
+    if (lockAcquired) kv.del(lockKey).catch(() => {});
+
+    console.log(`[DASHBOARD] Fresh stats for ${user.email} (brand=${brand}) in ${Date.now() - t0}ms`);
+    return c.json(result);
+  } catch (error: any) {
+    if (!error.status) console.error('[DASHBOARD] Stats error:', error);
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// GET /crm/clients - List all clients
+app.get("/make-server-a8b2511f/crm/clients", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    const { data: clients, error } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('user_id', user.id)
+      .in('status', ['customer', 'closed', 'client'])
+      .order('created_at', { ascending: false });
+      
+    if (error) throw error;
+    return c.json({ clients: clients || [] });
+  } catch (error: any) {
+    if (!error.status) console.error('Error fetching clients:', error);
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// GET /hot-leads - List high engagement leads
+app.get("/make-server-a8b2511f/hot-leads", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // Get brand filter from query params
+    const brandFilter = c.req.query('brand')?.toLowerCase();
+    console.log('[HOT LEADS] Brand filter:', brandFilter || 'all');
+    
+    // 1. Fetch leads - Get a larger chunk to ensure we don't miss interested leads
+    // Strategy: Fetch leads that are EXPLICITLY marked as interested/warm/hot to ensure they never fall off
+    // PLUS fetch recent active leads to calculate engagement for "organic" hot leads
+    
+    // A. Explicitly Hot Leads (Limit to 1000 to prevent timeout)
+    const { data: explicitHotLeads, error: error1 } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('user_id', user.id)
+      .in('status', ['Interested', 'interested', 'Warm', 'warm', 'Hot', 'hot', 'Replied', 'replied', 'engaged', 'Engaged'])
+      .limit(1000);
+      
+    if (error1) throw error1;
+    
+    // B. Recent Active Leads (to check for engagement)
+    const { data: recentLeads, error: error2 } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('user_id', user.id)
+      .not('status', 'in', '("customer","closed","client")')
+      .order('created_at', { ascending: false }) // Prioritize recent leads
+      .limit(1000); 
+
+    if (error2) throw error2;
+
+    // Merge and Deduplicate
+    const leadMap = new Map();
+    [...(explicitHotLeads || []), ...(recentLeads || [])].forEach(lead => {
+        leadMap.set(lead.id, lead);
+    });
+    const rawLeads = Array.from(leadMap.values());
+
+    if (!rawLeads || rawLeads.length === 0) return c.json({ leads: [] });
+
+    // 2. Fetch email stats for these leads to calculate REAL engagement score
+    // (Database column might be stale, so we calculate on the fly for accuracy)
+    // Include campaign_id to join with campaigns and get brand info
+    const leadIds = rawLeads.map(l => l.id);
+    
+    // Batch the email query to avoid URL length limits or timeouts
+    let emailStats: any[] = [];
+    const BATCH_SIZE = 500;
+    
+    // Only proceed if we have leads
+    if (leadIds.length > 0) {
+      for (let i = 0; i < leadIds.length; i += BATCH_SIZE) {
+        const batchIds = leadIds.slice(i, i + BATCH_SIZE);
+        const { data: batchStats, error: statsError } = await supabase
+          .from('emails')
+          .select('lead_id, status, campaign_id, from_email, subject')
+          .in('lead_id', batchIds);
+          
+        if (!statsError && batchStats) {
+          emailStats = [...emailStats, ...batchStats];
+        } else if (statsError) {
+          console.warn('[HOT LEADS] Warning: Failed to fetch batch stats', statsError);
+        }
+      }
+    }
+    
+    // Fetch campaign data to get brand/product info for filtering
+    const campaignIds = [...new Set(emailStats?.map(e => e.campaign_id).filter(Boolean) || [])];
+    
+    // Optimized campaign fetching with batching to prevent "Request-URI Too Long"
+    let campaigns: any[] = [];
+    if (campaignIds.length > 0) {
+      const CAMP_BATCH_SIZE = 200; // Safe batch size for UUIDs
+      for (let i = 0; i < campaignIds.length; i += CAMP_BATCH_SIZE) {
+         const batchCampIds = campaignIds.slice(i, i + CAMP_BATCH_SIZE);
+         const { data: batchCamps, error: campError } = await supabase
+           .from('campaigns')
+           .select('id, product, brand')
+           .in('id', batchCampIds);
+           
+         if (!campError && batchCamps) {
+           campaigns = [...campaigns, ...batchCamps];
+         }
+      }
+    }
+
+    // Create campaign lookup map
+    const campaignMap = new Map((campaigns || []).map(c => [c.id, c]));
+
+    // 3. Aggregate stats
+    // We create a map of lead_id -> { total: {...}, byBrand: {...} }
+    const statsByLead: Record<string, { 
+        total: { opened: number, clicked: number, replied: number },
+        byBrand: Record<string, { opened: number, clicked: number, replied: number }>,
+        brands: Set<string>
+    }> = {};
+
+    // Helper to get lead brand for context
+    const leadBrandMap = new Map(rawLeads.map(l => [l.id, (l.brand || '').toLowerCase()]));
+
+    if (emailStats && emailStats.length > 0) {
+      console.log('[HOT LEADS] Processing', emailStats.length, 'email stats for brand attribution');
+      
+      emailStats.forEach(stat => {
+        let emailBrand = '';
+        
+        // 1. Try to get brand from campaign
+        if (stat.campaign_id) {
+          const campaign = campaignMap.get(stat.campaign_id);
+          emailBrand = (campaign?.brand || campaign?.product || '').toLowerCase();
+        }
+        
+        // 2. Fallback: Try to infer brand from sender email or subject
+        if (!emailBrand) {
+           const sender = (stat.from_email || '').toLowerCase();
+           const subject = (stat.subject || '').toLowerCase();
+           
+           if (sender.includes('contndr') || subject.includes('contndr')) emailBrand = 'contndr';
+           else if (sender.includes('roadr') || subject.includes('roadr')) emailBrand = 'contndr'; // Legacy mapping
+           else if (sender.includes('sourcr') || subject.includes('sourcr')) emailBrand = 'contndr'; // Legacy mapping
+           else if (sender.includes('covera') || subject.includes('covera')) emailBrand = 'covera';
+        }
+
+        // 3. Context Fallback: Use the lead's assigned brand
+        if (!emailBrand) {
+             emailBrand = leadBrandMap.get(stat.lead_id) || '';
+        }
+        
+        // 4. FINAL FALLBACK: If we still don't have a brand and it's a campaign email,
+        // attribute it to ALL brands so engagement isn't lost
+        // This ensures existing engagement always shows up somewhere
+        const shouldAttributeToAll = !emailBrand && stat.campaign_id;
+
+        // Initialize lead stats if needed
+        if (!statsByLead[stat.lead_id]) {
+          statsByLead[stat.lead_id] = { 
+              total: { opened: 0, clicked: 0, replied: 0 },
+              byBrand: {},
+              brands: new Set()
+          };
+        }
+        
+        const leadStats = statsByLead[stat.lead_id];
+
+        // Update Total Stats (always)
+        if (['opened', 'clicked'].includes(stat.status)) leadStats.total.opened++;
+        if (stat.status === 'clicked') leadStats.total.clicked++;
+        if (stat.status === 'replied') leadStats.total.replied++;
+
+        // Update Brand Specific Stats
+        if (emailBrand) {
+            leadStats.brands.add(emailBrand);
+            
+            if (!leadStats.byBrand[emailBrand]) {
+                leadStats.byBrand[emailBrand] = { opened: 0, clicked: 0, replied: 0 };
+            }
+            
+            if (['opened', 'clicked'].includes(stat.status)) leadStats.byBrand[emailBrand].opened++;
+            if (stat.status === 'clicked') leadStats.byBrand[emailBrand].clicked++;
+            if (stat.status === 'replied') leadStats.byBrand[emailBrand].replied++;
+        } else if (shouldAttributeToAll) {
+            // If we can't determine brand, attribute under 'website' so engagement isn't lost
+            ['website'].forEach(brand => {
+                leadStats.brands.add(brand);
+                
+                if (!leadStats.byBrand[brand]) {
+                    leadStats.byBrand[brand] = { opened: 0, clicked: 0, replied: 0 };
+                }
+                
+                if (['opened', 'clicked'].includes(stat.status)) leadStats.byBrand[brand].opened++;
+                if (stat.status === 'clicked') leadStats.byBrand[brand].clicked++;
+                if (stat.status === 'replied') leadStats.byBrand[brand].replied++;
+            });
+        }
+      });
+      
+      // Log summary for debugging
+      const brandsDetected = Object.values(statsByLead).reduce((acc, stats) => {
+        stats.brands.forEach(b => acc.add(b));
+        return acc;
+      }, new Set());
+      console.log('[HOT LEADS] Brand attribution complete. Brands detected:', Array.from(brandsDetected));
+    }
+
+    // 4. Enrich and Filter
+    const hotLeads = rawLeads.map(lead => {
+      const statsObj = statsByLead[lead.id] || { 
+          total: { opened: 0, clicked: 0, replied: 0 }, 
+          byBrand: {}, 
+          brands: new Set() 
+      };
+      
+      // Select which stats to use: Brand-specific if filtering, otherwise Total
+      let stats = statsObj.total;
+      
+      if (brandFilter && statsObj.byBrand[brandFilter]) {
+          stats = statsObj.byBrand[brandFilter];
+      } else if (brandFilter) {
+          // Filter is on, but no stats for this brand. 
+          // Use zero stats, effectively giving score 0 unless we fallback to total?
+          // User wants "engagement tied to brand". So 0 is correct.
+          stats = { opened: 0, clicked: 0, replied: 0 };
+      }
+
+      const calculatedScore = Math.min(10, (stats.clicked * 3) + (stats.opened * 1));
+      
+      const status = (lead.status || '').toLowerCase().trim();
+      
+      // Determine if replied based on the selected scope
+      const hasReplied = stats.replied > 0 || 
+                         (!brandFilter && (status === 'replied'));
+
+      return {
+        ...lead,
+        emails_opened: stats.opened,
+        emails_clicked: stats.clicked,
+        email_open: stats.opened > 0,
+        replied: hasReplied,
+        engaged_brands: Array.from(statsObj.brands || []),
+        // Compute engagement_score on the fly for filtering
+        _engagement_score: calculatedScore
+      };
+    });
+    
+    console.log('[HOT LEADS] Enriched', hotLeads.length, 'leads before filtering');
+    
+    // Enhanced logging to debug filtering issues
+    const engagedNoEmailsCount = hotLeads.filter(l => {
+      const status = (l.status || '').toLowerCase().trim();
+      return ['engaged', 'interested', 'warm', 'hot'].includes(status) && 
+             (!l.emails_opened && !l.emails_clicked);
+    }).length;
+    
+    if (engagedNoEmailsCount > 0) {
+      console.log(`[HOT LEADS] Found ${engagedNoEmailsCount} engaged leads with no email activity`);
+      const samples = hotLeads.filter(l => {
+        const status = (l.status || '').toLowerCase().trim();
+        return ['engaged', 'interested', 'warm', 'hot'].includes(status) && 
+               (!l.emails_opened && !l.emails_clicked);
+      }).slice(0, 3);
+      console.log('[HOT LEADS] Engaged leads without emails sample:', samples.map(l => ({
+        business_name: l.business_name,
+        status: l.status,
+        brand: l.brand,
+        engaged_brands: l.engaged_brands
+      })));
+    }
+    
+    const filteredHotLeads = hotLeads.filter(lead => {
+      const status = (lead.status || '').toLowerCase().trim();
+      const isInterested = ['interested', 'warm', 'hot', 'engaged'].includes(status);
+      const isAssignedToBrand = lead.brand && lead.brand.toLowerCase() === brandFilter;
+      
+      // For debugging: Track why leads pass/fail the filter
+      const reasons = [];
+
+      // Filter Logic
+      if (brandFilter) {
+          // If filtering by brand, show the lead IF:
+          // 1. They have engagement score > 0 (calculated specifically for this brand above)
+          if ((lead as any)._engagement_score > 0) reasons.push('engagement_score');
+          // 2. OR they are in the engaged_brands list (they engaged with this brand)
+          if (lead.engaged_brands.includes(brandFilter)) reasons.push('engaged_brands');
+          // 3. OR they have replied to this brand
+          if (lead.replied) reasons.push('replied');
+          // 4. OR they are explicitly assigned to this brand AND are interested/hot (even if 0 score)
+          if (isAssignedToBrand && isInterested) reasons.push('assigned_to_brand');
+          // 5. OR they have "engaged" status (manual engagement signal) - show in ALL brands unless explicitly assigned to a different brand
+          // This ensures manually engaged leads aren't hidden just because they lack email data
+          const explicitlyEngaged = status === 'engaged' && (!lead.brand || lead.brand.toLowerCase() === brandFilter);
+          if (explicitlyEngaged) reasons.push('explicitly_engaged');
+          
+          const passes = reasons.length > 0;
+          
+          // Log first few filtered out engaged leads for debugging
+          if (!passes && isInterested && filteredHotLeads.length < 5) {
+            console.log(`[HOT LEADS] Filtered OUT interested lead "${lead.business_name}" (brand: ${lead.brand}, status: ${status}, engaged_brands: ${lead.engaged_brands})`);
+          }
+          
+          return passes;
+      }
+
+      // Default \"All Brands\" logic
+      return (lead as any)._engagement_score >= 4 || 
+             isInterested ||
+             lead.replied ||
+             lead.emails_clicked > 0;
+    }).sort((a, b) => ((b as any)._engagement_score || 0) - ((a as any)._engagement_score || 0));
+
+    console.log('[HOT LEADS] Filtered to', filteredHotLeads.length, 'hot leads for brand:', brandFilter || 'all');
+    
+    if (filteredHotLeads.length > 0) {
+        console.log('[HOT LEADS] Sample filtered leads:', filteredHotLeads.slice(0, 3).map(l => ({
+          business_name: l.business_name,
+          brand: l.brand,
+          _engagement_score: (l as any)._engagement_score,
+          engaged_brands: l.engaged_brands,
+          clicks: l.emails_clicked,
+          opens: l.emails_opened
+        })));
+    }
+    
+    return c.json({ leads: filteredHotLeads });
+  } catch (error) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('[HOT LEADS] Critical Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /fast-money-leads
+app.get("/make-server-a8b2511f/fast-money-leads", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // 1. Fetch leads
+    // Strategy: Fetch leads that are EXPLICITLY marked as interested/warm
+    
+    // A. Explicitly Fast Money Leads
+    const { data: explicitFastLeads, error: error1 } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('user_id', user.id)
+      .in('status', ['Interested', 'interested', 'Warm', 'warm']);
+
+    if (error1) throw error1;
+
+    // B. Recent Active Leads
+    const { data: recentLeads, error: error2 } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('user_id', user.id)
+      .not('status', 'in', '("customer","closed","client")')
+      .order('created_at', { ascending: false })
+      .limit(1000);
+
+    if (error2) throw error2;
+
+    // Merge and Deduplicate
+    const leadMap = new Map();
+    [...(explicitFastLeads || []), ...(recentLeads || [])].forEach(lead => {
+        leadMap.set(lead.id, lead);
+    });
+    const rawLeads = Array.from(leadMap.values());
+
+    if (!rawLeads || rawLeads.length === 0) return c.json({ leads: [] });
+
+    // 2. Fetch email stats
+    const leadIds = rawLeads.map(l => l.id);
+    const { data: emailStats } = await supabase
+      .from('emails')
+      .select('lead_id, status')
+      .in('lead_id', leadIds);
+
+    // 3. Aggregate stats
+    const statsByLead: Record<string, { opened: number; clicked: number; replied: number }> = {};
+    if (emailStats) {
+      emailStats.forEach(stat => {
+        if (!statsByLead[stat.lead_id]) statsByLead[stat.lead_id] = { opened: 0, clicked: 0, replied: 0 };
+        if (['opened', 'clicked'].includes(stat.status)) statsByLead[stat.lead_id].opened++;
+        if (stat.status === 'clicked') statsByLead[stat.lead_id].clicked++;
+        if (stat.status === 'replied') statsByLead[stat.lead_id].replied++;
+      });
+    }
+
+    // 4. Enrich and Filter
+    const fastMoneyLeads = rawLeads.map(lead => {
+      const stats = statsByLead[lead.id] || { opened: 0, clicked: 0, replied: 0 };
+      const calculatedScore = Math.min(10, (stats.clicked * 3) + (stats.opened * 1));
+      
+      const status = (lead.status || '').toLowerCase().trim();
+      const isInterested = status === 'interested' || status === 'warm';
+
+      return {
+        ...lead,
+        emails_opened: stats.opened,
+        emails_clicked: stats.clicked,
+        email_open: stats.opened > 0,
+        replied: stats.replied > 0 || status === 'replied',
+        // Compute engagement_score on the fly
+        _engagement_score: calculatedScore
+      };
+    }).filter(lead => {
+      // Fast Money Definition:
+      // 1. Decent Engagement (Score > 5)
+      // 2. OR Interested
+      const status = (lead.status || '').toLowerCase().trim();
+      return (lead as any)._engagement_score > 5 || 
+             status === 'interested' || 
+             status === 'warm';
+    }).sort((a, b) => ((b as any)._engagement_score || 0) - ((a as any)._engagement_score || 0))
+    .slice(0, 100); // Limit to top 100
+
+    return c.json({ leads: fastMoneyLeads });
+  } catch (error: any) {
+    if (!error.status) console.error('[FAST MONEY] Error:', error);
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// GET /leads/hot - Get high scoring leads
+app.get("/make-server-a8b2511f/leads/hot", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // Fetch leads that are marked as interested/warm/hot/replied based on status
+    const { data: leads, error } = await supabase
+      .from('leads')
+      .select('id, business_name, email, phone, city, category, status, updated_at')
+      .eq('user_id', user.id)
+      .or('status.ilike.%interested%,status.ilike.%warm%,status.ilike.%hot%,status.ilike.%replied%')
+      .order('updated_at', { ascending: false, nullsFirst: false })
+      .limit(50);
+      
+    if (error) {
+      console.error('[HOT LEADS] Error fetching hot leads:', error);
+      return c.json({ error: 'Failed to fetch hot leads', details: error.message }, 500);
+    }
+    
+    // Return leads as-is (score column no longer in use)
+    const enrichedLeads = leads || [];
+    
+    return c.json({ success: true, leads: enrichedLeads });
+    
+  } catch (error: any) {
+    if (!error.status) console.error('[HOT LEADS] Error:', error);
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// GET /leads/bounced-count
+app.get("/make-server-a8b2511f/leads/bounced-count", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    let bouncedCount = 0;
+    for (let _attempt = 0; _attempt < 4; _attempt++) {
+      const { count, error } = await supabase
+        .from('leads')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('bounced', true);
+      if (!error) { bouncedCount = count || 0; break; }
+      const errMsg = error?.message || error?.code || JSON.stringify(error) || 'unknown';
+      // Empty message ({message:""}) is always a transient Supabase internal error
+      const isTransient = !error?.message || errMsg.includes('schema cache') || errMsg.includes('PGRST002') || errMsg.includes('Database error') || errMsg.includes('Unexpected failure') || errMsg.includes('fetch failed') || errMsg.includes('57014') || errMsg.includes('statement timeout') || errMsg.includes('canceling statement');
+      if (isTransient && _attempt < 3) {
+        const delay = 800 * Math.pow(2, _attempt);
+        console.warn(`[BOUNCED] Transient error (attempt ${_attempt + 1}/4), retrying in ${delay}ms: ${errMsg}`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      console.error(`[BOUNCED] Non-transient error after ${_attempt + 1} attempts:`, errMsg);
+      throw new Error(errMsg || 'Failed to count bounced leads');
+    }
+    return c.json({ count: bouncedCount });
+  } catch (error: any) {
+    // Improved error serialization
+    let msg = 'Unknown error counting bounced leads';
+    try {
+      if (error?.message) {
+        msg = error.message;
+      } else if (error?.code) {
+        msg = `Error code: ${error.code}`;
+      } else if (typeof error === 'string') {
+        msg = error;
+      } else if (typeof error === 'object') {
+        msg = JSON.stringify(error);
+        // If JSON.stringify produces empty object, use toString
+        if (msg === '{}' || msg === 'null') {
+          msg = String(error) || 'Empty error object';
+        }
+      }
+    } catch (serializeErr) {
+      msg = 'Error serialization failed';
+    }
+    
+    if (msg.includes('Authentication failed') || msg.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('[BOUNCED] Error counting bounced leads:', msg);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// SHARED LEADS  (leads imported by or@roadr.com → visible to all)
+// MUST be registered BEFORE the /leads/:id wildcard route
+// ══════════════════════════════════════════════════════════════════
+
+// List shared leads (sensitive fields stripped unless revealed)
+app.get("/make-server-a8b2511f/leads/shared", async (c) => {
+  try {
+    console.log('[SHARED LEADS] GET /leads/shared route hit');
+    const { user } = await getAuthenticatedUser(c);
+    console.log('[SHARED LEADS] Authenticated user:', user.email);
+    const url = new URL(c.req.url);
+    const search   = url.searchParams.get('search') || '';
+    const page     = parseInt(url.searchParams.get('page') || '1');
+    // Allow up to 1000 per page for efficient full-database loading
+    const per_page = Math.min(parseInt(url.searchParams.get('per_page') || '50'), 1000);
+    // Skip expensive KV reveal lookup during fast listing — reveals loaded separately
+    const skip_reveals = url.searchParams.get('skip_reveals') === '1';
+
+    const result = await listSharedLeads({ search, page, per_page, user_id: user.id, user_email: user.email, skip_reveals });
+    console.log('[SHARED LEADS] Returning', result.leads?.length, 'leads of', result.total);
+    return c.json(result);
+  } catch (err: any) {
+    if (err.message?.includes('Authentication failed') || err.message?.includes('Session expired')) {
+      // Routine expired-token — client will refresh and retry. No need to log stack trace.
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('[SHARED LEADS] Error listing:', err?.message || err, err?.stack || '');
+    return c.json({ error: 'Failed to list shared leads', message: err.message }, 500);
+  }
+});
+
+// Get user's revealed lead IDs (lightweight — used by frontend after fast listing)
+app.get("/make-server-a8b2511f/leads/shared/my-reveals", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    let revealData = [];
+    try {
+      revealData = await kv.getByPrefix(`gl_reveal:${user.id}:`);
+    } catch (kvError) {
+      console.error('[SHARED LEADS] KV store error (non-fatal):', kvError);
+      // Return empty array if KV fails
+    }
+    const revealed_ids = (revealData || [])
+      .filter((r: any) => r && r.lead_id)
+      .map((r: any) => r.lead_id);
+    return c.json({ revealed_ids });
+  } catch (err: any) {
+    console.error('[SHARED LEADS] my-reveals error:', err);
+    if (err.message?.includes('Authentication failed') || err.message?.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    return c.json({ error: 'Failed to get reveals', message: err.message }, 500);
+  }
+});
+
+// Reveal entitlements (plan tier + usage)
+app.get("/make-server-a8b2511f/leads/shared/entitlements", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const ent = await getLeadEntitlements(user);
+    return c.json(ent);
+  } catch (err: any) {
+    console.error('[SHARED LEADS] Entitlements error:', err);
+    return c.json({ error: 'Failed to get entitlements', message: err.message }, 500);
+  }
+});
+
+// Reveal a shared lead
+app.post("/make-server-a8b2511f/leads/shared/reveal", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { lead_id } = await c.req.json();
+    if (!lead_id) return c.json({ error: 'lead_id is required' }, 400);
+
+    const result = await revealSharedLead({ user, lead_id });
+
+    if (!result.success) {
+      const status = result.error_code === 'LIMIT_REACHED' ? 402
+        : result.error_code === 'LEAD_NOT_FOUND' ? 404
+        : 400;
+      return c.json({ error: result.error, error_code: result.error_code }, status);
+    }
+
+    return c.json({ success: true, data: result.data, already_revealed: result.already_revealed || false });
+  } catch (err: any) {
+    console.error('[SHARED LEADS] Reveal error:', err);
+    return c.json({ error: 'Failed to reveal lead', message: err.message }, 500);
+  }
+});
+
+// ── IMPORTANT: Specific /leads/* routes MUST be defined BEFORE the dynamic /leads/:id route ──
+// Otherwise the :id parameter will match route segments like "country-stats" or "import"
+
+// GET /leads/country-stats - Get country statistics for user's leads
+app.get("/make-server-a8b2511f/leads/country-stats", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { getCountryStats } = await import("./country-backfill.tsx");
+    const result = await getCountryStats(user.id);
+    
+    if (result.success) {
+      return c.json({
+        success: true,
+        stats: result.stats
+      });
+    } else {
+      return c.json({ 
+        error: result.error || 'Failed to get country stats' 
+      }, 500);
+    }
+  } catch (error: any) {
+    console.error('[COUNTRY STATS] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/backfill-country - Backfill country field for existing leads
+app.post("/make-server-a8b2511f/leads/backfill-country", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    console.log('[BACKFILL COUNTRY] Starting backfill for user:', user.id);
+    
+    const { backfillCountryData } = await import("./country-backfill.tsx");
+    const result = await backfillCountryData(user.id);
+    
+    if (result.success) {
+      return c.json({
+        success: true,
+        updated: result.updated,
+        message: result.message
+      });
+    } else {
+      return c.json({ 
+        error: result.error || 'Failed to backfill country data' 
+      }, 500);
+    }
+  } catch (error: any) {
+    console.error('[BACKFILL COUNTRY] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /leads/state-stats - Get state statistics for user's leads
+app.get("/make-server-a8b2511f/leads/state-stats", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { getStateStats } = await import("./country-backfill.tsx");
+    const result = await getStateStats(user.id);
+    
+    if (result.success) {
+      return c.json({
+        success: true,
+        stats: result.stats
+      });
+    } else {
+      return c.json({ 
+        error: result.error || 'Failed to get state stats' 
+      }, 500);
+    }
+  } catch (error: any) {
+    console.error('[STATE STATS] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/backfill-state - Backfill state field for existing leads
+app.post("/make-server-a8b2511f/leads/backfill-state", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const defaultState = body.state || 'California'; // Default to California if not provided
+    
+    console.log('[BACKFILL STATE] Starting backfill for user:', user.id, 'with default state:', defaultState);
+    
+    const { backfillStateData } = await import("./country-backfill.tsx");
+    const result = await backfillStateData(user.id, defaultState);
+    
+    if (result.success) {
+      return c.json({
+        success: true,
+        updated: result.updated,
+        message: result.message
+      });
+    } else {
+      return c.json({ 
+        error: result.error || 'Failed to backfill state data' 
+      }, 500);
+    }
+  } catch (error: any) {
+    console.error('[BACKFILL STATE] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /leads/city-analysis - Analyze city data quality
+app.get("/make-server-a8b2511f/leads/city-analysis", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { analyzeCityData } = await import("./country-backfill.tsx");
+    const result = await analyzeCityData(user.id);
+    
+    if (result.success) {
+      return c.json({
+        success: true,
+        stats: result.stats
+      });
+    } else {
+      return c.json({ 
+        error: result.error || 'Failed to analyze city data' 
+      }, 500);
+    }
+  } catch (error: any) {
+    console.error('[CITY ANALYSIS] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/cleanup-cities - Clean up and normalize city names
+app.post("/make-server-a8b2511f/leads/cleanup-cities", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    console.log('[CLEANUP CITIES] Starting cleanup for user:', user.id);
+    
+    const { cleanupCityData } = await import("./country-backfill.tsx");
+    const result = await cleanupCityData(user.id);
+    
+    if (result.success) {
+      return c.json({
+        success: true,
+        updated: result.updated,
+        message: result.message
+      });
+    } else {
+      return c.json({ 
+        error: result.error || 'Failed to cleanup city data' 
+      }, 500);
+    }
+  } catch (error: any) {
+    console.error('[CLEANUP CITIES] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /leads/analyze-state-mappings - Analyze incorrect city-to-state mappings
+app.get("/make-server-a8b2511f/leads/analyze-state-mappings", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { analyzeStateMappings } = await import("./country-backfill.tsx");
+    const result = await analyzeStateMappings(user.id);
+    
+    if (result.success) {
+      return c.json({
+        success: true,
+        stats: result.stats
+      });
+    } else {
+      return c.json({ 
+        error: result.error || 'Failed to analyze state mappings' 
+      }, 500);
+    }
+  } catch (error: any) {
+    console.error('[ANALYZE STATE MAPPINGS] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/fix-state-mappings - Fix incorrect city-to-state mappings
+app.post("/make-server-a8b2511f/leads/fix-state-mappings", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    console.log('[FIX STATE MAPPINGS] Starting intelligent state mapping for user:', user.id);
+    
+    const { fixStateMappings } = await import("./country-backfill.tsx");
+    const result = await fixStateMappings(user.id);
+    
+    if (result.success) {
+      return c.json({
+        success: true,
+        updated: result.updated,
+        message: result.message,
+        examples: result.examples
+      });
+    } else {
+      return c.json({ 
+        error: result.error || 'Failed to fix state mappings' 
+      }, 500);
+    }
+  } catch (error: any) {
+    console.error('[FIX STATE MAPPINGS] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /leads/high-intent - Get the set of high-intent lead IDs for the current user
+// IMPORTANT: Must be registered BEFORE /leads/:id to avoid being caught by the param route
+app.get("/make-server-a8b2511f/leads/high-intent", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    
+    const data = await kv.get(`high_intent_leads:${user.id}`) as any;
+    
+    return c.json({
+      success: true,
+      leadIds: data?.leadIds || [],
+      mediumIntentLeadIds: data?.mediumIntentLeadIds || [],
+      updatedAt: data?.updatedAt || null,
+      count: data?.count || 0,
+      mediumCount: data?.mediumCount || 0,
+    });
+  } catch (error) {
+    console.error('[HIGH-INTENT] Error fetching high-intent leads:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /leads/:id - Get a single lead by ID (own leads or shared leads)
+app.get("/make-server-a8b2511f/leads/:id", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const leadId = c.req.param('id');
+    let isSharedLead = false;
+    
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(leadId)) {
+      console.warn('[LEAD DETAIL] Rejected invalid lead ID (not a UUID):', leadId);
+      return c.json({ error: `Invalid lead ID format: "${leadId}"` }, 400);
+    }
+    
+    // Admin check for unified view
+    const isAdmin = isAdminEmail(user.email);
+    let targetUserIds = [user.id];
+
+    if (isAdmin) {
+       const adminIds = await getCachedSourceUserIds();
+       targetUserIds = Array.from(new Set([...adminIds, user.id]));
+    }
+    
+    // Try own lead (or admin-pool lead) first
+    let { data: lead, error } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('id', leadId)
+      .in('user_id', targetUserIds)
+      .maybeSingle();
+    
+    // If not found as own lead, try as shared lead via service role
+    if (!lead) {
+      const sb = getSupabaseAdmin();
+      const { data: sharedLead, error: sharedErr } = await sb
+        .from('leads')
+        .select('*')
+        .eq('id', leadId)
+        .neq('user_id', user.id)
+        .maybeSingle();
+      
+      if (sharedErr) {
+        console.error('[LEAD DETAIL] Shared lead lookup error:', sharedErr);
+      }
+      if (!sharedLead) {
+        return c.json({ error: 'Lead not found' }, 404);
+      }
+      lead = sharedLead;
+      isSharedLead = true;
+
+      // For shared leads, check if revealed — strip sensitive fields if not
+      const revealRecord = await kv.get(`gl_reveal:${user.id}:${leadId}`);
+      if (!revealRecord) {
+        lead.email = null;
+        lead.phone = null;
+      }
+    }
+    
+    // Fetch email engagement stats for this lead to ensure accuracy
+    // We compute this on the fly instead of relying on potentially stale counters on the lead record
+    const [
+      { count: sentCount },
+      { count: openedCount },
+      { count: clickedCount },
+      { count: bouncedCount },
+      { count: repliedCount }
+    ] = await Promise.all([
+      supabase
+        .from('emails')
+        .select('*', { count: 'estimated', head: true })
+        .eq('lead_id', leadId),
+      supabase
+        .from('emails')
+        .select('*', { count: 'estimated', head: true })
+        .eq('lead_id', leadId)
+        .in('status', ['opened', 'clicked']),
+      supabase
+        .from('emails')
+        .select('*', { count: 'estimated', head: true })
+        .eq('lead_id', leadId)
+        .eq('status', 'clicked'),
+      supabase
+        .from('emails')
+        .select('*', { count: 'estimated', head: true })
+        .eq('lead_id', leadId)
+        .eq('status', 'bounced'),
+      supabase
+        .from('emails')
+        .select('*', { count: 'estimated', head: true })
+        .eq('lead_id', leadId)
+        .eq('status', 'replied')
+    ]);
+
+    // Fetch latest engagement date to show when they last interacted
+    const { data: recentEngagements } = await supabase
+      .from('emails')
+      .select('sent_at, opened_at, clicked_at, replied_at, created_at')
+      .eq('lead_id', leadId)
+      .in('status', ['opened', 'clicked', 'replied'])
+      .order('sent_at', { ascending: false })
+      .limit(10);
+    
+    let lastEngagementDate = null;
+    if (recentEngagements && recentEngagements.length > 0) {
+       const latest = recentEngagements[0];
+       lastEngagementDate = latest.replied_at || latest.clicked_at || latest.opened_at || latest.created_at || latest.sent_at;
+    }
+
+    // Transform flat schema to normalized format for LeadDetailModal compatibility
+    console.log('Lead employees field:', lead.employees);
+    
+    const transformedLead = {
+      ...lead,
+      last_engagement_date: lastEngagementDate,
+      // Engagement stats (computed from emails table)
+      emails_sent: sentCount || 0,
+      emails_opened: openedCount || 0,
+      emails_clicked: clickedCount || 0,
+      
+      // Engagement flags
+      email_sent: (sentCount || 0) > 0,
+      email_open: (openedCount || 0) > 0,
+      email_bounced: (bouncedCount || 0) > 0,
+      replied: (repliedCount || 0) > 0,
+
+      // Map flat schema field names to normalized schema field names
+      title: lead.title || lead.job_title, // job_title is the flat schema field name
+      // Filter out tracking-system placeholder values before splitting contact_name into first/last
+      ...((() => {
+        const PLACEHOLDERS = new Set(['Visitor', 'Unknown', 'Anonymous Visitor', 'Anonymous', 'visitor', 'unknown']);
+        const rawCN = (lead.contact_name || '').trim();
+        const cleanCN = PLACEHOLDERS.has(rawCN) ? '' : rawCN;
+        return {
+          first_name: lead.first_name || (cleanCN ? cleanCN.split(' ')[0] : undefined),
+          last_name: lead.last_name || (cleanCN ? cleanCN.split(' ').slice(1).join(' ') : undefined),
+        };
+      })()),
+      
+      // Keep employees at top level for fallback
+      employees: lead.employees,
+      
+      // Ensure normalized fields exist even if using flat schema
+      company: (lead.business_name || lead.company_name) ? {
+        id: lead.id + '_company',
+        name: lead.business_name || lead.company_name,
+        name_for_emails: lead.name_for_emails,
+        website: lead.website,
+        city: lead.city,
+        state: lead.state,
+        industry: lead.industry,
+        keywords: lead.keywords,
+        employees: lead.employees,
+        annual_revenue: lead.annual_revenue,
+        total_funding: lead.total_funding,
+        latest_funding: lead.latest_funding,
+        latest_funding_amount: lead.latest_funding_amount,
+        last_raised_at: lead.last_raised_at,
+        subsidiary_of: lead.subsidiary_of,
+        number_of_retail_locations: lead.number_of_retail_locations,
+        apollo_account_id: lead.apollo_account_id,
+        technologies: lead.technologies,
+        linkedin_url: lead.linkedin_url,
+        facebook_url: lead.facebook_url,
+        twitter_url: lead.twitter_url,
+        company_phone: lead.company_phone,
+        address_full: lead.address,
+      } : null,
+      emails: lead.email ? [{
+        id: lead.id + '_email_primary',
+        email: lead.email,
+        type: 'primary' as const,
+        status: lead.email_status,
+        confidence: lead.email_confidence,
+      }] : [],
+      phones: lead.phone ? [{
+        id: lead.id + '_phone_primary',
+        phone: lead.phone,
+        type: 'work_direct' as const,
+      }] : [],
+      custom_fields: [],
+      // Shared lead flags
+      is_shared: isSharedLead,
+      has_email: !!lead.email,
+      has_phone: !!lead.phone,
+    };
+    
+    return c.json(transformedLead);
+  } catch (error) {
+    console.error('Error fetching lead:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /config/mapbox - Get Mapbox Token
+app.get("/make-server-a8b2511f/config/mapbox", async (c) => {
+  return c.json({ token: Deno.env.get('MAPBOX_ACCESS_TOKEN') });
+});
+
+// ─── Tracking endpoint rate limiter (in-memory, per IP) ──────────────
+const trackingRateMap = new Map<string, { count: number; resetAt: number }>();
+const TRACKING_RATE_WINDOW_MS = 60_000; // 1 minute window
+const TRACKING_RATE_MAX = 30; // max 30 requests per IP per minute
+
+function isTrackingRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = trackingRateMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    trackingRateMap.set(ip, { count: 1, resetAt: now + TRACKING_RATE_WINDOW_MS });
+    return false;
+  }
+  entry.count++;
+  if (entry.count > TRACKING_RATE_MAX) return true;
+  return false;
+}
+
+// Periodic cleanup of stale rate-limit entries (every 5 min)
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of trackingRateMap) {
+    if (now > entry.resetAt) trackingRateMap.delete(ip);
+  }
+}, 5 * 60_000);
+
+// POST /track/web - Track web visits from leads (and anonymous visitors)
+app.post("/make-server-a8b2511f/track/web", async (c) => {
+  try {
+    // This endpoint is PUBLICLY accessible (CORS enabled) so the tracking script can hit it
+    // We don't require Authentication header here.
+
+    // Rate-limit by IP to prevent abuse / data flooding
+    const clientIp = c.req.header('x-forwarded-for')?.split(',')[0].trim()
+      || c.req.header('cf-connecting-ip')
+      || 'unknown';
+    if (isTrackingRateLimited(clientIp)) {
+      return c.json({ error: 'Rate limited' }, 429);
+    }
+
+    // Payload size guard: reject absurdly large bodies (> 8 KB)
+    const contentLength = parseInt(c.req.header('content-length') || '0', 10);
+    if (contentLength > 8192) {
+      return c.json({ error: 'Payload too large' }, 413);
+    }
+
+    const body = await c.req.json();
+    console.log('[TRACKING] Received visit:', JSON.stringify(body, null, 2));
+    let { account_id, lead_id, url, title, timestamp, city, country, region, latitude, longitude, brand } = body;
+
+    // Sanitize string fields to prevent injection
+    if (url && typeof url === 'string') url = url.slice(0, 2048);
+    if (title && typeof title === 'string') title = title.slice(0, 512);
+    const affiliate_ref = body.affiliate_ref || null; // Optional: affiliate slug that brought this visitor
+    let geoOrg = null;
+    let geoIsp = null; // Raw ISP name — always stored even for residential ISPs
+
+    // GeoIP Lookup if location is missing or incomplete (runs on server side)
+    // Priority:
+    // 1. Client-provided coordinates (highest accuracy)
+    // 2. IP Lookup via ipwho.is (best for City + Region + Lat/Long consistency)
+    // 3. Cloudflare/Vercel Headers (fallback for coords only)
+    
+    // Determine if we need to fetch location data
+    // We check if ANY key field is missing, because we want to fill in City even if we have Coords
+    if ((!city || !country) || (!latitude || !longitude)) {
+      try {
+        const ip = c.req.header('x-forwarded-for')?.split(',')[0].trim() || c.req.header('cf-connecting-ip');
+        if (ip) {
+           console.log('[TRACKING] Performing IP lookup for:', ip);
+           
+           let geoData = null;
+
+           // 1. Try ipwho.is
+           try {
+             const controller = new AbortController();
+             const timeoutId = setTimeout(() => controller.abort(), 3000);
+             const geoRes = await fetch(`https://ipwho.is/${ip}`, { signal: controller.signal });
+             clearTimeout(timeoutId);
+             
+             if (geoRes.ok) {
+               const data = await geoRes.json();
+               if (data.success) {
+                 geoData = data;
+                 geoData.countryCode = data.country_code;
+               }
+             }
+           } catch (e) {
+             console.warn('[TRACKING] ipwho.is lookup failed:', e.message);
+           }
+
+           // 2. Fallback to ip-api.com (HTTP) if ipwho.is failed
+           if (!geoData) {
+              try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 3000);
+                const geoRes = await fetch(`http://ip-api.com/json/${ip}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query`, { signal: controller.signal });
+                clearTimeout(timeoutId);
+
+                if (geoRes.ok) {
+                  const data = await geoRes.json();
+                  if (data.status === 'success') {
+                    // Map ip-api.com format to match ipwho.is structure roughly
+                    geoData = {
+                      city: data.city,
+                      country: data.country,
+                      countryCode: data.countryCode,
+                      region: data.regionName,
+                      latitude: data.lat,
+                      longitude: data.lon,
+                      connection: { org: data.org || data.isp, isp: data.isp }
+                    };
+                  }
+                }
+              } catch (e) {
+                 console.warn('[TRACKING] ip-api.com fallback failed:', e.message);
+              }
+           }
+           
+           if (geoData) {
+              city = city || geoData.city;
+              country = country || geoData.country;
+              const countryCode = geoData.countryCode || geoData.country_code;
+              // Pass the code explicitly by temporarily adding it to request body for downstream usage
+              body.countryCode = countryCode;
+              region = region || geoData.region;
+              
+              // Only use IP coords if we don't have precise client coords
+              if (!latitude || !longitude) {
+                  latitude = geoData.latitude;
+                  longitude = geoData.longitude;
+              }
+              
+              // Try to get organization name
+              if (geoData.connection?.org) {
+                 geoOrg = geoData.connection.org;
+                 // Filter out common residential ISPs to get true B2B companies
+                 const orgLower = geoOrg.toLowerCase();
+                 const ispLower = (geoData.connection.isp || '').toLowerCase();
+                 
+                 const COMMON_ISPS = [
+                   'comcast', 'at&t', 'att', 'spectrum', 'verizon', 'charter', 'centurylink',
+                   'cox', 't-mobile', 'tmobile', 'vodafone', 'orange', 'bt', 'telefónica',
+                   'telefonica', 'virgin', 'sky', 'talktalk', 'o2', 'telstra', 'optus',
+                   'starlink', 'hughesnet', 'viasat', 'bell', 'rogers', 'telus', 'shaw',
+                   'videotron', 'cogeco', 'eastlink', 'google fiber', 'google wifi',
+                   'xfinity', 'optimum', 'mediacom', 'suddenlink', 'cableone', 'wow!',
+                   'breezeline', 'sparklight', 'windstream', 'consolidated', 'frontier',
+                   'earthlink', 'lumen', 'altafiber', 'astound', 'td telecom', 'claro',
+                   'telecom', 'internet', 'broadband', 'communications', 'network',
+                   'mobile', 'wireless', 'isp', 'provider', 'hosting', 'cloud', 'datacenter',
+                   'data center', 'aws', 'amazon', 'microsoft azure', 'digitalocean',
+                   'ovh', 'linode', 'hetzner', 'leaseweb', 'alibaba', 'tencent', 'fastly',
+                   'cloudflare', 'akamai', 'gcp', 'vps', 'server', 'colocation'
+                 ];
+                 
+                 const isIsp = COMMON_ISPS.some(isp => orgLower.includes(isp) || ispLower.includes(isp));
+                 // Always capture the raw ISP for anonymous visitor display in the map popup
+                 geoIsp = geoData.connection.isp || geoData.connection.org || null;
+                 if (isIsp) {
+                   geoOrg = null; // Clear it so we don't show "Comcast" as a B2B lead
+                 }
+              }
+           }
+        }
+      } catch (e) {
+        console.error('[TRACKING] GeoIP lookup failed:', e.message);
+      }
+    }
+
+    // Fallback: Check for Cloudflare headers if we STILL don't have coords
+    // (This helps if ipwho.is fails, rate limits, or times out)
+    if (!latitude && !longitude) {
+       const cfLat = c.req.header('cf-iplatitude');
+       const cfLon = c.req.header('cf-iplongitude');
+       const cfCity = c.req.header('cf-ipcity');
+       const cfRegion = c.req.header('cf-region-code') || c.req.header('cf-region');
+       
+       if (cfLat && cfLon) {
+          latitude = parseFloat(cfLat);
+          longitude = parseFloat(cfLon);
+          city = city || cfCity;
+          region = region || cfRegion;
+          console.log('[TRACKING] Used Cloudflare location headers as fallback');
+       }
+    }
+
+    
+    // We need a Service Role client to write to the DB or KV
+    const supabase = getSupabaseAdmin();
+    
+    let lead = null;
+    let isAnonymous = !lead_id;
+
+    if (lead_id) {
+      // 1. Validate Lead exists if ID provided
+      const { data: foundLead, error: leadError } = await supabase
+        .from('leads')
+        .select('id, user_id, email, business_name, brand')
+        .eq('id', lead_id)
+        .single();
+        
+      if (!leadError && foundLead) {
+        lead = foundLead;
+      } else {
+        // Fallback to anonymous if invalid ID provided
+        isAnonymous = true;
+      }
+    }
+
+    // Infer brand/info for anonymous or fallback
+    let anonymousInfo = null;
+    if (isAnonymous) {
+       const urlStr = (url || '').toLowerCase();
+       const titleStr = (title || '').toLowerCase();
+       let inferredBrand = 'website'; // Neutral default — specific brands detected from URL/payload
+
+       // Priority: Explicit payload > URL/Title Patterns > Default
+       if (brand) {
+           inferredBrand = brand;
+       } else if (urlStr.includes('roadr') || titleStr.includes('roadr')) {
+           inferredBrand = 'roadr';
+       } else if (urlStr.includes('sourcr') || titleStr.includes('sourcr') || urlStr.includes('/collection/')) {
+           inferredBrand = 'sourcr'; // KEEP SOURCR AS SOURCR
+       } else if (urlStr.includes('covera') || titleStr.includes('covera')) {
+           inferredBrand = 'covera';
+       }
+       
+       anonymousInfo = {
+         id: 'anonymous',
+         business_name: geoOrg || 'Anonymous Visitor',
+         contact_name: 'Visitor',
+         brand: inferredBrand,
+         website: null,
+         logo_url: null,
+         isp: geoIsp || null, // ISP/network name shown in map popup for anonymous visitors
+       };
+
+       // If we detected a valid B2B Corporate Network, attempt to enrich their domain and logo
+       if (geoOrg) {
+         try {
+           const enrichRes = await fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(geoOrg)}`);
+           if (enrichRes.ok) {
+             const suggestions = await enrichRes.json();
+             if (suggestions && suggestions.length > 0) {
+               const bestMatch = suggestions[0];
+               anonymousInfo.business_name = bestMatch.name || geoOrg;
+               anonymousInfo.website = bestMatch.domain ? `https://${bestMatch.domain}` : null;
+               anonymousInfo.logo_url = bestMatch.logo || null;
+               console.log(`[TRACKING] B2B Enrichment Success: ${geoOrg} -> ${bestMatch.name} (${bestMatch.domain})`);
+             }
+           }
+         } catch (enrichErr) {
+           console.warn('[TRACKING] B2B Enrichment failed for org:', geoOrg, enrichErr.message);
+         }
+       }
+    }
+
+    // 2. Log the "Web Visit" in KV Store (Global Recent List)
+    // Helper to infer brand from URL and Title
+    const getBrandFromVisit = (u: string, t: string) => {
+       const s = (u || '').toLowerCase();
+       const ts = (t || '').toLowerCase();
+       
+       if (s.includes('roadr') || ts.includes('roadr')) return 'roadr';
+       if (s.includes('sourcr') || ts.includes('sourcr') || s.includes('/collection/')) return 'sourcr';
+       if (s.includes('covera') || ts.includes('covera')) return 'covera';
+       return null;
+    };
+    
+    // Determine brand: Explicit > Lead > Anonymous-inferred > URL-inferred > neutral default
+    let visitBrand = 'website'; // Neutral default — specific brands detected from context
+
+    if (brand) {
+        visitBrand = brand; // Explicit brand from script overrides all
+    } else if (lead && lead.brand) {
+        visitBrand = lead.brand;
+    } else if (isAnonymous && anonymousInfo && anonymousInfo.brand) {
+        visitBrand = anonymousInfo.brand;
+    } else {
+        const inferred = getBrandFromVisit(url, title);
+        if (inferred) visitBrand = inferred;
+    }
+
+    // Determine target User ID (Account Owner) for data isolation
+    let targetUserId = account_id;
+    if (lead && lead.user_id) {
+        // If identified lead, ALWAYS use the lead's owner, regardless of what the script says
+        // This prevents data injection into other accounts
+        targetUserId = lead.user_id;
+    }
+
+    // CRITICAL FIX: Comprehensive validation for malformed account_id values
+    // Handle various forms of invalid values that come from broken tracking scripts
+    const cleanUserId = String(targetUserId || '').trim();
+    
+    // List of all invalid patterns we've seen in the wild
+    const invalidPatterns = [
+      '',
+      'null',
+      'undefined', 
+      '"undefined"',  // Literal string with quotes
+      '""',
+      '"null"',
+      'NaN',
+      '\'undefined\'',
+      '\'null\'',
+      '\'\''
+    ];
+    
+    // Check if value is invalid
+    let isInvalid = !targetUserId || 
+                      targetUserId === null ||
+                      targetUserId === undefined ||
+                      invalidPatterns.includes(cleanUserId.toLowerCase()) ||
+                      cleanUserId.includes('undefined') ||
+                      cleanUserId.includes('null') ||
+                      (cleanUserId.startsWith('"') && cleanUserId.endsWith('"') && cleanUserId.length < 20) || // Quoted empty/short strings
+                      (cleanUserId.startsWith('\'') && cleanUserId.endsWith('\'') && cleanUserId.length < 20);
+    
+    // AUTO-RECOVERY: If account_id is invalid, try to find the owner based on the brand/domain
+    // This handles cases where the tracking script was copied before the user ID loaded,
+    // but we can infer the owner from the website being visited.
+    if (isInvalid) {
+        console.log('[TRACKING] ⚠️ Invalid account_id detected. Attempting auto-recovery by brand...');
+        
+        let inferredBrand = null;
+        const urlLower = (url || '').toLowerCase();
+        
+        if (urlLower.includes('roadr')) inferredBrand = 'roadr';
+        else if (urlLower.includes('covera')) inferredBrand = 'covera';
+        else if (urlLower.includes('sourcr')) inferredBrand = 'sourcr';
+        
+        if (inferredBrand) {
+             // Find ANY lead with this brand to find the owner
+             // We use the Service Role client (supabase variable from above)
+             try {
+               const { data: leadSample } = await supabase
+                   .from('leads')
+                   .select('user_id')
+                   .ilike('brand', inferredBrand) // Use ilike for case-insensitivity
+                   .limit(1)
+                   .maybeSingle(); // Use maybeSingle to avoid error if no rows found
+                   
+               if (leadSample && leadSample.user_id) {
+                   targetUserId = leadSample.user_id;
+                   isInvalid = false; // RECOVERED!
+                   console.log(`[TRACKING] ✅ Auto-recovered owner for brand ${inferredBrand}: ${targetUserId}`);
+                   
+                   // Also update visitBrand to match if it wasn't set
+                   if (visitBrand === 'covera' && inferredBrand !== 'covera') {
+                       visitBrand = inferredBrand;
+                   }
+               } else {
+                   // Fallback 2: Try to find user by email domain in Auth
+                   // This handles new accounts that don't have leads yet
+                   try {
+                       console.log(`[TRACKING] Lead lookup failed for ${inferredBrand}, trying Auth users...`);
+                       const { data: { users }, error: usersError } = await supabase.auth.admin.listUsers({ page: 1, perPage: 100 });
+                       
+                       if (users) {
+                           // Find a user with email matching the brand (e.g. @roadr.com)
+                           const owner = users.find(u => u.email?.toLowerCase().includes(`@${inferredBrand}.`));
+                           
+                           if (owner) {
+                               targetUserId = owner.id;
+                               isInvalid = false; // RECOVERED!
+                               console.log(`[TRACKING] ✅ Auto-recovered owner from Auth for brand ${inferredBrand}: ${targetUserId}`);
+                               
+                               if (visitBrand === 'covera' && inferredBrand !== 'covera') {
+                                   visitBrand = inferredBrand;
+                               }
+                           }
+                       }
+                   } catch (authError) {
+                       console.error('[TRACKING] Auth lookup failed:', authError);
+                   }
+                   
+                   if (isInvalid) {
+                       console.log(`[TRACKING] ❌ Could not find owner for brand ${inferredBrand}`);
+                   }
+               }
+             } catch (recoveryError) {
+                 console.error('[TRACKING] Recovery failed:', recoveryError);
+             }
+        }
+    }
+
+    if (isInvalid) {
+        console.error('[TRACKING] ❌ REJECTING VISIT - No valid account_id provided.', {
+          account_id_raw: account_id,
+          account_id_type: typeof account_id,
+          account_id_cleaned: cleanUserId,
+          targetUserId,
+          lead_id,
+          url,
+          hasLead: !!lead,
+          message: 'Tracking script may have been copied before user ID loaded. Please re-copy the tracking script from the Analytics page.'
+        });
+        
+        // Log this error for the frontend to detect (resilient — won't crash on 502)
+        const errorLog = (await kvGetSafe('tracking_errors_log')) || { errors: [], lastUpdate: Date.now() };
+        errorLog.errors.push({
+          url,
+          account_id: account_id,
+          timestamp: Date.now()
+        });
+        errorLog.errors = errorLog.errors.slice(-20);
+        errorLog.lastUpdate = Date.now();
+        await kvSetSafe('tracking_errors_log', errorLog);
+        
+        return c.json({ 
+          success: false, 
+          error: '🚨 OUTDATED TRACKING SCRIPT DETECTED',
+          message: 'This website is using an old Contndr tracking script that was copied before the account ID loaded.',
+          action_required: 'Website owner must update the tracking script',
+          instructions: [
+            '1. Go to your Contndr Analytics page',
+            '2. Wait for the green "Ready" badge to appear',
+            '3. Click "Copy" to get the updated tracking script',
+            '4. Replace the old <script> tag on this website',
+            '5. Deploy the changes'
+          ],
+          affected_url: url,
+          technical_details: {
+            account_id_received: account_id,
+            account_id_cleaned: cleanUserId,
+            account_id_type: typeof account_id,
+            lead_found: !!lead,
+            reason: 'account_id is invalid (received "undefined" instead of a valid user ID)'
+          }
+        }, 400);
+    }
+    
+    console.log('[TRACKING] ✅ Visit attributed to user:', targetUserId);
+
+    const visitData = {
+      id: crypto.randomUUID(),
+      user_id: targetUserId, // Store owner ID
+      lead_id: lead ? lead.id : 'anonymous',
+      // If anonymous, store the mock lead data directly in the visit record
+      anonymous_lead: isAnonymous ? anonymousInfo : null,
+      brand: visitBrand, // Store brand explicitly for easier attribution
+      url, 
+      title, 
+      timestamp: new Date().toISOString(),
+      user_agent: c.req.header('User-Agent'),
+      city: city,
+      country: country || c.req.header('cf-ipcountry'),
+      countryCode: body.countryCode || c.req.header('cf-ipcountry') || null,
+      region: region,
+      latitude: latitude,
+      longitude: longitude,
+      isp: geoIsp || null, // ISP/network provider — always present for map popup fallback
+      affiliate_ref: affiliate_ref, // Which affiliate slug brought this visitor (if any)
+      kv_key: '' // Will be populated below
+    };
+
+    try {
+      // Legacy `recent_web_visits` list removed — deprecated global list caused
+      // race-conditions and noisy 502 errors.  V2 atomic keys are the primary system.
+
+      // Write to Atomic System (High Concurrency) - V2
+      // Key format: recent_visit_v2:{USER_ID}:{TIMESTAMP}:{UUID}
+      const now = Date.now();
+      const atomicKey = `recent_visit_v2:${targetUserId || 'global'}:${now}:${visitData.id}`;
+      visitData.kv_key = atomicKey;
+      
+      const stored = await kvSetSafe(atomicKey, visitData);
+      if (stored) {
+        console.log('[TRACKING] ✅ Stored visit with key:', atomicKey);
+      } else {
+        console.warn('[TRACKING] ⚠️ Visit store failed (transient), will retry on next hit');
+      }
+
+      // ── Update tracked website status to "active" when a visit matches ──
+      // This resolves the "stuck on pending" issue for teams sharing the same website
+      if (targetUserId && url) {
+        (async () => {
+          try {
+            let visitDomain = '';
+            try { visitDomain = new URL(url).hostname.replace(/^www\./, ''); } catch { /* skip */ }
+            if (!visitDomain) return;
+
+            // Check current user's tracked sites (use index path to avoid LIKE timeout)
+            let userSites: any[] = [];
+            const userSiteIndex = await getTrackedSitesIndex(targetUserId);
+            if (userSiteIndex && userSiteIndex.length > 0) {
+              userSites = await loadTrackedSitesByIndex(targetUserId, userSiteIndex);
+            } else {
+              userSites = await kvGetByPrefixSafe(`tracked_site:${targetUserId}:`, []);
+              // Rebuild index if we found sites
+              if (userSites.length > 0) {
+                const ids = userSites.filter(Boolean).map((s: any) => s.id).filter(Boolean);
+                setTrackedSitesIndex(targetUserId, ids).catch(() => {});
+              }
+            }
+            for (const site of userSites) {
+              if (site && site.domain && visitDomain.includes(site.domain)) {
+                const needsUpdate = site.status !== 'active' || !site.lastVisit;
+                site.status = 'active';
+                site.lastVisit = new Date().toISOString();
+                site.visitCount = (site.visitCount || 0) + 1;
+                await kvSetSafe(`tracked_site:${targetUserId}:${site.id}`, site);
+                if (needsUpdate) console.log(`[TRACKING] ✅ Updated website ${site.domain} status to active for user ${targetUserId}`);
+              }
+            }
+
+            // Also update for team members sharing this domain (broader lookup)
+            // Runs only 10% of the time to save CPU — team members' sites will
+            // still get updated within ~10 visits (effectively near-real-time).
+            if (Math.random() < 0.1) {
+              try {
+                const teamData = await kvGetSafe(`team:${targetUserId}`);
+                const memberIds = (teamData?.members?.map((m: any) => m.user_id || m.id).filter((id: string) => id && id !== targetUserId) || []).slice(0, 3);
+                for (const memberId of memberIds) {
+                  let memberSites: any[] = [];
+                  const memberIdx = await getTrackedSitesIndex(memberId);
+                  if (memberIdx && memberIdx.length > 0) {
+                    memberSites = await loadTrackedSitesByIndex(memberId, memberIdx);
+                  } else {
+                    memberSites = await kvGetByPrefixSafe(`tracked_site:${memberId}:`, []);
+                  }
+                  for (const site of memberSites) {
+                    if (site && site.domain && visitDomain.includes(site.domain)) {
+                      site.status = 'active';
+                      site.lastVisit = new Date().toISOString();
+                      site.visitCount = (site.visitCount || 0) + 1;
+                      await kvSetSafe(`tracked_site:${memberId}:${site.id}`, site);
+                      console.log(`[TRACKING] ✅ Updated shared website ${site.domain} status for team member ${memberId}`);
+                    }
+                  }
+                }
+              } catch (teamErr) { /* team lookup is best-effort */ }
+            }
+          } catch (siteUpdateErr) {
+            console.warn('[TRACKING] Website status update error:', siteUpdateErr);
+          }
+        })(); // fire-and-forget
+      }
+      
+      // If identified user, update their specific key
+      if (lead) {
+        await kvSetSafe(`live_user:${lead.id}`, {
+          ...visitData,
+          user_id: lead.user_id
+        });
+      }
+
+      // Update Daily AND Hourly Analytics
+      if (targetUserId) {
+          const nowDate = new Date();
+          const today = nowDate.toISOString().split('T')[0];
+          const analyticsKey = `analytics:daily:${targetUserId}:${today}`;
+          const currentHour = nowDate.getHours();
+          const hourStr = String(currentHour).padStart(2, '0');
+          const hourlyKey = `analytics:hourly:${targetUserId}:${today}-${hourStr}`;
+          const brandName = visitBrand.toLowerCase();
+          
+          // Daily Stats (resilient)
+          const dailyStats = (await kvGetSafe(analyticsKey)) || { date: today, total: 0, brands: {} };
+          if (!dailyStats.date) dailyStats.date = today;
+          dailyStats.total = (dailyStats.total || 0) + 1;
+          dailyStats.brands = dailyStats.brands || {};
+          dailyStats.brands[brandName] = (dailyStats.brands[brandName] || 0) + 1;
+          await kvSetSafe(analyticsKey, dailyStats);
+          
+          // Hourly Stats (resilient)
+          const hourlyStats = (await kvGetSafe(hourlyKey)) || { 
+              date: `${today}-${hourStr}`,
+              label: `${currentHour}:00`, 
+              total: 0, 
+              brands: {} 
+          };
+          hourlyStats.total = (hourlyStats.total || 0) + 1;
+          hourlyStats.brands = hourlyStats.brands || {};
+          hourlyStats.brands[brandName] = (hourlyStats.brands[brandName] || 0) + 1;
+          await kvSetSafe(hourlyKey, hourlyStats);
+      }
+      
+    } catch (kvError) {
+      console.warn('[TRACKING] KV Store error:', truncateError(kvError));
+    }
+
+    // ─── INTENT ENGINE INTEGRATION: Fire website intent signals on ALL page visits ───
+    // Runs fire-and-forget so tracking response is not delayed.
+    if (targetUserId && url) {
+      (async () => {
+        try {
+          // Load user's intent config for high-intent pages
+          const intentConfig = await kvGetSafe(`intent:config:${targetUserId}`);
+          const highIntentPages = intentConfig?.high_intent_pages || ['/pricing', '/demo', '/book-call', '/contact', '/case-study', '/compare'];
+
+          // Parse URL path
+          let urlPath = '';
+          try { const parsed = new URL(url); urlPath = parsed.pathname.toLowerCase(); } catch { urlPath = url.toLowerCase(); }
+
+          // Match against high-intent patterns
+          let matchedPage: string | null = null;
+          for (const page of highIntentPages) {
+            const pattern = page.toLowerCase().trim();
+            if (urlPath.includes(pattern) || urlPath === pattern) { matchedPage = page; break; }
+          }
+
+          // Resolve company info from lead or geo data
+          const companyName = lead?.business_name || (geoOrg && geoOrg !== 'Anonymous Visitor' ? geoOrg : null);
+          const companyId = lead ? `lead_${lead.id}` : (companyName ? `org_${companyName.toLowerCase().replace(/\s+/g, '_')}` : null);
+
+          if (companyId && companyName) {
+            // Determine signal detail: high-intent page, homepage, or general visit
+            let signalDetail: string;
+            if (matchedPage) {
+              const pageSignalMap: Record<string, string> = {
+                '/pricing': 'page_visit_pricing', '/demo': 'page_visit_demo',
+                '/book-call': 'page_visit_book_call', '/contact': 'page_visit_contact',
+                '/case-study': 'page_visit_case_study', '/compare': 'page_visit_compare',
+                '/features': 'page_visit_features',
+              };
+              signalDetail = pageSignalMap[matchedPage.toLowerCase()] || 'page_visit_general';
+            } else if (urlPath === '/' || urlPath === '' || urlPath === '/index.html') {
+              signalDetail = 'page_visit_homepage';
+            } else {
+              signalDetail = 'page_visit_general';
+            }
+
+            // Dedup: one website signal per company per page-type per day
+            const dedupKey = `intent:web_dedup:${targetUserId}:${companyId}:${signalDetail}:${new Date().toISOString().split('T')[0]}`;
+            const alreadyFired = await kvGetSafe(dedupKey);
+            if (!alreadyFired) {
+              await kvSetSafe(dedupKey, { fired: true });
+              await recordIntentSignal({
+                userId: targetUserId, companyId, companyName,
+                personId: lead?.id, personName: lead?.contact_name || undefined, personEmail: lead?.email || undefined,
+                signalType: 'website', signalDetail,
+                metadata: { url, page_title: title, matched_pattern: matchedPage, city, country, is_anonymous: isAnonymous, geo_org: geoOrg },
+              });
+              console.log(`[INTENT] Website signal fired: ${signalDetail} for ${companyName}`);
+            }
+
+            // Check for repeat visits in 7 days
+            try {
+              const recentVisitKey = `intent:web_visit_tracker:${targetUserId}:${companyId}`;
+              const visitTracker = (await kvGetSafe(recentVisitKey)) || { visits: [], first_seen: new Date().toISOString() };
+              const now = Date.now();
+              visitTracker.visits.push(now);
+              visitTracker.visits = visitTracker.visits.filter((t: number) => t > now - 7 * 24 * 60 * 60 * 1000);
+              await kvSetSafe(recentVisitKey, visitTracker);
+
+              if (visitTracker.visits.length >= 2) {
+                const repeatKey = `intent:repeat_check:${targetUserId}:${companyId}:${new Date().toISOString().split('T')[0]}`;
+                if (!(await kvGetSafe(repeatKey))) {
+                  await kvSetSafe(repeatKey, { fired: true });
+                  await recordIntentSignal({
+                    userId: targetUserId, companyId, companyName,
+                    signalType: 'website', signalDetail: 'repeat_visit_7d',
+                    metadata: { visit_count_7d: visitTracker.visits.length },
+                  });
+                  console.log(`[INTENT] Repeat visit signal: ${companyName} (${visitTracker.visits.length} visits/7d)`);
+                }
+              }
+            } catch (repeatErr) { console.warn('[INTENT] Repeat visit tracking error:', repeatErr); }
+          }
+        } catch (intentErr) { console.warn('[INTENT] Website intent signal error:', intentErr); }
+      })();
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('[TRACKING] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /track/pixel - Ultra-simple tracking pixel (1x1 transparent GIF)
+// Usage: <img src="https://[PROJECT].supabase.co/functions/v1/make-server-a8b2511f/track/pixel?uid=USER_ID&lid=LEAD_ID" width="1" height="1" />
+app.get("/make-server-a8b2511f/track/pixel", async (c) => {
+  try {
+    // Get parameters from query string
+    const userId = c.req.query('uid') || c.req.query('user_id') || c.req.query('account_id');
+    const leadId = c.req.query('lid') || c.req.query('lead_id');
+    const brand = c.req.query('brand') || c.req.query('b');
+    const trackedDomain = c.req.query('d');
+    
+    // Track the visit using the same logic as POST /track/web
+    // Use explicit page URL from query param (from JS tracker) or fall back to Referer
+    const pageUrl = c.req.query('p') ? decodeURIComponent(c.req.query('p')) : null;
+    const pageTitle = c.req.query('t') ? decodeURIComponent(c.req.query('t')) : null;
+    const url = pageUrl || c.req.header('Referer') || 'unknown';
+    let city, country, countryCode, region, latitude, longitude, geoOrg = null;
+    let geoIsp = null;
+    
+    // Simple IP geolocation
+    const ip = c.req.header('x-forwarded-for')?.split(',')[0].trim() || c.req.header('cf-connecting-ip');
+    if (ip) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        const geoRes = await fetch(`http://ip-api.com/json/${ip}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        
+        if (geoRes.ok) {
+          const data = await geoRes.json();
+          if (data.status === 'success') {
+            city = data.city;
+            country = data.country;
+            countryCode = data.countryCode;
+            region = data.regionName;
+            latitude = data.lat;
+            longitude = data.lon;
+
+            if (data.org) {
+               geoOrg = data.org;
+               // Filter out common residential ISPs to get true B2B companies
+               const orgLower = geoOrg.toLowerCase();
+               const ispLower = (data.isp || '').toLowerCase();
+               const COMMON_ISPS = [
+                 'comcast', 'at&t', 'att', 'spectrum', 'verizon', 'charter', 'centurylink',
+                 'cox', 't-mobile', 'tmobile', 'vodafone', 'orange', 'bt', 'telefónica',
+                 'telefonica', 'virgin', 'sky', 'talktalk', 'o2', 'telstra', 'optus',
+                 'starlink', 'hughesnet', 'viasat', 'bell', 'rogers', 'telus', 'shaw',
+                 'videotron', 'cogeco', 'eastlink', 'google fiber', 'google wifi',
+                 'xfinity', 'optimum', 'mediacom', 'suddenlink', 'cableone', 'wow!',
+                 'breezeline', 'sparklight', 'windstream', 'consolidated', 'frontier',
+                 'earthlink', 'lumen', 'altafiber', 'astound', 'td telecom', 'claro',
+                 'telecom', 'internet', 'broadband', 'communications', 'network',
+                 'mobile', 'wireless', 'isp', 'provider', 'hosting', 'cloud', 'datacenter',
+                 'data center', 'aws', 'amazon', 'microsoft azure', 'digitalocean',
+                 'ovh', 'linode', 'hetzner', 'leaseweb', 'alibaba', 'tencent', 'fastly',
+                 'cloudflare', 'akamai', 'gcp', 'vps', 'server', 'colocation'
+               ];
+               
+               const isIsp = COMMON_ISPS.some(isp => orgLower.includes(isp) || ispLower.includes(isp));
+               
+               // Always capture the raw ISP for anonymous visitor display
+               geoIsp = data.isp || data.org || null;
+               
+               if (isIsp) {
+                 geoOrg = null;
+               }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[PIXEL] Geo lookup failed:', e.message);
+      }
+    }
+    
+    // Store the visit
+    if (userId) {
+      let lead = null;
+      if (leadId) {
+        const adminClient = getSupabaseAdmin();
+        const { data } = await adminClient.from('leads').select('*').eq('id', leadId).single();
+        if (data) lead = data;
+      }
+      
+      let anonymousInfo = null;
+      if (!lead) {
+        anonymousInfo = {
+          business_name: geoOrg || 'Anonymous Visitor',
+          contact_name: 'Visitor',
+          website: url,
+          logo_url: null,
+          source: 'tracking-pixel',
+          isp: geoIsp || null,
+        };
+
+        if (geoOrg) {
+          try {
+            const enrichRes = await fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(geoOrg)}`);
+            if (enrichRes.ok) {
+              const suggestions = await enrichRes.json();
+              if (suggestions && suggestions.length > 0) {
+                const bestMatch = suggestions[0];
+                anonymousInfo.business_name = bestMatch.name || geoOrg;
+                anonymousInfo.website = bestMatch.domain ? `https://${bestMatch.domain}` : url;
+                anonymousInfo.logo_url = bestMatch.logo || null;
+              }
+            }
+          } catch (enrichErr) {}
+        }
+      }
+      
+      const visitData = {
+        id: crypto.randomUUID(),
+        user_id: userId,
+        lead_id: lead ? lead.id : 'anonymous',
+        anonymous_lead: anonymousInfo,
+        brand: brand || 'contndr',
+        url,
+        title: pageTitle || 'Pixel Visit',
+        domain: trackedDomain || '',
+        timestamp: new Date().toISOString(),
+        user_agent: c.req.header('User-Agent'),
+        city,
+        country: country || c.req.header('cf-ipcountry'),
+        countryCode: countryCode || c.req.header('cf-ipcountry') || null,
+        region,
+        latitude,
+        longitude,
+        isp: geoIsp || null,
+        kv_key: ''
+      };
+      
+      const now = Date.now();
+      const atomicKey = `recent_visit_v2:${userId}:${now}:${visitData.id}`;
+      visitData.kv_key = atomicKey;
+      
+      await kv.set(atomicKey, visitData);
+      console.log('[PIXEL] ✅ Tracked visit:', atomicKey);
+      
+      // Update analytics
+      const today = new Date().toISOString().split('T')[0];
+      const analyticsKey = `analytics:daily:${userId}:${today}`;
+      const currentAnalytics = (await kv.get(analyticsKey)) || {
+        web_visits: 0,
+        unique_visitors: new Set(),
+        anonymous_visits: 0
+      };
+      
+      currentAnalytics.web_visits = (currentAnalytics.web_visits || 0) + 1;
+      if (!lead) {
+        currentAnalytics.anonymous_visits = (currentAnalytics.anonymous_visits || 0) + 1;
+      }
+      
+      await kv.set(analyticsKey, currentAnalytics);
+      
+      // Update tracked site status to 'active' if domain is known
+      if (trackedDomain) {
+        try {
+          // Use index-first approach to avoid LIKE timeout
+          let sites: any[] = [];
+          const siteIdx = await getTrackedSitesIndex(userId);
+          if (siteIdx && siteIdx.length > 0) {
+            sites = await loadTrackedSitesByIndex(userId, siteIdx);
+          } else {
+            try { sites = (await kv.getByPrefix(`tracked_site:${userId}:`)) || []; } catch { /* ok */ }
+          }
+          const matchedSite = sites.find((s: any) => s && s.domain === trackedDomain);
+          if (matchedSite) {
+            matchedSite.status = 'active';
+            matchedSite.lastVisit = new Date().toISOString();
+            matchedSite.visitCount = (matchedSite.visitCount || 0) + 1;
+            await kv.set(`tracked_site:${userId}:${matchedSite.id}`, matchedSite);
+          } else if (isValidTrackedDomain(trackedDomain)) {
+            // Auto-register: domain is being tracked via script but no tracked_site entry exists
+            const newSiteId = crypto.randomUUID();
+            const newSite = {
+              id: newSiteId, url: `https://${trackedDomain}`, domain: trackedDomain,
+              addedAt: new Date().toISOString(), status: 'active', visitCount: 1,
+              lastVisit: new Date().toISOString(),
+            };
+            await kvSetSafe(`tracked_site:${userId}:${newSiteId}`, newSite);
+            const curIdx = await getTrackedSitesIndex(userId);
+            await setTrackedSitesIndex(userId, [...(curIdx || []), newSiteId]);
+            console.log(`[PIXEL] Auto-registered tracked site ${trackedDomain} for user ${userId}`);
+          }
+          // Also update for team members sharing this domain
+          try {
+            const teamData = await kvGetSafe(`team:${userId}`);
+            const memberIds = teamData?.members?.map((m: any) => m.user_id || m.id).filter((id: string) => id && id !== userId) || [];
+            for (const memberId of memberIds) {
+              let memberSites: any[] = [];
+              const memberIdx = await getTrackedSitesIndex(memberId);
+              if (memberIdx && memberIdx.length > 0) {
+                memberSites = await loadTrackedSitesByIndex(memberId, memberIdx);
+              } else {
+                try { memberSites = (await kv.getByPrefix(`tracked_site:${memberId}:`)) || []; } catch { /* ok */ }
+              }
+              const ms = memberSites.find((s: any) => s && s.domain === trackedDomain);
+              if (ms) {
+                ms.status = 'active';
+                ms.lastVisit = new Date().toISOString();
+                ms.visitCount = (ms.visitCount || 0) + 1;
+                await kvSetSafe(`tracked_site:${memberId}:${ms.id}`, ms);
+              }
+            }
+          } catch { /* team lookup best-effort */ }
+        } catch (siteErr) {
+          console.warn('[PIXEL] Site status update failed:', siteErr.message);
+        }
+      }
+    }
+    
+    // Return 1x1 transparent GIF
+    const transparentGif = Uint8Array.from(atob('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'), c => c.charCodeAt(0));
+    
+    return new Response(transparentGif, {
+      headers: {
+        'Content-Type': 'image/gif',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  } catch (error) {
+    console.error('[PIXEL] Error:', error);
+    // Still return a valid GIF even on error
+    const transparentGif = Uint8Array.from(atob('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'), c => c.charCodeAt(0));
+    return new Response(transparentGif, {
+      headers: {
+        'Content-Type': 'image/gif',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  }
+});
+
+// GET /tracking/errors - Check for recent tracking errors
+app.get("/make-server-a8b2511f/tracking/errors", async (c) => {
+  try {
+    const errorLog = (await kv.get('tracking_errors_log')) || { errors: [], lastUpdate: null };
+    
+    // Check if there are errors from the last 10 minutes
+    const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
+    const recentErrors = errorLog.errors.filter(e => e.timestamp > tenMinutesAgo);
+    
+    if (recentErrors.length > 0) {
+      // Extract unique URLs
+      const uniqueUrls = [...new Set(recentErrors.map(e => e.url))];
+      return c.json({
+        hasErrors: true,
+        count: recentErrors.length,
+        urls: uniqueUrls,
+        errors: recentErrors,
+        lastError: recentErrors[recentErrors.length - 1]
+      });
+    }
+    
+    return c.json({ hasErrors: false, count: 0, urls: [], errors: [] });
+  } catch (error: any) {
+    // Suppress timeout/transient errors — just return empty result
+    const msg = error?.message ?? String(error);
+    const isTransient = msg.includes('timeout') || msg.includes('schema cache')
+      || msg.includes('connection reset') || msg.includes('tls handshake')
+      || msg.includes('memory full');
+    if (!isTransient) {
+      console.error('[TRACKING-ERRORS] Error fetching error log:', error);
+    }
+    return c.json({ hasErrors: false, count: 0, urls: [] });
+  }
+});
+
+// ─── Tracked Websites Management (Apollo-style) ────────────────────────
+
+// ── Index helpers for tracked websites ──
+// The LIKE-based getByPrefix query is prone to 57014 statement timeouts.
+// We maintain a lightweight index key `tracked_sites_idx:{userId}` that holds
+// an array of site IDs. On load we try the fast index path (mget with IN)
+// first, falling back to getByPrefix only if the index doesn't exist yet.
+// Every write (add/delete) updates the index atomically.
+
+// Returns true if a domain looks like a real user-owned website (not internal/preview)
+function isValidTrackedDomain(domain: string): boolean {
+  if (!domain) return false;
+  if (domain === 'localhost' || domain.includes('127.0.0.1') || domain.includes('0.0.0.0')) return false;
+  if (domain.includes('supabase.co') || domain.includes('supabase.com')) return false;
+  if (domain.includes('figma') || domain.includes('figmaiframe')) return false;
+  if (domain.includes('.local')) return false;
+  if (!domain.includes('.')) return false;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}/.test(domain)) return false;
+  return true;
+}
+
+async function getTrackedSitesIndex(userId: string): Promise<string[] | null> {
+  try {
+    const idx = await kvGetSafe(`tracked_sites_idx:${userId}`);
+    if (Array.isArray(idx) && idx.length > 0) return idx;
+    return null;
+  } catch { return null; }
+}
+
+async function setTrackedSitesIndex(userId: string, siteIds: string[]): Promise<void> {
+  await kvSetSafe(`tracked_sites_idx:${userId}`, siteIds);
+}
+
+async function loadTrackedSitesByIndex(userId: string, siteIds: string[]): Promise<any[]> {
+  if (siteIds.length === 0) return [];
+  const keys = siteIds.map(id => `tracked_site:${userId}:${id}`);
+  // mget uses IN(...) query — much more reliable than LIKE
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const values = await kv.mget(keys);
+      return (values || []).filter(Boolean);
+    } catch (err: any) {
+      if (attempt < 2 && isTransientError(err)) {
+        await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+        continue;
+      }
+      console.error('[TRACKED-WEBSITES] mget failed after retries:', truncateError(err));
+      return [];
+    }
+  }
+  return [];
+}
+
+// GET /tracked-websites - List user's tracked websites
+app.get("/make-server-a8b2511f/tracked-websites", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    let sites: any[] = [];
+    let loadError = false;
+    let usedIndex = false;
+
+    // ── Strategy 1: Try fast index path (mget with IN — no LIKE) ──
+    const existingIndex = await getTrackedSitesIndex(user.id);
+    if (existingIndex && existingIndex.length > 0) {
+      console.log(`[TRACKED-WEBSITES] Using index path (${existingIndex.length} site IDs) for user ${user.id}`);
+      sites = await loadTrackedSitesByIndex(user.id, existingIndex);
+      usedIndex = true;
+      
+      // If the index had IDs but mget returned fewer, some sites may have been deleted externally.
+      // Clean up the index to match reality.
+      if (sites.length < existingIndex.length) {
+        const liveSiteIds = sites.map((s: any) => s.id).filter(Boolean);
+        setTrackedSitesIndex(user.id, liveSiteIds).catch(() => {});
+      }
+    }
+
+    // ── Strategy 2: Fallback to LIKE-based getByPrefix (with retry) ──
+    if (!usedIndex || sites.length === 0) {
+      const prefix = `tracked_site:${user.id}:`;
+      console.log(`[TRACKED-WEBSITES] Falling back to getByPrefix for user ${user.id}`);
+      try {
+        sites = (await kv.getByPrefix(prefix)) || [];
+      } catch (primaryErr: any) {
+        console.warn('[TRACKED-WEBSITES] Primary getByPrefix failed:', truncateError(primaryErr));
+        sites = await kvGetByPrefixSafe(prefix, []);
+        if (sites.length === 0) {
+          loadError = true;
+        }
+      }
+
+      // If getByPrefix found sites, rebuild the index so future loads are fast
+      if (sites.length > 0) {
+        const siteIds = sites.filter(Boolean).map((s: any) => s.id).filter(Boolean);
+        console.log(`[TRACKED-WEBSITES] Rebuilding index with ${siteIds.length} sites for user ${user.id}`);
+        setTrackedSitesIndex(user.id, siteIds).catch(() => {});
+      }
+    }
+    
+    // Auto-correct status: check recent visits for each site and upgrade "pending" → "active"
+    const visitPrefix = `recent_visit_v2:${user.id}:`;
+    let recentVisits: any[] = [];
+    try {
+      recentVisits = await kvGetByPrefixSafe(visitPrefix, []);
+    } catch { /* best effort */ }
+
+    // Build a set of domains that have received visits
+    const activeDomains = new Set<string>();
+    for (const visit of recentVisits) {
+      if (visit?.url) {
+        try {
+          const d = new URL(visit.url).hostname.replace(/^www\./, '');
+          activeDomains.add(d);
+        } catch { /* skip bad URLs */ }
+      }
+    }
+
+    // ── Strategy 3: Auto-discover tracked sites from visit data ──
+    // If we have 0 tracked_site entries but the user HAS visit data,
+    // it means they pasted the tracking script without using "Add website".
+    // Auto-create tracked_site entries from the visited domains.
+    if (sites.length === 0 && activeDomains.size > 0 && !loadError) {
+      console.log(`[TRACKED-WEBSITES] Auto-discovering ${activeDomains.size} domains from visit data for user ${user.id}`);
+      const newSiteIds: string[] = [];
+      for (const domain of activeDomains) {
+        // Skip generic/internal/preview domains (Figma iframes, Supabase, etc.)
+        if (!isValidTrackedDomain(domain)) continue;
+        
+        // Count visits for this domain
+        const domainVisits = recentVisits.filter(v => {
+          try { return new URL(v.url).hostname.replace(/^www\./, '') === domain; } catch { return false; }
+        });
+        
+        const siteId = crypto.randomUUID();
+        const website = {
+          id: siteId,
+          url: `https://${domain}`,
+          domain,
+          addedAt: new Date().toISOString(),
+          status: 'active',
+          visitCount: domainVisits.length,
+          lastVisit: domainVisits.length > 0
+            ? domainVisits.sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0]?.timestamp
+            : undefined,
+        };
+        kvSetSafe(`tracked_site:${user.id}:${siteId}`, website).catch(() => {});
+        sites.push(website);
+        newSiteIds.push(siteId);
+      }
+      if (newSiteIds.length > 0) {
+        setTrackedSitesIndex(user.id, newSiteIds).catch(() => {});
+        console.log(`[TRACKED-WEBSITES] Auto-created ${newSiteIds.length} tracked_site entries from visit data for user ${user.id}: ${[...activeDomains].join(', ')}`);
+      }
+    }
+    
+    // ── Cleanup: purge any invalid/internal domains (Figma preview, etc.) ──
+    const beforeCleanup = sites.length;
+    const invalidSites = sites.filter(s => s && !isValidTrackedDomain(s.domain));
+    if (invalidSites.length > 0) {
+      console.log(`[TRACKED-WEBSITES] Cleaning up ${invalidSites.length} invalid domain entries for user ${user.id}`);
+      for (const bad of invalidSites) {
+        if (bad.id) kv.del(`tracked_site:${user.id}:${bad.id}`).catch(() => {});
+      }
+      sites = sites.filter(s => s && isValidTrackedDomain(s.domain));
+      // Rebuild index without the bad entries
+      const cleanIds = sites.map((s: any) => s.id).filter(Boolean);
+      setTrackedSitesIndex(user.id, cleanIds).catch(() => {});
+    }
+
+    // Sort by addedAt descending and auto-fix status
+    const sorted = sites
+      .filter(Boolean)
+      .map((site: any) => {
+        // If the domain has recent visits OR has visitCount > 0, ensure status is "active"
+        if (site.status === 'pending' && (activeDomains.has(site.domain) || site.visitCount > 0)) {
+          site.status = 'active';
+          // Fire-and-forget: persist the corrected status
+          kvSetSafe(`tracked_site:${user.id}:${site.id}`, site).catch(() => {});
+        }
+        return site;
+      })
+      .sort((a: any, b: any) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+    
+    console.log(`[TRACKED-WEBSITES] Returning ${sorted.length} websites for user ${user.id} (index=${usedIndex}, loadError=${loadError})`);
+    return c.json({ websites: sorted, loadError });
+  } catch (error) {
+    console.error('[TRACKED-WEBSITES] Error listing:', error);
+    return c.json({ error: error.message, loadError: true }, error.message?.includes('Authorization') ? 401 : 500);
+  }
+});
+
+// POST /tracked-websites - Add a new tracked website
+app.post("/make-server-a8b2511f/tracked-websites", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const { url, domain } = body;
+
+    if (!domain) {
+      return c.json({ error: 'Domain is required' }, 400);
+    }
+
+    const siteId = crypto.randomUUID();
+    const website = {
+      id: siteId,
+      url: url || `https://${domain}`,
+      domain,
+      addedAt: new Date().toISOString(),
+      status: 'pending',
+      visitCount: 0,
+    };
+
+    await kv.set(`tracked_site:${user.id}:${siteId}`, website);
+    
+    // Update the index so future loads use the fast mget path
+    try {
+      const existingIdx = await getTrackedSitesIndex(user.id);
+      const updatedIdx = existingIdx ? [...existingIdx, siteId] : [siteId];
+      await setTrackedSitesIndex(user.id, updatedIdx);
+    } catch (idxErr) {
+      console.warn('[TRACKED-WEBSITES] Failed to update index on add:', truncateError(idxErr));
+    }
+    
+    console.log(`[TRACKED-WEBSITES] Added ${domain} for user ${user.id}`);
+
+    return c.json({ website });
+  } catch (error) {
+    console.error('[TRACKED-WEBSITES] Error adding:', error);
+    return c.json({ error: error.message }, error.message?.includes('Authorization') ? 401 : 500);
+  }
+});
+
+// DELETE /tracked-websites/:id - Remove a tracked website
+app.delete("/make-server-a8b2511f/tracked-websites/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const siteId = c.req.param('id');
+
+    await kv.del(`tracked_site:${user.id}:${siteId}`);
+    
+    // Update the index to remove the deleted site
+    try {
+      const existingIdx = await getTrackedSitesIndex(user.id);
+      if (existingIdx) {
+        const updatedIdx = existingIdx.filter(id => id !== siteId);
+        await setTrackedSitesIndex(user.id, updatedIdx);
+      }
+    } catch (idxErr) {
+      console.warn('[TRACKED-WEBSITES] Failed to update index on delete:', truncateError(idxErr));
+    }
+    
+    console.log(`[TRACKED-WEBSITES] Removed site ${siteId} for user ${user.id}`);
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('[TRACKED-WEBSITES] Error deleting:', error);
+    return c.json({ error: error.message }, error.message?.includes('Authorization') ? 401 : 500);
+  }
+});
+
+// GET /track/js - Lightweight JavaScript tracker served from the server
+// Usage: <script src="https://[PROJECT].supabase.co/functions/v1/make-server-a8b2511f/track/js?uid=USER_ID&d=DOMAIN"></script>
+app.get("/make-server-a8b2511f/track/js", async (c) => {
+  try {
+    const userId = c.req.query('uid');
+    const domain = c.req.query('d');
+    const projectUrl = Deno.env.get('SUPABASE_URL') || '';
+    const baseUrl = `${projectUrl}/functions/v1/make-server-a8b2511f`;
+    
+    // Auto-register the domain as a tracked site if it doesn't already exist
+    // This ensures sites appear in Settings even if the user only pasted the script
+    if (userId && domain && isValidTrackedDomain(domain)) {
+      (async () => {
+        try {
+          const idx = await getTrackedSitesIndex(userId);
+          // Quick check: if index exists, load sites and see if domain is already there
+          let alreadyTracked = false;
+          if (idx && idx.length > 0) {
+            const existing = await loadTrackedSitesByIndex(userId, idx);
+            alreadyTracked = existing.some((s: any) => s?.domain === domain);
+          }
+          if (!alreadyTracked) {
+            // Double-check via prefix in case index is stale
+            const prefix = `tracked_site:${userId}:`;
+            let prefixSites: any[] = [];
+            try { prefixSites = (await kv.getByPrefix(prefix)) || []; } catch { /* ok */ }
+            alreadyTracked = prefixSites.some((s: any) => s?.domain === domain);
+          }
+          if (!alreadyTracked) {
+            const siteId = crypto.randomUUID();
+            const website = {
+              id: siteId, url: `https://${domain}`, domain,
+              addedAt: new Date().toISOString(), status: 'active', visitCount: 0,
+            };
+            await kvSetSafe(`tracked_site:${userId}:${siteId}`, website);
+            const existingIdx = await getTrackedSitesIndex(userId);
+            await setTrackedSitesIndex(userId, [...(existingIdx || []), siteId]);
+            console.log(`[TRACK-JS] Auto-registered tracked site ${domain} for user ${userId}`);
+          }
+        } catch (regErr) {
+          console.debug('[TRACK-JS] Auto-register best-effort failed:', regErr?.message);
+        }
+      })(); // fire-and-forget — don't block script serving
+    }
+
+    // Serve a minimal tracking script that auto-tracks page views + SPA route changes
+    const script = `(function(){
+  var u="${userId||''}",d="${domain||''}";
+  if(!u)return;
+  function t(){
+    var p=encodeURIComponent(location.href),ti=encodeURIComponent(document.title||''),r=encodeURIComponent(document.referrer||'');
+    new Image().src="${baseUrl}/track/pixel?uid="+u+"&d="+d+"&p="+p+"&t="+ti+"&ref="+r+"&_="+Date.now();
+  }
+  t();
+  var ps=history.pushState;
+  history.pushState=function(){ps.apply(history,arguments);setTimeout(t,100);};
+  window.addEventListener('popstate',function(){setTimeout(t,100);});
+})();`;
+
+    return new Response(script, {
+      headers: {
+        'Content-Type': 'application/javascript',
+        'Cache-Control': 'public, max-age=3600',
+        'Access-Control-Allow-Origin': '*',
+      }
+    });
+  } catch (error) {
+    console.error('[TRACK-JS] Error:', error);
+    return new Response('/* error */', {
+      headers: { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' }
+    });
+  }
+});
+
+// GET /live-traffic - Get recent web visits
+app.get("/make-server-a8b2511f/live-traffic", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c); // Require auth to see visits
+    
+    // Check cache first (30 second TTL - reduced DB pressure + prevents CPU spikes)
+    const cacheKey = `live:${user.id}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return c.json(cached);
+    }
+    
+    // Create Admin Client for direct KV table access (Bypass 1000 row limit of default PostgREST)
+    // Reuse the client from authentication which has Service Role Key
+    const adminSupabase = supabase;
+
+    // Get recent visits directly from DB (Sorted by Key DESC = Newest First)
+    // This fixes the "stale data" issue by ensuring we fetch the LATEST visits, not the OLDEST
+    // NAMESPACED by User ID for data isolation
+    // CONTNDR TEAM SHARING: All internal @contndr.com users automatically see
+    // contndr.com live traffic (stored under admin account 6001f3ec-1907-4d28-b732-a0a60ae23002)
+    const CONTNDR_ADMIN_ACCOUNT_ID = '6001f3ec-1907-4d28-b732-a0a60ae23002';
+    const userIsInternal = isInternalEmail(user.email);
+
+    let atomicVisits: any[] = [];
+    try {
+        console.log('[LIVE-TRAFFIC] Fetching visits for user:', user.id, userIsInternal ? '(internal — also fetching contndr.com traffic)' : '');
+        // Single attempt with 4s timeout — fail fast rather than retrying slow queries.
+        // Timeouts/PGRST002 just return empty array (not an error from the caller's perspective).
+        let data: any[] | null = null;
+        try {
+            const queryPromise = adminSupabase
+               .from('kv_store_a8b2511f')
+               .select('key, value')
+               .like('key', `recent_visit_v2:${user.id}:%`)
+               .order('key', { ascending: false })
+               .limit(15); // Reduced limit to lower DB pressure
+
+            const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+              setTimeout(() => resolve({ data: null, error: { message: 'Query timeout after 4s' } }), 4000)
+            );
+
+            const { data: d, error } = await Promise.race([queryPromise, timeoutPromise]) as any;
+
+            if (error) {
+              const msg = error.message || '';
+              if (msg.includes('timeout') || msg.includes('schema cache') || msg.includes('PGRST002')) {
+                console.warn(`[LIVE-TRAFFIC] DB query slow/unavailable (${msg.slice(0, 80)}), returning cached/empty`);
+              } else {
+                console.error('[LIVE-TRAFFIC] DB query error:', msg);
+              }
+              data = null;
+            } else {
+              data = d;
+            }
+        } catch (queryErr: any) {
+          console.warn('[LIVE-TRAFFIC] Query exception (returning empty):', queryErr?.message?.slice(0, 80));
+          data = null;
+        }
+        
+        // Extract values
+        atomicVisits = data ? data.map((d: any) => ({ ...d.value, kv_key: d.key })) : [];
+        console.log('[LIVE-TRAFFIC] Found', atomicVisits.length, 'visits for user:', user.id);
+
+        // For internal Contndr team members, ALSO fetch contndr.com traffic
+        // This ensures all sales reps see the shared contndr.com tracking automatically
+        if (userIsInternal && user.id !== CONTNDR_ADMIN_ACCOUNT_ID) {
+            try {
+                // Shared traffic query with tight 2s timeout to prevent CPU exhaustion.
+                // Non-critical: if it times out, user just sees their own traffic only.
+                const sharedQueryPromise = adminSupabase
+                    .from('kv_store_a8b2511f')
+                    .select('key, value')
+                    .like('key', `recent_visit_v2:${CONTNDR_ADMIN_ACCOUNT_ID}:%`)
+                    .order('key', { ascending: false })
+                    .limit(15); // Reduced to 15
+
+                const timeoutPromise = new Promise<{ data: null; error: null }>((resolve) =>
+                  setTimeout(() => resolve({ data: null, error: null }), 2000) // resolve (not reject) so no catch needed
+                );
+                
+                const { data: sharedData, error: sharedError } = await Promise.race([sharedQueryPromise, timeoutPromise]) as any;
+                
+                if (!sharedError && sharedData) {
+                    const sharedVisits = sharedData.map((d: any) => ({ ...d.value, kv_key: d.key, shared_from_contndr: true }));
+                    // BRAND ISOLATION: Only include contndr-branded traffic for @contndr.com users
+                    // The admin account (or@roadr.com) has multi-brand traffic (roadr, covera, sourcr, contndr)
+                    // but @contndr.com sales reps must ONLY see contndr traffic
+                    const contndrOnlyVisits = sharedVisits.filter((v: any) => {
+                        const brand = (v.brand || '').toLowerCase();
+                        // Allow: contndr, website (generic), empty/unknown, or no brand set
+                        return !brand || brand === 'contndr' || brand === 'website' || brand === 'unknown';
+                    });
+                    atomicVisits = [...atomicVisits, ...contndrOnlyVisits];
+                    console.log('[LIVE-TRAFFIC] Added', contndrOnlyVisits.length, 'of', sharedVisits.length, 'shared contndr-only visits for internal user:', user.email);
+                }
+            } catch (sharedErr: any) {
+                // Timeout resolves (not rejects) now, so this only fires for real DB errors
+                console.warn('[LIVE-TRAFFIC] Failed to fetch shared contndr traffic:', sharedErr?.message?.slice(0, 80));
+            }
+        }
+        
+        // CLEANUP: Keep only 500 items in the database per user
+        // Run probabilistically (1 in 20 requests = 5%) to save CPU
+        if (Math.random() < 0.05) (async () => {
+             try {
+                 const cleanupQueryPromise = adminSupabase
+                     .from('kv_store_a8b2511f')
+                     .select('key')
+                     .like('key', `recent_visit_v2:${user.id}:%`)
+                     .order('key', { ascending: false })
+                     .limit(500);
+                 
+                 const timeoutPromise = new Promise((_, reject) => 
+                   setTimeout(() => reject(new Error('Cleanup query timeout after 4s')), 4000)
+                 );
+                 
+                 const { data: keepKeys } = await Promise.race([cleanupQueryPromise, timeoutPromise]) as any;
+                 
+                 if (keepKeys && keepKeys.length === 500) {
+                     const oldestKey = keepKeys[499].key;
+                     const deletePromise = adminSupabase
+                         .from('kv_store_a8b2511f')
+                         .delete()
+                         .like('key', `recent_visit_v2:${user.id}:%`)
+                         .lt('key', oldestKey);
+                     
+                     const deleteTimeoutPromise = new Promise((_, reject) => 
+                       setTimeout(() => reject(new Error('Delete timeout after 4s')), 4000)
+                     );
+                     
+                     await Promise.race([deletePromise, deleteTimeoutPromise]);
+                     console.log(`[TRACKING] Cleanup complete for user ${user.id}. Kept items up to ${oldestKey}`);
+                 }
+             } catch (cleanupError: any) {
+                 console.error('[TRACKING] Cleanup failed (non-critical):', cleanupError?.message || cleanupError);
+             }
+        })();
+
+    } catch (e) {
+        console.error('[TRACKING] Atomic read failed:', e);
+        // Return empty array to prevent blocking the entire dashboard
+        atomicVisits = [];
+    }
+
+    // Get legacy visits (Old List) - Provides continuity with pre-V2 data
+    // Note: Legacy list is global, so we might see other users' data here temporarily.
+    // Ideally we should disable this, but for smooth transition we keep it.
+    // However, for strict isolation, we should probably filter it in memory if possible, 
+    // but the legacy list structure doesn't guarantee user_id presence.
+    // For now, assume V2 is the source of truth for isolated data.
+    let legacyVisits = [];
+    // Legacy visits (global list) are DISABLED for strict data isolation.
+    // We only use the namespaced atomic V2 list.
+    // try {
+    //     legacyVisits = (await kv.get('recent_web_visits')) || [];
+    // } catch (e) {
+    //     console.error('[TRACKING] Legacy read failed:', e);
+    // }
+    
+    // MERGE: Combine both sources to ensure no data gaps
+    const allVisits = [...atomicVisits, ...legacyVisits];
+    
+    // DEDUPLICATE: Use a Map with ID as key to remove duplicates
+    const uniqueVisitsMap = new Map();
+    allVisits.forEach((v: any) => {
+        if (v && v.id) {
+            uniqueVisitsMap.set(v.id, v);
+        }
+    });
+    
+    const uniqueVisits = Array.from(uniqueVisitsMap.values());
+    
+    // Filter to only show visits from the last 15 minutes (live data, same as home dashboard)
+    const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
+    const recentVisits = uniqueVisits.filter((v: any) => {
+        return v.timestamp && new Date(v.timestamp).getTime() > fifteenMinutesAgo;
+    });
+    
+    // Group by User/Session to show unique "Users Online"
+    // This fixes the issue where 1 user clicking 5 pages shows as 5 users
+    const userMap = new Map();
+    
+    recentVisits.forEach((v: any) => {
+        let groupKey = v.lead_id;
+        
+        // For anonymous users, try to fingerprint to separate different anonymous users
+        // If they are truly anonymous (no lead_id), we group by attributes
+        if (!groupKey || groupKey === 'anonymous') {
+            const loc = [v.city, v.region, v.country].filter(Boolean).join('|');
+            const agent = v.user_agent || 'unknown';
+            const brand = v.brand || 'unknown';
+            groupKey = `anon:${loc}:${agent}:${brand}`;
+        }
+        
+        // Keep the MOST RECENT visit for this user (updates their status/location)
+        if (!userMap.has(groupKey)) {
+            userMap.set(groupKey, v);
+        } else {
+            const existing = userMap.get(groupKey);
+            if (new Date(v.timestamp).getTime() > new Date(existing.timestamp).getTime()) {
+                userMap.set(groupKey, v);
+            }
+        }
+    });
+
+    const uniqueUsers = Array.from(userMap.values());
+    
+    // Sort by timestamp descending
+    let visits = uniqueUsers.sort((a: any, b: any) => {
+        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    }).slice(0, 100); // Return top 100 recent unique users
+    
+    // Enrich with Lead Data
+    const leadIds = [...new Set(visits.filter((v: any) => v.lead_id !== 'anonymous').map((v: any) => v.lead_id))];
+    let leadsMap = new Map();
+    
+    if (leadIds.length > 0) {
+        const { data: leads } = await supabase
+          .from('leads')
+          .select('id, business_name, contact_name, brand, city, address, phone, email, website')
+          .in('id', leadIds);
+          
+        leadsMap = new Map((leads || []).map(l => [l.id, l]));
+    }
+    
+
+    
+    const enrichedVisits = visits
+      .map((v: any) => {
+        // Use real lead from DB, anonymous lead, or PRE-EXISTING lead (for mocks)
+        const leadData = v.lead || (v.lead_id === 'anonymous' ? v.anonymous_lead : leadsMap.get(v.lead_id));
+        
+        // Clone lead data to avoid mutation
+        const finalLead = leadData ? { ...leadData } : null;
+        
+        // CRITICAL FIX: Ensure brand is correctly attributed
+        // If the Lead record doesn't have a brand (e.g. unknown lead),
+        // but the VISIT record has a brand (inferred from URL), use the visit brand.
+        if (finalLead && (!finalLead.brand || finalLead.brand === 'unknown')) {
+             if (v.brand && v.brand !== 'unknown') {
+                 finalLead.brand = v.brand;
+             } else {
+                 // Fallback: Use 'website' as neutral default
+                 finalLead.brand = 'website';
+             }
+        }
+
+        return {
+          ...v,
+          lead: finalLead
+        };
+      })
+      .filter((v: any) => v.lead) // Filter out only if real lead was deleted from DB
+      .filter((v: any) => {
+        // BRAND ISOLATION SAFETY NET: For non-admin users, strip out any visits
+        // whose lead belongs to another brand (roadr, covera, sourcr).
+        // Only or@roadr.com (the multi-brand owner / admin) sees cross-brand data.
+        if (isAdminEmail(user.email)) return true; // admins see everything
+        const leadBrand = (v.lead?.brand || '').toLowerCase();
+        const visitBrand = (v.brand || '').toLowerCase();
+        const NON_CONTNDR_BRANDS = ['roadr', 'covera', 'sourcr'];
+        if (NON_CONTNDR_BRANDS.includes(leadBrand) || NON_CONTNDR_BRANDS.includes(visitBrand)) {
+          return false; // hide non-contndr branded traffic from @contndr.com users
+        }
+        return true;
+      });
+      
+    const result = { visits: enrichedVisits };
+    
+    // Cache with 30s TTL — reduced from 15s to halve DB pressure + prevent CPU spikes
+    setCache(cacheKey, result, 30000);
+    
+    return c.json(result);
+  } catch (error: any) {
+    const msg = error?.message || String(error);
+    if (msg.includes('Authentication failed') || msg.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('[TRACKING] Error fetching recent visits:', msg);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+// GET /visitor-stats - Get historical visitor analytics (with caching)
+app.get("/make-server-a8b2511f/visitor-stats", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const range = c.req.query('range') || '7d'; // '24h', '7d', '30d'
+    
+    // Check cache first
+    const cacheKey = `visitors:${user.id}:${range}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return c.json(cached);
+    }
+
+    // Determine if the user is an admin with multi-brand support
+    const isMultiBrandAdmin = isAdminEmail(user.email);
+    
+    // CONTNDR TEAM: Internal users also see contndr.com analytics data
+    const CONTNDR_ADMIN_ACCOUNT_ID_VS = '6001f3ec-1907-4d28-b732-a0a60ae23002';
+    const userIsInternalVS = isInternalEmail(user.email) && user.id !== CONTNDR_ADMIN_ACCOUNT_ID_VS;
+    
+    // Helper: For non-admin users, collapse all brand keys into a single "visits" metric
+    // This prevents admin-specific brand names (e.g., "sourcr", "roadr") from leaking to regular users
+    const normalizeBrands = (brands: Record<string, number>): Record<string, number> => {
+        if (isMultiBrandAdmin || !brands) return brands || {};
+        const total = Object.values(brands).reduce((sum: number, v: number) => sum + (v || 0), 0);
+        return total > 0 ? { visits: total } : {};
+    };
+
+    // MOCK DATA INJECTION FOR admin users
+    if (isAdminEmail(user.email)) {
+        const mockHistory = [];
+        const isHourly = range === '24h';
+        const count = isHourly ? 24 : (range === '30d' ? 30 : 7);
+        const now = new Date();
+        const startOfHour = new Date(now);
+        startOfHour.setMinutes(0, 0, 0);
+        
+        for (let i = count - 1; i >= 0; i--) {
+            const d = new Date(startOfHour);
+            if (isHourly) {
+                d.setHours(d.getHours() - i);
+            } else {
+                d.setDate(d.getDate() - i);
+                d.setHours(0, 0, 0, 0);
+            }
+            
+            // Generate realistic random data
+            const base = isHourly ? 5 : 25;
+            const variance = isHourly ? 3 : 10;
+            
+            // Time bias for hourly
+            let bias = 1;
+            if (isHourly) {
+                const h = d.getHours();
+                if (h >= 9 && h <= 17) bias = 1.5;
+                if (h < 6 || h > 22) bias = 0.2;
+            } else {
+                // Weekend bias for daily
+                const day = d.getDay();
+                if (day === 0 || day === 6) bias = 0.4;
+            }
+            
+            mockHistory.push({
+                date: isHourly ? d.toISOString() : d.toISOString().split('T')[0],
+                label: isHourly ? d.getHours() + ':00' : undefined,
+                brands: {
+                    roadr: Math.floor(Math.max(0, (base * bias) + (Math.random() * variance - variance/2))),
+                    sourcr: Math.floor(Math.max(0, (base * 0.7 * bias) + (Math.random() * variance - variance/2))),
+                    covera: Math.floor(Math.max(0, (base * 0.4 * bias) + (Math.random() * variance - variance/2)))
+                }
+            });
+        }
+        
+        const result = { history: mockHistory };
+        // Don't cache mock data persistently or do? Maybe short TTL.
+        // Actually, no need to cache aggressively if it's generated fast.
+        return c.json(result);
+    }
+
+    if (range === '24h') {
+        // For 24h, we use a hybrid approach for maximum performance and accuracy:
+        // 1. Fetch pre-aggregated hourly stats (Fastest, handles high volume)
+        // 2. Fallback to recent atomic/legacy logs for gaps (Handles low volume/recent transition)
+        
+        const now = new Date();
+        const startOfHour = new Date(now);
+        startOfHour.setMinutes(0, 0, 0);
+
+        // Generate keys for last 24h
+        const hourlyKeys = [];
+        for (let i = 23; i >= 0; i--) {
+            const d = new Date(startOfHour);
+            d.setHours(d.getHours() - i);
+            const dateStr = d.toISOString().split('T')[0];
+            const hourStr = String(d.getHours()).padStart(2, '0');
+            // Namespaced key
+            hourlyKeys.push(`analytics:hourly:${user.id}:${dateStr}-${hourStr}`);
+        }
+
+        // Fetch all hourly stats in parallel (Fast!)
+        let hourlyStats = [];
+        try {
+            // Use mget if available, otherwise sequential get (kv_store wrapper limitation?)
+            // Assuming kv.mget works as standard Deno KV
+            if (typeof kv.mget === 'function') {
+                 hourlyStats = await kv.mget(hourlyKeys);
+            } else {
+                 // Fallback to parallel gets
+                 hourlyStats = await Promise.all(hourlyKeys.map(k => kv.get(k)));
+            }
+        } catch (e) {
+            console.error('[ANALYTICS] Hourly fetch failed:', e);
+        }
+
+        // Initialize Map
+        const hourlyMap = new Map();
+        for (let i = 23; i >= 0; i--) {
+            const d = new Date(startOfHour);
+            d.setHours(d.getHours() - i);
+            const key = d.toISOString();
+            
+            // Check if we have pre-aggregated data for this hour
+            const hourKeyIndex = 23 - i; // reverse index mapping? No, push order is chronological
+            // keys pushed: [T-23, T-22, ..., T-0]
+            // loop i: 23 (T-23), 22 (T-22)...
+            // Wait, logic:
+            // i=23 -> d = Now - 23h. key index 0.
+            // i=0  -> d = Now - 0h. key index 23.
+            const stats = hourlyStats[23 - i] ? (hourlyStats[23 - i].value || hourlyStats[23 - i]) : null;
+            
+            let brands: Record<string, number> = {}; 
+            
+            if (stats && stats.brands) {
+                // Use aggregated data directly
+                brands = { ...stats.brands };
+            }
+            
+            hourlyMap.set(key, {
+                date: key,
+                label: d.getHours() + ':00',
+                brands: brands,
+                hasAggregatedData: !!stats
+            });
+        }
+
+        // 2. Fill gaps with recent logs (Only if aggregated data is missing to avoid double counting)
+        // We fetch the capped lists (max ~550 items total) so this is fast
+        const atomicVisits = (await kv.getByPrefix(`recent_visit_v2:${user.id}:`)) || [];
+        const legacyVisits = []; // DISABLED Legacy
+        const recentVisits = [...atomicVisits, ...legacyVisits];
+
+        if (Array.isArray(recentVisits)) {
+            recentVisits.forEach((visit: any) => {
+                if (!visit.timestamp) return;
+                const visitTime = new Date(visit.timestamp);
+                const vHour = new Date(visitTime);
+                vHour.setMinutes(0, 0, 0);
+                
+                // Find matching bucket
+                for (const [key, stat] of hourlyMap.entries()) {
+                    // Skip if we already have aggregated data for this hour (avoid double count)
+                    if (stat.hasAggregatedData) continue;
+                    
+                    const bucketTime = new Date(key);
+                    if (Math.abs(vHour.getTime() - bucketTime.getTime()) < 1000) {
+                         let brand = ''; 
+                         if (visit.lead && visit.lead.brand) brand = visit.lead.brand;
+                         else if (visit.anonymous_lead && visit.anonymous_lead.brand) brand = visit.anonymous_lead.brand;
+                         else if (visit.brand) brand = visit.brand;
+                         
+                         if (!brand || brand === 'unknown') {
+                             brand = 'website'; // Generic label for visits without a brand tag
+                         }
+                         
+                         const brandKey = brand.toLowerCase();
+                         stat.brands[brandKey] = (stat.brands[brandKey] || 0) + 1;
+                         break;
+                    }
+                }
+            });
+        }
+        
+        const history = Array.from(hourlyMap.values()).map(h => ({
+            date: h.date,
+            label: h.label, // "HH:00"
+            brands: normalizeBrands(h.brands)
+        })).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        const result = { history };
+        setCache(cacheKey, result);
+        return c.json(result);
+
+    } else {
+        // Daily resolution (7d or 30d)
+        const days = range === '30d' ? 30 : 7;
+        
+        // Keys are analytics:daily:USER_ID:YYYY-MM-DD
+        const allStats = await kv.getByPrefix(`analytics:daily:${user.id}:`);
+        
+        const statsMap = new Map();
+        if (allStats) {
+            allStats.forEach((stat: any) => statsMap.set(stat.date, stat));
+        }
+        
+        const filledData = [];
+        const today = new Date();
+        
+        for (let i = days - 1; i >= 0; i--) {
+            const d = new Date(today);
+            d.setDate(d.getDate() - i);
+            const dateStr = d.toISOString().split('T')[0];
+            
+            if (statsMap.has(dateStr)) {
+                const realStat = statsMap.get(dateStr);
+                
+                // Use dynamic brands, normalized for non-admin users
+                filledData.push({
+                    date: dateStr,
+                    brands: normalizeBrands(realStat.brands || {})
+                });
+            } else {
+                // Real data is 0, no mocks!
+                filledData.push({
+                    date: dateStr,
+                    brands: {} // Empty object for no data
+                });
+            }
+        }
+        
+        const result = { history: filledData };
+        setCache(cacheKey, result);
+        return c.json(result);
+    }
+  } catch (e) {
+      const status = (e as any)?.status || 500;
+      if (status !== 401) console.error('[ANALYTICS] Error fetching visitor history:', e);
+      return c.json({ error: e.message }, status);
+  }
+});
+
+// PUT /leads/:id - Update a single lead
+app.put("/make-server-a8b2511f/leads/:id", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const leadId = c.req.param('id');
+    const updates = await c.req.json();
+    
+    // Remove fields that shouldn't be updated via this endpoint
+    delete updates.id;
+    delete updates.user_id;
+    delete updates.created_at;
+    
+    // Admin users can update any lead in the admin pool (mirrors GET /leads/:id logic)
+    const isAdmin = isAdminEmail(user.email);
+    let query = supabase
+      .from('leads')
+      .update(updates)
+      .eq('id', leadId);
+
+    if (isAdmin) {
+      const adminIds = await getCachedSourceUserIds();
+      const targetUserIds = Array.from(new Set([...adminIds, user.id]));
+      query = query.in('user_id', targetUserIds);
+    } else {
+      query = query.eq('user_id', user.id);
+    }
+
+    const { data: lead, error } = await query.select().maybeSingle();
+    
+    if (error) throw error;
+    if (!lead) {
+      return c.json({ error: 'Lead not found or access denied' }, 404);
+    }
+    
+    return c.json(lead);
+  } catch (error) {
+    console.error('Error updating lead:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// PATCH /leads/:id/status - Update a single lead status
+app.patch("/make-server-a8b2511f/leads/:id/status", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const leadId = c.req.param('id');
+    const { status } = await c.req.json();
+    
+    const { data: lead, error } = await supabase
+      .from('leads')
+      .update({ status: status })
+      .eq('id', leadId)
+      .eq('user_id', user.id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    if (!lead) {
+      return c.json({ error: 'Lead not found' }, 404);
+    }
+    
+    return c.json(lead);
+  } catch (error) {
+    console.error('Error updating lead status:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /leads/:id/replies - Get email replies for a lead
+app.get("/make-server-a8b2511f/leads/:id/replies", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const leadId = c.req.param('id');
+    
+    // First verify the lead belongs to the user
+    const { data: lead, error: leadError } = await supabase
+      .from('leads')
+      .select('id')
+      .eq('id', leadId)
+      .eq('user_id', user.id)
+      .single();
+    
+    if (leadError || !lead) {
+      return c.json({ error: 'Lead not found' }, 404);
+    }
+    
+    // Get replies from inbox/conversations
+    // This is a placeholder - adjust based on your actual inbox schema
+    const replies = []; // TODO: Implement based on your inbox structure
+    
+    return c.json({ replies });
+  } catch (error) {
+    console.error('Error fetching lead replies:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /emails/inbound - Handle incoming emails from Resend
+app.post("/make-server-a8b2511f/emails/inbound", async (c) => {
+  try {
+    const supabase = getSupabaseAdmin();
+    
+    // Verify signature if possible, but for now just process the body
+    const payload = await c.req.json();
+    
+    console.log('[INBOUND] Received email:', payload.subject, 'From:', payload.from);
+    
+    // Parse Sender
+    // format: "Name <email@domain.com>" or "email@domain.com"
+    const fromStr = payload.from || '';
+    const emailMatch = fromStr.match(/<(.+)>/);
+    const fromEmail = emailMatch ? emailMatch[1] : fromStr;
+    
+    if (!fromEmail) {
+        return c.json({ error: 'Could not parse sender email' }, 400);
+    }
+    
+    // Parse Recipient
+    const toStr = payload.to || '';
+    const toMatch = toStr.match(/<(.+)>/);
+    const toEmail = toMatch ? toMatch[1] : toStr;
+    
+    // Find Lead (use limit(1) to avoid crash if multiple exist)
+    // We order by last_contacted DESC so the reply goes to the user who most recently emailed this lead
+    const { data: leads, error: leadError } = await supabase
+        .from('leads')
+        .select('id, user_id, business_name')
+        .ilike('email', fromEmail)
+        .order('last_contacted', { ascending: false })
+        .limit(1);
+        
+    const lead = leads?.[0];
+        
+    if (leadError || !lead) {
+        console.log(`[INBOUND] No lead found for ${fromEmail}. Ignoring.`);
+        return c.json({ message: 'No lead found, ignored' });
+    }
+    
+    console.log(`[INBOUND] Found lead: ${lead.business_name} (${lead.id})`);
+    
+    // Insert Email Record
+    const { data: email, error: emailError } = await supabase
+        .from('emails')
+        .insert({
+            user_id: lead.user_id,
+            lead_id: lead.id,
+            direction: 'inbound',
+            status: 'replied',
+            subject: payload.subject,
+            text_body: payload.text,
+            html_body: payload.html,
+            received_at: new Date().toISOString(),
+            // Ensure we mark it as received so it shows up in inbox
+        })
+        .select()
+        .single();
+        
+    if (emailError) throw emailError;
+    
+    // Update Lead Status
+    await supabase
+        .from('leads')
+        .update({ 
+            status: 'Replied',
+            last_contacted: new Date().toISOString()
+        })
+        .eq('id', lead.id);
+        
+    // Create Activity Event (for Dashboard)
+    // First check if email_events table exists by trying to insert
+    try {
+        await supabase
+            .from('email_events')
+            .insert({
+                user_id: lead.user_id,
+                email_id: email.id,
+                event_type: 'replied',
+                created_at: new Date().toISOString()
+            });
+    } catch (evtError) {
+        console.warn('Could not insert into email_events (table might not exist or schema mismatch):', evtError);
+    }
+
+    // Pipeline auto-stage trigger: email_replied → move to "engaged"
+    if (lead?.email && lead?.user_id) {
+      firePipelineTrigger({ event_type: 'email_replied', user_id: lead.user_id, email: lead.email, lead_id: lead.id }).catch(() => {});
+    }
+
+    // ── Buying Intent: fire email_replied / email_multiple_replies signal ──
+    (async () => {
+      try {
+        // Check how many prior inbound replies exist from this lead
+        const { count: priorReplies } = await supabase
+          .from('emails')
+          .select('id', { count: 'estimated', head: true })
+          .eq('user_id', lead.user_id)
+          .eq('lead_id', lead.id)
+          .eq('direction', 'inbound');
+
+        const replyCount = priorReplies || 1;
+        const signalDetail = replyCount >= 2 ? 'email_multiple_replies' : 'email_replied';
+
+        await recordIntentSignal({
+          userId: lead.user_id,
+          companyId: lead.business_name ? `lead_${lead.id}` : undefined,
+          companyName: lead.business_name || 'Unknown',
+          personId: lead.id,
+          personEmail: fromEmail,
+          signalType: 'email',
+          signalDetail,
+          metadata: { subject: payload.subject, reply_count: replyCount, source: 'resend_inbound_webhook' },
+        });
+        console.log(`[INTENT] Inbound reply signal: ${lead.business_name || fromEmail} → ${signalDetail} (${replyCount} total replies)`);
+      } catch (intentErr) {
+        console.warn('[INTENT] Failed to record inbound reply signal:', intentErr);
+      }
+    })();
+
+    // ── Auto-stop sequences on reply ──
+    (async () => {
+      try {
+        if (lead?.user_id && fromEmail) {
+          const stopped = await handleReplyDetected(lead.user_id, fromEmail, lead.id);
+          if (stopped > 0) {
+            console.log(`[SEQUENCE-AUTOSTOP] Stopped ${stopped} sequence(s) for ${fromEmail} (reply detected)`);
+          }
+        }
+      } catch (seqErr) {
+        console.warn('[SEQUENCE-AUTOSTOP] Error:', seqErr);
+      }
+    })();
+        
+    return c.json({ success: true, email_id: email.id });
+    
+  } catch (error) {
+    console.error('[INBOUND] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /emails/sync-statuses - MANUAL FALLBACK: Polls Resend API for email statuses.
+// Primary tracking is via Resend webhooks → DB → Supabase Realtime → frontend.
+// For Gmail/Outlook/SMTP emails, open & click tracking is handled by self-hosted
+// tracking pixels and redirect endpoints (GET /track/open/:id, /track/click/:id).
+// This endpoint only affects Resend-sent emails (those with a valid resend_id).
+app.post("/make-server-a8b2511f/emails/sync-statuses", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const { force_all } = await c.req.json().catch(() => ({ force_all: false }));
+    
+    console.log(`[EMAIL SYNC] Syncing tracking data for user: ${user.id} (Force: ${force_all})`);
+    
+    // Look back 30 days to catch older campaigns
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // ── Gmail/Outlook backfill: upgrade 'sent' → 'delivered' for non-Resend emails ──
+    // Gmail/Outlook don't send delivery webhooks, so any email that was sent
+    // successfully via those providers should already be 'delivered'.
+    try {
+      const { data: stuckSent } = await supabase
+        .from('emails')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('status', 'sent')
+        .is('resend_id', null)          // No Resend ID → sent via Gmail/Outlook/SMTP
+        .gt('created_at', thirtyDaysAgo)
+        .limit(200);
+
+      if (stuckSent && stuckSent.length > 0) {
+        // Check each email's provider from KV; only upgrade Gmail/Outlook
+        // But DON'T blindly assume "delivered" — check if the lead has bounced first,
+        // and wait at least 1 hour after send before upgrading (gives bounce notifications time to arrive).
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        let gmailUpgraded = 0;
+        let gmailBounceDetected = 0;
+        for (const row of stuckSent) {
+          try {
+            const prov = await getEmailProvider(row.id);
+            if (prov === 'gmail_oauth' || prov === 'outlook_oauth') {
+              // Don't upgrade emails sent less than 1 hour ago — wait for bounce notifications
+              const { data: emailRow } = await supabase.from('emails')
+                .select('lead_id, created_at')
+                .eq('id', row.id)
+                .single();
+              if (!emailRow) continue;
+              if (emailRow.created_at > oneHourAgo) continue; // Too recent — wait
+
+              // Check if the lead has been marked as bounced
+              const { data: leadRow } = await supabase.from('leads')
+                .select('bounced')
+                .eq('id', emailRow.lead_id)
+                .single();
+
+              const ts = new Date().toISOString();
+              if (leadRow?.bounced) {
+                // Lead is bounced — mark email as bounced, not delivered
+                await supabase.from('emails').update({
+                  status: 'bounced',
+                  updated_at: ts,
+                }).eq('id', row.id);
+                gmailBounceDetected++;
+              } else {
+                await supabase.from('emails').update({
+                  status: 'delivered',
+                  delivered_at: ts,
+                  updated_at: ts,
+                }).eq('id', row.id);
+                gmailUpgraded++;
+              }
+            }
+          } catch (_) { /* skip */ }
+        }
+        if (gmailUpgraded > 0 || gmailBounceDetected > 0) {
+          console.log(`[EMAIL SYNC] Backfilled ${gmailUpgraded} Gmail/Outlook emails → 'delivered', ${gmailBounceDetected} → 'bounced'`);
+        }
+      }
+    } catch (bfErr) {
+      console.warn('[EMAIL SYNC] Gmail backfill pass error (non-fatal):', bfErr);
+    }
+    
+    // Build query - ONLY fetch Resend emails (exclude Gmail/Outlook by checking provider)
+    // Gmail/Outlook emails may have message IDs in resend_id field, but they're not Resend IDs
+    let query = supabase
+      .from('emails')
+      .select('id, resend_id, status, created_at')
+      .eq('user_id', user.id)
+      .gt('created_at', thirtyDaysAgo)
+      .not('resend_id', 'is', null)
+      .order('created_at', { ascending: false });
+
+    // If NOT forced, only check items that haven't reached a "final" state like opened/clicked/bounced
+    // This optimization saves API calls.
+    // However, if we want to track clicks AFTER opens, we should keep checking 'opened' too.
+    // Ideally, webhooks handle this. For polling, we focus on 'sent' and 'delivered'.
+    if (!force_all) {
+       query = query.in('status', ['sent', 'delivered']);
+       query = query.limit(15); // Reduced from 30 to prevent timeout
+    } else {
+       // Force sync: Check everything, even if already opened (to check for clicks) or bounced
+       query = query.limit(50); // Reduced from 100 to prevent timeout
+    }
+    
+    const { data: emails, error } = await query;
+      
+    if (error) throw error;
+    
+    if (!emails || emails.length === 0) {
+      return c.json({
+        success: true,
+        message: 'No relevant emails to sync',
+        synced: 0
+      });
+    }
+
+    const resendApiKey = Deno.env.get('RESEND_API_KEY');
+    if (!resendApiKey) {
+      console.warn('[EMAIL SYNC] RESEND_API_KEY not set');
+      return c.json({ error: 'Resend configuration missing' }, 500);
+    }
+
+    // Filter out Gmail/Outlook emails by checking provider
+    const resendEmails = [];
+    for (const email of emails) {
+      if (!email.resend_id) continue;
+      try {
+        const provider = await getEmailProvider(email.id);
+        if (provider === 'gmail_oauth' || provider === 'outlook_oauth') {
+          console.log(`[EMAIL SYNC] Skipping ${provider} email ${email.id} (not a Resend email)`);
+          continue; // Skip non-Resend emails
+        }
+        resendEmails.push(email);
+      } catch (_) {
+        // If we can't determine provider, assume it's Resend (for legacy emails)
+        resendEmails.push(email);
+      }
+    }
+
+    let updatedCount = 0;
+    const updates = [];
+    
+    console.log(`[EMAIL SYNC] Checking status for ${resendEmails.length} Resend emails (filtered from ${emails.length} total)...`);
+
+    // Check status for each email (with 429 retry-after backoff)
+    let rateLimited = false;
+    let checkedCount = 0;
+    for (const email of resendEmails) {
+      if (!email.resend_id) continue;
+
+      try {
+        // Retry logic for 429 rate limits with exponential backoff
+        let res: Response | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          res = await fetch(`https://api.resend.com/emails/${email.resend_id}`, {
+            headers: { 'Authorization': `Bearer ${resendApiKey}` }
+          });
+
+          if (res.status !== 429) break; // Not rate-limited, proceed
+
+          // Parse Retry-After header (seconds) or use exponential backoff default
+          const retryAfter = res.headers.get('Retry-After');
+          const waitMs = retryAfter ? Math.min(parseInt(retryAfter, 10) * 1000, 10000) : (attempt + 1) * 2000;
+          console.warn(`[EMAIL SYNC] Rate limit hit (429) for email ${email.resend_id}. Retry ${attempt + 1}/2 after ${waitMs}ms...`);
+          await new Promise(r => setTimeout(r, waitMs));
+        }
+
+        if (!res) continue;
+
+        if (res.ok) {
+          const data = await res.json();
+          // Resend 'last_event' can be: sent, delivered, delivery_delayed, complained, bounced, opened, clicked
+          // Normalize to lowercase to match our DB enum/check
+          const newStatus = data.last_event?.toLowerCase();
+          
+          // Status hierarchy: only upgrade, never downgrade
+          const SYNC_RANK: Record<string, number> = {
+            queued: 0, sent: 1, delivered: 2, opened: 3, clicked: 4,
+            bounced: 5, complained: 5, failed: 5,
+          };
+          const curRank = SYNC_RANK[email.status] ?? 0;
+          const nxtRank = SYNC_RANK[newStatus] ?? 0;
+          if (newStatus && nxtRank > curRank) {
+            // Step 1: Always update status (guaranteed column)
+            updates.push(
+              supabase
+                .from('emails')
+                .update({ status: newStatus })
+                .eq('id', email.id)
+            );
+
+            // Step 2: Try timestamp columns (may not exist — non-fatal)
+            const tsData: any = {};
+            if (newStatus === 'delivered') tsData.delivered_at = new Date().toISOString();
+            if (newStatus === 'opened') tsData.opened_at = new Date().toISOString();
+            if (newStatus === 'clicked') tsData.clicked_at = new Date().toISOString();
+            tsData.updated_at = new Date().toISOString();
+            updates.push(
+              supabase
+                .from('emails')
+                .update(tsData)
+                .eq('id', email.id)
+                .then((r: any) => {
+                  if (r.error) console.warn(`[EMAIL SYNC] Timestamp update non-fatal error for ${email.id}:`, r.error.code);
+                  return r;
+                })
+            );
+
+            // Step 3: If bounced, mark the LEAD as bounced too
+            if (newStatus === 'bounced' || newStatus === 'complained' || newStatus === 'failed') {
+              try {
+                const { data: emailRow } = await supabase
+                  .from('emails')
+                  .select('lead_id')
+                  .eq('id', email.id)
+                  .single();
+                if (emailRow?.lead_id) {
+                  await supabase
+                    .from('leads')
+                    .update({ bounced: true, status: 'bounced', updated_at: new Date().toISOString() })
+                    .eq('id', emailRow.lead_id);
+                  console.log(`[EMAIL SYNC] Marked lead ${emailRow.lead_id} as bounced (email status: ${newStatus})`);
+                }
+              } catch (bounceErr) {
+                console.warn(`[EMAIL SYNC] Failed to mark lead as bounced for email ${email.id}:`, bounceErr);
+              }
+            }
+            updatedCount++;
+          }
+          checkedCount++;
+        } else if (res.status === 429) {
+             // Still 429 after retries — stop this batch gracefully
+             console.warn(`[EMAIL SYNC] Rate limit persists after retries for email ${email.resend_id}. Checked ${checkedCount}/${emails.length} before stopping.`);
+             rateLimited = true;
+             break;
+        } else {
+             console.warn(`[EMAIL SYNC] Failed to fetch email ${email.resend_id}: ${res.status}`);
+             checkedCount++;
+        }
+      } catch (err) {
+        console.error(`[EMAIL SYNC] Exception checking email ${email.id}:`, err);
+        checkedCount++;
+      }
+        // Rate limiting: 500ms between requests (~2 req/sec) to stay within Resend limits
+        await new Promise(r => setTimeout(r, 500));
+      }
+
+    if (updates.length > 0) {
+      await Promise.all(updates);
+      console.log(`[EMAIL SYNC] Updated ${updatedCount} emails with new statuses`);
+    }
+    
+    return c.json({
+      success: true,
+      message: rateLimited
+        ? `Checked ${checkedCount}/${resendEmails.length} Resend emails before rate limit, updated ${updatedCount}`
+        : `Checked ${resendEmails.length} Resend emails, updated ${updatedCount}`,
+      synced: updatedCount,
+      checked: checkedCount,
+      total: resendEmails.length,
+      total_fetched: emails.length,
+      filtered_out: emails.length - resendEmails.length,
+      rate_limited: rateLimited,
+    });
+  } catch (error) {
+    if (error.message && (error.message.includes('Session expired') || error.message.includes('No Authorization') || error.message.includes('Authentication failed'))) {
+         return c.json({ error: "Unauthorized" }, 401);
+    }
+    console.error('[EMAIL SYNC] Error syncing tracking data:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /emails/repair-ids - Try to recover missing Resend IDs by matching with Resend API
+app.post("/make-server-a8b2511f/emails/repair-ids", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    console.log(`[REPAIR] Starting ID repair for user ${user.id}...`);
+
+    // 1. Find emails without resend_id created in last 24h
+    const { data: brokenEmails } = await supabase
+        .from('emails')
+        .select('id, lead_id, created_at, subject')
+        .eq('user_id', user.id)
+        .is('resend_id', null)
+        .eq('status', 'sent')
+        .gt('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+
+    if (!brokenEmails || brokenEmails.length === 0) {
+        return c.json({ success: true, message: "No broken emails found", repaired: 0 });
+    }
+    
+    console.log(`[REPAIR] Found ${brokenEmails.length} emails without IDs. Fetching from Resend...`);
+
+    // 2. Fetch recent emails from Resend
+    const resendApiKey = Deno.env.get('RESEND_API_KEY');
+    if (!resendApiKey) return c.json({ error: 'Resend API Key missing' }, 500);
+
+    const res = await fetch('https://api.resend.com/emails?limit=100', {
+        headers: { 'Authorization': `Bearer ${resendApiKey}` }
+    });
+    
+    if (!res.ok) {
+        const err = await res.text();
+        console.error('[REPAIR] Resend API error:', err);
+        return c.json({ error: 'Failed to fetch from Resend' }, 500);
+    }
+    
+    const resendData = await res.json();
+    const resendEmails = resendData.data || [];
+    
+    // 3. Match and Update
+    let repaired = 0;
+    
+    // Get all relevant leads in one go
+    const leadIds = brokenEmails.map(e => e.lead_id).filter(Boolean);
+    const { data: leads } = await supabase.from('leads').select('id, email').in('id', leadIds);
+    const leadMap = new Map(leads?.map(l => [l.id, l.email]) || []);
+
+    for (const broken of brokenEmails) {
+        const leadEmail = leadMap.get(broken.lead_id);
+        if (!leadEmail) continue;
+        
+        // Find match in Resend list
+        // Match by recipient email and close timestamp (within 10 mins)
+        const brokenTime = new Date(broken.created_at).getTime();
+        
+        const match = resendEmails.find((r: any) => {
+            const hasRecipient = r.to.some((to: string) => to.toLowerCase() === leadEmail.toLowerCase());
+            if (!hasRecipient) return false;
+            
+            const resendTime = new Date(r.created_at).getTime();
+            const timeDiff = Math.abs(resendTime - brokenTime);
+            return timeDiff < 10 * 60 * 1000; // 10 minutes tolerance
+        });
+        
+        if (match) {
+            console.log(`[REPAIR] Matched email ${broken.id} to Resend ID ${match.id}`);
+            await supabase.from('emails').update({ resend_id: match.id }).eq('id', broken.id);
+            repaired++;
+        }
+    }
+    
+    return c.json({ success: true, repaired, message: `Repaired ${repaired} emails` });
+
+  } catch (error) {
+     console.error('[REPAIR] Error:', error);
+     return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /emails/send-test - Send a test email
+app.post("/make-server-a8b2511f/emails/send-test", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const { to_email, to_name, subject, text_body, preview_text, from_email, from_name, brand, lead, cc, bcc } = body;
+    
+    console.log(`[TEST EMAIL] Received request:`, { to_email, subject, from_email });
+    
+    if (!to_email || !subject || !text_body) {
+      console.error('[TEST EMAIL] Missing required fields');
+      return c.json({ error: 'Missing required fields: to_email, subject, text_body' }, 400);
+    }
+
+    // Determine sender email
+    let sender = from_email;
+    if (!sender) {
+      // If not provided, fetch from user settings
+      try {
+        sender = await getSenderEmail(user.id, (brand as 'Roadr' | 'Sourcr') || 'Roadr');
+      } catch (e) {
+        console.warn('[TEST EMAIL] Failed to get sender email from settings, using default');
+        sender = 'partner@roadr.com';
+      }
+    }
+    
+    // Convert text body to HTML and convert URLs to clickable links for tracking
+    const convertUrlsToLinks = (text: string): string => {
+      // Match URLs (http://, https://, www., or domain.com patterns)
+      const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?)/gi;
+      return text.replace(urlRegex, (url) => {
+        // Ensure URL has protocol
+        const href = url.startsWith('http') ? url : `https://${url}`;
+        return `<a href="${href}" style="color: #000000; text-decoration: underline;">${url}</a>`;
+      });
+    };
+    
+    const htmlBody = convertUrlsToLinks(
+      text_body
+        .split('\n\n')
+        .map((para: string) => `<p>${para.replace(/\n/g, '<br>')}</p>`)
+        .join('')
+    );
+    
+    console.log(`[TEST EMAIL] Sending email to ${to_email} from ${sender}...`);
+    
+    // Send email via sendEmail function
+    const emailResult = await sendEmail(user.id, {
+      from: sender,
+      to: to_email,
+      cc: cc || undefined,
+      bcc: bcc || undefined,
+      subject,
+      html: htmlBody,
+      text: text_body,
+    });
+    
+    if (!emailResult.success) {
+      console.error('[TEST EMAIL] Failed to send:', emailResult.error);
+      return c.json({ error: emailResult.error || 'Failed to send test email' }, 500);
+    }
+    
+    console.log(`[TEST EMAIL] ✅ Successfully sent to ${to_email}, messageId:`, emailResult.messageId);
+
+    // Optional: Save to DB for tracking (if requested)
+    // This allows the test email to show up in the dashboard and receive webhook updates
+    if (body.save) {
+      const supabase = getSupabaseAdmin();
+
+      await supabase.from('emails').insert({
+        user_id: user.id,
+        resend_id: emailResult.messageId,
+        subject: subject,
+        body: text_body,
+        text_body: text_body,
+        html_body: htmlBody,
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+        direction: 'sent',
+        campaign_id: null,
+        lead_id: null
+      });
+      console.log(`[TEST EMAIL] Saved to DB for tracking: ${emailResult.messageId}`);
+    }
+    
+    return c.json({ 
+      success: true,
+      message: 'Test email sent successfully',
+      email_id: emailResult.messageId,
+      messageId: emailResult.messageId
+    });
+  } catch (error: any) {
+    console.error('[TEST EMAIL] Error:', error);
+    return c.json({ error: error.message || 'Unknown error occurred' }, 500);
+  }
+});
+
+// GET /inbox - Get unified inbox conversations
+app.get("/make-server-a8b2511f/inbox", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const brand = c.req.query('brand');
+    const sentiment = c.req.query('sentiment');
+    const unreadOnly = c.req.query('unreadOnly') === 'true';
+    const force = c.req.query('force') === '1';
+    
+    const conversations = await getConversations({
+      userId: user.id,
+      brand: brand === 'all' ? undefined : brand,
+      sentiment: sentiment === 'all' ? undefined : sentiment,
+      unreadOnly,
+      force,
+    });
+    
+    return c.json({ threads: conversations });
+  } catch (error) {
+    if (error.message.includes('Session expired') || error.message.includes('Authentication failed')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('Error fetching inbox:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /inbox/stats - Get inbox statistics
+app.get("/make-server-a8b2511f/inbox/stats", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const stats = await getInboxStats(user.id);
+    return c.json(stats);
+  } catch (error) {
+    if (error.message.includes('Session expired') || error.message.includes('Authentication failed')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('Error fetching inbox stats:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /sync/inbox - Sync Gmail/Outlook inbox for current user (reply detection)
+app.post("/make-server-a8b2511f/sync/inbox", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { force } = await c.req.json().catch(() => ({ force: false }));
+
+    console.log(`[INBOX-SYNC] Triggered for user ${user.id} (force=${force})`);
+    const { syncInbox } = await import("./gmail-sync.tsx");
+    const result = await syncInbox(user.id, !!force);
+
+    return c.json(result);
+  } catch (error: any) {
+    if (error.message?.includes('Session expired') || error.message?.includes('Authentication failed')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('[INBOX-SYNC] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /sync/inbox/all - Admin-only: sync all Gmail/Outlook users (for cron jobs)
+app.post("/make-server-a8b2511f/sync/inbox/all", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+
+    // Admin gate
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Admin access required' }, 403);
+    }
+
+    console.log(`[INBOX-SYNC-ALL] Triggered by admin ${user.email}`);
+    const { syncAllGmailUsers } = await import("./gmail-sync.tsx");
+    const result = await syncAllGmailUsers();
+
+    return c.json(result);
+  } catch (error: any) {
+    console.error('[INBOX-SYNC-ALL] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /inbox/conversations/:id/read - Mark conversation as read
+app.post("/make-server-a8b2511f/inbox/conversations/:id/read", async (c) => {
+  try {
+    await getAuthenticatedUser(c);
+    const threadId = c.req.param('id');
+    await markConversationAsRead(threadId);
+    return c.json({ success: true });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /inbox/conversations/:id/insights - AI-powered thread analysis & engagement data
+app.post("/make-server-a8b2511f/inbox/conversations/:id/insights", async (c) => {
+  try {
+    const { user, supabase: userSupabase } = await getAuthenticatedUser(c);
+    const threadId = c.req.param('id');
+
+    console.log(`[INBOX-INSIGHTS] User ${user.id} requesting insights for thread: ${threadId}`);
+
+    // Parse threadId → leadId + campaignId (format: "leadUUID_campaignId")
+    const underscoreIdx = threadId.indexOf('_');
+    const leadId = underscoreIdx > 0 ? threadId.substring(0, underscoreIdx) : threadId;
+    const campaignId = underscoreIdx > 0 ? threadId.substring(underscoreIdx + 1) : '';
+
+    // Fetch all emails for this lead, always scoped by user_id
+    let query = userSupabase.from('emails')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('lead_id', leadId)
+      .order('created_at', { ascending: true })
+      .limit(30);
+    // Only filter by campaign_id if it's a real campaign (not the synthetic 'general' bucket)
+    if (campaignId && campaignId !== 'general') {
+      query = query.eq('campaign_id', campaignId);
+    }
+
+    const { data: emails, error: emailErr } = await query;
+    if (emailErr) {
+      console.error('[INBOX-INSIGHTS] Email fetch error:', emailErr);
+      return c.json({ error: 'Failed to fetch thread emails', details: emailErr.message }, 500);
+    }
+
+    console.log(`[INBOX-INSIGHTS] Found ${emails?.length || 0} emails for lead ${leadId}`);
+
+    if (!emails || emails.length === 0) {
+      return c.json({
+        engagement: { score: 0, level: 'none', opens: 0, clicks: 0, replies: 0, totalSent: 0, delivered: 0, bounced: 0 },
+        ai: null,
+      });
+    }
+
+    // Compute engagement metrics
+    const sentEmails = emails.filter((e: any) => e.direction !== 'inbound');
+    const receivedEmails = emails.filter((e: any) => e.direction === 'inbound' || e.status === 'replied');
+    // Use BOTH timestamp fields AND status — for Gmail/Outlook emails, the self-hosted
+    // tracking pixel updates status reliably but timestamp columns may not exist in the schema.
+    const opens = sentEmails.filter((e: any) => e.opened_at || e.status === 'opened' || e.status === 'clicked').length;
+    const clicks = sentEmails.filter((e: any) => e.clicked_at || e.status === 'clicked').length;
+    const delivered = sentEmails.filter((e: any) => e.delivered_at || e.status === 'delivered' || e.status === 'opened' || e.status === 'clicked').length;
+    const bounced = sentEmails.filter((e: any) => e.status === 'bounced').length;
+    const totalSent = sentEmails.length;
+    const replies = receivedEmails.length;
+
+    // Engagement score: 0-100
+    let score = 0;
+    if (totalSent > 0) {
+      const openRate = opens / totalSent;
+      const clickRate = clicks / totalSent;
+      const replyRate = replies / totalSent;
+      score = Math.min(100, Math.round(
+        (openRate * 25) + (clickRate * 35) + (replyRate * 40)
+      ));
+      // Bonus for recent activity
+      const lastActivity = emails[emails.length - 1];
+      const hoursSince = (Date.now() - new Date(lastActivity.received_at || lastActivity.sent_at || lastActivity.created_at).getTime()) / 3600000;
+      if (hoursSince < 24) score = Math.min(100, score + 15);
+      else if (hoursSince < 72) score = Math.min(100, score + 5);
+    }
+
+    const level = score >= 70 ? 'hot' : score >= 35 ? 'warm' : score > 0 ? 'cold' : 'none';
+    const engagement = { score, level, opens, clicks, replies, totalSent, delivered, bounced };
+
+    // Build conversation for AI analysis
+    const conversationText = emails.slice(-10).map((e: any) => {
+      const dir = e.direction === 'inbound' || e.status === 'replied' ? 'LEAD' : 'YOU';
+      const body = e.text_body || e.body || '';
+      return `[${dir}] Subject: ${e.subject || '(none)'}\n${body.substring(0, 500)}`;
+    }).join('\n\n---\n\n');
+
+    // Fetch lead info for context (leads table uses contact_name, business_name, category)
+    let leadCtx = '';
+    try {
+      const { data: lead, error: leadErr } = await userSupabase.from('leads')
+        .select('contact_name, business_name, email, category')
+        .eq('id', leadId)
+        .maybeSingle();
+      if (lead && !leadErr) {
+        leadCtx = `Lead: ${lead.contact_name || 'Unknown'} at ${lead.business_name || 'Unknown company'} (${lead.category || 'unknown industry'}), email: ${lead.email || 'unknown'}`;
+      }
+    } catch (leadFetchErr) {
+      console.warn('[INBOX-INSIGHTS] Lead fetch failed (non-fatal):', leadFetchErr);
+    }
+
+    // Call AI for insights (OpenAI)
+    let ai = null;
+
+    if (conversationText.length > 20) {
+      try {
+        const aiResult = await generateAI({
+          messages: [
+            {
+              role: 'system',
+              content: `You are a cold outreach AI assistant. Analyze this email thread and return a JSON object with these exact keys:
+- "summary": 1-2 sentence summary of where this conversation stands
+- "intent": the lead's apparent intent/interest level in 3-5 words
+- "suggestedReply": a brief suggested next message (2-3 sentences, casual professional tone)
+- "bestTimeToReach": best day/time to follow up based on their response patterns
+- "nextAction": recommended next step in 5-8 words
+- "risk": one risk/concern about this thread in under 10 words`
+            },
+            {
+              role: 'user',
+              content: `${leadCtx}\n\nEngagement: ${opens}/${totalSent} opened, ${clicks} clicked, ${replies} replies\n\nConversation:\n${conversationText}`
+            }
+          ],
+          temperature: 0.3,
+          maxTokens: 500,
+          jsonMode: true,
+        });
+        console.log(`[INBOX-INSIGHTS] AI response via ${aiResult.provider}`);
+        const cleaned = aiResult.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        try { ai = JSON.parse(cleaned); } catch { console.warn('[INBOX-INSIGHTS] AI parse failed:', cleaned.substring(0, 200)); }
+      } catch (aiErr) {
+        console.warn('[INBOX-INSIGHTS] AI call failed (non-fatal):', aiErr);
+      }
+    }
+
+    return c.json({ engagement, ai });
+  } catch (error: any) {
+    console.error('[INBOX-INSIGHTS] Error:', error);
+    return c.json({ error: error.message || 'Failed to generate insights' }, 500);
+  }
+});
+
+// ── Helper: fetch user's email signature from KV and build text + HTML ──
+async function getUserSignature(userId: string): Promise<{ text: string; html: string } | null> {
+  try {
+    const raw = await kv.get(`signature:${userId}`);
+    if (!raw) return null;
+    const sig = JSON.parse(raw);
+    const lines: string[] = [];
+    if (sig.closing_line) lines.push(sig.closing_line + ',');
+    const nameParts: string[] = [];
+    if (sig.full_name) nameParts.push(sig.full_name);
+    if (sig.title) nameParts.push(sig.title);
+    if (nameParts.length) lines.push(nameParts.join(' | '));
+    if (sig.email) lines.push(`E: ${sig.email}`);
+    if (sig.phone) lines.push(`P: ${sig.phone}`);
+    if (sig.website) lines.push(`W: ${sig.website}`);
+    if (lines.length === 0 && !sig.custom_html) return null;
+    const text = '\n\n' + lines.join('\n');
+    if (sig.custom_html) {
+      return { text, html: `<br><br>${sig.custom_html}` };
+    }
+    const htmlLines = lines.map((l: string) => l.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+    const html = `<br><br><div style="font-size:13px;color:#888;border-top:1px solid #eee;padding-top:8px;margin-top:12px;">${htmlLines.join('<br>')}</div>`;
+    return { text, html };
+  } catch (e) {
+    console.error('[SIGNATURE] Error fetching signature for user', userId, e);
+    return null;
+  }
+}
+
+// POST /inbox/conversations/:id/reply - Send a reply within a conversation thread
+app.post("/make-server-a8b2511f/inbox/conversations/:id/reply", async (c) => {
+  try {
+    const { user, supabase: userSupabase } = await getAuthenticatedUser(c);
+    const threadId = c.req.param('id');
+    const { body: replyBody, cc, bcc } = await c.req.json();
+
+    if (!replyBody || !replyBody.trim()) {
+      return c.json({ error: 'Reply body is required' }, 400);
+    }
+
+    // Thread ID format: leadId_campaignId
+    const parts = threadId.split('_');
+    if (parts.length < 2) {
+      return c.json({ error: 'Invalid thread ID format' }, 400);
+    }
+    const leadId = parts[0];
+    const campaignId = parts.slice(1).join('_'); // campaignId may contain underscores
+
+    // Get lead info
+    const { data: lead, error: leadError } = await userSupabase
+      .from('leads')
+      .select('id, email, contact_name, business_name')
+      .eq('id', leadId)
+      .eq('user_id', user.id)
+      .single();
+
+    if (leadError || !lead) {
+      console.error('[REPLY] Lead not found:', leadError);
+      return c.json({ error: 'Lead not found or access denied' }, 404);
+    }
+
+    if (!lead.email) {
+      return c.json({ error: 'Lead has no email address' }, 400);
+    }
+
+    // Get the last email in the thread to determine the subject line
+    const { data: lastEmail } = await userSupabase
+      .from('emails')
+      .select('subject, from_email')
+      .eq('lead_id', leadId)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    const subject = lastEmail?.subject
+      ? (lastEmail.subject.startsWith('Re:') ? lastEmail.subject : `Re: ${lastEmail.subject}`)
+      : `Re: Follow up`;
+
+    // Get sender email
+    const senderEmail = await getSenderEmail(user.id, '');
+
+    // Fetch user's email signature
+    const sig = await getUserSignature(user.id);
+    const fullText = sig ? replyBody + sig.text : replyBody;
+    const bodyHtml = `<div style="font-family: sans-serif; font-size: 14px; line-height: 1.6; color: #333;">${replyBody.replace(/\n/g, '<br>')}${sig ? sig.html : ''}</div>`;
+
+    console.log(`[REPLY] Sending reply to ${lead.email} from ${senderEmail}, subject: "${subject}"${cc ? `, cc: ${cc}` : ''}${bcc ? `, bcc: ${bcc}` : ''}${sig ? ' (with signature)' : ' (no signature)'}`);
+
+    // Send email via Resend
+    const sendResult = await sendEmail(user.id, {
+      from: senderEmail,
+      to: lead.email,
+      cc: cc || undefined,
+      bcc: bcc || undefined,
+      subject,
+      html: bodyHtml,
+      text: fullText,
+    });
+
+    if (!sendResult.success) {
+      console.error('[REPLY] Send failed:', sendResult.error);
+      return c.json({ error: `Failed to send reply: ${sendResult.error}` }, 500);
+    }
+
+    // Store in emails table
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(campaignId);
+
+    // Insert reply into emails table — retry once on transient errors
+    let emailRecord: any = null;
+    const insertPayload = {
+      user_id: user.id,
+      lead_id: leadId,
+      campaign_id: isUuid ? campaignId : null,
+      direction: 'outbound',
+      status: 'sent',
+      subject,
+      text_body: fullText,
+      html_body: bodyHtml,
+      sent_at: new Date().toISOString(),
+      resend_id: sendResult.messageId || null,
+    };
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { data, error: insertError } = await userSupabase
+        .from('emails')
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (!insertError && data) {
+        emailRecord = data;
+        break;
+      }
+
+      console.error(`[REPLY] DB insert error (attempt ${attempt + 1}/2):`, insertError);
+      if (attempt === 0) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    if (!emailRecord) {
+      console.error(`[REPLY] CRITICAL: Email sent to ${lead.email} but DB insert failed after retries. resend_id=${sendResult.messageId}`);
+    }
+
+    console.log(`[REPLY] Reply sent successfully to ${lead.email}, messageId: ${sendResult.messageId}, dbId: ${emailRecord?.id || 'MISSING'}`);
+
+    return c.json({
+      success: true,
+      message: {
+        id: emailRecord?.id || sendResult.messageId || `reply_${Date.now()}`,
+        direction: 'sent',
+        from: senderEmail,
+        to: lead.email,
+        subject,
+        body: replyBody,
+        sentAt: new Date().toISOString(),
+        read: true,
+      }
+    });
+  } catch (error) {
+    console.error('[REPLY] Error sending reply:', error);
+    if (error.message?.includes('Session expired') || error.message?.includes('Authentication failed')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /emails/send - Send a single email (e.g. manual follow-up) with link tracking
+app.post("/make-server-a8b2511f/emails/send", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const { campaign_id, lead_id, to_email, from_email, subject, text_body, html_body, sequence_number, cc, bcc, attachments } = body;
+    
+    if (!to_email || !subject || !text_body) {
+      return c.json({ error: 'Missing required fields' }, 400);
+    }
+
+    // Resolve sender address: use explicit from_email, or look up user's configured sender
+    let resolvedFrom = from_email;
+    if (!resolvedFrom) {
+      try {
+        resolvedFrom = await getSenderEmail(user.id, '');
+        console.log(`[EMAIL SEND] Resolved sender email from user settings: ${resolvedFrom}`);
+      } catch (e) {
+        console.warn('[EMAIL SEND] Failed to resolve sender email, using system default:', e);
+        resolvedFrom = 'Contndr <sales@contndr.com>';
+      }
+    }
+
+    // For manual (inbox compose) emails, append user's email signature
+    const isManual = campaign_id === 'manual';
+    let finalTextBody = text_body;
+    let sigHtml = '';
+    if (isManual) {
+      const sig = await getUserSignature(user.id);
+      if (sig) {
+        finalTextBody = text_body + sig.text;
+        sigHtml = sig.html;
+        console.log('[EMAIL SEND] Appending email signature for manual email');
+      }
+    }
+    
+    // First create the email record to get a real email ID for tracking
+    const { data: emailRecord, error: insertError } = await supabase
+      .from('emails')
+      .insert({
+        user_id: user.id,
+        campaign_id: isManual ? null : campaign_id,
+        lead_id,
+        resend_id: null,
+        subject,
+        body: finalTextBody,
+        text_body: finalTextBody,
+        html_body: (text_body.replace(/\n/g, '<br>') + sigHtml),
+        status: 'pending',
+        sent_at: null,
+        direction: 'sent',
+        sequence_number: sequence_number || 1
+      })
+      .select()
+      .single();
+      
+    if (insertError || !emailRecord) {
+      console.error('[EMAIL SEND] Error creating email record:', insertError);
+      return c.json({ error: 'Failed to create email record' }, 500);
+    }
+    
+    // Build tracked HTML: convert text to HTML, then inject open pixel + click tracking
+    let baseHtml = html_body || (textToHtml(text_body) + sigHtml);
+    const htmlToSend = await injectAllTracking(baseHtml, emailRecord.id, user.id, lead_id);
+    
+    // Send email
+    const emailResult = await sendEmail(user.id, {
+      from: resolvedFrom,
+      to: to_email,
+      cc: cc || undefined,
+      bcc: bcc || undefined,
+      subject,
+      html: htmlToSend,
+      text: finalTextBody,
+      attachments: attachments || undefined,
+    });
+    
+    if (!emailResult.success) {
+      const errMsg = emailResult.error || 'Failed to send email';
+      const isBounceError = /bounce|rejected|undeliverable|mailbox.*full|user.*unknown|does not exist|recipient.*rejected/i.test(errMsg);
+      const failStatus = isBounceError ? 'bounced' : 'failed';
+      await supabase
+        .from('emails')
+        .update({ status: failStatus })
+        .eq('id', emailRecord.id);
+      if (isBounceError) {
+        try {
+          await supabase.from('email_events').insert({
+            email_id: emailRecord.id,
+            user_id: user.id,
+            event_type: 'bounced',
+            created_at: new Date().toISOString(),
+          });
+        } catch (_) {}
+        // Mark the lead as bounced
+        if (lead_id) {
+          try {
+            await supabase
+              .from('leads')
+              .update({ bounced: true, status: 'bounced', updated_at: new Date().toISOString() })
+              .eq('id', lead_id);
+            console.log(`[EMAIL SEND] Marked lead ${lead_id} as bounced (${to_email})`);
+          } catch (_) {}
+        }
+      }
+      return c.json({ error: errMsg, bounced: isBounceError }, 500);
+    }
+    
+    // Determine provider — Gmail/Outlook API success = delivery confirmed
+    let singleSendStatus = 'sent';
+    try {
+      const ep = await getEmailProvider(emailRecord.id);
+      if (ep === 'gmail_oauth' || ep === 'outlook_oauth') {
+        singleSendStatus = 'delivered';
+      }
+    } catch (_) { /* default to 'sent' */ }
+
+    const sendTs = new Date().toISOString();
+
+    // Update email record with tracking HTML and resend ID
+    const { error: updateError } = await supabase
+      .from('emails')
+      .update({
+        html_body: htmlToSend,
+        resend_id: emailResult.messageId,
+        status: singleSendStatus,
+        sent_at: sendTs,
+        ...(singleSendStatus === 'delivered' ? { delivered_at: sendTs } : {}),
+      })
+      .eq('id', emailRecord.id);
+      
+    if (updateError) {
+      console.error('[EMAIL SEND] Error updating email with tracking:', updateError);
+    }
+
+    // Record sent (and delivered) events
+    try {
+      const evts: any[] = [{ email_id: emailRecord.id, event_type: 'sent', created_at: sendTs }];
+      if (singleSendStatus === 'delivered') {
+        evts.push({ email_id: emailRecord.id, event_type: 'delivered', created_at: sendTs });
+      }
+      await supabase.from('email_events').insert(evts);
+    } catch (_) { /* best-effort */ }
+    
+    // Update lead status
+    if (lead_id) {
+       await supabase.from('leads').update({ 
+         status: 'contacted',
+         last_contacted: new Date().toISOString()
+       }).eq('id', lead_id);
+    }
+
+    // Pipeline auto-stage trigger: email_sent → move to "contacted"
+    if (user?.id && emailRecord?.to_email) {
+      firePipelineTrigger({ event_type: 'email_sent', user_id: user.id, email: emailRecord.to_email, lead_id: lead_id || undefined }).catch(() => {});
+    }
+    
+    return c.json({ success: true, email: emailRecord });
+  } catch (error) {
+    console.error('[EMAIL SEND] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/delete-bounced - Delete all bounced leads with cascade cleanup
+app.post("/make-server-a8b2511f/leads/delete-bounced", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    console.log(`[DELETE BOUNCED] Starting deletion for user ${user.id}...`);
+    
+    // Get all bounced lead IDs for this user
+    const { data: bouncedLeads, error: fetchError } = await supabase
+      .from('leads')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('bounced', true);
+    
+    if (fetchError) {
+      console.error('[DELETE BOUNCED] Error fetching bounced leads:', fetchError);
+      return c.json({ error: 'Failed to fetch bounced leads', details: fetchError.message }, 500);
+    }
+    
+    if (!bouncedLeads || bouncedLeads.length === 0) {
+      return c.json({
+        success: true,
+        message: 'No bounced leads to delete',
+        results: { total: 0, deleted: 0, failed: 0 }
+      });
+    }
+    
+    const leadIds = bouncedLeads.map(l => l.id);
+    console.log(`[DELETE BOUNCED] Found ${leadIds.length} bounced leads to delete`);
+    
+    // Delete the leads
+    const { error: deleteError } = await supabase
+      .from('leads')
+      .delete()
+      .in('id', leadIds);
+    
+    if (deleteError) {
+      console.error('[DELETE BOUNCED] Error deleting leads:', deleteError);
+      return c.json({ error: 'Failed to delete leads', details: deleteError.message }, 500);
+    }
+    
+    console.log(`[DELETE BOUNCED] Successfully deleted ${leadIds.length} bounced leads`);
+    
+    return c.json({
+      success: true,
+      message: `Successfully deleted ${leadIds.length} bounced leads`,
+      results: {
+        total: leadIds.length,
+        deleted: leadIds.length,
+        failed: 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('[DELETE BOUNCED] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/bulk-delete - Delete multiple leads by IDs
+app.post("/make-server-a8b2511f/leads/bulk-delete", async (c) => {
+  try {
+    console.log('[BULK DELETE] ========== NEW REQUEST ==========');
+    
+    const { user, supabase } = await getAuthenticatedUser(c);
+    console.log(`[BULK DELETE] ✅ Authenticated user: ${user.id}`);
+    
+    const body = await c.req.json();
+    const { lead_ids } = body;
+    
+    if (!lead_ids || !Array.isArray(lead_ids) || lead_ids.length === 0) {
+      console.error('[BULK DELETE] ��� Invalid lead_ids:', typeof lead_ids, Array.isArray(lead_ids));
+      return c.json({ 
+        error: 'Invalid lead_ids array', 
+        details: 'lead_ids must be a non-empty array',
+        results: { total: 0, deleted: 0, failed: 0 }
+      }, 400);
+    }
+    
+    console.log(`[BULK DELETE] Attempting to delete ${lead_ids.length} leads for user ${user.id} (${user.email})...`);
+    
+    // Import authorization helper
+    const { isAdmin, filterDeletableLeads } = await import('./lead-auth.ts');
+    const userIsAdmin = isAdmin(user.email);
+    console.log(`[BULK DELETE] User is admin: ${userIsAdmin}`);
+    
+    // First, verify which leads the user can actually delete
+    const { data: leadsToCheck, error: checkError } = await supabase
+      .from('leads')
+      .select('id, user_id')
+      .in('id', lead_ids);
+    
+    if (checkError) {
+      console.error('[BULK DELETE] Error checking lead ownership:', checkError);
+      return c.json({ 
+        error: 'Failed to verify lead ownership',
+        details: checkError.message,
+        results: { total: lead_ids.length, deleted: 0, failed: lead_ids.length }
+      }, 500);
+    }
+    
+    if (!leadsToCheck || leadsToCheck.length === 0) {
+      console.log('[BULK DELETE] No leads found matching the provided IDs');
+      return c.json({
+        success: false,
+        message: 'No leads found',
+        results: { total: lead_ids.length, deleted: 0, failed: lead_ids.length }
+      }, 404);
+    }
+    
+    // Filter leads based on ownership - admins can delete any lead, regular users only their own
+    const ownedLeadIds = filterDeletableLeads(leadsToCheck, user.id, user.email);
+    const unauthorizedCount = lead_ids.length - ownedLeadIds.length;
+    
+    if (unauthorizedCount > 0) {
+      console.log(`[BULK DELETE] ${unauthorizedCount} leads are not owned by this user and will be skipped`);
+    }
+    
+    if (ownedLeadIds.length === 0) {
+      console.log('[BULK DELETE] No leads to delete (user does not own any of the specified leads)');
+      return c.json({
+        success: false,
+        message: 'Cannot delete leads. You can only delete leads you personally added. Shared leads (from other users) cannot be deleted.',
+        results: {
+          total: lead_ids.length,
+          deleted: 0,
+          failed: lead_ids.length
+        }
+      }, 403);
+    }
+    
+    // Delete from the actual leads table (not KV store)
+    // Batch deletions to handle large numbers of leads
+    const BATCH_SIZE = 100; // Delete 100 leads at a time
+    let deletedCount = 0;
+    let failedCount = 0;
+    
+    for (let i = 0; i < ownedLeadIds.length; i += BATCH_SIZE) {
+      const batch = ownedLeadIds.slice(i, i + BATCH_SIZE);
+      
+      try {
+        // Delete only leads owned by this user (or all if admin)
+        const deleteQuery = supabase
+          .from('leads')
+          .delete()
+          .in('id', batch);
+        
+        // Non-admins must only delete their own leads (double-check)
+        if (!userIsAdmin) {
+          deleteQuery.eq('user_id', user.id);
+        }
+        
+        const { error: deleteError } = await deleteQuery;
+        
+        if (deleteError) {
+          console.error(`[BULK DELETE] Batch ${i}-${i+batch.length} error:`, deleteError);
+          failedCount += batch.length;
+        } else {
+          deletedCount += batch.length;
+          console.log(`[BULK DELETE] Progress: ${deletedCount}/${ownedLeadIds.length} deleted`);
+        }
+      } catch (error) {
+        console.error(`[BULK DELETE] Batch ${i}-${i+batch.length} exception:`, error);
+        failedCount += batch.length;
+      }
+    }
+    
+    console.log(`[BULK DELETE] Completed: ${deletedCount} deleted, ${failedCount + unauthorizedCount} failed/unauthorized`);
+    
+    return c.json({
+      success: deletedCount > 0,
+      message: deletedCount > 0 
+        ? `Deleted ${deletedCount} of ${lead_ids.length} leads${unauthorizedCount > 0 ? ` (${unauthorizedCount} were not owned by you)` : ''}`
+        : 'No leads were deleted',
+      results: {
+        total: lead_ids.length,
+        deleted: deletedCount,
+        failed: failedCount + unauthorizedCount
+      }
+    });
+    
+  } catch (error) {
+    console.error('[BULK DELETE] Unexpected error:', error);
+    return c.json({ 
+      error: 'Failed to delete leads',
+      details: error.message,
+      results: { total: 0, deleted: 0, failed: 0 }
+    }, 500);
+  }
+});
+
+// GET /leads/:id/replies - Get replies for a specific lead
+app.get("/make-server-a8b2511f/leads/:id/replies", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const leadId = c.req.param('id');
+    
+    // Fetch received emails (replies) linked to this lead
+    const { data: replies, error } = await supabase
+      .from('emails')
+      .select('subject, body, classification:reply_classification, received_at:created_at')
+      .eq('user_id', user.id)
+      .eq('lead_id', leadId)
+      .eq('direction', 'received')
+      .order('created_at', { ascending: false });
+      
+    if (error) {
+      console.error('[LEAD REPLIES] Error fetching replies:', error);
+      return c.json({ success: true, replies: [] });
+    }
+    
+    return c.json({ success: true, replies: replies || [] });
+    
+  } catch (error) {
+    console.error('[LEAD REPLIES] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/delete-all - Delete ALL leads for a user (dangerous operation)
+app.post("/make-server-a8b2511f/leads/delete-all", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    console.log(`[DELETE ALL] Starting deletion of ALL leads for user ${user.id}...`);
+    
+    // Get count of all leads for this user
+    const { count, error: countError } = await supabase
+      .from('leads')
+      .select('*', { count: 'estimated', head: true })
+      .eq('user_id', user.id);
+    
+    if (countError) {
+      console.error('[DELETE ALL] Error counting leads:', countError);
+      return c.json({ error: 'Failed to count leads', details: countError.message }, 500);
+    }
+    
+    if (!count || count === 0) {
+      return c.json({
+        success: true,
+        message: 'No leads to delete',
+        results: { total: 0, deleted: 0, failed: 0 }
+      });
+    }
+    
+    console.log(`[DELETE ALL] Found ${count} leads to delete`);
+    
+    // Delete ALL leads for this user
+    const { error: deleteError } = await supabase
+      .from('leads')
+      .delete()
+      .eq('user_id', user.id);
+    
+    if (deleteError) {
+      console.error('[DELETE ALL] Error deleting leads:', deleteError);
+      return c.json({ error: 'Failed to delete leads', details: deleteError.message }, 500);
+    }
+    
+    console.log(`[DELETE ALL] ✅ Successfully deleted ${count} leads for user ${user.id}`);
+    
+    return c.json({
+      success: true,
+      message: `Successfully deleted all ${count} leads`,
+      results: {
+        total: count,
+        deleted: count,
+        failed: 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('[DELETE ALL] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/remove-duplicates - Remove duplicate leads by email or phone
+app.post("/make-server-a8b2511f/leads/remove-duplicates", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    console.log(`[REMOVE DUPLICATES] Starting duplicate removal for user ${user.id}...`);
+    
+    // Fetch all leads for this user
+    const { data: allLeads, error: fetchError } = await supabase
+      .from('leads')
+      .select('id, email, phone, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true }); // Oldest first
+    
+    if (fetchError) {
+      console.error('[REMOVE DUPLICATES] Error fetching leads:', fetchError);
+      return c.json({ error: 'Failed to fetch leads', details: fetchError.message }, 500);
+    }
+    
+    if (!allLeads || allLeads.length === 0) {
+      return c.json({
+        success: true,
+        message: 'No leads found',
+        removed: 0,
+        kept: 0
+      });
+    }
+    
+    console.log(`[REMOVE DUPLICATES] Processing ${allLeads.length} leads...`);
+    
+    // Track unique leads by email and phone
+    const seenEmails = new Set<string>();
+    const seenPhones = new Set<string>();
+    const leadsToKeep: string[] = [];
+    const leadsToDelete: string[] = [];
+    
+    for (const lead of allLeads) {
+      const email = lead.email?.toLowerCase().trim();
+      const phone = lead.phone?.trim();
+      
+      let isDuplicate = false;
+      
+      // Check if email is a duplicate (if email exists)
+      if (email && seenEmails.has(email)) {
+        isDuplicate = true;
+      }
+      
+      // Check if phone is a duplicate (if phone exists)
+      if (phone && seenPhones.has(phone)) {
+        isDuplicate = true;
+      }
+      
+      if (isDuplicate) {
+        leadsToDelete.push(lead.id);
+      } else {
+        leadsToKeep.push(lead.id);
+        if (email) seenEmails.add(email);
+        if (phone) seenPhones.add(phone);
+      }
+    }
+    
+    console.log(`[REMOVE DUPLICATES] Found ${leadsToDelete.length} duplicates, keeping ${leadsToKeep.length} unique leads`);
+    
+    // Delete duplicate leads
+    if (leadsToDelete.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('leads')
+        .delete()
+        .in('id', leadsToDelete);
+      
+      if (deleteError) {
+        console.error('[REMOVE DUPLICATES] Error deleting duplicates:', deleteError);
+        return c.json({ error: 'Failed to delete duplicate leads', details: deleteError.message }, 500);
+      }
+      
+      console.log(`[REMOVE DUPLICATES] Successfully deleted ${leadsToDelete.length} duplicate leads`);
+    }
+    
+    return c.json({
+      success: true,
+      message: leadsToDelete.length > 0 
+        ? `Removed ${leadsToDelete.length} duplicates, kept ${leadsToKeep.length} unique leads`
+        : 'No duplicates found',
+      removed: leadsToDelete.length,
+      kept: leadsToKeep.length
+    });
+    
+  } catch (error) {
+    console.error('[REMOVE DUPLICATES] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /find-people - Search for prospects (internal DB + external)
+app.post("/make-server-a8b2511f/find-people", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const { jobTitles, companies, locations, industry, limit = 50 } = await c.req.json();
+    
+    console.log(`[FIND PEOPLE] Searching for:`, { jobTitles, companies, locations, industry });
+    
+    // 1. Search in our local database (leads table)
+    let query = supabase
+      .from('leads')
+      .select('*')
+      .eq('user_id', user.id);
+      
+    // Apply filters
+    if (companies && companies.length > 0) {
+      // Create an OR filter for companies: business_name.ilike.%C1%,business_name.ilike.%C2%
+      const companyConditions = companies.map((c: string) => `business_name.ilike.%${c}%`).join(',');
+      query = query.or(companyConditions);
+    }
+    
+    if (locations && locations.length > 0 && !locations.includes('United States')) { // 'United States' is default/broad
+      const locationConditions = locations.map((l: string) => `address.ilike.%${l}%,city.ilike.%${l}%`).join(',');
+      query = query.or(locationConditions);
+    }
+    
+    if (industry) {
+      query = query.ilike('industry', `%${industry}%`);
+    }
+    
+    // Execute query
+    const { data: localLeads, error } = await query.limit(100);
+    
+    if (error) throw error;
+    
+    // Filter by job titles in memory (Supabase text search is limited for array of partial matches)
+    let results = localLeads || [];
+    
+    if (jobTitles && jobTitles.length > 0) {
+      const normalizedTitles = jobTitles.map((t: string) => t.toLowerCase());
+      results = results.filter((lead: any) => {
+        if (!lead.job_title && !lead.title) return false;
+        const leadTitle = (lead.job_title || lead.title).toLowerCase();
+        return normalizedTitles.some((t: string) => leadTitle.includes(t));
+      });
+    }
+    
+    // Map to Prospect interface
+    const prospects = results.map((lead: any) => ({
+      id: lead.id,
+      name: lead.contact_name || lead.first_name + ' ' + lead.last_name,
+      title: lead.job_title || lead.title || 'Unknown',
+      company: lead.business_name || lead.company_name || 'Unknown',
+      location: lead.city || lead.address || 'Unknown',
+      status: lead.status || 'new',
+      linkedin: lead.linkedin || lead.linkedin_url,
+      email: lead.email,
+      phone: lead.phone,
+      industry: lead.industry,
+      employees: lead.employees,
+      keywords: lead.keywords
+    }));
+    
+    // 2. If we have few results and specific criteria, we could try to "discover" them
+    // For now, we'll return local results to ensure "uses our data" is satisfied.
+    // In a real implementation, we would call an external provider here if local results are empty.
+    
+    return c.json({
+      success: true,
+      prospects: prospects.slice(0, limit),
+      source: 'database'
+    });
+    
+  } catch (error) {
+    console.error('[FIND PEOPLE] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/fix-locations - Fix location data for existing leads
+app.post("/make-server-a8b2511f/leads/fix-locations", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    console.log('[FIX LOCATIONS] Starting bulk location fix for user:', user.id);
+
+    // PHASE 1: Fetch ALL leads via pagination (Supabase caps at 1000 per query)
+    const allLeads: any[] = [];
+    const pageSize = 1000;
+    let page = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+      const { data: leads, error } = await supabase
+        .from('leads')
+        .select('id, address, city, state')
+        .eq('user_id', user.id)
+        .not('address', 'is', null)
+        .order('id', { ascending: true })
+        .range(from, to);
+      if (error) throw error;
+      const batch = leads || [];
+      console.log('[FIX LOCATIONS] Fetched page ' + (page + 1) + ': ' + batch.length + ' leads');
+      allLeads.push(...batch);
+      if (batch.length < pageSize) hasMore = false;
+      page++;
+    }
+    console.log('[FIX LOCATIONS] Total leads fetched: ' + allLeads.length + ' across ' + page + ' pages');
+
+    // PHASE 2: Compute new city/state in memory, group by unique (city, state)
+    const groups = new Map<string, string[]>();
+    let skipped = 0;
+    for (let i = 0; i < allLeads.length; i++) {
+      const lead = allLeads[i];
+      if (!lead.address) { skipped++; continue; }
+      const parts = lead.address.split(',').map((s: string) => s.trim()).filter(Boolean);
+      let newCity: string | null = null;
+      let newState: string | null = null;
+      if (parts.length >= 4) {
+        newCity = parts[1];
+        const stateMatch = parts[2].match(/^([A-Za-z\s]+)/);
+        newState = stateMatch ? stateMatch[1].trim() : parts[2];
+      } else if (parts.length === 3) {
+        newCity = parts[0]; newState = parts[1];
+      } else if (parts.length === 2) {
+        newCity = parts[0]; newState = parts[1];
+      } else if (parts.length === 1) {
+        newCity = parts[0];
+      }
+      if (i < 10) {
+        console.log('[FIX LOCATIONS] Lead ' + (i+1) + ': "' + lead.address + '" -> city="' + newCity + '", state="' + newState + '" (was "' + lead.city + '", "' + lead.state + '")');
+      }
+      if (newCity !== lead.city || newState !== lead.state) {
+        const key = (newCity || '') + '|||' + (newState || '');
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(lead.id);
+      } else {
+        skipped++;
+      }
+    }
+    const needsUpdate = allLeads.length - skipped;
+    console.log('[FIX LOCATIONS] ' + needsUpdate + ' need updating, ' + skipped + ' already correct, ' + groups.size + ' unique combos');
+
+    // PHASE 3: Bulk update each group via .in('id', chunk) — 300 IDs per query
+    let fixed = 0;
+    let errors = 0;
+    let queryCount = 0;
+    const chunkSize = 300;
+    for (const [key, ids] of groups) {
+      const [city, state] = key.split('|||');
+      const newCity = city || null;
+      const newState = state || null;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        queryCount++;
+        const { error: updateError } = await supabase
+          .from('leads')
+          .update({ city: newCity, state: newState })
+          .in('id', chunk);
+        if (updateError) {
+          errors += chunk.length;
+          if (queryCount <= 5) console.error('[FIX LOCATIONS] Bulk update error:', updateError);
+        } else {
+          fixed += chunk.length;
+        }
+      }
+      if (queryCount % 50 === 0) {
+        console.log('[FIX LOCATIONS] Progress: ' + queryCount + ' queries, ' + fixed + ' fixed, ' + errors + ' errors');
+      }
+    }
+    console.log('[FIX LOCATIONS] COMPLETE: ' + allLeads.length + ' total, ' + fixed + ' fixed, ' + errors + ' errors, ' + queryCount + ' queries, ' + groups.size + ' combos');
+
+    return c.json({
+      success: true,
+      total: allLeads.length,
+      fixed,
+      errors,
+      skipped,
+      queries: queryCount,
+      uniqueCombos: groups.size,
+      message: 'Fixed ' + fixed + ' of ' + allLeads.length + ' leads in ' + queryCount + ' bulk queries (' + groups.size + ' unique combos, ' + errors + ' errors)'
+    });
+  } catch (error) {
+    console.error('[FIX LOCATIONS] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /crm/leads/create - Manually add a single lead
+app.post("/make-server-a8b2511f/crm/leads/create", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+
+    console.log(`[ADD LEAD] User ${user.email} creating lead manually:`, {
+      email: body.email,
+      name: `${body.first_name || ''} ${body.last_name || ''}`.trim(),
+      business: body.business_name,
+    });
+
+    // **LEAD LIMIT CHECK** — enforce plan-based limits for manual add
+    const limitCheck = await checkLeadLimit(user, supabase, 1);
+    if (!limitCheck.allowed) {
+      console.log(`[ADD LEAD LIMIT] User ${user.email} blocked: ${limitCheck.currentCount}/${limitCheck.limit} leads (plan: ${limitCheck.plan})`);
+      return c.json({
+        error: 'LEAD_LIMIT_EXCEEDED',
+        message: `You've reached your ${limitCheck.plan === 'none' ? 'free tier' : limitCheck.plan + ' plan'} limit of ${limitCheck.limit.toLocaleString()} contacts. Upgrade your plan to add more leads.`,
+        currentCount: limitCheck.currentCount,
+        limit: limitCheck.limit,
+        plan: limitCheck.plan,
+        remaining: limitCheck.remaining,
+      }, 403);
+    }
+
+    // Validate: at least one identifying field
+    const hasName = body.first_name?.trim() || body.last_name?.trim();
+    const hasEmail = body.email?.trim();
+    const hasBusiness = body.business_name?.trim();
+    if (!hasName && !hasEmail && !hasBusiness) {
+      return c.json({ error: 'Provide at least a name, email, or company name' }, 400);
+    }
+
+    // Duplicate check by email if provided
+    if (body.email?.trim()) {
+      const emailLower = body.email.trim().toLowerCase();
+      const { data: existing } = await supabase
+        .from('leads')
+        .select('id, contact_name, business_name')
+        .eq('user_id', user.id)
+        .ilike('email', emailLower)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        return c.json({
+          error: `A lead with email "${emailLower}" already exists (${existing[0].contact_name || existing[0].business_name || existing[0].id})`,
+          duplicate: true,
+          existing_lead_id: existing[0].id,
+        }, 409);
+      }
+    }
+
+    // Duplicate check by name + company (when no email or as secondary check)
+    const contactName = [body.first_name?.trim(), body.last_name?.trim()].filter(Boolean).join(' ').toLowerCase();
+    const bizName = body.business_name?.trim()?.toLowerCase();
+    if (contactName && bizName) {
+      const { data: nameMatch } = await supabase
+        .from('leads')
+        .select('id, contact_name, business_name, email')
+        .eq('user_id', user.id)
+        .ilike('contact_name', contactName)
+        .ilike('business_name', bizName)
+        .limit(1);
+
+      if (nameMatch && nameMatch.length > 0) {
+        return c.json({
+          error: `A lead named "${nameMatch[0].contact_name}" at "${nameMatch[0].business_name}" already exists${nameMatch[0].email ? ` (${nameMatch[0].email})` : ''}`,
+          duplicate: true,
+          existing_lead_id: nameMatch[0].id,
+        }, 409);
+      }
+    }
+
+    // Build lead record
+    const leadRecord: any = {
+      user_id: user.id,
+    };
+
+    // Contact fields
+    // Note: leads table uses contact_name, not first_name/last_name columns
+    const contactParts = [body.first_name?.trim(), body.last_name?.trim()].filter(Boolean);
+    if (contactParts.length > 0) leadRecord.contact_name = contactParts.join(' ');
+
+    if (body.email?.trim()) leadRecord.email = body.email.trim().toLowerCase();
+
+    // Phone formatting (same as import)
+    if (body.phone?.trim()) {
+      let p = body.phone.trim();
+      const cleaned = p.replace(/[^\d+]/g, '');
+      if (cleaned.startsWith('+')) {
+        leadRecord.phone = cleaned;
+      } else if (cleaned.length === 10) {
+        leadRecord.phone = `+1${cleaned}`;
+      } else if (cleaned.length === 11 && cleaned.startsWith('1')) {
+        leadRecord.phone = `+${cleaned}`;
+      } else {
+        leadRecord.phone = cleaned;
+      }
+    }
+
+    // Company fields
+    // business_name is NOT NULL in DB — provide smart fallback if missing
+    if (body.business_name?.trim()) {
+      leadRecord.business_name = body.business_name.trim();
+    } else {
+      // Smart fallback: derive from email domain, contact name, or generic
+      if (body.email?.trim() && body.email.includes('@')) {
+        const domain = body.email.split('@')[1]?.split('.')[0];
+        if (domain && domain.length > 1) {
+          leadRecord.business_name = domain.charAt(0).toUpperCase() + domain.slice(1);
+        } else {
+          const contactName = [body.first_name?.trim(), body.last_name?.trim()].filter(Boolean).join(' ');
+          leadRecord.business_name = contactName || 'Unknown Business';
+        }
+      } else {
+        const contactName = [body.first_name?.trim(), body.last_name?.trim()].filter(Boolean).join(' ');
+        leadRecord.business_name = contactName || 'Unknown Business';
+      }
+    }
+    if (body.website?.trim()) leadRecord.website = body.website.trim();
+    if (body.job_title?.trim()) leadRecord.job_title = body.job_title.trim();
+    if (body.industry?.trim()) {
+      leadRecord.industry = body.industry.trim();
+      leadRecord.category = body.industry.trim();
+    }
+
+    // Location
+    if (body.city?.trim()) leadRecord.city = body.city.trim();
+    if (body.state?.trim()) leadRecord.state = body.state.trim();
+    if (body.country?.trim()) leadRecord.country = body.country.trim();
+
+    // Social - leads table uses linkedin_url column
+    if (body.linkedin?.trim()) {
+      leadRecord.linkedin_url = body.linkedin.trim();
+    }
+
+    // Metadata
+    if (body.notes?.trim()) leadRecord.notes = body.notes.trim();
+    if (body.stage?.trim()) leadRecord.stage = body.stage.trim();
+
+    // Insert
+    const { data: newLead, error } = await supabase
+      .from('leads')
+      .insert(leadRecord)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[ADD LEAD] Insert error:', error);
+      return c.json({ error: 'Failed to create lead', details: error.message }, 500);
+    }
+
+    console.log(`[ADD LEAD] Successfully created lead ${newLead.id} for user ${user.email}`);
+    return c.json({ success: true, lead: newLead });
+
+  } catch (error: any) {
+    console.error('[ADD LEAD] Error:', error);
+    const status = error.status || 500;
+    return c.json({ error: error.message || 'Internal server error' }, status);
+  }
+});
+
+// POST /leads/import - Import leads from CSV WITH DUPLICATE DETECTION
+app.post("/make-server-a8b2511f/leads/import", async (c) => {
+  try {
+    const { leads, org_id } = await c.req.json();
+
+    if (!leads || !Array.isArray(leads)) {
+      return c.json({ error: "Invalid leads data" }, 400);
+    }
+
+    // Get user_id from auth token
+    const { user, supabase } = await getAuthenticatedUser(c);
+
+    // **LEAD LIMIT CHECK** — enforce plan-based limits BEFORE heavy processing
+    const limitCheck = await checkLeadLimit(user, supabase, leads.length);
+    if (!limitCheck.allowed) {
+      console.log(`[LEAD LIMIT] User ${user.email} blocked: ${limitCheck.currentCount}/${limitCheck.limit} leads (plan: ${limitCheck.plan}), tried to import ${leads.length}`);
+      return c.json({
+        error: 'LEAD_LIMIT_EXCEEDED',
+        message: `You've reached your ${limitCheck.plan === 'none' ? 'free tier' : limitCheck.plan + ' plan'} limit of ${limitCheck.limit.toLocaleString()} contacts. Upgrade your plan to import more leads.`,
+        currentCount: limitCheck.currentCount,
+        limit: limitCheck.limit,
+        plan: limitCheck.plan,
+        remaining: limitCheck.remaining,
+        attempted: leads.length,
+      }, 403);
+    }
+
+    // If importing would partially exceed, trim to fit
+    const maxImportable = limitCheck.remaining === -1 ? leads.length : Math.min(leads.length, limitCheck.remaining);
+    const leadsToProcess = leads.slice(0, maxImportable);
+    const trimmedCount = leads.length - maxImportable;
+
+    // **DUPLICATE DETECTION**
+    const { newLeads, duplicates, details } = await checkDuplicatesAndFilter(leadsToProcess, user.id);
+    
+    if (newLeads.length === 0) {
+      console.log('⚠️  No new leads to import (all were duplicates)');
+      return c.json({ 
+        success: true, 
+        leads: [], 
+        imported: 0,
+        total: 0,
+        duplicates,
+        duplicateDetails: details,
+        message: `All ${duplicates} leads were duplicates and skipped`,
+        ...(trimmedCount > 0 ? { trimmed: trimmedCount, limitWarning: `${trimmedCount} leads were not processed due to plan limits` } : {}),
+      });
+    }
+
+    // Map all possible Apollo CSV fields to database columns
+    // Only include fields that actually have values to avoid schema errors
+    const leadsWithOrg = newLeads.map(lead => {
+      const filteredLead: any = {
+        user_id: user.id,
+      };
+
+      // Core contact fields
+      if (org_id) filteredLead.org_id = org_id;
+      // contact_name will be normalized later in the location block
+      if (lead.email) filteredLead.email = lead.email;
+      
+      // Phone Formatting (International Format)
+      if (lead.phone) {
+        let p = lead.phone.trim();
+        // Remove all non-numeric characters except +
+        const cleaned = p.replace(/[^\d+]/g, '');
+        
+        // If it starts with +, assume it's already international
+        if (cleaned.startsWith('+')) {
+           filteredLead.phone = cleaned;
+        } else if (cleaned.length === 10) {
+           // If it's 10 digits, assume US and add +1
+           filteredLead.phone = `+1${cleaned}`;
+        } else if (cleaned.length === 11 && cleaned.startsWith('1')) {
+           // If it's 11 digits and starts with 1, add +
+           filteredLead.phone = `+${cleaned}`;
+        } else {
+           // Fallback: use cleaned number
+           filteredLead.phone = cleaned;
+        }
+      }
+      
+      // business_name is NOT NULL in DB — always provide a value
+      if (lead.business_name) {
+        filteredLead.business_name = lead.business_name;
+      } else {
+        // Smart fallback: derive from email domain, or contact name, or generic
+        if (lead.email && lead.email.includes('@')) {
+          const domain = lead.email.split('@')[1]?.split('.')[0];
+          if (domain && domain.length > 1) {
+            filteredLead.business_name = domain.charAt(0).toUpperCase() + domain.slice(1);
+          } else {
+            filteredLead.business_name = lead.contact_name ? `${lead.contact_name}` : 'Unknown Business';
+          }
+        } else {
+          filteredLead.business_name = lead.contact_name ? `${lead.contact_name}` : 'Unknown Business';
+        }
+      }
+      if (lead.website) filteredLead.website = lead.website;
+      // job_title will be normalized later
+      if (lead.status) filteredLead.status = lead.status;
+      if (lead.notes) filteredLead.notes = lead.notes;
+      if (lead.brand) filteredLead.brand = lead.brand;
+
+      // Contact name — proper Title Case
+      if (lead.contact_name) filteredLead.contact_name = normalizeName(lead.contact_name);
+
+      // Job title — Title Case
+      if (lead.job_title) filteredLead.job_title = normalizeJobTitle(lead.job_title);
+
+      // Location fields — Title Case (city, state, country)
+      if (lead.city) filteredLead.city = normalizeLocation(lead.city);
+      if (lead.state) filteredLead.state = normalizeLocation(lead.state);
+      if (lead.country) filteredLead.country = normalizeLocation(lead.country);
+      if (lead.address) filteredLead.address = lead.address;
+
+      // Industry & Category — canonical normalization via taxonomy
+      const normalizedIndustry = lead.industry ? normalizeIndustry(lead.industry) : null;
+      const normalizedCategory = lead.category
+        ? normalizeIndustry(lead.category)
+        : normalizedIndustry;
+      if (normalizedIndustry) filteredLead.industry = normalizedIndustry;
+      if (normalizedCategory) filteredLead.category = normalizedCategory;
+      
+      // Social & Contact
+      if (lead.linkedin) filteredLead.linkedin = lead.linkedin;
+      if (lead.person_linkedin_url) filteredLead.person_linkedin_url = lead.person_linkedin_url;
+      if (lead.linkedin_url) filteredLead.linkedin_url = lead.linkedin_url;
+      if (lead.facebook_url) filteredLead.facebook_url = lead.facebook_url;
+      if (lead.twitter_url) filteredLead.twitter_url = lead.twitter_url;
+      if (lead.company_phone) filteredLead.company_phone = lead.company_phone;
+      if (lead.name_for_emails) filteredLead.name_for_emails = lead.name_for_emails;
+      
+      // Company Size & Employees
+      if (lead.employees) filteredLead.employees = lead.employees;
+      
+      // Financial Fields
+      if (lead.annual_revenue !== undefined && lead.annual_revenue !== null) filteredLead.annual_revenue = lead.annual_revenue;
+      if (lead.total_funding !== undefined && lead.total_funding !== null) filteredLead.total_funding = lead.total_funding;
+      if (lead.latest_funding) filteredLead.latest_funding = lead.latest_funding;
+      if (lead.latest_funding_amount !== undefined && lead.latest_funding_amount !== null) filteredLead.latest_funding_amount = lead.latest_funding_amount;
+      if (lead.last_raised_at) filteredLead.last_raised_at = lead.last_raised_at;
+      
+      // Company Relationships
+      if (lead.subsidiary_of) filteredLead.subsidiary_of = lead.subsidiary_of;
+      if (lead.number_of_retail_locations !== undefined && lead.number_of_retail_locations !== null) filteredLead.number_of_retail_locations = lead.number_of_retail_locations;
+      
+      // Apollo IDs
+      if (lead.apollo_contact_id) filteredLead.apollo_contact_id = lead.apollo_contact_id;
+      if (lead.apollo_account_id) filteredLead.apollo_account_id = lead.apollo_account_id;
+      
+      // Technologies
+      if (lead.technologies) filteredLead.technologies = lead.technologies;
+      
+      // Lead Metadata
+      if (lead.seniority) filteredLead.seniority = lead.seniority;
+      if (lead.departments) filteredLead.departments = lead.departments;
+      if (lead.stage) filteredLead.stage = lead.stage;
+      if (lead.lists) filteredLead.lists = lead.lists;
+      if (lead.account_owner) filteredLead.account_owner = lead.account_owner;
+      if (lead.last_contacted) filteredLead.last_contacted = lead.last_contacted;
+
+      return filteredLead;
+    });
+
+    // Debug: Log what category values we're trying to import
+    const categoryCounts = {};
+    leadsWithOrg.forEach(l => {
+      if (l.category) {
+        categoryCounts[l.category] = (categoryCounts[l.category] || 0) + 1;
+      }
+    });
+    console.log(`📦 Attempting to insert batch of ${leadsWithOrg.length} leads`);
+    console.log(`📊 Categories in batch:`, categoryCounts);
+
+    const { data, error } = await supabase
+      .from('leads')
+      .insert(leadsWithOrg)
+      .select();
+
+    if (error) {
+      console.error('Error importing leads to database:', error);
+      return c.json({ error: "Failed to import leads", details: error.message }, 500);
+    }
+
+    console.log(`✅ Imported ${data.length} new leads (skipped ${duplicates} duplicates${trimmedCount > 0 ? `, trimmed ${trimmedCount} due to plan limit` : ''})`);
+    return c.json({ 
+      success: true, 
+      leads: data, 
+      imported: data.length,
+      total: data.length,
+      duplicates,
+      duplicateDetails: details,
+      ...(trimmedCount > 0 ? { trimmed: trimmedCount, limitWarning: `${trimmedCount} leads were not processed due to plan limits. Upgrade your plan to import more.` } : {}),
+    });
+
+  } catch (error) {
+    console.error('Error importing leads:', error);
+    return c.json({ error: "Failed to import leads", details: error.message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FAVICON PROXY — avoids Cross-Origin-Resource-Policy blocks from gstatic.com
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Allowed upstream hosts (allowlist — never proxy arbitrary URLs)
+const FAVICON_PROXY_HOSTS = new Set(["t2.gstatic.com", "t1.gstatic.com", "logo.clearbit.com"]);
+
+app.get("/make-server-a8b2511f/favicon-proxy", async (c) => {
+  const targetUrl = c.req.query("url");
+  if (!targetUrl) return c.json({ error: "url param required" }, 400);
+
+  let parsed: URL;
+  try { parsed = new URL(targetUrl); } catch { return c.json({ error: "Invalid URL" }, 400); }
+  if (!FAVICON_PROXY_HOSTS.has(parsed.hostname)) return c.json({ error: "Host not allowed" }, 403);
+
+  try {
+    const upstream = await fetch(targetUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Contndr/1.0)" },
+      signal: AbortSignal.timeout(5000),
+    });
+    const contentType = upstream.headers.get("content-type") || "image/png";
+    const body = await upstream.arrayBuffer();
+    return new Response(body, {
+      status: upstream.status,
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=604800, immutable",
+        "Access-Control-Allow-Origin": "*",
+      },
+    });
+  } catch (err: any) {
+    console.error("[FAVICON PROXY]", err.message);
+    return new Response(null, { status: 502 });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// COMPANIES API — CRUD + Import  (backed by KV store — no user_id column needed)
+// Key scheme: company:${userId}:${companyId}
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const COMPANY_PREFIX = (userId: string) => `company:${userId}:`;
+const COMPANY_KEY    = (userId: string, id: string) => `company:${userId}:${id}`;
+
+// GET /companies — list user's companies with optional filters + pagination
+app.get("/make-server-a8b2511f/companies", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const page     = parseInt(c.req.query("page")     || "1",  10);
+    const perPage  = Math.min(parseInt(c.req.query("per_page") || "100", 10), 500);
+    const search   = (c.req.query("search") || "").trim().toLowerCase();
+    const industry = c.req.query("industry") || "";
+    const country  = c.req.query("country")  || "";
+    const status   = c.req.query("status")   || "";
+
+    // Load all companies for this user from KV store (with timeout protection)
+    let all: any[] = [];
+    try {
+      const loadTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Database query timeout - too many companies")), 10000)
+      );
+      
+      all = await Promise.race([
+        kv.getByPrefix(COMPANY_PREFIX(user.id)),
+        loadTimeout
+      ]) as any[];
+    } catch (loadErr: any) {
+      // Handle memory/timeout errors gracefully
+      const errMsg = loadErr.message || "";
+      if (errMsg.includes("memory") || errMsg.includes("timeout") || errMsg.includes("Query timeout")) {
+        console.error("[COMPANIES GET] Database overload, returning empty set:", errMsg);
+        return c.json({ 
+          companies: [], 
+          total: 0, 
+          page, 
+          per_page: perPage,
+          error: "Database memory full - too many companies. Please contact support to migrate to a dedicated database.",
+          warning: "Your company list is too large for the current storage system."
+        });
+      }
+      throw loadErr;
+    }
+
+    // Apply filters in-memory
+    if (search) {
+      all = all.filter((co: any) =>
+        (co.name   || "").toLowerCase().includes(search) ||
+        (co.domain || "").toLowerCase().includes(search) ||
+        (co.email  || "").toLowerCase().includes(search)
+      );
+    }
+    if (industry && industry !== "all") all = all.filter((co: any) => co.industry === industry);
+    if (country  && country  !== "all") all = all.filter((co: any) => co.country  === country);
+    if (status   && status   !== "all") all = all.filter((co: any) => co.status   === status);
+
+    // Sort newest first
+    all.sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""));
+
+    const total = all.length;
+    const from  = (page - 1) * perPage;
+    const pageCompanies = all.slice(from, from + perPage);
+
+    return c.json({ companies: pageCompanies, total, page, per_page: perPage });
+  } catch (err: any) {
+    console.error("[COMPANIES GET]", err);
+    
+    // Return helpful error for memory issues
+    const errMsg = err.message || "";
+    if (errMsg.includes("memory") || errMsg.includes("shared memory")) {
+      return c.json({ 
+        error: "Database memory full - operation failed",
+        companies: [],
+        total: 0,
+        page: 1,
+        per_page: perPage
+      }, 503);
+    }
+    
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// POST /companies/import — bulk import with normalization + deduplication
+app.post("/make-server-a8b2511f/companies/import", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { companies } = await c.req.json();
+
+    if (!Array.isArray(companies) || companies.length === 0) {
+      return c.json({ error: "No companies provided" }, 400);
+    }
+
+    // Dedup within this batch only — skip kv.getByPrefix to avoid 8s query timeout
+    const seenNow = new Set<string>();
+
+    let duplicates = 0;
+    const toInsert: Array<{ key: string; value: any }> = [];
+    const now = new Date().toISOString();
+
+    for (const c_ of companies) {
+      const name   = (c_.name || "").trim();
+      const domain = (c_.domain || "").toLowerCase().trim();
+      if (!name) { duplicates++; continue; }
+
+      const dedupeKey = domain || name.toLowerCase();
+      if (seenNow.has(dedupeKey)) {
+        duplicates++;
+        continue;
+      }
+      seenNow.add(dedupeKey);
+
+      const id = crypto.randomUUID();
+      const normIndustry = c_.industry ? normalizeIndustry(c_.industry) : null;
+
+      const record: any = {
+        id,
+        user_id:           user.id,
+        name:              toTitleCase(name),
+        domain:            domain || null,
+        website:           c_.website       || null,
+        description:       c_.description   || null,
+        industry:          normIndustry     || null,
+        employees:         c_.employees     || null,
+        founded_year:      c_.founded_year  ? parseInt(String(c_.founded_year), 10) || null : null,
+        email:             c_.email         || null,
+        phone:             c_.phone         || null,
+        linkedin_url:      c_.linkedin_url  || null,
+        twitter_url:       c_.twitter_url   || null,
+        city:              c_.city    ? normalizeLocation(c_.city)    : null,
+        state:             c_.state   ? normalizeLocation(c_.state)   : null,
+        country:           c_.country ? normalizeLocation(c_.country) : null,
+        annual_revenue:    c_.annual_revenue != null ? parseFloat(String(c_.annual_revenue)) || null : null,
+        funding:           c_.funding       || null,
+        technologies:      Array.isArray(c_.technologies) ? c_.technologies : null,
+        status:            "new",
+        enrichment:        "not_enriched",
+        score:             null,
+        notes:             null,
+        contact_name:      c_.contact_name  ? normalizeName(c_.contact_name)      : null,
+        contact_title:     c_.contact_title ? normalizeJobTitle(c_.contact_title) : null,
+        apollo_account_id: c_.apollo_account_id || null,
+        created_at:        now,
+        updated_at:        now,
+      };
+
+      toInsert.push({ key: COMPANY_KEY(user.id, id), value: record });
+    }
+
+    if (toInsert.length === 0) {
+      return c.json({ imported: 0, duplicates, total: 0, message: `All ${duplicates} companies were duplicates` });
+    }
+
+    // Write to KV using individual set() calls with bounded concurrency (5 at a time).
+    // mset() generates a single multi-row SQL INSERT per chunk which can still exceed
+    // the DB's own statement_timeout even at 25 rows under load.
+    // Individual set() calls are single-row upserts — always fast, never time out.
+    const IMPORT_CONCURRENCY = 5;
+    let totalImported = 0;
+    for (let i = 0; i < toInsert.length; i += IMPORT_CONCURRENCY) {
+      const batch = toInsert.slice(i, i + IMPORT_CONCURRENCY);
+      await Promise.all(batch.map((b: any) => kv.set(b.key, b.value)));
+      totalImported += batch.length;
+    }
+
+    console.log(`[COMPANIES IMPORT] ${totalImported} imported, ${duplicates} duplicates`);
+    return c.json({ imported: totalImported, duplicates, total: toInsert.length });
+  } catch (err: any) {
+    console.error("[COMPANIES IMPORT]", err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// PATCH /companies/:id — update status, notes, contact info
+app.patch("/make-server-a8b2511f/companies/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const id   = c.req.param("id");
+    const body = await c.req.json();
+
+    const existing = await kv.get(COMPANY_KEY(user.id, id));
+    if (!existing) return c.json({ error: "Company not found" }, 404);
+
+    // Whitelist of updatable fields
+    const allowed = ["status","notes","contact_name","contact_title","enrichment","score","email","phone","decision_makers"];
+    const updates: any = {};
+    for (const key of allowed) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+    if (Object.keys(updates).length === 0) return c.json({ error: "No valid fields to update" }, 400);
+
+    const updated = { ...existing, ...updates, updated_at: new Date().toISOString() };
+    await kv.set(COMPANY_KEY(user.id, id), updated);
+
+    return c.json({ company: updated });
+  } catch (err: any) {
+    console.error("[COMPANIES PATCH]", err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// DELETE /companies/:id
+app.delete("/make-server-a8b2511f/companies/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const id = c.req.param("id");
+    await kv.del(COMPANY_KEY(user.id, id));
+    return c.json({ success: true });
+  } catch (err: any) {
+    console.error("[COMPANIES DELETE]", err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// POST /companies/bulk-delete — delete multiple
+app.post("/make-server-a8b2511f/companies/bulk-delete", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { ids } = await c.req.json();
+    if (!Array.isArray(ids) || ids.length === 0) return c.json({ error: "No IDs provided" }, 400);
+    await kv.mdel(ids.map((id: string) => COMPANY_KEY(user.id, id)));
+    return c.json({ deleted: ids.length });
+  } catch (err: any) {
+    console.error("[COMPANIES BULK DELETE]", err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// POST /companies/:id/find-decision-makers
+// Orchestrates the same two-step flow CompanySearch uses for bulk decision makers:
+//   1. POST /company-search/find-people   → LinkedIn SerpAPI + CRM + Hunter domain-search
+//   2. POST /company-search/enrich-people-email → Hunter/Findymail email enrichment
+// Saves results back to company KV via individual kv.set() (no mset/statement-timeout risk).
+app.post("/make-server-a8b2511f/companies/:id/find-decision-makers", async (c) => {
+  const companyId = c.req.param("id");
+  try {
+    const { user } = await getAuthenticatedUser(c);
+
+    const company = await kv.get(COMPANY_KEY(user.id, companyId));
+    if (!company) return c.json({ error: "Company not found" }, 404);
+
+    const companyName: string = company.name || "";
+    if (!companyName) return c.json({ error: "Company has no name" }, 400);
+
+    // Resolve clean domain (strip protocol, www, path)
+    const rawDomain: string = company.domain
+      || (company.website ? company.website.replace(/^https?:\/\//, "").replace(/\/.*/, "").replace(/^www\./, "") : "");
+    const domain = rawDomain.toLowerCase().trim();
+    const location = [company.city, company.state, company.country].filter(Boolean).join(", ");
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const baseUrl = `${supabaseUrl}/functions/v1/make-server-a8b2511f`;
+    const authHeader = c.req.header("Authorization") ?? "";
+
+    console.log(`[COMPANY DM] Finding decision makers for "${companyName}" (domain: ${domain || "none"})`);
+
+    // ── Step 1: find-people — SerpAPI LinkedIn scrape + CRM + Hunter domain-search ──
+    // (exact same endpoint CompanySearch uses for bulk decision makers)
+    let people: any[] = [];
+    let emailMap: Record<string, { email: string; source: string; confidence: string }> = {};
+
+    try {
+      const fpRes = await fetch(`${baseUrl}/company-search/find-people`, {
+        method: "POST",
+        headers: { "Authorization": authHeader, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company_name: companyName,
+          domain: domain || undefined,
+          location: location || undefined,
+        }),
+        signal: AbortSignal.timeout(45000),
+      });
+      if (fpRes.ok) {
+        const fpData = await fpRes.json();
+        people = fpData.people || [];
+        emailMap = { ...(fpData.crm_emails || {}) };
+        console.log(`[COMPANY DM] find-people: ${people.length} people, ${Object.keys(emailMap).length} CRM emails`);
+      } else {
+        const errText = await fpRes.text();
+        console.warn(`[COMPANY DM] find-people ${fpRes.status}: ${errText.slice(0, 200)}`);
+      }
+    } catch (fpErr: any) {
+      console.warn(`[COMPANY DM] find-people error: ${fpErr.message}`);
+    }
+
+    // ── Step 2: enrich-people-email — Hunter/Findymail for people missing email ──
+    if (people.length > 0 && domain) {
+      const needEmail = people.filter((p: any) => !emailMap[p.id]);
+      if (needEmail.length > 0) {
+        try {
+          const epRes = await fetch(`${baseUrl}/company-search/enrich-people-email`, {
+            method: "POST",
+            headers: { "Authorization": authHeader, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              people: needEmail.map((p: any) => ({ id: p.id, name: p.name, title: p.title, linkedin_url: p.linkedin_url })),
+              domain,
+            }),
+            signal: AbortSignal.timeout(30000),
+          });
+          if (epRes.ok) {
+            const epData = await epRes.json();
+            emailMap = { ...emailMap, ...(epData.results || {}) };
+            console.log(`[COMPANY DM] enrich-people-email: ${Object.keys(epData.results || {}).length} emails enriched`);
+          }
+        } catch (epErr: any) {
+          console.warn(`[COMPANY DM] enrich-people-email error (non-fatal): ${epErr.message}`);
+        }
+      }
+    }
+
+    // ── Step 3: Build clean decision_maker records ──
+    const decisionMakers = people
+      .map((p: any) => {
+        const emailInfo = emailMap[p.id];
+        const name = (p.name || "").trim();
+        if (!name || name === "—") return null;
+        return {
+          id: p.id || "",
+          name,
+          title:            p.title || "",
+          email:            emailInfo?.email || "",
+          email_source:     emailInfo?.source || "",
+          email_confidence: emailInfo?.confidence || "",
+          phone:            "",
+          linkedin_url:     p.linkedin_url || "",
+          location:         p.location || "",
+          snippet:          p.snippet || "",
+        };
+      })
+      .filter(Boolean);
+    
+    const withEmail = decisionMakers.filter((dm: any) => dm.email).length;
+    console.log(`[COMPANY DM] Built ${decisionMakers.length} decision makers (${withEmail} with email, ${decisionMakers.length - withEmail} without)`);
+
+    // ── Step 4: Save back via individual kv.set() — no mset, no statement timeout risk ──
+    const enrichUpdates: any = {
+      decision_makers: decisionMakers,
+      enrichment: decisionMakers.length > 0 ? "enriched" : "partial",
+      updated_at: new Date().toISOString(),
+    };
+    // Backfill primary contact name/title if currently blank
+    if (!company.contact_name && decisionMakers.length > 0) {
+      enrichUpdates.contact_name  = (decisionMakers[0] as any).name;
+      enrichUpdates.contact_title = (decisionMakers[0] as any).title;
+    }
+    // Backfill company email if blank
+    const firstWithEmail = (decisionMakers as any[]).find((dm) => dm.email);
+    if (!company.email && firstWithEmail?.email) {
+      enrichUpdates.email = firstWithEmail.email;
+    }
+
+    const updatedCompany = { ...company, ...enrichUpdates };
+    await kv.set(COMPANY_KEY(user.id, companyId), updatedCompany);
+
+    console.log(`[COMPANY DM] Saved ${decisionMakers.length} decision makers for "${companyName}"`);
+    return c.json({ found: decisionMakers.length, decision_makers: decisionMakers, company: updatedCompany });
+
+  } catch (err: any) {
+    console.error(`[COMPANY DM] Error for ${companyId}:`, err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// DELETE all bounced leads (simple and fast)
+app.post("/make-server-a8b2511f/leads/delete-bounced", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    console.log(`[DELETE BOUNCED] Starting deletion of bounced leads for user ${user.id}...`);
+    
+    // Count bounced leads first
+    const { count, error: countError } = await supabase
+      .from('leads')
+      .select('*', { count: 'estimated', head: true })
+      .eq('user_id', user.id)
+      .eq('bounced', true);
+    
+    if (countError) {
+      console.error('[DELETE BOUNCED] Error counting:', countError);
+      return c.json({ error: countError.message }, 500);
+    }
+    
+    if (!count || count === 0) {
+      return c.json({ 
+        success: true, 
+        message: 'No bounced leads to delete',
+        deleted: 0 
+      });
+    }
+    
+    console.log(`[DELETE BOUNCED] Found ${count} bounced leads, deleting...`);
+    
+    // Delete all bounced leads
+    const { error: deleteError } = await supabase
+      .from('leads')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('bounced', true);
+    
+    if (deleteError) {
+      console.error('[DELETE BOUNCED] Error deleting:', deleteError);
+      return c.json({ error: deleteError.message }, 500);
+    }
+    
+    console.log(`[DELETE BOUNCED] Successfully deleted ${count} bounced leads`);
+    
+    return c.json({
+      success: true,
+      message: `Deleted ${count} bounced leads`,
+      deleted: count
+    });
+    
+  } catch (error) {
+    console.error('[DELETE BOUNCED] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Verify email addresses for all leads (Enhanced with MX check)
+app.post("/make-server-a8b2511f/leads/verify-emails", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const body = await c.req.json().catch(() => ({}));
+    const deleteInvalid = body.deleteInvalid === true;
+    const skipMxCheck = body.skipMxCheck !== false;
+    const maxLeads = body.maxLeads || 5000; // Process max 5000 leads per request to avoid timeout
+    
+    console.log(`[VERIFY EMAILS] ========================================`);
+    console.log(`[VERIFY EMAILS] Starting email verification for user ${user.id} (delete mode: ${deleteInvalid}, skip MX: ${skipMxCheck}, max: ${maxLeads})...`);
+    
+    // Fetch ALL leads with email addresses in batches
+    let allLeads: any[] = [];
+    let offset = 0;
+    const batchSize = 1000;
+    let hasMore = true;
+    
+    console.log(`[VERIFY EMAILS] Fetching leads in batches of ${batchSize}...`);
+    
+    while (hasMore && allLeads.length < maxLeads) {
+      const { data: batch, error: fetchError } = await supabase
+        .from('leads')
+        .select('id, email, business_name, bounced, user_id')
+        .not('email', 'is', null)
+        .neq('email', '')
+        .range(offset, offset + batchSize - 1);
+      
+      if (fetchError) {
+        console.error(`[VERIFY EMAILS] ❌ Error fetching batch at offset ${offset}:`, fetchError);
+        return c.json({ error: "Failed to fetch leads", details: fetchError.message }, 500);
+      }
+      
+      if (batch && batch.length > 0) {
+        allLeads = allLeads.concat(batch);
+        console.log(`[VERIFY EMAILS] Fetched batch ${Math.floor(offset / batchSize) + 1}: ${batch.length} leads (total so far: ${allLeads.length})`);
+        offset += batchSize;
+        hasMore = batch.length === batchSize;
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    // Deduplicate leads by ID
+    const uniqueLeadsMap = new Map();
+    allLeads.forEach(lead => {
+      if (!uniqueLeadsMap.has(lead.id)) {
+        uniqueLeadsMap.set(lead.id, lead);
+      }
+    });
+    const leads = Array.from(uniqueLeadsMap.values());
+    
+    if (!leads || leads.length === 0) {
+      return c.json({ 
+        success: true, 
+        message: "No leads with emails found",
+        stats: { total: 0, valid: 0, invalid: 0, skipped: 0 }
+      });
+    }
+    
+    const userLeads = leads.filter(l => l.user_id === user.id);
+    console.log(`[VERIFY EMAILS] Found ${userLeads.length} leads for user ${user.id}`);
+    
+    if (userLeads.length === 0) {
+      return c.json({ 
+        success: true, 
+        message: "No leads with emails found for your account",
+        stats: { total: 0, valid: 0, invalid: 0, skipped: 0 }
+      });
+    }
+    
+    // Limit processing to avoid timeout
+    const leadsToProcess = userLeads.slice(0, maxLeads);
+    const remaining = userLeads.length - leadsToProcess.length;
+    
+    if (remaining > 0) {
+      console.log(`[VERIFY EMAILS] ⚠️ Limiting to ${maxLeads} leads (${remaining} remaining for next batch)`);
+    }
+    
+    const stats = {
+      total: leadsToProcess.length,
+      valid: 0,
+      invalid: 0,
+      skipped: 0,
+      alreadyBounced: 0,
+      mxCheckFailed: 0,
+      remaining: remaining
+    };
+    
+    const invalidLeadIds: string[] = [];
+    const validEmails: string[] = [];
+    
+    console.log(`[VERIFY EMAILS] Starting validation loop for ${leadsToProcess.length} leads...`);
+    
+    // Process in chunks - larger chunks if skipping MX checks (which are slow)
+    const CHUNK_SIZE = skipMxCheck ? 200 : 25;
+    for (let i = 0; i < leadsToProcess.length; i += CHUNK_SIZE) {
+        const chunk = leadsToProcess.slice(i, i + CHUNK_SIZE);
+        await Promise.all(chunk.map(async (lead) => {
+             // Skip if already marked as bounced
+            if (lead.bounced) {
+                stats.alreadyBounced++;
+                stats.skipped++;
+                return;
+            }
+            
+            const email = lead.email?.toLowerCase().trim();
+            if (!email) {
+                stats.skipped++;
+                return;
+            }
+            
+            // Use FAST validation (no MX checks) or DEEP validation based on skipMxCheck flag
+            const validation = skipMxCheck 
+              ? validateEmailFast(email)
+              : await validateEmailDeep(email);
+            
+            if (!validation.isValid) {
+                console.log(`[VERIFY] Invalid email detected: ${email} - Reason: ${validation.reason}`);
+                invalidLeadIds.push(lead.id);
+                stats.invalid++;
+                if (validation.reason?.includes('MX')) stats.mxCheckFailed++;
+            } else {
+                validEmails.push(email);
+                stats.valid++;
+            }
+        }));
+    }
+    
+    console.log(`[VERIFY EMAILS] Validation complete. Invalid: ${invalidLeadIds.length}, Valid: ${validEmails.length}`);
+    
+    // Handle invalid leads - either delete or mark as bounced
+    let deletedCount = 0;
+    if (invalidLeadIds.length > 0) {
+      if (deleteInvalid) {
+        console.log(`[VERIFY EMAILS] Deleting ${invalidLeadIds.length} invalid leads...`);
+        
+        // Delete in batches to avoid timeout
+        const DELETE_BATCH_SIZE = 500;
+        for (let i = 0; i < invalidLeadIds.length; i += DELETE_BATCH_SIZE) {
+          const batch = invalidLeadIds.slice(i, i + DELETE_BATCH_SIZE);
+          const { error: deleteError } = await supabase
+            .from('leads')
+            .delete()
+            .in('id', batch);
+            
+          if (deleteError) {
+            console.error(`[VERIFY EMAILS] Error deleting batch ${i / DELETE_BATCH_SIZE + 1}:`, deleteError);
+          } else {
+            deletedCount += batch.length;
+            console.log(`[VERIFY EMAILS] Deleted batch ${i / DELETE_BATCH_SIZE + 1}: ${batch.length} leads`);
+          }
+        }
+        
+        console.log(`[VERIFY EMAILS] Successfully deleted ${deletedCount} invalid leads.`);
+      } else {
+        console.log(`[VERIFY EMAILS] Marking ${invalidLeadIds.length} leads as bounced...`);
+        
+        const { error: updateError } = await supabase
+          .from('leads')
+          .update({ bounced: true })
+          .in('id', invalidLeadIds);
+          
+        if (updateError) {
+          console.error('[VERIFY EMAILS] Error updating leads:', updateError);
+        } else {
+          console.log(`[VERIFY EMAILS] Successfully marked leads as bounced.`);
+        }
+      }
+    }
+    
+    // Create detailed recommendations
+    let message = skipMxCheck 
+      ? `Fast verified ${stats.total} emails (syntax + disposable check). Found ${stats.invalid} invalid.`
+      : `Deep verified ${stats.total} emails. Found ${stats.invalid} invalid addresses.`;
+    
+    if (!skipMxCheck && stats.mxCheckFailed > 0) {
+        message += ` ${stats.mxCheckFailed} failed MX record checks (domain cannot receive email).`;
+    }
+    
+    if (remaining > 0) {
+      message += ` ⚠️ ${remaining.toLocaleString()} leads remaining - run again to verify more.`;
+    }
+    
+    return c.json({
+      success: true,
+      message,
+      stats: {
+        ...stats,
+        deleted: deleteInvalid ? deletedCount : 0
+      },
+      recommendations: {
+        message: stats.invalid === 0 
+          ? (skipMxCheck 
+              ? "Perfect! All emails passed fast validation (Syntax + Disposable)." 
+              : "Perfect! All emails passed validation (Syntax + Disposable + MX Records).")
+          : deleteInvalid 
+            ? `Deleted ${deletedCount} invalid emails to protect your deliverability.`
+            : `We marked ${stats.invalid} emails as bounced to protect your deliverability.`
+      }
+    });
+
+  } catch (error) {
+    console.error('Verification error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/fix-ownership - Fix user_id for restored leads
+app.post("/make-server-a8b2511f/leads/fix-ownership", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    console.log(`[FIX OWNERSHIP] Checking for leads without correct user_id...`);
+    
+    // Use service role to see ALL leads in database
+    const adminSupabase = getSupabaseAdmin();
+    
+    // Count leads that don't belong to current user
+    const { count: orphanedCount, error: countError } = await adminSupabase
+      .from('leads')
+      .select('*', { count: 'estimated', head: true })
+      .neq('user_id', user.id);
+    
+    if (countError) {
+      console.error('[FIX OWNERSHIP] Error counting orphaned leads:', countError);
+      return c.json({ error: countError.message }, 500);
+    }
+    
+    console.log(`[FIX OWNERSHIP] Found ${orphanedCount || 0} leads with different user_id`);
+    
+    if (!orphanedCount || orphanedCount === 0) {
+      return c.json({
+        success: true,
+        message: 'No orphaned leads found - all leads already belong to you',
+        fixed: 0
+      });
+    }
+    
+    // Update all leads to belong to current user
+    const { error: updateError } = await adminSupabase
+      .from('leads')
+      .update({ user_id: user.id })
+      .neq('user_id', user.id);
+    
+    if (updateError) {
+      console.error('[FIX OWNERSHIP] Error updating leads:', updateError);
+      return c.json({ error: updateError.message }, 500);
+    }
+    
+    console.log(`[FIX OWNERSHIP] Successfully reassigned ${orphanedCount} leads to user ${user.id}`);
+    
+    return c.json({
+      success: true,
+      message: `Successfully reassigned ${orphanedCount} leads to your account`,
+      fixed: orphanedCount
+    });
+    
+  } catch (error) {
+    console.error('[FIX OWNERSHIP] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /lead-groups - Get all groups for user
+app.get("/make-server-a8b2511f/lead-groups", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // Get groups from KV store
+    const groupsKey = `groups:${user.id}`;
+    const groups = await kv.get(groupsKey) || [];
+    
+    // Calculate lead counts for each group
+    const groupsWithCounts = await Promise.all(groups.map(async (group: any) => {
+      // Query leads table to count leads in this group
+      // Using contains filter on lists array column
+      const { count, error } = await supabase
+        .from('leads')
+        .select('*', { count: 'estimated', head: true })
+        .eq('user_id', user.id)
+        .contains('lists', [group.id]);
+        
+      if (error) {
+        console.error(`Error counting leads for group ${group.id}:`, error);
+        return { ...group, lead_count: [{ count: 0 }] };
+      }
+
+      return {
+        ...group,
+        lead_count: [{ count: count || 0 }]
+      };
+    }));
+    
+    return c.json({ groups: groupsWithCounts });
+  } catch (error: any) {
+    if (isAuthError(error)) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('Error fetching groups:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /lead-groups - Create a new group
+app.post("/make-server-a8b2511f/lead-groups", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    
+    const newGroup = {
+      id: crypto.randomUUID(),
+      name: body.name,
+      description: body.description,
+      color: body.color,
+      created_at: new Date().toISOString()
+    };
+    
+    // Update KV store
+    const groupsKey = `groups:${user.id}`;
+    const groups = await kv.get(groupsKey) || [];
+    groups.push(newGroup);
+    await kv.set(groupsKey, groups);
+    
+    return c.json(newGroup);
+  } catch (error) {
+    console.error('Error creating group:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// PUT /lead-groups/:id - Update a group
+app.put("/make-server-a8b2511f/lead-groups/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const groupId = c.req.param('id');
+    const updates = await c.req.json();
+    
+    const groupsKey = `groups:${user.id}`;
+    const groups = await kv.get(groupsKey) || [];
+    
+    const groupIndex = groups.findIndex((g: any) => g.id === groupId);
+    if (groupIndex === -1) {
+      return c.json({ error: 'Group not found' }, 404);
+    }
+    
+    groups[groupIndex] = { ...groups[groupIndex], ...updates };
+    await kv.set(groupsKey, groups);
+    
+    return c.json(groups[groupIndex]);
+  } catch (error) {
+    console.error('Error updating group:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// DELETE /lead-groups/:id - Delete a group
+app.delete("/make-server-a8b2511f/lead-groups/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const groupId = c.req.param('id');
+    
+    const groupsKey = `groups:${user.id}`;
+    const groups = await kv.get(groupsKey) || [];
+    
+    const newGroups = groups.filter((g: any) => g.id !== groupId);
+    await kv.set(groupsKey, newGroups);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting group:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /lead-groups/:id/leads - Add leads to a group
+app.post("/make-server-a8b2511f/lead-groups/:id/leads", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const groupId = c.req.param('id');
+    const { lead_ids } = await c.req.json();
+    
+    if (!lead_ids || !Array.isArray(lead_ids) || lead_ids.length === 0) {
+      return c.json({ error: 'No lead IDs provided' }, 400);
+    }
+    
+    // Fetch leads to verify and get current lists
+    const { data: leads, error: fetchError } = await supabase
+      .from('leads')
+      .select('id, lists, user_id')
+      .in('id', lead_ids)
+      .eq('user_id', user.id);
+      
+    if (fetchError) throw fetchError;
+    
+    if (!leads || leads.length === 0) {
+       return c.json({ success: true, updated: 0, message: "No matching leads found" });
+    }
+
+    const updates = leads.map(lead => {
+      const currentLists = lead.lists || [];
+      if (!currentLists.includes(groupId)) {
+        return {
+          id: lead.id,
+          lists: [...currentLists, groupId],
+          user_id: lead.user_id // Required for RLS usually, though we use upsert
+        };
+      }
+      return null;
+    }).filter(Boolean);
+    
+    if (updates.length > 0) {
+      const { error: updateError } = await supabase
+        .from('leads')
+        .upsert(updates);
+        
+      if (updateError) throw updateError;
+    }
+    
+    return c.json({ success: true, updated: updates.length });
+  } catch (error) {
+    console.error('Error adding leads to group:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /emails/generate - Generate personalized email with GPT-4
+app.post("/make-server-a8b2511f/emails/generate", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { lead, product, tone, landing_url, price_summary, sequence_number = 1, sender_name, sender_title, campaign_knowledge, brand: rawBrand, from_email, writing_style, max_words, custom_instructions, example_email } = await c.req.json();
+    
+    // 'custom' and 'default' are internal UI flags, not real brand names.
+    // Normalize to empty string so ${brand || product || 'our product'} falls through to the actual product description.
+    const brand = (rawBrand && rawBrand !== 'custom' && rawBrand !== 'default') ? rawBrand : '';
+
+    if (!lead || !product) {
+      return c.json({ error: "Missing required fields: lead, product" }, 400);
+    }
+
+    const firstName = lead.first_name || (lead.contact_name ? lead.contact_name.split(' ')[0] : '') || 'there';
+
+    // Determine if this is a Covera campaign
+    const isCoveraCampaign = product.toLowerCase().includes('covera');
+    const isInvestorCampaign = product.toLowerCase().includes('investor');
+    const isSourcrCampaign = product.toLowerCase().includes('sourcr') || brand?.toLowerCase().includes('sourcr');
+    const isRoadr = product.toLowerCase().includes('roadr') || brand?.toLowerCase() === 'roadr';
+
+    // Load user's knowledge base context for ALL campaign types
+    let knowledgeContext = '';
+    let kbWritingOverrides: { tone?: string; custom_instructions?: string; example_email?: string; max_words?: number } = {};
+    try {
+      knowledgeContext = await getKnowledgeBaseContext(user.id, brand || 'all', campaign_knowledge);
+      if (knowledgeContext) {
+        console.log(`[EMAIL GENERATE] Loaded KB context for user ${user.id} (brand: ${brand || 'all'}): ${knowledgeContext.length} chars`);
+      }
+      // Load per-entry writing overrides from KB (brand-specific > global)
+      kbWritingOverrides = await getKBWritingOverrides(user.id, brand || 'all');
+      if (Object.keys(kbWritingOverrides).length > 0) {
+        console.log(`[EMAIL GENERATE] KB writing overrides:`, kbWritingOverrides);
+      }
+    } catch (kbError) {
+      console.warn('[EMAIL GENERATE] Failed to load knowledge base context:', kbError);
+    }
+
+    // Merge writing fields: campaign-level settings take priority; KB overrides are fallback
+    const effectiveTone = tone || kbWritingOverrides.tone || 'casual';
+    const effectiveMaxWords = max_words || kbWritingOverrides.max_words || 75;
+    const effectiveCustomInstructions = custom_instructions || kbWritingOverrides.custom_instructions || '';
+    const effectiveExampleEmail = example_email || kbWritingOverrides.example_email || '';
+
+    // Build the prompt based on product type and sequence
+    let systemMessage = "";
+    let userPrompt = "";
+    
+    console.log(`[EMAIL GENERATE] Brand resolved: rawBrand="${rawBrand}" -> brand="${brand}", product="${product?.substring(0, 80)}", hasKB=${!!knowledgeContext.trim()}, campaign_knowledge=${campaign_knowledge ? campaign_knowledge.length + ' chars' : 'none'}, effectiveTone=${effectiveTone}, effectiveMaxWords=${effectiveMaxWords}, effectiveCustomInstructions=${effectiveCustomInstructions ? effectiveCustomInstructions.length + ' chars' : 'none'}, effectiveExampleEmail=${effectiveExampleEmail ? 'yes' : 'no'}, kbOverrides=${JSON.stringify(kbWritingOverrides)}`);
+    
+    if (isInvestorCampaign) {
+      // Investor campaign prompts
+      systemMessage = `You are Otiniel Ribeiro, CEO of Roadr. Roadr is the "Daily Operating System for Car Ownership".${knowledgeContext.trim() ? `\n\nIMPORTANT CONTEXT FROM KNOWLEDGE BASE — use this to tailor your email:\n${knowledgeContext}` : ''}`;
+      
+      if (sequence_number === 1) {
+        if (isRoadr) {
+           userPrompt = `Write a LOW-FRICTION outreach email to an investor.
+
+Lead Name: ${lead.first_name || lead.contact_name?.split(' ')[0] || 'there'}
+Link: investor.roadr.com
+${campaign_knowledge ? `\nCAMPAIGN CONTEXT (use this to shape messaging, tone, and talking points):\n${campaign_knowledge}\n` : ''}
+RULES:
+1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+2. Format: STRICTLY under 75 words.
+3. Structure: Write 2-3 SHORT paragraphs. MUST separate each paragraph with a BLANK LINE (double line break between paragraphs).
+4. Approach: "Reach not Pitch". No hard selling.
+4. Content:
+   - Remove "Top 10" or bragging stats.
+   - Focus on the "Daily Operating System for Car Ownership" concept.
+   - CTA: Ask them to TRY the product to see if it adds value or fits their thesis.
+5. Clean Text: DO NOT use hyphens, dashes, or em-dashes. Use commas or periods instead.
+
+- STOP after the CTA. Do NOT write a sign-off or your name.
+
+Format:
+Subject: [Subject]
+Preview: [First sentence]
+Body: [Body]`;
+        } else {
+           userPrompt = `Write a HIGH-SIGNAL cold email to an investor.
+
+Lead: ${lead.business_name || lead.first_name || 'there'}
+Product: ${brand || product || 'our startup'}
+Ask: ${price_summary || 'investment'}
+${campaign_knowledge ? `\nCAMPAIGN CONTEXT (use this to shape messaging, tone, and talking points):\n${campaign_knowledge}\n` : ''}
+RULES:
+1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+2. Format: STRICTLY under 75 words.
+3. Structure: Use short, concise paragraphs. Avoid walls of text.
+4. Tone: Founder-led, casual.
+4. Clean Text: DO NOT use hyphens, dashes, or em-dashes.
+5. Goal: Get a meeting.
+
+- STOP after the CTA. Do NOT write a sign-off or your name.
+
+Format:
+Subject: [Subject]
+Preview: [First sentence]
+Body: [Body]`;
+        }
+      } else {
+        userPrompt = `Write a SHORT follow-up to an investor.
+
+Context: Email #${sequence_number - 1} sent. No reply.
+Lead: ${lead.business_name || lead.first_name || 'there'}
+${campaign_knowledge ? `\nCAMPAIGN CONTEXT:\n${campaign_knowledge}\n` : ''}
+RULES:
+1. Format: STRICTLY under 60 words.
+2. Structure: Use short, concise paragraphs.
+3. Goal: Bump the thread with new value/traction.
+4. Clean Text: DO NOT use hyphens, dashes, or em-dashes.
+5. DO NOT include signature.
+
+Format:
+Subject: [Subject]
+Preview: [First sentence]
+Body: [Body]`;
+      }
+    } else if (isCoveraCampaign) {
+      // Covera campaign prompts
+      systemMessage = `You are Otiniel Ribeiro, founder of Covera. You write high-converting cold emails that help business owners solve vendor risk and compliance headaches.${knowledgeContext.trim() ? `\n\nIMPORTANT CONTEXT FROM KNOWLEDGE BASE — use this to tailor your email:\n${knowledgeContext}` : ''}`;
+      
+      userPrompt = `Write a HIGH-CONVERTING cold email to the owner of ${lead.business_name || 'this business'}.
+
+BUSINESS DETAILS:
+Business Name: ${lead.business_name || 'their business'}
+Industry: ${lead.category || lead.industry || 'Business'}
+Location: ${lead.city || 'your area'}
+Owner/Contact: ${lead.contact_name || 'there'}
+
+PRODUCT: Covera - Vendor Risk Management (we manage the risk vendors introduce, NOT the vendors themselves).
+Landing URL: ${landing_url || 'covera.co'}
+${campaign_knowledge ? `\nCAMPAIGN CONTEXT (use this to shape messaging, hooks, and talking points — takes priority over defaults):\n${campaign_knowledge}\n` : ''}
+RULES (The "3-Step Play"):
+1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+2. Educate & Dig: Address the risk vendors introduce (insurance/compliance) - we manage the RISK, not the vendors.
+3. Format: STRICTLY under 75 words total.
+4. Structure: Write 2-3 SHORT paragraphs. MUST separate each paragraph with a BLANK LINE (double line break between paragraphs).
+5. Voice: Use the customer's language. Be conversational.
+6. CTA: You MUST include the link "covera.co" in the closing sentence.
+7. Clean Text: DO NOT use hyphens, dashes, or em-dashes. Use commas or periods instead.
+
+- DO NOT mention price.
+- DO NOT use placeholders.
+- STOP after the CTA. Do NOT write a sign-off (e.g. "Best", "Thanks") or your name. We add the signature automatically.
+
+Format:
+Subject: [Curiosity-inducing subject]
+Preview: [First sentence]
+Body: [Email body]`;
+    } else if (isSourcrCampaign) {
+      // Sourcr Campaign - Digital Product Studio
+      systemMessage = `You are a representative of Sourcr (sourcr.net). You write high-converting cold emails helping businesses improve their digital presence.${knowledgeContext.trim() ? `\n\nIMPORTANT CONTEXT FROM KNOWLEDGE BASE — use this to tailor your email:\n${knowledgeContext}` : ''}`;
+      
+      userPrompt = `Write a HIGH-CONVERTING cold email for ${lead.business_name || 'this business'}.
+
+BUSINESS DETAILS:
+Business: ${lead.business_name || 'Business'}
+Location: ${lead.city || ''}
+Category: ${lead.category || lead.industry || 'Business'}
+
+PRODUCT: Sourcr (Digital Product Studio - Websites & Apps).
+Landing URL: sourcr.net
+${campaign_knowledge ? `\nCAMPAIGN CONTEXT (use this to shape messaging and talking points — takes priority over defaults):\n${campaign_knowledge}\n` : ''}
+RULES (The "3-Step Play"):
+1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+2. Educate & Dig: Address how a poor digital presence hurts their specific industry.
+3. Format: STRICTLY under 75 words total.
+4. Structure: Write 2-3 SHORT paragraphs. MUST separate each paragraph with a BLANK LINE (double line break between paragraphs).
+5. Voice: Use the customer's language. Be conversational.
+6. CTA: You MUST include the link "sourcr.net" in the closing sentence.
+7. Clean Text: DO NOT use hyphens, dashes, or em-dashes. Use commas or periods instead.
+
+- DO NOT mention price.
+- DO NOT mention "tenant screening" (unless real estate).
+- STOP after the CTA. Do NOT write a sign-off (e.g. "Best", "Thanks") or your name. We add the signature automatically.
+
+Format:
+Subject: [Curiosity-inducing subject]
+Preview: [First sentence]
+Body: [Email body]`;
+    } else {
+      // ══════════════════════════════════════════════════════════════════
+      // STANDARD B2B CAMPAIGN — Fully user-controlled email generation
+      // The user's custom_instructions and campaign_knowledge are the 
+      // PRIMARY drivers. AI adapts to whatever style the user wants.
+      // ══════════════════════════════════════════════════════════════════
+      const hasKB = !!knowledgeContext.trim();
+      const hasCustomInstructions = !!effectiveCustomInstructions?.trim();
+      const hasExampleEmail = !!effectiveExampleEmail?.trim();
+      const wordLimit = effectiveMaxWords;
+      
+      // Map tone to natural language description
+      const toneMap: Record<string, string> = {
+        'casual': 'casual and conversational, like texting a colleague',
+        'professional': 'professional and polished but still human',
+        'enthusiastic': 'energetic, enthusiastic, and exciting',
+        'direct': 'direct and to the point, no fluff',
+        'friendly': 'warm, friendly, and approachable',
+        'formal': 'formal and business-appropriate',
+        'witty': 'clever and witty with personality',
+        'empathetic': 'empathetic and understanding of their challenges',
+      };
+      const toneDescription = toneMap[effectiveTone] || toneMap[writing_style] || 'natural and human';
+
+      // ── BUILD SYSTEM MESSAGE ──
+      // If user has custom instructions, AI becomes their ghostwriter
+      if (hasCustomInstructions || hasExampleEmail) {
+        systemMessage = `You are a ghostwriter for the sender. Your ONLY job is to follow the sender's writing instructions exactly. Do not add your own style, flair, or "improvements". Do not make it sound more sophisticated or polished than the instructions ask for.
+
+ABSOLUTE RULES:
+- The sender's WRITING INSTRUCTIONS below are your bible. Follow them word for word.
+- If the instructions say "write like a normal person", write like a normal person. Not like a copywriter.
+- If the instructions say "keep it simple", use simple words. No jargon, no marketing speak.
+- If the instructions say "sound like me", match the example email's exact tone, vocabulary, and sentence structure.
+- Do NOT add phrases like "not public yet", "quietly rolling out", "exclusive access", "limited spots", or "waitlist" UNLESS the instructions explicitly say to.
+- Do NOT reference Contndr, Sourcr, Roadr, or Covera unless the sender's instructions mention them.
+- Do NOT "improve" or "elevate" the language beyond what the instructions ask for.
+- STOP after the CTA. Do NOT write a sign-off, closing, or name. The signature is added automatically.`;
+      } else if (hasKB) {
+        systemMessage = `You are a cold email writer for the sender's brand. Write the email based on their knowledge base. Match the tone: ${toneDescription}.
+
+RULES:
+- Use ONLY the product name, value proposition, and messaging from the knowledge base.
+- Do NOT invent features, claims, or details not provided.
+- Do NOT add phrases like "not public yet", "quietly rolling out", "exclusive access", "limited spots" UNLESS the knowledge base says to.
+- Do NOT reference Contndr, Sourcr, Roadr, or Covera unless that IS the sender's brand.
+- Write as if you ARE the sender.
+- STOP after the CTA. No sign-off or name. Signature is added automatically.`;
+      } else {
+        systemMessage = `You are writing a cold outreach email for the sender. Tone: ${toneDescription}. Sound like a real person, not a template. Do NOT use phrases like "not public yet", "exclusive access", "limited spots", or "waitlist". STOP after the CTA. No sign-off or name. Signature is added automatically.`;
+      }
+
+      // ── BUILD USER PROMPT ──
+      const targetInfo = `TARGET:
+Name: ${lead.business_name || 'Business'}
+Contact: ${firstName}
+Industry: ${lead.category || lead.industry || ''}
+Location: ${lead.city || ''}`;
+
+      const senderInfo = `SENDER:
+${sender_name ? `Name: ${sender_name}` : ''}
+${sender_title ? `Title: ${sender_title}` : ''}
+Product/Brand: ${brand || product || 'our product'}
+${landing_url ? `Landing URL: ${landing_url}` : ''}`;
+
+      if (sequence_number === 1) {
+        // ── FIRST EMAIL ──
+        const instructionBlock = hasCustomInstructions 
+          ? `\nWRITING INSTRUCTIONS (follow these EXACTLY — this is how the sender wants you to write):\n${effectiveCustomInstructions}\n`
+          : '';
+        
+        const exampleBlock = hasExampleEmail
+          ? `\nEXAMPLE EMAIL (mimic this style, tone, vocabulary, and structure closely):\n---\n${effectiveExampleEmail}\n---\nWrite a NEW email in the same style as above. Do NOT copy the example — use it as a style reference only.\n`
+          : '';
+        
+        const kbBlock = (hasKB || campaign_knowledge)
+          ? `\nBRAND & PRODUCT INFO:\n${knowledgeContext || campaign_knowledge}\n`
+          : '';
+
+        // Build rules — user instructions override defaults
+        let rules = '';
+        if (hasCustomInstructions) {
+          // User has full control — minimal AI rules, just formatting requirements
+          rules = `FORMATTING RULES:
+1. Start with "Hi ${firstName},".
+2. Keep it under ${wordLimit} words.
+3. Separate paragraphs with blank lines.
+4. ${landing_url ? `Include "${landing_url}" in your CTA.` : 'End with a question inviting them to reply.'}
+5. STOP after the CTA. No sign-off, no name, no closing. We add the signature automatically.
+6. Follow the WRITING INSTRUCTIONS above for everything else (tone, style, word choice, structure).`;
+        } else {
+          // No custom instructions — use sensible defaults based on tone
+          rules = `RULES:
+1. Start with "Hi ${firstName},".
+2. Keep it under ${wordLimit} words.
+3. Write 2-3 short paragraphs separated by blank lines.
+4. Tone: ${toneDescription}.
+5. Open with a relevant hook tied to their industry.
+6. ${landing_url ? `End with a soft CTA that includes "${landing_url}".` : 'End with a question inviting them to reply.'}
+7. DO NOT list features or mention pricing.
+8. STOP after the CTA. No sign-off, no name. We add the signature automatically.`;
+        }
+
+        userPrompt = `Write a cold outreach email.
+
+${targetInfo}
+
+${senderInfo}
+${instructionBlock}${exampleBlock}${kbBlock}
+${rules}
+
+Format:
+Subject: [Subject line]
+Preview: [First sentence]
+Body: [Email body]`;
+      } else {
+        // ── FOLLOW-UP EMAIL ──
+        const followUpWordLimit = Math.max(40, Math.round(wordLimit * 0.65));
+        
+        const instructionBlock = hasCustomInstructions 
+          ? `\nWRITING INSTRUCTIONS (follow these EXACTLY):\n${effectiveCustomInstructions}\n`
+          : '';
+        
+        const kbBlock = (hasKB || campaign_knowledge)
+          ? `\nBRAND & PRODUCT INFO:\n${knowledgeContext || campaign_knowledge}\n`
+          : '';
+
+        userPrompt = `Write follow-up email #${sequence_number}.
+
+Context: Previous email(s) sent. No reply yet.
+${targetInfo}
+${landing_url ? `Landing URL: ${landing_url}` : ''}
+${instructionBlock}${kbBlock}
+RULES:
+1. Start with "Hi ${firstName},".
+2. Under ${followUpWordLimit} words.
+3. Reference the previous email casually.
+4. Add one new angle or value point.
+5. ${landing_url ? `Include "${landing_url}".` : 'End with a reply-inviting question.'}
+6. STOP after the CTA. No sign-off, no name.
+${hasCustomInstructions ? '7. Follow the WRITING INSTRUCTIONS above for tone and style.' : `7. Tone: ${toneDescription}.`}
+
+Format:
+Subject: [Subject]
+Preview: [First sentence]
+Body: [Body]`;
+      }
+    }
+
+    // Generate email via AI provider (OpenAI) with retries
+    let aiResult;
+    try {
+      aiResult = await generateAIWithRetries({
+        messages: [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        maxTokens: 800,
+      }, 2);
+      console.log(`[EMAIL GENERATE] Generated via ${aiResult.provider}`);
+    } catch (aiErr: any) {
+      console.error('[EMAIL GENERATE] AI generation failed:', aiErr.message);
+      return c.json({ error: 'Failed to generate email', details: aiErr.message }, 500);
+    }
+
+    const generatedText = aiResult.text;
+    if (!generatedText) {
+      return c.json({ error: 'No email generated' }, 500);
+    }
+
+    // Parse the generated email, handling potential bold markers like **Subject:**
+    const subjectMatch = generatedText.match(/(?:\*\*|\*)?Subject(?:\*\*|\*)?:?\s*(.+)/i);
+    const previewMatch = generatedText.match(/(?:\*\*|\*)?Preview(?:\*\*|\*)?:?\s*(.+)/i);
+    const bodyMatch = generatedText.match(/(?:\*\*|\*)?Body(?:\*\*|\*)?:?\s*([\s\S]+)/i);
+
+    // Helper to clean extracted value (remove leading/trailing ** or *)
+    const cleanValue = (val: string) => val.trim().replace(/^(\*\*|\*)/, '').replace(/(\*\*|\*)$/, '').trim();
+
+    const subject = subjectMatch ? cleanValue(subjectMatch[1]) : 'Your personalized offer';
+    const preview = previewMatch ? cleanValue(previewMatch[1]) : subject;
+    
+    // Clean the body text - remove Subject/Preview lines if they appear at start
+    let textBody = bodyMatch ? bodyMatch[1].trim() : generatedText;
+    
+    // Remove "Subject: ..." and "Preview: ..." lines from the start of the body
+    textBody = textBody.replace(/^(?:\*\*|\*)?Subject(?:\*\*|\*)?:.*$/mi, '').trim();
+    textBody = textBody.replace(/^(?:\*\*|\*)?Preview(?:\*\*|\*)?:.*$/mi, '').trim();
+    textBody = textBody.replace(/^(?:\*\*|\*)?Body(?:\*\*|\*)?:.*$/mi, '').trim();
+    
+    // Aggressively strip signatures/sign-offs that AI might have included despite instructions
+    // This fixes the "double signature" issue where AI adds one and we add another
+    const signOffPatterns = [
+        /Best regards,[\s\S]*$/i,
+        /Best,[\s\S]*$/i,
+        /Sincerely,[\s\S]*$/i,
+        /Cheers,[\s\S]*$/i,
+        /Thanks,[\s\S]*$/i,
+        /Looking forward to[\s\S]*$/i,
+        /Talk soon,[\s\S]*$/i,
+        /Warm regards,[\s\S]*$/i
+    ];
+    
+    for (const pattern of signOffPatterns) {
+         textBody = textBody.replace(pattern, '').trim();
+    }
+    
+    // Remove any leading newlines left after stripping
+    textBody = textBody.trim();
+
+    // Add signature
+    let signature = '';
+    const isSourcr = product.toLowerCase().includes('sourcr') || brand?.toLowerCase() === 'sourcr';
+    const isCovera = product.startsWith('covera') || brand?.toLowerCase() === 'covera';
+    const isContndr = !isRoadr && !isCovera && !isSourcr;
+    const isActualContndr = isContndr && brand?.toLowerCase() === 'contndr';
+    const isGenericUser = !isRoadr && !isCovera && !isSourcr && !isActualContndr;
+
+    // Load user's configured signature from KV
+    let userSigSettings: any = null;
+    let affiliateSlug = '';
+    if (isGenericUser || isActualContndr) {
+      try {
+        const sigRaw = await kv.get(`signature:${user.id}`);
+        userSigSettings = sigRaw ? JSON.parse(sigRaw) : null;
+      } catch (e) {
+        console.warn('[EMAIL GENERATE] Failed to load user signature settings:', e);
+      }
+    }
+    // ✅ DISABLED: Affiliate tracking removed for all users (external users should show their own website)
+    affiliateSlug = ''; // await ensureAffiliateSlug(user);
+    const userClosingLine = userSigSettings?.closing_line || 'Best Regards';
+
+    // If generic user has a custom_html signature, use it directly as the complete signature
+    if (isGenericUser && userSigSettings?.custom_html) {
+        // ✅ External users keep their own website in custom_html signatures
+        // REMOVED: Affiliate link injection into custom signatures
+        signature = `\n\n${userSigSettings.custom_html}`;
+    } else {
+        // Resolve team-style sender names to the correct brand
+        const isTeamSender = sender_name === 'Roadr Team' || sender_name === 'Contndr Team' || sender_name === 'Sourcr Team' || sender_name === 'Covera Team';
+
+        if (isTeamSender && isRoadr) {
+            signature = `\n\nBest Regards,\nRoadr Team`;
+        } else if (isTeamSender && isSourcr) {
+            signature = `\n\nBest Regards,\nSourcr Team`;
+        } else if (isTeamSender && isCovera) {
+            signature = `\n\nBest Regards,\nCovera Team`;
+        } else if (isTeamSender && isActualContndr) {
+            signature = `\n\nBest Regards,\nContndr Team`;
+        } else if (sender_name) {
+            // Use closing line from user's signature settings for generic users
+            const closing = isGenericUser ? userClosingLine : 'Best Regards';
+            signature = `\n\n${closing},\n${sender_name}${sender_title ? ` | ${sender_title}` : ''}`;
+        } else {
+            signature = '';
+        }
+        
+        if (isRoadr) {
+            if (isInvestorCampaign) {
+                 signature += `\nE: ${from_email || 'or@roadr.com'}\nW: roadr.com\nP: 323-333-9600`;
+            } else {
+                 signature += `\nE: ${from_email || 'partner@roadr.com'}\nW: roadr.com`;
+            }
+        } else if (product.startsWith('covera') || brand?.toLowerCase() === 'covera') {
+            signature += `\nE: or@covera.co\nW: covera.co\nP: 323-333-9600`;
+        } else if (product.toLowerCase().includes('sourcr') || brand?.toLowerCase() === 'sourcr') {
+            signature += `\nE: ${from_email || 'or@sourcr.net'}\nW: sourcr.net\nP: +1 (305) 602-0230`;
+        } else if (isActualContndr) {
+            signature += `\nE: ${from_email || 'sales@contndr.com'}`;
+            // ✅ Affiliate tracking removed — always show plain contndr.com
+            signature += `\nW: contndr.com`;
+        } else {
+            // Generic user campaign — use signature settings for full contact info
+            if (from_email) signature += `\nE: ${from_email}`;
+            if (userSigSettings?.phone) signature += `\nP: ${userSigSettings.phone}`;
+            // ✅ External users: ALWAYS show their own website, NEVER contndr.com
+            // REMOVED: if (affiliateSlug) { signature += `\nW: contndr.com/r/${affiliateSlug}`; }
+            if (userSigSettings?.website) {
+                signature += `\nW: ${userSigSettings.website.replace(/^https?:\/\//, '')}`;
+            } else if (landing_url) {
+                signature += `\nW: ${landing_url.replace(/^https?:\/\//, '')}`;
+            } else if (isInternalTeamMember(user.email)) {
+                // ✅ Fallback: internal team members without website → show contndr.com
+                signature += `\nW: contndr.com`;
+            }
+        }
+    }
+    
+    textBody += signature;
+
+    return c.json({
+      email: {
+        subject,
+        preview,
+        text_body: textBody,
+        html_body: textBody.replace(/\n/g, '<br>'),
+      }
+    });
+
+  } catch (error) {
+    console.error('[EMAIL GENERATE] Error:', error);
+    return c.json({ error: error.message || 'Failed to generate email' }, 500);
+  }
+});
+
+// POST /generate-followup-from-email - Generate a follow-up based on a previous email
+app.post("/make-server-a8b2511f/generate-followup-from-email", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { lead, campaign, originalEmail } = await c.req.json();
+
+    if (!lead || !campaign || !originalEmail) {
+      return c.json({ error: "Missing required fields" }, 400);
+    }
+
+    // Determine attempt number (default to 2 if not specified, assuming this is the first follow-up)
+    const attemptNumber = 2; 
+
+    const { generateFollowUpEmail } = await import("./follow-ups.tsx");
+    const result = await generateFollowUpEmail({
+      lead,
+      campaign,
+      attemptNumber,
+      previousSubject: originalEmail.subject,
+      previousBody: originalEmail.body || originalEmail.text_body
+    });
+
+    return c.json(result);
+  } catch (error) {
+    console.error('[GENERATE FOLLOWUP] Error:', error);
+    return c.json({ error: error.message || 'Failed to generate follow-up' }, 500);
+  }
+});
+
+// GET /campaigns - List all campaigns
+app.get("/make-server-a8b2511f/campaigns", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    let campaignsKV = [];
+    // Get campaigns from KV store with error handling
+    try {
+      campaignsKV = await kv.getByPrefix(`campaign:${user.id}:`) || [];
+    } catch (kvError) {
+      console.error('[CAMPAIGNS] KV store error (non-fatal):', kvError);
+      // Continue with empty array if KV fails
+    }
+    
+    // Get from DB to recover zombies
+    const { data: campaignsDB } = await supabase.from('campaigns').select('*').eq('user_id', user.id);
+    
+    // Merge: Use KV as source of truth for details, but include DB-only ones
+    const campaignsMap = new Map();
+    
+    // Add DB campaigns first (as potential zombies)
+    if (campaignsDB) {
+        campaignsDB.forEach(c => {
+             campaignsMap.set(c.id, {
+                 id: c.id,
+                 user_id: user.id,
+                 name: c.name,
+                 status: c.status,
+                 created_at: c.created_at,
+                 updated_at: c.created_at,
+                 product: c.product || 'covera', // Default to covera to avoid crash if null
+                 tone: 'professional',
+                 leads: [], 
+                 groups: [],
+                 sent_count: 0,
+                 // Mark as recovered so UI knows? Not needed, just let them delete it.
+             });
+        });
+    }
+    
+    // Overwrite/Update with KV campaigns (which have full data)
+    campaignsKV.forEach(c => {
+        campaignsMap.set(c.id, c);
+    });
+    
+    // Auto-heal: check active campaigns that may actually be completed
+    const activeCampaigns = Array.from(campaignsMap.values()).filter(
+      (c: any) => c.status === 'active' && c.leads?.length > 0
+    );
+    
+    if (activeCampaigns.length > 0) {
+      const healPromises = activeCampaigns.map(async (c: any) => {
+        try {
+          const sentKey = `campaign_sent:${user.id}:${c.id}`;
+          const sentIds = (await kv.get(sentKey)) || [];
+          // Auto-heal: clear stale retry-queue entries for already-sent leads so they don't block completion
+          if (sentIds.length > 0) {
+            try {
+              const retryJobs = await getRetryQueue(user.id, c.id);
+              for (const job of retryJobs) {
+                if (sentIds.includes(job.leadId)) await removeFromQueue(user.id, c.id, job.leadId);
+              }
+            } catch (_) {}
+          }
+          if (sentIds.length >= c.leads.length) {
+            console.log(`[CAMPAIGNS] Auto-healing stuck campaign ${c.id}: ${sentIds.length}/${c.leads.length} attempted → COMPLETED`);
+            c.status = 'completed';
+            c.updated_at = new Date().toISOString();
+            campaignsMap.set(c.id, c);
+            await kv.set(`campaign:${user.id}:${c.id}`, c);
+            try { await supabase.from('campaigns').update({ status: 'completed' }).eq('id', c.id); } catch (_) {}
+          }
+        } catch (e) {
+          // Non-fatal — don't block campaign listing
+        }
+      });
+      await Promise.all(healPromises);
+    }
+
+    // Convert to array and sort
+    const campaigns = Array.from(campaignsMap.values()).sort((a, b) => 
+        new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+    
+    return c.json({ campaigns });
+  } catch (error: any) {
+    if (!error.status) console.error('[CAMPAIGNS] Error fetching campaigns:', error);
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// POST /campaigns - Create a new campaign
+app.post("/make-server-a8b2511f/campaigns", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const campaignData = await c.req.json();
+    
+    console.log(`[CAMPAIGNS] Creating campaign for user ${user.email}: "${campaignData.name}", brand=${campaignData.brand}, from=${campaignData.from_email}, status=${campaignData.status}, scheduled=${campaignData.scheduled_time}`);
+    
+    // Generate campaign ID using UUID for database compatibility
+    const campaignId = crypto.randomUUID();
+    
+    // Create campaign object
+    const campaign = {
+      id: campaignId,
+      user_id: user.id,
+      ...campaignData,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      leads: [],
+      groups: [],
+      sent_count: 0,
+      opened_count: 0,
+      clicked_count: 0,
+      replied_count: 0,
+    };
+    
+    // Store in KV
+    await kv.set(`campaign:${user.id}:${campaignId}`, campaign);
+    console.log(`[CAMPAIGNS] Campaign ${campaignId} saved to KV for user ${user.id}`);
+
+    // Sync to DB (for FK constraints)
+    try {
+      await supabase.from('campaigns').insert({
+        id: campaignId,
+        user_id: user.id,
+        name: campaign.name || 'Untitled Campaign',
+        status: campaign.status || 'draft',
+        product: campaign.product || 'covera', // Default to covera if missing
+        brand: campaign.brand,
+        tone: campaign.tone,
+        landing_url: campaign.landing_url,
+        price_summary: campaign.price_summary,
+        from_email: campaign.from_email,
+        sender_name: campaign.sender_name,
+        sender_title: campaign.sender_title,
+        campaign_knowledge: campaign.campaign_knowledge || '',
+        scheduled_time: campaign.scheduled_time || null,
+        created_at: campaign.created_at
+      });
+    } catch (dbError) {
+      console.warn('[CAMPAIGNS] Failed to sync campaign to DB (KV only mode active):', dbError);
+    }
+    
+    return c.json({ campaign });
+  } catch (error) {
+    console.error('[CAMPAIGNS] Error creating campaign:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /campaigns/cleanup-invalid-leads - Remove invalid lead IDs from all campaigns
+app.post("/make-server-a8b2511f/campaigns/cleanup-invalid-leads", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    console.log(`[CAMPAIGNS] Starting cleanup of invalid leads for user ${user.id}`);
+    
+    // Get all valid lead IDs for this user
+    const { data: validLeads, error: leadsError } = await supabase
+      .from('leads')
+      .select('id')
+      .eq('user_id', user.id);
+    
+    if (leadsError) {
+      console.error('[CAMPAIGNS] Error fetching valid leads:', leadsError);
+      return c.json({ error: leadsError.message }, 500);
+    }
+    
+    const validLeadIds = new Set((validLeads || []).map(l => l.id));
+    console.log(`[CAMPAIGNS] User has ${validLeadIds.size} valid leads in database`);
+    
+    // Get all campaigns for this user from KV
+    const campaignKeys = await kv.getByPrefix(`campaign:${user.id}:`);
+    let totalCleaned = 0;
+    let totalRemoved = 0;
+    
+    for (const campaignData of campaignKeys) {
+      const campaign = campaignData;
+      if (!campaign || !campaign.leads || !Array.isArray(campaign.leads)) continue;
+      
+      const originalCount = campaign.leads.length;
+      const cleanedLeads = campaign.leads.filter(id => validLeadIds.has(id));
+      const removedCount = originalCount - cleanedLeads.length;
+      
+      if (removedCount > 0) {
+        console.log(`[CAMPAIGNS] Campaign "${campaign.name}" (${campaign.id}): removing ${removedCount} invalid leads (${originalCount} -> ${cleanedLeads.length})`);
+        campaign.leads = cleanedLeads;
+        campaign.updated_at = new Date().toISOString();
+        await kv.set(`campaign:${user.id}:${campaign.id}`, campaign);
+        totalCleaned++;
+        totalRemoved += removedCount;
+      }
+    }
+    
+    console.log(`[CAMPAIGNS] Cleanup complete: ${totalCleaned} campaigns cleaned, ${totalRemoved} invalid leads removed`);
+    
+    return c.json({
+      success: true,
+      campaigns_cleaned: totalCleaned,
+      leads_removed: totalRemoved,
+      message: totalCleaned > 0 
+        ? `Cleaned ${totalCleaned} campaigns, removed ${totalRemoved} invalid lead references` 
+        : 'All campaigns are clean - no invalid leads found'
+    });
+  } catch (error) {
+    console.error('[CAMPAIGNS] Error during cleanup:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /campaigns/upload-attachment - Upload a file attachment for campaigns
+// Accepts JSON body with { filename, base64, type, size } to avoid multipart parsing issues
+app.post("/make-server-a8b2511f/campaigns/upload-attachment", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    console.log(`[CAMPAIGNS] Attachment upload request from ${user.email}`);
+
+    const body = await c.req.json();
+    const { filename, base64, type, size } = body;
+
+    if (!filename || !base64) {
+      return c.json({ error: 'Missing filename or base64 data' }, 400);
+    }
+
+    // Validate file size (max 5MB)
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (size > MAX_SIZE) {
+      return c.json({ error: 'File too large. Maximum size is 5MB.' }, 400);
+    }
+
+    // Validate file type
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml',
+      'text/plain', 'text/csv',
+      'application/zip',
+      'application/octet-stream', // fallback for unknown types
+    ];
+
+    if (type && !allowedTypes.includes(type)) {
+      return c.json({ error: `File type "${type}" is not supported. Supported: PDF, Word, Excel, PowerPoint, images, CSV, TXT, ZIP.` }, 400);
+    }
+
+    // Decode base64 to binary
+    const binaryStr = atob(base64);
+    const uint8 = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      uint8[i] = binaryStr.charCodeAt(i);
+    }
+
+    const bucketName = 'make-a8b2511f';
+    const { data: buckets } = await supabase.storage.listBuckets();
+    if (!buckets?.some((b: any) => b.name === bucketName)) {
+      await supabase.storage.createBucket(bucketName, { public: false });
+    }
+
+    const sanitizedName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `campaign-attachments/${user.id}/${Date.now()}_${sanitizedName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(bucketName)
+      .upload(storagePath, uint8, { contentType: type || 'application/octet-stream', upsert: false });
+
+    if (uploadError) {
+      console.error('[CAMPAIGNS] Attachment storage upload error:', uploadError);
+      return c.json({ error: `Upload failed: ${uploadError.message}` }, 500);
+    }
+
+    const attachment = {
+      id: crypto.randomUUID(),
+      filename,
+      size: size || uint8.length,
+      type: type || 'application/octet-stream',
+      storagePath,
+    };
+
+    console.log(`[CAMPAIGNS] Attachment uploaded: ${filename} (${(uint8.length / 1024).toFixed(1)}KB) → ${storagePath}`);
+    return c.json({ success: true, attachment });
+  } catch (error: any) {
+    console.error('[CAMPAIGNS] Attachment upload error:', error);
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// DELETE /campaigns/attachment - Remove an uploaded attachment
+app.delete("/make-server-a8b2511f/campaigns/attachment", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const { storagePath } = await c.req.json();
+    if (!storagePath) return c.json({ error: 'Missing storagePath' }, 400);
+    if (!storagePath.includes(user.id)) return c.json({ error: 'Unauthorized' }, 403);
+
+    const bucketName = 'make-a8b2511f';
+    const { error } = await supabase.storage.from(bucketName).remove([storagePath]);
+    if (error) {
+      console.error('[CAMPAIGNS] Attachment delete error:', error);
+      return c.json({ error: error.message }, 500);
+    }
+
+    console.log(`[CAMPAIGNS] Attachment deleted: ${storagePath}`);
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('[CAMPAIGNS] Attachment delete error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /campaigns/:id - Get a single campaign
+app.get("/make-server-a8b2511f/campaigns/:id", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    
+    // Try KV first
+    let campaign = await kv.get(`campaign:${user.id}:${campaignId}`);
+    
+    // Fallback to DB if not found
+    if (!campaign) {
+      const { data: dbCampaign } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('id', campaignId)
+        .eq('user_id', user.id)
+        .single();
+        
+      if (dbCampaign) {
+        campaign = {
+          ...dbCampaign,
+          leads: [], 
+          groups: [],
+          sent_count: 0
+        };
+      }
+    }
+    
+    if (!campaign) {
+      return c.json({ error: 'Campaign not found' }, 404);
+    }
+    
+    return c.json(campaign);
+  } catch (error) {
+    console.error('[CAMPAIGNS] Error fetching campaign:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /campaigns/:id/leads - Add leads to campaign
+app.post("/make-server-a8b2511f/campaigns/:id/leads", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    const { lead_ids } = await c.req.json();
+    
+    console.log(`[CAMPAIGNS] Adding ${lead_ids?.length || 0} leads to campaign ${campaignId} for user ${user.id}`);
+    
+    // VALIDATION: Verify that all lead IDs belong to the user (prevent data integrity issues)
+    // Wrapped in withDbRetry to survive PostgREST cold-start schema-cache errors.
+    // On any DB failure we fall back to trusting the authenticated caller — the same
+    // logic already used when the ownership check returns 0 rows.
+    let validatedLeadIds = lead_ids;
+    
+    if (lead_ids && lead_ids.length > 0) {
+      let validLeads: { id: string }[] | null = null;
+      let validateError: any = null;
+      try {
+        const result = await withDbRetry(
+          () => supabase
+            .from('leads')
+            .select('id')
+            .in('id', lead_ids)
+            .eq('user_id', user.id),
+          'campaigns/:id/leads validate'
+        );
+        validLeads = result.data;
+        validateError = result.error;
+      } catch (dbErr: any) {
+        // DB unavailable (schema cache, connection reset, etc.) — skip ownership
+        // check and trust the authenticated caller so campaign creation succeeds.
+        console.warn(`[CAMPAIGNS] DB validation threw (${dbErr?.message?.slice(0, 120)}) — falling back to trusting authenticated caller`);
+        validatedLeadIds = lead_ids;
+        validateError = null; // handled above
+      }
+      
+      if (validateError) {
+        // Soft-fail: log and trust caller rather than blocking campaign creation.
+        console.warn(`[CAMPAIGNS] Lead ownership query returned error for user ${user.id}: ${validateError.message} — trusting caller`);
+        // validatedLeadIds already = lead_ids (fallback)
+      } else if (validLeads !== null) {
+        const validLeadIds = new Set((validLeads || []).map(l => l.id));
+        const invalidLeadIds = lead_ids.filter(id => !validLeadIds.has(id));
+        
+        if (invalidLeadIds.length > 0) {
+          console.warn(`[CAMPAIGNS] Rejected ${invalidLeadIds.length} lead IDs that don't belong to user ${user.id}: ${JSON.stringify(invalidLeadIds)}`);
+          
+          // Filter to only valid leads
+          validatedLeadIds = lead_ids.filter(id => validLeadIds.has(id));
+          
+          if (validatedLeadIds.length === 0) {
+            // Fallback: the DB ownership check found no matches, but the caller is authenticated.
+            // This can happen when leads were imported without a user_id, belong to a sub-account,
+            // or were browsed via the admin lead browser. Trust the authenticated caller and proceed.
+            console.warn(`[CAMPAIGNS] DB ownership check returned 0 valid leads for user ${user.id} — falling back to trusting the authenticated caller's ${lead_ids.length} lead IDs`);
+            validatedLeadIds = lead_ids;
+          } else {
+            // Continue with valid leads only
+            console.log(`[CAMPAIGNS] Proceeding with ${validatedLeadIds.length} valid leads (filtered out ${invalidLeadIds.length} invalid)`);
+          }
+        }
+      }
+    }
+    
+    // Get existing campaign
+    const campaign = await kv.get(`campaign:${user.id}:${campaignId}`);
+    if (!campaign) {
+      return c.json({ error: 'Campaign not found' }, 404);
+    }
+    
+    // Add leads to campaign (only validated ones)
+    campaign.leads = [...new Set([...(campaign.leads || []), ...validatedLeadIds])];
+    campaign.updated_at = new Date().toISOString();
+    
+    // Save updated campaign
+    await kv.set(`campaign:${user.id}:${campaignId}`, campaign);
+    
+    console.log(`[CAMPAIGNS] Campaign ${campaignId} now has ${campaign.leads.length} total leads`);
+    return c.json({ success: true, total_leads: campaign.leads.length });
+  } catch (error) {
+    console.error('[CAMPAIGNS] Error adding leads:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /campaigns/:id/groups - Add groups to campaign
+app.post("/make-server-a8b2511f/campaigns/:id/groups", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    const { group_ids } = await c.req.json();
+    
+    // Get existing campaign
+    const campaign = await kv.get(`campaign:${user.id}:${campaignId}`);
+    if (!campaign) {
+      return c.json({ error: 'Campaign not found' }, 404);
+    }
+    
+    // Add groups to campaign
+    campaign.groups = [...new Set([...(campaign.groups || []), ...group_ids])];
+    campaign.updated_at = new Date().toISOString();
+    
+    // Save updated campaign
+    await kv.set(`campaign:${user.id}:${campaignId}`, campaign);
+    
+    return c.json({ success: true, total_groups: campaign.groups.length });
+  } catch (error) {
+    console.error('[CAMPAIGNS] Error adding groups:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /campaigns/:id/send-batch - Send campaign emails in batches
+app.post("/make-server-a8b2511f/campaigns/:id/send-batch", async (c) => {
+  // ── inFlightKey MUST live outside the try block ───────────────────
+  // `const` inside try {} is block-scoped and invisible to finally {}.
+  // Declaring it here with `let` means the finally clause can always
+  // call campaignSendInFlight.delete(inFlightKey) regardless of which
+  // return path is taken (normal return, early return, or thrown error).
+  let inFlightKey = '';
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    const limit = parseInt(c.req.query('limit') || '10');
+
+    // ── Server-side in-flight guard ──────────────────────────────────
+    inFlightKey = `${user.id}:${campaignId}`;
+    if (campaignSendInFlight.has(inFlightKey)) {
+      console.warn(`[SEND-BATCH] Campaign ${campaignId} is already in-flight on this isolate — returning 409 to caller`);
+      // Note: we do NOT set the key here, so the finally block's delete() is a no-op.
+      return c.json({ error: 'Campaign send already in progress', already_sending: true }, 409);
+    }
+    campaignSendInFlight.set(inFlightKey, new Date().toISOString());
+    // Released unconditionally in the finally block below.
+    // ────────────────────────────────────────────────────────────────
+
+    // Check if user is admin
+    const isAdmin = isAdminEmail(user.email);
+    console.log(`[SEND-BATCH] Starting for campaign ${campaignId}, user ${user.email}${isAdmin ? ' [ADMIN]' : ''}, limit ${limit}`);
+    
+    // Get campaign
+    const campaign = await kv.get(`campaign:${user.id}:${campaignId}`);
+    if (!campaign) {
+      console.error(`[SEND-BATCH] Campaign ${campaignId} not found in KV for user ${user.id}`);
+      return c.json({ error: 'Campaign not found' }, 404);
+    }
+    
+    console.log(`[SEND-BATCH] Campaign "${campaign.name}": ${(campaign.leads || []).length} leads, status=${campaign.status}`);
+    
+    // CRITICAL: Ensure campaign exists in DB before sending emails (required for FK constraints)
+    try {
+      const { data: existingCampaign } = await supabase
+        .from('campaigns')
+        .select('id')
+        .eq('id', campaignId)
+        .single();
+      
+      if (!existingCampaign) {
+        // Campaign doesn't exist in DB, insert it now
+        console.log(`[CAMPAIGNS] Campaign ${campaignId} not in DB, syncing now...`);
+        await supabase.from('campaigns').insert({
+          id: campaignId,
+          user_id: user.id,
+          name: campaign.name || 'Untitled Campaign',
+          status: campaign.status || 'draft',
+          product: campaign.product || 'covera',
+          brand: campaign.brand,
+          tone: campaign.tone,
+          landing_url: campaign.landing_url,
+          price_summary: campaign.price_summary,
+          from_email: campaign.from_email,
+          sender_name: campaign.sender_name,
+          sender_title: campaign.sender_title,
+          created_at: campaign.created_at || new Date().toISOString()
+        });
+        console.log(`[CAMPAIGNS] Successfully synced campaign ${campaignId} to DB`);
+      }
+    } catch (syncError) {
+      console.error(`[CAMPAIGNS] Failed to sync campaign to DB:`, syncError);
+      // Continue anyway - the FK violation handler will try again
+    }
+    
+    // Update campaign status if it's draft
+    if (campaign.status === 'draft') {
+      campaign.status = 'active';
+      campaign.updated_at = new Date().toISOString();
+      await kv.set(`campaign:${user.id}:${campaignId}`, campaign);
+      
+      // Try to sync to DB for good measure (KV is primary but DB might be used for filtering)
+      try {
+        await supabase.from('campaigns').update({ status: 'active' }).eq('id', campaignId);
+      } catch (e) {
+        // Ignore DB sync error
+      }
+    }
+    
+    // Get sent lead IDs from KV store
+    const sentLeadsKey = `campaign_sent:${user.id}:${campaignId}`;
+    const sentLeadIds = (await kv.get(sentLeadsKey)) || [];
+    
+    // Filter out already sent leads
+    const unsentLeadIds = (campaign.leads || []).filter((id: string) => !sentLeadIds.includes(id));
+    console.log(`[SEND-BATCH] Total leads: ${(campaign.leads || []).length}, Already sent: ${sentLeadIds.length}, Unsent: ${unsentLeadIds.length}`);
+    
+    if (unsentLeadIds.length === 0) {
+      // Mark as completed if not already
+      if (campaign.status !== 'completed') {
+        campaign.status = 'completed';
+        campaign.updated_at = new Date().toISOString();
+        await kv.set(`campaign:${user.id}:${campaignId}`, campaign);
+        try { await supabase.from('campaigns').update({ status: 'completed' }).eq('id', campaignId); } catch(e) {}
+      }
+
+      return c.json({ 
+        success: true, 
+        sent: 0, 
+        message: 'No more leads to send to',
+        campaign_complete: true 
+      });
+    }
+    
+    // Get next batch of unsent leads
+    const batchLeadIds = unsentLeadIds.slice(0, limit);
+    console.log(`[SEND-BATCH] Batch lead IDs to fetch: ${JSON.stringify(batchLeadIds)}`);
+
+    // ── CLAIM-FIRST: write batchLeadIds into sentLeadsKey BEFORE generating
+    //    or sending any email. Any concurrent send-batch request (on another
+    //    isolate or via campaign-monitor) that reads sentLeadsKey after this
+    //    write will see these leads as "already sent" and skip them.
+    //    Trade-off: if the isolate crashes mid-batch, those leads are skipped
+    //    on resume — far better than sending duplicate emails.
+    if (batchLeadIds.length > 0) {
+      try {
+        const claimedNow = [...new Set([...sentLeadIds, ...batchLeadIds])];
+        await kv.set(sentLeadsKey, claimedNow);
+        console.log(`[SEND-BATCH] Claimed ${batchLeadIds.length} lead(s) in KV before sending — concurrent requests will skip these`);
+      } catch (claimErr) {
+        console.warn('[SEND-BATCH] Failed to pre-claim leads in KV (duplicate risk elevated):', claimErr);
+      }
+    }
+    
+    // Get leads for this batch
+    // For admins: fetch leads regardless of user_id (they can send to any leads)
+    // For regular users: only fetch their own leads
+    let leadsQuery = supabase
+      .from('leads')
+      .select('*')
+      .in('id', batchLeadIds);
+    
+    // Only filter by user_id for non-admin users
+    if (!isAdmin) {
+      leadsQuery = leadsQuery.eq('user_id', user.id);
+    }
+    
+    const { data: leads, error: leadsError } = await leadsQuery;
+      
+    if (leadsError) {
+      console.error('[SEND-BATCH] Error fetching leads:', leadsError);
+      return c.json({ error: leadsError.message }, 500);
+    }
+    
+    console.log(`[SEND-BATCH] Fetched ${leads?.length || 0} leads from DB (expected: ${batchLeadIds.length})`);
+    if (leads && leads.length > 0) {
+      console.log(`[SEND-BATCH] Lead emails: ${leads.map(l => l.email).join(', ')}`);
+    }
+    
+    // Identify missing leads (deleted from DB or inaccessible)
+    const foundLeadIds = new Set((leads || []).map(l => l.id));
+    const missingLeadIds = batchLeadIds.filter(id => !foundLeadIds.has(id));
+    
+    if (missingLeadIds.length > 0) {
+      console.log(`[SEND-BATCH] INFO: ${missingLeadIds.length} lead(s) not found in DB (deleted or reassigned). Removing from campaign.`);
+      
+      // CLEANUP: Remove invalid lead IDs from campaign to prevent future errors or infinite loops
+      const cleanedLeads = (campaign.leads || []).filter((id: string) => !missingLeadIds.includes(id));
+      
+      if (cleanedLeads.length !== campaign.leads.length) {
+        campaign.leads = cleanedLeads;
+        campaign.updated_at = new Date().toISOString();
+        await kv.set(`campaign:${user.id}:${campaignId}`, campaign);
+      }
+      
+      // If none of the requested leads were found, skip this batch or complete campaign
+      if (!leads || leads.length === 0) {
+        const remainingUnsent = cleanedLeads.filter((id: string) => !sentLeadIds.includes(id));
+        if (remainingUnsent.length === 0 && campaign.status !== 'completed') {
+          campaign.status = 'completed';
+          campaign.updated_at = new Date().toISOString();
+          await kv.set(`campaign:${user.id}:${campaignId}`, campaign);
+          try { await supabase.from('campaigns').update({ status: 'completed' }).eq('id', campaignId); } catch(e) {}
+          
+          return c.json({ 
+            success: true, 
+            sent: 0, 
+            message: 'Campaign completed (all leads sent or removed)',
+            campaign_complete: true 
+          });
+        }
+  
+        // If there are still unsent leads, return success but skip this batch
+        return c.json({ 
+          success: true, 
+          sent: 0, 
+          message: 'Skipped invalid leads, retrying with next batch',
+          campaign_complete: false,
+          remaining: remainingUnsent.length
+        });
+      }
+    }
+    
+    console.log(`[SEND-BATCH] ✅ Starting email generation and sending for ${leads.length} leads...`);
+    
+    // Pre-load user's signature settings from KV (used for generic user campaigns)
+    let batchUserSigSettings: any = null;
+    try {
+      const sigRaw = await kv.get(`signature:${user.id}`);
+      batchUserSigSettings = sigRaw ? JSON.parse(sigRaw) : null;
+    } catch (e) {
+      console.warn('[SEND-BATCH] Failed to load user signature settings:', e);
+    }
+
+    // ✅ DISABLED: Affiliate tracking removed for all users (external users should show their own website)
+    const batchAffiliateSlug = ''; // await ensureAffiliateSlug(user);
+
+    // Send emails (this would integrate with your actual email sender)
+    let sent = 0;
+    const newlySentIds: string[] = [];
+    const newlyAttemptedIds: string[] = []; // Track all attempted leads (success + fail) so campaign can complete
+    const emailsSent: { leadName: string; leadEmail: string; subject: string; body: string; fromEmail: string; success: boolean; error?: string; bounced?: boolean; retryQueued?: boolean }[] = [];
+
+    // Verify at least one AI provider is configured
+    const hasAIProvider = Deno.env.get('OPENAI_API_KEY');
+    if (!hasAIProvider) {
+      console.error('[CAMPAIGNS] No AI provider configured (need OPENAI_API_KEY)');
+      return c.json({ error: "No AI provider configured" }, 500);
+    }
+
+    // ── Load campaign attachments from storage (once, before the loop) ──
+    let emailAttachments: { filename: string; content: string }[] | undefined;
+    if (campaign.attachments && Array.isArray(campaign.attachments) && campaign.attachments.length > 0) {
+      const bucketName = 'make-a8b2511f';
+      emailAttachments = [];
+      for (const att of campaign.attachments) {
+        try {
+          const { data: fileData, error: dlError } = await supabase.storage
+            .from(bucketName)
+            .download(att.storagePath);
+          if (dlError || !fileData) {
+            console.error(`[SEND-BATCH] Failed to download attachment ${att.filename}:`, dlError);
+            continue;
+          }
+          const arrayBuffer = await fileData.arrayBuffer();
+          const uint8 = new Uint8Array(arrayBuffer);
+          // Convert to base64 for Resend API
+          let binary = '';
+          for (let i = 0; i < uint8.length; i++) {
+            binary += String.fromCharCode(uint8[i]);
+          }
+          const base64 = btoa(binary);
+          emailAttachments.push({ filename: att.filename, content: base64 });
+          console.log(`[SEND-BATCH] Loaded attachment: ${att.filename} (${(att.size / 1024).toFixed(1)}KB)`);
+        } catch (attErr) {
+          console.error(`[SEND-BATCH] Error loading attachment ${att.filename}:`, attErr);
+        }
+      }
+      if (emailAttachments.length === 0) emailAttachments = undefined;
+      else console.log(`[SEND-BATCH] ${emailAttachments.length} attachment(s) ready for sending`);
+    }
+    
+    for (const lead of leads) {
+      console.log(`[SEND-BATCH] Processing lead ${lead.id} (${lead.email})...`);
+      try {
+        if (!lead.email || !lead.email.trim()) {
+            console.warn(`[CAMPAIGNS] Skipping lead ${lead.id}: No email address provided.`);
+            continue;
+        }
+
+        // ── Bounce check: skip leads already marked as bounced ──
+        if (lead.bounced) {
+          console.log(`[SEND-BATCH] Skipping lead ${lead.id} (${lead.email}): Already marked as bounced`);
+          newlyAttemptedIds.push(lead.id);
+          continue;
+        }
+
+        // ── Compliance check: skip blacklisted/unsubscribed leads ──
+        const complianceResult = await checkCompliance(user.id, lead.email);
+        if (!complianceResult.allowed) {
+          console.log(`[SEND-BATCH] Skipping lead ${lead.id} (${lead.email}): ${complianceResult.reason}`);
+          newlyAttemptedIds.push(lead.id);
+          continue;
+        }
+
+        // Hoist isUuid so both the dedup guard and the pre-insert can reference it.
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(campaignId);
+
+        // ── Cross-isolate dedup guard ─────────────────────────────────────
+        // The in-memory campaignSendInFlight lock only works within ONE isolate.
+        // Two concurrent Edge Function instances both pass that check because
+        // they each have separate memory.  The only shared source of truth is
+        // the Postgres DB — so we check it here, per lead, before doing any
+        // work.  If a queued/sent email already exists for this lead at
+        // sequence_number=1 in this campaign, another isolate beat us — skip.
+        if (isUuid) {
+          try {
+            const { count: existingCount } = await supabase
+              .from('emails')
+              .select('id', { count: 'exact', head: true })
+              .eq('campaign_id', campaignId)
+              .eq('lead_id', lead.id)
+              .eq('sequence_number', 1)
+              .in('status', ['queued', 'sent', 'delivered', 'opened']);
+
+            if ((existingCount ?? 0) > 0) {
+              console.warn(`[SEND-BATCH] ⏭️ Skipping lead ${lead.id} (${lead.email}) — sequence #1 already exists (cross-isolate dedup guard)`);
+              newlyAttemptedIds.push(lead.id); // mark attempted so KV sentLeadIds is updated
+              continue;
+            }
+          } catch (dedupErr: any) {
+            // DB check failed — allow send to proceed (fail open, like checkAndMarkEmailSent)
+            console.warn(`[SEND-BATCH] Dedup check failed for lead ${lead.id} (proceeding):`, dedupErr?.message?.slice(0, 80));
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────
+
+        const firstName = lead.first_name || (lead.contact_name ? lead.contact_name.split(' ')[0] : '') || 'there';
+        // --- PROMPT GENERATION LOGIC (MATCHING /emails/generate) ---
+        const product = campaign.product;
+        const tone = campaign.tone;
+        const landing_url = campaign.landing_url;
+        const price_summary = campaign.price_summary;
+        const sender_name = campaign.sender_name;
+        const sender_title = campaign.sender_title;
+        const campaign_knowledge = campaign.campaign_knowledge;
+        const rawBrand = campaign.brand;
+        // 'custom' and 'default' are internal UI flags, not real brand names.
+        // Normalize so ${brand || product} in prompts falls through to actual product description.
+        const brand = (rawBrand && rawBrand !== 'custom' && rawBrand !== 'default') ? rawBrand : '';
+        const from_email = campaign.from_email;
+        // const sequence_number = 1; // Assuming initial send for send-batch
+        
+        const isSourcrCampaign = product?.toLowerCase().includes('sourcr') || brand?.toLowerCase().includes('sourcr');
+        const isInvestorCampaign = product?.toLowerCase().includes('investor') || brand?.toLowerCase().includes('investor');
+        const isCoveraCampaign = product?.toLowerCase().includes('covera') || brand?.toLowerCase().includes('covera');
+        const isRoadr = product?.toLowerCase().includes('roadr') || brand?.toLowerCase() === 'roadr';
+
+        // Load user's knowledge base context + writing overrides (load once on first lead, reuse for the rest)
+        if (sent === 0) {
+          try {
+            const kbCtx = await getKnowledgeBaseContext(user.id, brand || 'all', campaign_knowledge);
+            if (kbCtx) {
+              console.log(`[CAMPAIGNS] Loaded KB context for user ${user.id} (brand: ${brand || 'all'}): ${kbCtx.length} chars`);
+              (campaign as any)._knowledgeContext = kbCtx;
+            }
+            const kbOverrides = await getKBWritingOverrides(user.id, brand || 'all');
+            if (Object.keys(kbOverrides).length > 0) {
+              console.log(`[CAMPAIGNS] KB writing overrides:`, kbOverrides);
+              (campaign as any)._kbWritingOverrides = kbOverrides;
+            }
+          } catch (kbErr) {
+            console.warn('[CAMPAIGNS] Failed to load knowledge base context:', kbErr);
+          }
+        }
+        const knowledgeContext = (campaign as any)._knowledgeContext || '';
+        const batchKBOverrides = (campaign as any)._kbWritingOverrides || {};
+
+        // Build the prompt based on product type and sequence
+        let systemMessage = "";
+        let userPrompt = "";
+        
+        if (isInvestorCampaign) {
+          // Investor campaign prompts
+          systemMessage = `You are Otiniel Ribeiro, CEO of Roadr. Roadr is the "Daily Operating System for Car Ownership".${knowledgeContext.trim() ? `\n\nIMPORTANT CONTEXT FROM KNOWLEDGE BASE — use this to tailor your email:\n${knowledgeContext}` : ''}`;
+          
+          if (isRoadr) {
+             userPrompt = `Write a LOW-FRICTION outreach email to an investor.
+
+Lead Name: ${lead.first_name || lead.contact_name?.split(' ')[0] || 'there'}
+Link: investor.roadr.com
+${campaign_knowledge ? `\nCAMPAIGN CONTEXT (use this to shape messaging, tone, and talking points):\n${campaign_knowledge}\n` : ''}
+RULES:
+1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+2. Format: STRICTLY under 75 words.
+3. Structure: Write 2-3 SHORT paragraphs. MUST separate each paragraph with a BLANK LINE (double line break between paragraphs).
+4. Approach: "Reach not Pitch". No hard selling.
+4. Content:
+   - Remove "Top 10" or bragging stats.
+   - Focus on the "Daily Operating System for Car Ownership" concept.
+   - CTA: Ask them to TRY the product to see if it adds value or fits their thesis.
+5. Clean Text: DO NOT use hyphens, dashes, or em-dashes. Use commas or periods instead.
+
+- STOP after the CTA. Do NOT write a sign-off or your name.
+
+Format:
+Subject: [Subject]
+Preview: [First sentence]
+Body: [Body]`;
+          } else {
+             userPrompt = `Write a HIGH-SIGNAL cold email to an investor.
+
+Lead: ${lead.business_name || lead.first_name || 'there'}
+Product: ${brand || 'our startup'}
+Ask: ${price_summary || 'investment'}
+${campaign_knowledge ? `\nCAMPAIGN CONTEXT (use this to shape messaging, tone, and talking points):\n${campaign_knowledge}\n` : ''}
+RULES:
+1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+2. Format: STRICTLY under 75 words.
+3. Structure: Use short, concise paragraphs. Avoid walls of text.
+4. Tone: Founder-led, casual.
+4. Clean Text: DO NOT use hyphens, dashes, or em-dashes.
+5. Goal: Get a meeting.
+
+- STOP after the CTA. Do NOT write a sign-off or your name.
+
+Format:
+Subject: [Subject]
+Preview: [First sentence]
+Body: [Body]`;
+          }
+        } else if (isCoveraCampaign) {
+          // Covera campaign prompts
+          systemMessage = `You are Otiniel Ribeiro, founder of Covera. You write high-converting cold emails that help business owners solve vendor risk and compliance headaches.${knowledgeContext.trim() ? `\n\nIMPORTANT CONTEXT FROM KNOWLEDGE BASE — use this to tailor your email:\n${knowledgeContext}` : ''}`;
+          
+          userPrompt = `Write a HIGH-CONVERTING cold email to the owner of ${lead.business_name || 'this business'}.
+
+BUSINESS DETAILS:
+Business Name: ${lead.business_name || 'their business'}
+Industry: ${lead.category || lead.industry || 'Business'}
+Location: ${lead.city || 'your area'}
+Owner/Contact: ${lead.contact_name || 'there'}
+
+PRODUCT: Covera - Vendor Risk Management (we manage the risk vendors introduce, NOT the vendors themselves).
+Landing URL: ${landing_url || 'covera.co'}
+${campaign_knowledge ? `\nCAMPAIGN CONTEXT (use this to shape messaging, hooks, and talking points — takes priority over defaults):\n${campaign_knowledge}\n` : ''}
+RULES (The "3-Step Play"):
+1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+2. Educate & Dig: Address the risk vendors introduce (insurance/compliance) - we manage the RISK, not the vendors.
+3. Format: STRICTLY under 75 words total.
+4. Structure: Write 2-3 SHORT paragraphs. MUST separate each paragraph with a BLANK LINE (double line break between paragraphs).
+5. Voice: Use the customer's language. Be conversational.
+6. CTA: You MUST include the link "covera.co" in the closing sentence.
+7. Clean Text: DO NOT use hyphens, dashes, or em-dashes. Use commas or periods instead.
+
+- DO NOT mention price.
+- DO NOT use placeholders.
+- STOP after the CTA. Do NOT write a sign-off (e.g. "Best", "Thanks") or your name. We add the signature automatically.
+
+Format:
+Subject: [Curiosity-inducing subject]
+Preview: [First sentence]
+Body: [Email body]`;
+        } else if (isSourcrCampaign) {
+          // Sourcr Campaign - Digital Product Studio
+          systemMessage = `You are a representative of Sourcr (sourcr.net). You write high-converting cold emails helping businesses improve their digital presence.${knowledgeContext.trim() ? `\n\nIMPORTANT CONTEXT FROM KNOWLEDGE BASE — use this to tailor your email:\n${knowledgeContext}` : ''}`;
+          
+          userPrompt = `Write a HIGH-CONVERTING cold email for ${lead.business_name || 'this business'}.
+
+BUSINESS DETAILS:
+Business: ${lead.business_name || 'Business'}
+Location: ${lead.city || ''}
+Category: ${lead.category || lead.industry || 'Business'}
+
+PRODUCT: Sourcr (Digital Product Studio - Websites & Apps).
+Landing URL: sourcr.net
+${campaign_knowledge ? `\nCAMPAIGN CONTEXT (use this to shape messaging and talking points — takes priority over defaults):\n${campaign_knowledge}\n` : ''}
+RULES (The "3-Step Play"):
+1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+2. Educate & Dig: Address how a poor digital presence hurts their specific industry.
+3. Format: STRICTLY under 75 words total.
+4. Structure: Write 2-3 SHORT paragraphs. MUST separate each paragraph with a BLANK LINE (double line break between paragraphs).
+5. Voice: Use the customer's language. Be conversational.
+6. CTA: You MUST include the link "sourcr.net" in the closing sentence.
+7. Clean Text: DO NOT use hyphens, dashes, or em-dashes. Use commas or periods instead.
+
+- DO NOT mention price.
+- DO NOT mention "tenant screening" (unless real estate).
+- STOP after the CTA. Do NOT write a sign-off (e.g. "Best", "Thanks") or your name. We add the signature automatically.
+
+Format:
+Subject: [Curiosity-inducing subject]
+Preview: [First sentence]
+Body: [Email body]`;
+        } else {
+          // ══════════════════════════════════════════════════════════════════
+          // STANDARD B2B CAMPAIGN — Fully user-controlled email generation
+          // Mirrors /emails/generate logic. User's custom_instructions and 
+          // campaign_knowledge are the PRIMARY drivers.
+          // ══════════════════════════════════════════════════════════════════
+          const hasKB = !!knowledgeContext.trim();
+          const batchCustomInstructions = campaign.custom_instructions || '';
+          const batchExampleEmail = campaign.example_email || '';
+          const hasCustomInstructions = !!batchCustomInstructions.trim();
+          const hasExampleEmail = !!batchExampleEmail.trim();
+          const wordLimit = campaign.max_words || 75;
+
+          const toneMap: Record<string, string> = {
+            'casual': 'casual and conversational, like texting a colleague',
+            'professional': 'professional and polished but still human',
+            'enthusiastic': 'energetic, enthusiastic, and exciting',
+            'direct': 'direct and to the point, no fluff',
+            'friendly': 'warm, friendly, and approachable',
+            'formal': 'formal and business-appropriate',
+            'witty': 'clever and witty with personality',
+            'empathetic': 'empathetic and understanding of their challenges',
+          };
+          const toneDescription = toneMap[tone] || 'natural and human';
+
+          if (hasCustomInstructions || hasExampleEmail) {
+            systemMessage = `You are a ghostwriter for the sender. Your ONLY job is to follow the sender's writing instructions exactly. Do not add your own style or "improvements". Do not make it sound more sophisticated than asked.
+
+ABSOLUTE RULES:
+- The sender's WRITING INSTRUCTIONS are your bible. Follow them word for word.
+- If they say "write like a normal person", do that. Not like a copywriter.
+- If they say "keep it simple", use simple words.
+- If they say "sound like me", match the example email's exact tone and vocabulary.
+- Do NOT add "not public yet", "exclusive access", "limited spots" unless instructions say to.
+- Do NOT reference Contndr, Sourcr, Roadr, or Covera unless instructions mention them.
+- STOP after the CTA. No sign-off, closing, or name. Signature is added automatically.`;
+          } else if (hasKB) {
+            systemMessage = `You are a cold email writer for the sender's brand. Write based on their knowledge base. Tone: ${toneDescription}. Do NOT invent features or claims. Do NOT add "exclusive access" or "waitlist" phrases. STOP after CTA. No sign-off.`;
+          } else {
+            systemMessage = `You are writing a cold outreach email. Tone: ${toneDescription}. Sound like a real person. No "exclusive access" or "waitlist" phrases. STOP after CTA. No sign-off.`;
+          }
+
+          const targetInfo = `TARGET:\nName: ${lead.business_name || 'Business'}\nContact: ${firstName}\nIndustry: ${lead.category || lead.industry || ''}\nLocation: ${lead.city || ''}`;
+          const senderInfo = `SENDER:\n${sender_name ? `Name: ${sender_name}` : ''}\n${sender_title ? `Title: ${sender_title}` : ''}\nProduct/Brand: ${brand || product || 'our product'}\n${landing_url ? `Landing URL: ${landing_url}` : ''}`;
+
+          const instructionBlock = hasCustomInstructions ? `\nWRITING INSTRUCTIONS (follow these EXACTLY):\n${batchCustomInstructions}\n` : '';
+          const exampleBlock = hasExampleEmail ? `\nEXAMPLE EMAIL (mimic this style closely):\n---\n${batchExampleEmail}\n---\nWrite a NEW email in the same style. Do NOT copy it.\n` : '';
+          const kbBlock = (hasKB || campaign_knowledge) ? `\nBRAND & PRODUCT INFO:\n${knowledgeContext || campaign_knowledge}\n` : '';
+
+          let rules = '';
+          if (hasCustomInstructions) {
+            rules = `FORMATTING RULES:\n1. Start with "Hi ${firstName},".\n2. Under ${wordLimit} words.\n3. Separate paragraphs with blank lines.\n4. ${landing_url ? `Include "${landing_url}" in your CTA.` : 'End with a question inviting reply.'}\n5. STOP after CTA. No sign-off, no name.\n6. Follow the WRITING INSTRUCTIONS for everything else.`;
+          } else {
+            rules = `RULES:\n1. Start with "Hi ${firstName},".\n2. Under ${wordLimit} words.\n3. Write 2-3 short paragraphs separated by blank lines.\n4. Tone: ${toneDescription}.\n5. Open with a relevant hook.\n6. ${landing_url ? `End with a soft CTA including "${landing_url}".` : 'End with a reply-inviting question.'}\n7. DO NOT list features or mention pricing.\n8. STOP after CTA. No sign-off, no name.`;
+          }
+
+          userPrompt = `Write a cold outreach email.\n\n${targetInfo}\n\n${senderInfo}\n${instructionBlock}${exampleBlock}${kbBlock}\n${rules}\n\nFormat:\nSubject: [Subject line]\nPreview: [First sentence]\nBody: [Email body]`;
+        }
+
+        // Generate email for this lead (OpenAI)
+        let generatedEmail = '';
+        try {
+          const batchAiResult = await generateAIWithRetries({
+            messages: [
+              { role: 'system', content: systemMessage },
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.7,
+            maxTokens: 800,
+          }, 2);
+          generatedEmail = batchAiResult.text || '';
+          console.log(`[SEND-BATCH] Generated email for lead ${lead.id} via ${batchAiResult.provider} (${generatedEmail.length} chars)`);
+        } catch (batchAiErr: any) {
+          console.error(`[SEND-BATCH] AI generation failed for lead ${lead.id}: ${batchAiErr.message}`);
+          const errMsg = batchAiErr.message || 'AI generation failed';
+          const classification = classifyFailure(errMsg);
+          // Prefer personal name (contact_name/first_name) over company name; filter out placeholder values
+          const _rawContactName12148 = lead.contact_name || '';
+          const _cleanContact12148 = ['Visitor', 'Unknown', 'Anonymous Visitor', 'Anonymous'].includes(_rawContactName12148.trim()) ? '' : _rawContactName12148.trim();
+          const leadDisplayName = _cleanContact12148 || lead.first_name || lead.business_name || lead.email;
+          
+          if (classification.isTransient) {
+            // Transient failure → queue for retry, do NOT mark as attempted
+            await enqueueRetry(user.id, campaignId, lead.id, lead.email, errMsg, classification.category).catch(() => {});
+            console.log(`[SEND-BATCH] Lead ${lead.id} queued for retry (AI transient: ${classification.category})`);
+            emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject: '', body: '', fromEmail: '', success: false, error: `Queued for retry: ${errMsg.slice(0, 200)}`, bounced: false, retryQueued: true });
+          } else {
+            // Permanent failure → mark as attempted
+            newlyAttemptedIds.push(lead.id);
+            emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject: '', body: '', fromEmail: '', success: false, error: `AI generation failed: ${errMsg.slice(0, 200)}`, bounced: false });
+          }
+          continue;
+        }
+        
+        // Helper to clean extracted value (remove leading/trailing ** or *)
+        const cleanValue = (val: string) => val.trim().replace(/^(\*\*|\*)/, '').replace(/(\*\*|\*)$/, '').trim();
+
+        const subjectMatch = generatedEmail.match(/(?:\*\*|\*)?Subject(?:\*\*|\*)?:?\s*(.+)/i);
+        const subject = subjectMatch ? cleanValue(subjectMatch[1]) : `${campaign.product} - Personalized Offer`;
+        
+        const previewMatch = generatedEmail.match(/(?:\*\*|\*)?Preview(?:\*\*|\*)?:?\s*(.+)/i);
+        const preview = previewMatch ? cleanValue(previewMatch[1]) : subject;
+        
+        const bodyMatch = generatedEmail.match(/(?:\*\*|\*)?Body(?:\*\*|\*)?:?\s*([\s\S]+)/i);
+        let body = bodyMatch ? bodyMatch[1].trim() : generatedEmail;
+        
+        // Remove "Subject: ..." and "Preview: ..." lines from the start of the body
+        body = body.replace(/^(?:\*\*|\*)?Subject(?:\*\*|\*)?:.*$/mi, '').trim();
+        body = body.replace(/^(?:\*\*|\*)?Preview(?:\*\*|\*)?:.*$/mi, '').trim();
+        body = body.replace(/^(?:\*\*|\*)?Body(?:\*\*|\*)?:.*$/mi, '').trim();
+        
+        // Aggressively strip signatures/sign-offs that AI might have included despite instructions
+        const signOffPatterns = [
+            /Best regards,[\s\S]*$/i,
+            /Best,[\s\S]*$/i,
+            /Sincerely,[\s\S]*$/i,
+            /Cheers,[\s\S]*$/i,
+            /Thanks,[\s\S]*$/i,
+            /Looking forward to[\s\S]*$/i,
+            /Talk soon,[\s\S]*$/i,
+            /Warm regards,[\s\S]*$/i
+        ];
+        
+        for (const pattern of signOffPatterns) {
+             body = body.replace(pattern, '').trim();
+        }
+
+        body = body.trim();
+
+        // Add signature
+        let signature = '';
+        const isSourcr = product?.toLowerCase().includes('sourcr') || brand?.toLowerCase() === 'sourcr';
+        const isCovera = product?.startsWith('covera') || brand?.toLowerCase() === 'covera';
+        const isContndr = !isRoadr && !isCovera && !isSourcr;
+        const isActualContndr = isContndr && brand?.toLowerCase() === 'contndr';
+        const isGenericUser = !isRoadr && !isCovera && !isSourcr && !isActualContndr;
+        const batchClosingLine = batchUserSigSettings?.closing_line || 'Best Regards';
+
+        // If generic user has a custom_html signature, use it directly as the complete signature
+        if (isGenericUser && batchUserSigSettings?.custom_html) {
+            signature = `\n\n${batchUserSigSettings.custom_html}`;
+        } else {
+            // Resolve team-style sender names to the correct brand
+            const isTeamSender = sender_name === 'Roadr Team' || sender_name === 'Contndr Team' || sender_name === 'Sourcr Team' || sender_name === 'Covera Team';
+
+            if (isTeamSender && isRoadr) {
+                signature = `\n\nBest Regards,\nRoadr Team`;
+            } else if (isTeamSender && isSourcr) {
+                signature = `\n\nBest Regards,\nSourcr Team`;
+            } else if (isTeamSender && isCovera) {
+                signature = `\n\nBest Regards,\nCovera Team`;
+            } else if (isTeamSender && isActualContndr) {
+                signature = `\n\nBest Regards,\nContndr Team`;
+            } else if (sender_name) {
+                // Use closing line from user's signature settings for generic users
+                const closing = isGenericUser ? batchClosingLine : 'Best Regards';
+                signature = `\n\n${closing},\n${sender_name}${sender_title ? ` | ${sender_title}` : ''}`;
+            } else {
+                signature = '';
+            }
+            
+            if (isRoadr) {
+                 if (isInvestorCampaign) {
+                     signature += `\nE: ${from_email || 'or@roadr.com'}\nW: roadr.com\nP: 323-333-9600`;
+                 } else {
+                     signature += `\nE: ${from_email || 'partner@roadr.com'}\nW: roadr.com`;
+                 }
+            } else if (product?.startsWith('covera') || brand?.toLowerCase() === 'covera') {
+                 signature += `\nE: or@covera.co\nW: covera.co\nP: 323-333-9600`;
+            } else if (product?.toLowerCase().includes('sourcr') || brand?.toLowerCase() === 'sourcr') {
+                 signature += `\nE: ${from_email || 'or@sourcr.net'}\nW: sourcr.net\nP: +1 (305) 602-0230`;
+            } else if (isActualContndr) {
+                 signature += `\nE: ${from_email || 'sales@contndr.com'}`;
+                 // ✅ Affiliate tracking removed — always show plain contndr.com
+                 signature += `\nW: contndr.com`;
+            } else {
+                 // Generic user campaign — use signature settings for full contact info
+                 if (from_email) signature += `\nE: ${from_email}`;
+                 if (batchUserSigSettings?.phone) signature += `\nP: ${batchUserSigSettings.phone}`;
+                 // ✅ External users: ALWAYS show their own website, NEVER contndr.com
+                 // REMOVED: if (batchAffiliateSlug) { signature += `\nW: contndr.com/r/${batchAffiliateSlug}`; }
+                 if (batchUserSigSettings?.website) {
+                     signature += `\nW: ${batchUserSigSettings.website.replace(/^https?:\/\//, '')}`;
+                 } else if (landing_url) {
+                     signature += `\nW: ${landing_url.replace(/^https?:\/\//, '')}`;
+                 } else if (isInternalTeamMember(user.email)) {
+                     // ✅ Fallback: internal team members without website → show contndr.com
+                     signature += `\nW: contndr.com`;
+                 }
+            }
+        }
+        
+        body += signature;
+
+        // ── Determine from email ──
+        const inferredBrand = campaign.brand || (campaign.product?.toLowerCase().includes('sourcr') ? 'sourcr' : campaign.product?.toLowerCase().includes('roadr') ? 'roadr' : campaign.product?.toLowerCase().includes('covera') ? 'covera' : 'contndr');
+        const fromEmail = campaign.from_email || await getSenderEmail(user.id, inferredBrand);
+
+        // ── Pre-insert email record as 'queued' to get a real DB UUID ──
+        // This fixes a long-standing bug where click-tracking KV entries stored
+        // a temp ID that never matched any real email row.
+        // NOTE: isUuid was already evaluated above for the dedup guard.
+        const baseEmailRecord = {
+          user_id: user.id,
+          campaign_id: isUuid ? campaignId : null,
+          lead_id: lead.id,
+          resend_id: null,
+          subject,
+          body,
+          text_body: body,
+          html_body: body.replace(/\n/g, '<br>'),
+          status: 'queued',
+          sent_at: null,
+          sequence_number: 1,
+          direction: 'sent',
+          preview: preview || null,
+        };
+
+        let preInsertedId: string | null = null;
+
+        // Attempt detailed insert
+        let { data: preEmail, error: preError } = await supabase
+          .from('emails')
+          .insert(baseEmailRecord)
+          .select('id')
+          .single();
+
+        if (preError) {
+          console.error(`[SEND-BATCH] Pre-insert failed for lead ${lead.id}:`, preError);
+
+          // Handle FK violation — sync campaign to DB then retry
+          if (preError.code === '23503' && isUuid) {
+            console.log(`[SEND-BATCH] FK violation. Syncing campaign ${campaignId} to DB...`);
+            const { error: campaignSyncErr } = await supabase.from('campaigns').upsert({
+              id: campaignId,
+              user_id: user.id,
+              name: campaign.name || 'Untitled Campaign',
+              status: campaign.status || 'active',
+              product: campaign.product || 'covera',
+              brand: campaign.brand,
+              tone: campaign.tone,
+              landing_url: campaign.landing_url,
+              price_summary: campaign.price_summary,
+              from_email: campaign.from_email,
+              sender_name: campaign.sender_name,
+              sender_title: campaign.sender_title,
+              created_at: campaign.created_at || new Date().toISOString(),
+            });
+            if (!campaignSyncErr) {
+              const { data: retryEmail, error: retryErr } = await supabase
+                .from('emails')
+                .insert(baseEmailRecord)
+                .select('id')
+                .single();
+              if (!retryErr && retryEmail) preEmail = retryEmail;
+              else console.error('[SEND-BATCH] Retry insert after campaign sync failed:', retryErr);
+            }
+          }
+
+          // Last-resort fallback: try minimal fields
+          if (!preEmail) {
+            const { data: fb, error: fbErr } = await supabase
+              .from('emails')
+              .insert({
+                user_id: user.id,
+                campaign_id: isUuid ? campaignId : null,
+                lead_id: lead.id,
+                subject,
+                text_body: body,
+                html_body: body.replace(/\n/g, '<br>'),
+                status: 'queued',
+                sequence_number: 1,
+              })
+              .select('id')
+              .single();
+            if (fbErr) console.error(`[SEND-BATCH] CRITICAL: All inserts failed for lead ${lead.id}:`, fbErr);
+            else preEmail = fb;
+          }
+        }
+
+        preInsertedId = preEmail?.id || null;
+
+        // ── Build tracked HTML ──
+        // Convert text → HTML, then inject open pixel + click tracking (using real DB id)
+        let htmlBody = textToHtml(body);
+
+        // ── Inject unsubscribe link for CAN-SPAM compliance ──
+        htmlBody = await injectUnsubscribeLink(user.id, lead.email, htmlBody);
+
+        if (preInsertedId) {
+          htmlBody = await injectAllTracking(htmlBody, preInsertedId, user.id, lead.id);
+          console.log(`[SEND-BATCH] ✅ Injected tracking for email ${preInsertedId} (open pixel + click tracking)`);
+        } else {
+          console.warn(`[SEND-BATCH] ⚠️ No email ID available for tracking injection - tracking will NOT work for ${lead.email}`);
+        }
+
+        console.log(`[SEND-BATCH] Sending email to ${lead.email} from ${fromEmail} (subject: ${subject})`);
+
+        // ── Send the email ──
+        const emailResult = await sendEmail(user.id, {
+          from: fromEmail,
+          to: lead.email,
+          cc: campaign.cc || undefined,
+          bcc: campaign.bcc || undefined,
+          subject,
+          html: htmlBody,
+          text: body,
+          attachments: emailAttachments,
+        });
+
+        console.log(`[SEND-BATCH] Email send result for ${lead.email}: success=${emailResult.success}, error=${emailResult.error || 'none'}`);
+
+        // Prefer personal name (contact_name/first_name) over company name; filter out placeholder values
+        const _rawContact12381 = lead.contact_name || '';
+        const _cleanContact12381 = ['Visitor', 'Unknown', 'Anonymous Visitor', 'Anonymous'].includes(_rawContact12381.trim()) ? '' : _rawContact12381.trim();
+        const leadDisplayName = _cleanContact12381 || lead.first_name || lead.business_name || lead.email;
+
+        if (emailResult.success) {
+          newlyAttemptedIds.push(lead.id); // Track successful sends as attempted
+          newlySentIds.push(lead.id);
+          sent++;
+          emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: true });
+
+          // Update lead status
+          await supabase
+            .from('leads')
+            .update({
+              status: 'contacted',
+              last_contacted: new Date().toISOString(),
+            })
+            .eq('id', lead.id);
+
+          // Determine the provider to decide initial status.
+          // Gmail/Outlook API success = delivery confirmed (no separate webhook),
+          // so mark as 'delivered' immediately.  Resend/SMTP will be upgraded
+          // later via delivery webhooks or manual sync.
+          let postSendStatus = 'sent';
+          if (preInsertedId) {
+            try {
+              const emailProvider = await getEmailProvider(preInsertedId);
+              if (emailProvider === 'gmail_oauth' || emailProvider === 'outlook_oauth') {
+                postSendStatus = 'delivered';
+              }
+            } catch (_) { /* default to 'sent' */ }
+          }
+
+          const now = new Date().toISOString();
+          console.log(`[SEND-BATCH] Email ${preInsertedId} → status=${postSendStatus} (provider auto-detect)`);
+
+          // Update the pre-inserted email record with the provider message ID
+          if (preInsertedId) {
+            const { error: updateError } = await supabase
+              .from('emails')
+              .update({
+                status: postSendStatus,
+                sent_at: now,
+                ...(postSendStatus === 'delivered' ? { delivered_at: now } : {}),
+                resend_id: emailResult.messageId || null,
+                html_body: htmlBody,
+              })
+              .eq('id', preInsertedId);
+            
+            if (updateError) {
+              console.error(`[SEND-BATCH] Failed to update email ${preInsertedId} post-send:`, updateError);
+            } else {
+              console.log(`[SEND-BATCH] ✅ Updated email ${preInsertedId}: status=${postSendStatus}, resend_id=${emailResult.messageId}`);
+            }
+
+            // Record sent event (and delivered event for Gmail/Outlook)
+            try {
+              const events: any[] = [
+                { email_id: preInsertedId, user_id: user.id, event_type: 'sent', created_at: now },
+              ];
+              if (postSendStatus === 'delivered') {
+                events.push({ email_id: preInsertedId, user_id: user.id, event_type: 'delivered', created_at: now });
+              }
+              await supabase.from('email_events').insert(events);
+            } catch (evtError) {
+              console.warn('[SEND-BATCH] Failed to insert sent/delivered events:', evtError);
+            }
+
+            // Pipeline auto-stage trigger: email_sent → move to "contacted"
+            if (lead?.email) {
+              firePipelineTrigger({ event_type: 'email_sent', user_id: user.id, email: lead.email, lead_id: lead.id }).catch(() => {});
+            }
+          }
+        } else {
+          // Detect bounce-related errors from the email provider
+          const errMsg = emailResult.error || '';
+          const isBounceError = /bounce|rejected|undeliverable|mailbox.*full|user.*unknown|does not exist|recipient.*rejected/i.test(errMsg);
+          const emailStatus = isBounceError ? 'bounced' : 'failed';
+          
+          // ── Transient failure detection: queue for retry instead of marking as permanently failed ──
+          const sendClassification = classifyFailure(errMsg);
+          if (sendClassification.isTransient && !isBounceError) {
+            // Transient send failure → queue for retry, do NOT mark lead as attempted
+            await enqueueRetry(user.id, campaignId, lead.id, lead.email, errMsg, sendClassification.category).catch(() => {});
+            console.log(`[SEND-BATCH] Lead ${lead.id} send failed transiently (${sendClassification.category}), queued for retry`);
+            
+            // Update pre-inserted email to 'retry_pending' instead of 'failed'
+            if (preInsertedId) {
+              await supabase
+                .from('emails')
+                .update({ status: 'retry_pending', updated_at: new Date().toISOString() })
+                .eq('id', preInsertedId)
+                .catch(() => {});
+            }
+            
+            emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: false, error: `Queued for retry: ${errMsg}`, bounced: false, retryQueued: true });
+            // NOTE: We intentionally do NOT push to newlyAttemptedIds so the lead remains eligible
+          } else {
+            // Permanent failure → original logic
+            emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: false, error: errMsg, bounced: isBounceError });
+            newlyAttemptedIds.push(lead.id);
+            
+            // Mark the pre-inserted record as failed/bounced
+            if (preInsertedId) {
+              await supabase
+                .from('emails')
+                .update({ status: emailStatus, updated_at: new Date().toISOString() })
+                .eq('id', preInsertedId);
+              
+              // Record bounce event if applicable
+              if (isBounceError) {
+                try {
+                  await supabase.from('email_events').insert({
+                    email_id: preInsertedId,
+                    user_id: user.id,
+                    event_type: 'bounced',
+                    created_at: new Date().toISOString(),
+                  });
+                } catch (evtErr) {
+                  console.warn('[SEND-BATCH] Failed to insert bounce event:', evtErr);
+                }
+                // Mark the lead as bounced in the leads table so it's excluded from future campaigns
+                try {
+                  await supabase
+                    .from('leads')
+                    .update({ bounced: true, status: 'bounced', updated_at: new Date().toISOString() })
+                    .eq('id', lead.id);
+                  console.log(`[SEND-BATCH] Marked lead ${lead.id} (${lead.email}) as bounced`);
+                } catch (markErr) {
+                  console.warn('[SEND-BATCH] Failed to mark lead as bounced:', markErr);
+                }
+              }
+            }
+          }
+
+          // Gracefully handle domain verification errors (common in demo/setup)
+          if (emailResult.error && (emailResult.error.includes('Domain not verified') || emailResult.error.includes('not a valid') || emailResult.error.includes('domain is not verified'))) {
+            console.warn(`[SEND-BATCH] Skipped lead ${lead.id} due to domain config:`, emailResult.error);
+          } else {
+            console.error(`[SEND-BATCH] Failed to send email to lead ${lead.id}:`, emailResult.error);
+          }
+        }
+      } catch (err: any) {
+        console.error(`[CAMPAIGNS] Error sending to lead ${lead.id}:`, err);
+        // Classify the exception: transient errors get queued for retry
+        const catchClassification = classifyFailure(err?.message || String(err));
+        if (catchClassification.isTransient) {
+          await enqueueRetry(user.id, campaignId, lead.id, lead.email || '', err?.message || 'Unknown error', catchClassification.category).catch(() => {});
+          console.log(`[SEND-BATCH] Lead ${lead.id} exception queued for retry (${catchClassification.category})`);
+        } else {
+          newlyAttemptedIds.push(lead.id);
+        }
+      }
+      
+      // ── Incremental KV save ───────────────────────────────────────
+      // Persist progress after each email so a cold boot / crash mid-batch
+      // doesn't reset the entire campaign and re-send already-sent emails.
+      if (newlyAttemptedIds.length > 0) {
+        const progressNow = [...new Set([...sentLeadIds, ...newlyAttemptedIds])];
+        kv.set(sentLeadsKey, progressNow).catch((kvProgErr: any) => {
+          console.warn('[SEND-BATCH] Incremental KV save failed (non-fatal):', kvProgErr?.message || kvProgErr);
+        });
+      }
+      // ── End incremental save ───────────────────────────────────────
+
+      // Rate limiting: Wait 1500ms between emails to respect Resend's 2 req/s limit
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    
+    // ── Process retry queue: attempt any due retries for this campaign ──
+    let retryCount = 0;
+    try {
+      const dueRetries = await getDueRetries(user.id, campaignId, 5);
+      if (dueRetries.length > 0) {
+        console.log(`[SEND-BATCH] Processing ${dueRetries.length} due retry jobs...`);
+        for (const job of dueRetries) {
+          // CRITICAL: Check if lead was already successfully sent (avoid duplicates)
+          if (sentLeadIds.includes(job.leadId)) {
+            console.log(`[SEND-BATCH] Skipping retry for lead ${job.leadId} — already sent successfully`);
+            await removeFromQueue(user.id, campaignId, job.leadId);
+            continue;
+          }
+          
+          // Fetch the lead and re-attempt send (simplified re-send via the next batch cycle)
+          // Remove from retry queue so it's picked up in the normal unsent flow
+          await removeFromQueue(user.id, campaignId, job.leadId);
+          // Make sure it's NOT in the attempted list
+          const idx = newlyAttemptedIds.indexOf(job.leadId);
+          if (idx !== -1) newlyAttemptedIds.splice(idx, 1);
+          retryCount++;
+        }
+        if (retryCount > 0) {
+          console.log(`[SEND-BATCH] Re-enabled ${retryCount} leads from retry queue for next batch`);
+        }
+        await updateRetryStats(user.id, retryCount, 0);
+      }
+    } catch (retryErr) {
+      console.warn('[SEND-BATCH] Retry queue processing error (non-fatal):', retryErr);
+    }
+    
+    // Update sent leads tracking — include ALL attempted leads (success + fail/bounce)
+    // so the campaign can reach completion even when some emails fail
+    const updatedSentLeads = [...new Set([...sentLeadIds, ...newlyAttemptedIds])];
+    
+    // Try to update KV, but don't fail the entire batch if KV is down
+    try {
+      await kv.set(sentLeadsKey, updatedSentLeads);
+    } catch (kvErr: any) {
+      console.error('[SEND-BATCH] Failed to update sent leads in KV (continuing anyway):', kvErr?.message || kvErr);
+      // If KV is full, we can't save progress, but we should still report what was sent
+    }
+    
+    // Update campaign stats (sent_count reflects successful sends for display)
+    campaign.sent_count = [...new Set([...sentLeadIds, ...newlySentIds])].length;
+    campaign.updated_at = new Date().toISOString();
+    
+    const totalLeadsInCampaign = campaign.leads?.length || 0;
+    const retryQueueJobs = await getRetryQueue(user.id, campaignId).catch(() => []);
+    // Filter retry queue: only count jobs for leads NOT already in sentLeadIds (stale retry entries cause stuck campaigns)
+    const pendingRetryJobs = retryQueueJobs.filter((job: any) => !updatedSentLeads.includes(job.leadId));
+    const retryQueueCount = pendingRetryJobs.length;
+    const remaining = Math.max(0, totalLeadsInCampaign - updatedSentLeads.length) + retryQueueCount;
+    // Campaign is complete when all leads are attempted; stale retries for already-sent leads no longer block completion
+    const campaign_complete = updatedSentLeads.length >= totalLeadsInCampaign && retryQueueCount === 0;
+
+    // Mark campaign as completed when all leads have been attempted
+    if (campaign_complete && campaign.status !== 'completed') {
+      campaign.status = 'completed';
+      console.log(`[SEND-BATCH] ✅ All leads attempted — marking campaign ${campaignId} as COMPLETED (${sent} sent, ${newlyAttemptedIds.length - newlySentIds.length} failed)`);
+      try {
+        await supabase.from('campaigns').update({ status: 'completed' }).eq('id', campaignId);
+      } catch (e) {
+        console.warn('[SEND-BATCH] Failed to sync completed status to DB (non-fatal):', e);
+      }
+    }
+
+    // Try to save campaign state to KV, but don't fail if KV is down
+    try {
+      await kv.set(`campaign:${user.id}:${campaignId}`, campaign);
+    } catch (kvErr: any) {
+      console.error('[SEND-BATCH] Failed to save campaign to KV (non-fatal):', kvErr?.message || kvErr);
+    }
+    
+    console.log(`[SEND-BATCH] Batch done: sent=${sent}, remaining=${remaining}, complete=${campaign_complete}`);
+    
+    return c.json({ 
+      success: true, 
+      sent,
+      remaining,
+      campaign_complete,
+      emails_sent: emailsSent,
+      retry_queue_depth: retryQueueCount,
+      retries_requeued: retryCount,
+    });
+  } catch (error) {
+    console.error('[SEND-BATCH] Error sending batch:', error);
+    return c.json({ error: error.message }, 500);
+  } finally {
+    // Always release the server-side in-flight lock (even on error / early 409 return)
+    campaignSendInFlight.delete(inFlightKey);
+  }
+});
+
+// ─── Campaign Worker Endpoints ─────────────────────────────────────────────
+
+// POST /campaigns/enqueue/:id - Enqueue a campaign for auto-sending
+app.post("/make-server-a8b2511f/campaigns/enqueue/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const batchSize = body.batchSize || 5;
+
+    const state = await enqueueCampaign(user.id, campaignId, batchSize);
+
+    // Log admin event for campaign launch
+    try {
+      const campaignData = await kv.get(`campaign:${user.id}:${campaignId}`);
+      const campaignName = campaignData?.name || campaignData?.subject || campaignId;
+      const userEmail = user.email || user.user_metadata?.email || 'unknown';
+      logAdminEvent('campaign_launched', 'Campaign Launched', `${userEmail} launched "${campaignName}"`, {
+        email: userEmail,
+        metadata: { campaignId, campaignName, batchSize }
+      }).catch(() => {});
+    } catch (_) {}
+
+    return c.json({ success: true, state });
+  } catch (error: any) {
+    console.error('[WORKER] Enqueue error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /campaigns/pending - Get all campaigns that need processing (stuck or in-progress)
+app.get("/make-server-a8b2511f/campaigns/pending", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const pending = await getPendingCampaigns(user.id);
+    return c.json({ success: true, pending });
+  } catch (error: any) {
+    console.error('[WORKER] Pending check error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /campaigns/auto-resume - Check for stuck campaigns and return what needs processing
+// The frontend calls this periodically, then directly calls send-batch for each pending campaign.
+// This avoids the edge function needing to call itself via HTTP.
+app.post("/make-server-a8b2511f/campaigns/auto-resume", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const pending = await getPendingCampaigns(user.id);
+
+    // Also check for campaigns with pending retries
+    let campaignsWithRetries: string[] = [];
+    let retryStats: any = null;
+    try {
+      campaignsWithRetries = await getCampaignsWithRetries(user.id);
+      retryStats = await getRetryStats(user.id);
+    } catch (_) { /* non-critical */ }
+
+    if (pending.length === 0 && campaignsWithRetries.length === 0) {
+      return c.json({ success: true, resumed: 0, pending: [], retryStats, message: 'No campaigns need processing' });
+    }
+
+    console.log(`[WORKER] Auto-resume check: ${pending.length} campaigns pending, ${campaignsWithRetries.length} with retries for user ${user.email}`);
+
+    return c.json({
+      success: true,
+      pending,
+      totalPendingRemaining: pending.reduce((sum: number, p: any) => sum + p.remaining, 0),
+      campaignsWithRetries,
+      retryStats,
+    });
+  } catch (error: any) {
+    console.error('[WORKER] Auto-resume error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ─── Retry Queue Endpoints ──────────────────────────────────────────────────
+
+// GET /campaigns/:id/retry-queue - Get retry queue status for a campaign
+app.get("/make-server-a8b2511f/campaigns/:id/retry-queue", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    const queue = await getRetryQueue(user.id, campaignId);
+    const dlq = await getDeadLetterQueue(user.id, campaignId);
+    const stats = await getRetryStats(user.id);
+    return c.json({ success: true, queue, dlq, stats, queueDepth: queue.length, dlqDepth: dlq.length });
+  } catch (error: any) {
+    console.error('[RETRY-QUEUE] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /campaigns/:id/retry-dlq - Retry all dead-lettered jobs for a campaign
+app.post("/make-server-a8b2511f/campaigns/:id/retry-dlq", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    const result = await retryDeadLetters(user.id, campaignId);
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error('[RETRY-DLQ] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /retry/stats - Get retry stats across all campaigns
+app.get("/make-server-a8b2511f/retry/stats", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const stats = await getRetryStats(user.id);
+    const campaignsWithRetries = await getCampaignsWithRetries(user.id);
+    return c.json({ success: true, stats, campaignsWithRetries });
+  } catch (error: any) {
+    console.error('[RETRY-STATS] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /followups/auto-process - Process all due follow-ups for the user
+// Also triggers an opportunistic global cron if it hasn't run in >2 hours.
+app.post("/make-server-a8b2511f/followups/auto-process", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    console.log(`[WORKER] Processing follow-ups for user ${user.email}`);
+    const result = await processAllFollowUps(user.id);
+
+    // Opportunistic global cron: if no one has triggered the global run in >2h,
+    // fire it in the background so ALL users' follow-ups get processed.
+    let globalCronTriggered = false;
+    try {
+      globalCronTriggered = await maybeRunGlobalCron();
+    } catch (_) { /* non-critical */ }
+
+    return c.json({ success: true, ...result, globalCronTriggered });
+  } catch (error: any) {
+    console.error('[WORKER] Follow-up processing error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /followups/due-count - Check how many follow-ups are due (lightweight, no sending)
+app.get("/make-server-a8b2511f/followups/due-count", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const result = await getFollowUpsDueCount(user.id);
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error('[WORKER] Due count error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ─── Cron Endpoints ──────────────────────────────────────────────────────────
+// These endpoints are protected by service-role-key auth (not user JWT).
+// An external cron service (EasyCron, cron-job.org, GitHub Actions, etc.)
+// should call these periodically so follow-ups fire even when no user is logged in.
+
+// POST /cron/process-all-followups - Process follow-ups for ALL users (service-key auth)
+app.post("/make-server-a8b2511f/cron/process-all-followups", async (c) => {
+  try {
+    // Auth: require the service-role key (NOT a user JWT)
+    const authHeader = c.req.header('Authorization') || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+
+    if (!token || token !== serviceKey) {
+      console.warn('[CRON] Unauthorized cron attempt');
+      return c.json({ error: 'Unauthorized — requires service role key' }, 401);
+    }
+
+    console.log('[CRON] External cron trigger: processing all users follow-ups');
+    const result = await processAllUsersFollowUps();
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error('[CRON] process-all-followups error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /cron/resume-all-campaigns - Resume stuck campaigns for ALL users (service-key auth)
+app.post("/make-server-a8b2511f/cron/resume-all-campaigns", async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization') || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+
+    if (!token || token !== serviceKey) {
+      return c.json({ error: 'Unauthorized — requires service role key' }, 401);
+    }
+
+    console.log('[CRON] External cron trigger: resuming all stuck campaigns');
+    const result = await resumeAllUsersCampaigns();
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error('[CRON] resume-all-campaigns error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /cron/full-cycle - Run the complete cron cycle: follow-ups + campaign resume + notifications (service-key auth)
+app.post("/make-server-a8b2511f/cron/full-cycle", async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization') || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+
+    if (!token || token !== serviceKey) {
+      return c.json({ error: 'Unauthorized — requires service role key' }, 401);
+    }
+
+    console.log('[CRON] External cron trigger: full cycle');
+    const result = await runFullCronCycle();
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error('[CRON] full-cycle error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /cron/status - Check the last cron run status (user-authenticated)
+app.get("/make-server-a8b2511f/cron/status", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const status = await getFullCronStatus();
+    return c.json({ success: true, ...status });
+  } catch (error: any) {
+    console.error('[CRON] status error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /cron/cleanup-click-tracking - Clean up old click tracking data (service-key auth)
+app.post("/make-server-a8b2511f/cron/cleanup-click-tracking", async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization') || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+
+    if (!token || token !== serviceKey) {
+      return c.json({ error: 'Unauthorized — requires service role key' }, 401);
+    }
+
+    const { days } = await c.req.json().catch(() => ({ days: 90 }));
+    console.log(`[CLEANUP] Manual cleanup trigger: removing click tracking older than ${days} days`);
+    const result = await cleanupOldClickTracking(days);
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error('[CLEANUP] cleanup-click-tracking error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /cron/health - Unauthenticated health check for uptime monitors
+// Returns { healthy, reason, heartbeat, ageMinutes }
+// Stale threshold: 4 hours (cron runs every 3 hours)
+app.get("/make-server-a8b2511f/cron/health", async (c) => {
+  try {
+    const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
+    const fullLastRun: any = await kv.get('cron:full_last_run');
+
+    if (!fullLastRun || !fullLastRun.completedAt) {
+      return c.json({
+        healthy: false,
+        reason: 'No cron heartbeat found — cron may never have run',
+        heartbeat: null,
+        ageMinutes: -1,
+      });
+    }
+
+    const completedAt = new Date(fullLastRun.completedAt).getTime();
+    const ageMs = Date.now() - completedAt;
+    const ageMinutes = Math.round(ageMs / 60_000);
+    const healthy = ageMs < STALE_THRESHOLD_MS;
+
+    return c.json({
+      healthy,
+      reason: healthy
+        ? `Last cron cycle completed ${ageMinutes}m ago`
+        : `Cron heartbeat is stale — last run was ${ageMinutes}m ago (threshold: 240m)`,
+      heartbeat: {
+        status: healthy ? 'completed' : 'stale',
+        lastCompletedAt: fullLastRun.completedAt,
+        duration: fullLastRun.duration,
+        followUpsSent: fullLastRun.followUpsSent ?? 0,
+        campaignsResumed: fullLastRun.campaignsResumed ?? 0,
+        campaignEmailsSent: fullLastRun.campaignEmailsSent ?? 0,
+        notificationsSent: fullLastRun.notificationsSent ?? 0,
+        errors: fullLastRun.errors ?? 0,
+      },
+      ageMinutes,
+    });
+  } catch (error: any) {
+    console.error('[CRON] health check error:', error);
+    return c.json({
+      healthy: false,
+      reason: `Health check failed: ${error.message}`,
+      heartbeat: null,
+      ageMinutes: -1,
+    }, 500);
+  }
+});
+
+// POST /cron/trigger - Manually trigger the full cron cycle (user-authenticated)
+app.post("/make-server-a8b2511f/cron/trigger", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    console.log(`[CRON] Manual trigger by ${user.email}`);
+    const result = await runFullCronCycle();
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error('[CRON] manual trigger error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ─── In-App Notification Endpoints ───────────────────────────────────
+
+// GET /notifications - Get user's notifications
+app.get("/make-server-a8b2511f/notifications", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const limit = parseInt(c.req.query('limit') || '20');
+    const notifications = await getNotifications(user.id, limit);
+    const unread = await getUnreadCount(user.id);
+    return c.json({ success: true, notifications, unreadCount: unread });
+  } catch (error: any) {
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// GET /notifications/unread-count - Lightweight unread count check
+app.get("/make-server-a8b2511f/notifications/unread-count", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const count = await getUnreadCount(user.id);
+    return c.json({ success: true, unreadCount: count });
+  } catch (error: any) {
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// POST /notifications/:id/read - Mark a notification as read
+app.post("/make-server-a8b2511f/notifications/:id/read", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const notificationId = c.req.param('id');
+    await markNotificationRead(user.id, notificationId);
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// POST /notifications/read-all - Mark all notifications as read
+app.post("/make-server-a8b2511f/notifications/read-all", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const count = await markAllNotificationsRead(user.id);
+    return c.json({ success: true, markedRead: count });
+  } catch (error: any) {
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// DELETE /notifications/:id - Delete a notification
+app.delete("/make-server-a8b2511f/notifications/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const notificationId = c.req.param('id');
+    await deleteNotification(user.id, notificationId);
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// GET /emails/eligible-for-followup - Get emails eligible for bulk follow-up
+app.get("/make-server-a8b2511f/emails/eligible-for-followup", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const brand = c.req.query('brand');
+    
+    // Get emails sent in last 30 days
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    
+    // 1. Get potential original emails (sequence_number = 1 or null)
+    // We fetch more fields to display in the UI
+    const { data: candidates, error: candidatesError } = await supabase
+      .from('emails')
+      .select(`
+        id, created_at, subject, body, status, campaign_id, lead_id, sequence_number,
+        campaigns!inner ( brand, from_email ),
+        leads ( business_name, email, city, address )
+      `)
+      .eq('user_id', user.id)
+      .neq('status', 'bounced')
+      .gt('created_at', thirtyDaysAgo)
+      .order('created_at', { ascending: false });
+      
+    if (candidatesError) {
+        console.error('[ELIGIBLE] DB Query Error (Candidates):', candidatesError);
+        throw candidatesError;
+    }
+
+    // 2. Get list of emails that ARE follow-ups (sequence_number > 1)
+    // We only need minimal fields to identify them
+    const { data: followUps, error: followUpsError } = await supabase
+      .from('emails')
+      .select('campaign_id, lead_id, sequence_number')
+      .eq('user_id', user.id)
+      .gt('sequence_number', 1)
+      .gt('created_at', thirtyDaysAgo);
+
+    if (followUpsError) {
+        console.error('[ELIGIBLE] DB Query Error (FollowUps):', followUpsError);
+        // Continue without filtering if this fails, better than crashing? 
+        // No, better to throw or we spam people.
+        throw followUpsError;
+    }
+      
+    // Create a set of keys for leads that have been followed up
+    const followedUpKeys = new Set();
+    (followUps || []).forEach(e => {
+        if (e.campaign_id && e.lead_id) {
+            followedUpKeys.add(`${e.campaign_id}:${e.lead_id}`);
+        }
+    });
+    
+    // Filter candidates
+    const eligible = (candidates || [])
+      // Keep only originals (sequence 1 or null)
+      .filter(e => !e.sequence_number || e.sequence_number === 1)
+      // Remove those that already have a follow-up
+      .filter(e => !followedUpKeys.has(`${e.campaign_id}:${e.lead_id}`))
+      // Apply brand filter if requested (normalize legacy sendlr → contndr)
+      .filter(e => {
+        if (!brand || brand === 'all') return true;
+        const eBrand = (e.campaigns?.brand || '').toLowerCase();
+        const normalizedEBrand = eBrand === 'sendlr' ? 'contndr' : eBrand;
+        const normalizedFilter = brand.toLowerCase() === 'sendlr' ? 'contndr' : brand.toLowerCase();
+        return normalizedEBrand === normalizedFilter;
+      })
+      .map(e => {
+        const sentTime = new Date(e.created_at).getTime();
+        const hours = (Date.now() - sentTime) / (1000 * 60 * 60);
+        return {
+          id: e.id,
+          campaign_id: e.campaign_id,
+          lead_id: e.lead_id,
+          subject: e.subject,
+          sent_at: e.created_at,
+          text_body: e.body, // 'body' is often aliased to 'text_body' in queries
+          campaign_brand: e.campaigns?.brand,
+          campaign_from_email: e.campaigns?.from_email,
+          lead_business_name: e.leads?.business_name,
+          lead_email: e.leads?.email,
+          lead_city: e.leads?.city,
+          lead_address: e.leads?.address,
+          hours_since_sent: hours
+        };
+      });
+      
+    return c.json({ emails: eligible });
+    
+  } catch (error) {
+    console.error('[ELIGIBLE] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /campaigns/:id/status - Get campaign status
+app.get("/make-server-a8b2511f/campaigns/:id/status", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    
+    let campaign = await kv.get(`campaign:${user.id}:${campaignId}`);
+    
+    // Fallback to DB if not in KV (for zombie campaigns)
+    if (!campaign) {
+       const { data: dbCampaign } = await supabase.from('campaigns').select('*').eq('id', campaignId).single();
+       if (dbCampaign) {
+           campaign = {
+               id: dbCampaign.id,
+               leads: [],
+               status: dbCampaign.status,
+               sent_count: 0,
+           };
+       }
+    }
+
+    if (!campaign) {
+      return c.json({ error: 'Campaign not found' }, 404);
+    }
+    
+    // Fetch real-time email stats from DB (Optimized with COUNT queries)
+    const [
+      { count: sent },
+      { count: delivered },
+      { count: opened },
+      { count: clicked },
+      { count: bounced }
+    ] = await Promise.all([
+      // FIX: sequence_number=1 only — follow-up emails (seq≥2) must NOT inflate the "sent leads" counter
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1),
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).in('status', ['delivered', 'opened', 'clicked']),
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).in('status', ['opened', 'clicked']),
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('status', 'clicked'),
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('status', 'bounced')
+    ]);
+
+    // Lightweight fallback: cross-reference email_events for opened/clicked
+    // This catches cases where emails.status wasn't updated but events were recorded
+    let eventsOpened = 0;
+    let eventsClicked = 0;
+    try {
+      const { data: campaignEmailIds } = await supabase
+        .from('emails').select('id').eq('campaign_id', campaignId).limit(2000);
+      if (campaignEmailIds && campaignEmailIds.length > 0) {
+        const emailIds = campaignEmailIds.map((e: any) => e.id);
+        const BATCH_SIZE = 200;
+        for (let i = 0; i < emailIds.length; i += BATCH_SIZE) {
+          const batch = emailIds.slice(i, i + BATCH_SIZE);
+          const [openEvts, clickEvts] = await Promise.all([
+            supabase.from('email_events').select('email_id')
+              .in('email_id', batch).eq('event_type', 'opened'),
+            supabase.from('email_events').select('email_id')
+              .in('email_id', batch).eq('event_type', 'clicked'),
+          ]);
+          if (openEvts.data) {
+            eventsOpened += new Set(openEvts.data.map((e: any) => e.email_id)).size;
+          }
+          if (clickEvts.data) {
+            eventsClicked += new Set(clickEvts.data.map((e: any) => e.email_id)).size;
+          }
+        }
+      }
+    } catch (evtErr) {
+      // email_events fallback is non-fatal — status-based counts still work
+      console.warn('[CAMPAIGNS] email_events fallback failed (non-fatal):', evtErr);
+    }
+
+    const dbStats = {
+      sent: sent || 0,
+      delivered: delivered || 0,
+      opened: Math.max(opened || 0, eventsOpened),
+      clicked: Math.max(clicked || 0, eventsClicked),
+      bounced: bounced || 0
+    };
+
+    console.log(`[CAMPAIGNS] Stats for ${campaignId}: status-based opened=${opened||0} clicked=${clicked||0}, events-based opened=${eventsOpened} clicked=${eventsClicked}, final opened=${dbStats.opened} clicked=${dbStats.clicked}`);
+    
+    // Calculate Reply Metrics from Leads table (Optimized Batching)
+    const leadIds = campaign.leads || [];
+    const replyStats = {
+      replied: 0,
+      positive: 0,
+      meetings: 0
+    };
+
+    if (leadIds.length > 0) {
+      // Batch queries to avoid URL length limits with large lead lists
+      const BATCH_SIZE = 200;
+      const chunks = [];
+      for (let i = 0; i < leadIds.length; i += BATCH_SIZE) {
+        chunks.push(leadIds.slice(i, i + BATCH_SIZE));
+      }
+
+      const results = await Promise.all(chunks.map(async (chunk) => {
+        const { data } = await supabase
+          .from('leads')
+          .select('status')
+          .in('id', chunk);
+        return data || [];
+      }));
+
+      const leadsData = results.flat();
+        
+      if (leadsData) {
+        // Count replies based on status
+        const replyStatuses = ['replied', 'interested', 'not_interested', 'not_now', 'meeting_scheduled'];
+        const positiveStatuses = ['interested', 'meeting_scheduled'];
+        
+        replyStats.replied = leadsData.filter((l: any) => replyStatuses.includes(l.status)).length;
+        replyStats.positive = leadsData.filter((l: any) => positiveStatuses.includes(l.status)).length;
+        replyStats.meetings = leadsData.filter((l: any) => l.status === 'meeting_scheduled').length;
+      }
+    }
+    
+    const totalLeads = campaign.leads?.length || 0;
+    // Use DB count (seq=1 only) as fallback when KV lags, but NEVER exceed totalLeads
+    // Math.max picks the more-complete source; Math.min caps it so sent can't exceed total
+    const sentCount = Math.min(Math.max(campaign.sent_count || 0, dbStats.sent), totalLeads || Infinity);
+    const pendingCount = Math.max(0, totalLeads - sentCount);
+    
+    return c.json({ 
+      status: campaign.status || 'draft',
+      leadStats: {
+        total: totalLeads,
+        pending: pendingCount,
+        sent: sentCount,
+        failed: 0
+      },
+      emailStats: {
+        sent: sentCount,
+        delivered: dbStats.delivered,
+        opened: dbStats.opened,
+        clicked: dbStats.clicked,
+        bounced: dbStats.bounced,
+        replied: replyStats.replied,
+        positive_replies: replyStats.positive,
+        meetings_booked: replyStats.meetings
+      }
+    });
+  } catch (error) {
+    console.error('[CAMPAIGNS] Error fetching status:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /campaigns/:id/bounced - Get bounced emails for a campaign
+app.get("/make-server-a8b2511f/campaigns/:id/bounced", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+
+    const { data: bouncedEmails, error } = await supabase
+      .from('emails')
+      .select('id, lead_id, subject, text_body, sent_at, created_at, status')
+      .eq('campaign_id', campaignId)
+      .eq('status', 'bounced')
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    if (error) {
+      console.error('[CAMPAIGNS] Error fetching bounced emails:', error);
+      return c.json({ error: error.message }, 500);
+    }
+
+    // Enrich with lead info
+    const leadIds = [...new Set((bouncedEmails || []).map((e: any) => e.lead_id).filter(Boolean))];
+    let leadsMap: Record<string, any> = {};
+    if (leadIds.length > 0) {
+      const BATCH = 200;
+      for (let i = 0; i < leadIds.length; i += BATCH) {
+        const batch = leadIds.slice(i, i + BATCH);
+        const { data: leads } = await supabase
+          .from('leads')
+          .select('*')
+          .in('id', batch);
+        if (leads) {
+          leads.forEach((l: any) => { leadsMap[l.id] = l; });
+        }
+      }
+    }
+
+    const enriched = (bouncedEmails || []).map((email: any) => {
+      const lead = leadsMap[email.lead_id] || {};
+      // leads table uses contact_name (not first_name/last_name) and linkedin/person_linkedin_url (not linkedin_url)
+      // Filter out placeholder values that the tracking system stores for anonymous/unidentified visitors
+      const _rawContact = (lead.contact_name || '').trim();
+      const contactName = ['Visitor', 'Unknown', 'Anonymous Visitor', 'Anonymous'].includes(_rawContact) ? '' : _rawContact;
+      return {
+        id: email.id,
+        leadId: email.lead_id,
+        leadName: contactName || lead.business_name || 'Unknown',
+        leadEmail: lead.email || '',
+        leadCompany: lead.business_name || '',
+        leadTitle: lead.job_title || lead.title || '',
+        leadPhone: lead.phone || '',
+        leadCity: [lead.city, lead.state].filter(Boolean).join(', ') || '',
+        leadCountry: lead.country || '',
+        leadIndustry: lead.industry || lead.category || '',
+        leadSeniority: lead.seniority || '',
+        leadWebsite: lead.website || '',
+        leadLinkedin: lead.person_linkedin_url || lead.linkedin || '',
+        subject: email.subject || '',
+        sentAt: email.sent_at,
+        bouncedAt: email.created_at,
+        leadExists: !!leadsMap[email.lead_id],
+      };
+    });
+
+    return c.json({ bounced: enriched, total: enriched.length });
+  } catch (error: any) {
+    console.error('[CAMPAIGNS] Error fetching bounced emails:', error?.message || error, error?.code, error?.details);
+    if (error?.message?.includes('Authentication failed') || error?.message?.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    return c.json({ error: error?.message || 'Failed to fetch bounced contacts' }, 500);
+  }
+});
+
+// ─── Live-event KV cleanup (throttled) ───────────────────────────────
+// Prunes live_event:* entries older than 1 hour.  Runs at most once per
+// 5 minutes, triggered fire-and-forget from the /live-events endpoint.
+let _lastLiveEventCleanup = 0;
+const LIVE_EVENT_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;  // 5 min
+const LIVE_EVENT_MAX_AGE_MS          = 60 * 60 * 1000;  // 1 hour
+
+async function pruneStaleLiveEvents() {
+  const now = Date.now();
+  if (now - _lastLiveEventCleanup < LIVE_EVENT_CLEANUP_INTERVAL_MS) return;
+  _lastLiveEventCleanup = now;
+
+  try {
+    const supabase = getSupabaseAdmin();
+    // Query the raw KV table for keys + values so we can identify stale rows.
+    // getByPrefix only returns values; we need the keys for deletion.
+    const { data, error } = await supabase
+      .from('kv_store_a8b2511f')
+      .select('key, value')
+      .like('key', 'live_event:%');
+
+    if (error || !data || data.length === 0) return;
+
+    const cutoff = now - LIVE_EVENT_MAX_AGE_MS;
+    const staleKeys: string[] = data
+      .filter((row: any) => {
+        const ts = row.value?.timestamp;
+        return typeof ts === 'number' && ts < cutoff;
+      })
+      .map((row: any) => row.key as string);
+
+    if (staleKeys.length === 0) return;
+
+    // Delete in batches of 200 to stay within Supabase .in() limits
+    for (let i = 0; i < staleKeys.length; i += 200) {
+      await kv.mdel(staleKeys.slice(i, i + 200));
+    }
+    console.log(`[LIVE-EVENT CLEANUP] Pruned ${staleKeys.length} stale entries`);
+  } catch (e) {
+    console.warn('[LIVE-EVENT CLEANUP] Error (non-fatal):', e);
+  }
+}
+
+// GET /campaigns/:id/live-events - Lightweight endpoint for real-time tracking updates
+// Returns recent open/click events since a given timestamp, polled every few seconds by the frontend
+app.get("/make-server-a8b2511f/campaigns/:id/live-events", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    const since = parseInt(c.req.query('since') || '0');
+
+    // Fetch live events from KV by prefix with additional timeout protection
+    // KV already has a 10s timeout, but we add a 9s timeout here to catch it early
+    let events: any[] = [];
+    try {
+      const kvPromise = kv.getByPrefix(`live_event:${campaignId}:`);
+      const timeoutPromise = new Promise<any[]>((_, reject) => 
+        setTimeout(() => reject(new Error('Live events query timeout')), 9000)
+      );
+      events = await Promise.race([kvPromise, timeoutPromise]);
+    } catch (kvError: any) {
+      console.warn('[LIVE EVENTS] KV fetch timeout/error (non-fatal):', kvError?.message || kvError);
+      // Return empty events on timeout - frontend will retry
+      return c.json({ events: [], server_ts: Date.now() });
+    }
+
+    // Filter to events after 'since' timestamp and belonging to this user
+    const recentEvents = (events || [])
+      .filter((e: any) => e?.timestamp > since && e?.user_id === user.id)
+      .sort((a: any, b: any) => a.timestamp - b.timestamp);
+
+    // Fire-and-forget cleanup of stale entries (throttled internally)
+    pruneStaleLiveEvents().catch(() => {});
+
+    return c.json({
+      events: recentEvents,
+      server_ts: Date.now(),
+    });
+  } catch (error: any) {
+    console.error('[LIVE EVENTS] Error:', error);
+    return c.json({ events: [], server_ts: Date.now() });
+  }
+});
+
+// DELETE /campaigns/:id - Delete a campaign
+app.delete("/make-server-a8b2511f/campaigns/:id", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    
+    // Delete from KV
+    await kv.del(`campaign:${user.id}:${campaignId}`);
+    await kv.del(`campaign_sent:${user.id}:${campaignId}`);
+    
+    // Delete from DB (manual cascade to be safe)
+    try {
+      await supabase.from('emails').delete().eq('campaign_id', campaignId);
+      await supabase.from('campaign_leads').delete().eq('campaign_id', campaignId);
+      await supabase.from('campaigns').delete().eq('id', campaignId);
+    } catch (e) {
+      console.warn('Failed to delete from DB', e);
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('[CAMPAIGNS] Error deleting campaign:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /webhook/resend - Handle Resend webhooks
+app.post("/make-server-a8b2511f/webhook/resend", async (c) => {
+  try {
+    const payload = await c.req.json();
+    console.log('[WEBHOOK] Received Resend event:', payload.type);
+
+    // Initialize Supabase admin client (service role) to bypass RLS
+    const supabaseAdmin = getSupabaseAdmin();
+
+    const { type, data } = payload;
+    const resendId = data?.email_id;
+    
+    if (!resendId) {
+       console.warn('[WEBHOOK] No email_id in payload');
+       return c.json({ received: true });
+    }
+
+    // Map Resend events to our status
+    let status = 'sent';
+    let timestampData: any = {};
+    
+    switch (type) {
+      case 'email.sent':
+        status = 'sent';
+        break;
+      case 'email.delivered':
+        status = 'delivered';
+        timestampData.delivered_at = new Date().toISOString();
+        break;
+      case 'email.opened':
+        status = 'opened';
+        timestampData.opened_at = new Date().toISOString();
+        break;
+      case 'email.clicked':
+        status = 'clicked';
+        timestampData.clicked_at = new Date().toISOString();
+        break;
+      case 'email.bounced':
+        status = 'bounced';
+        break;
+      case 'email.complained':
+        status = 'complained';
+        break;
+      default:
+        // Ignore other events
+        return c.json({ received: true });
+    }
+
+    // Step 1: Update status (guaranteed column) — this MUST succeed
+    const { error } = await supabaseAdmin
+        .from('emails')
+        .update({ status })
+        .eq('resend_id', resendId);
+        
+    if (error) {
+        console.error('[WEBHOOK] Error updating email status:', error);
+    } else {
+         console.log(`[WEBHOOK] Updated email ${resendId} to status ${status}`);
+    }
+
+    // Step 2: Try to set timestamp columns (may not exist — non-fatal)
+    if (Object.keys(timestampData).length > 0) {
+      try {
+        const { error: tsError } = await supabaseAdmin
+          .from('emails')
+          .update(timestampData)
+          .eq('resend_id', resendId);
+        if (tsError) {
+          console.warn(`[WEBHOOK] Timestamp update failed (non-fatal, status already set to ${status}):`, tsError.code, tsError.message);
+        }
+      } catch (_) { /* non-fatal */ }
+    }
+    
+    // BOUNCE_MARKER_TOP — If bounced, auto-delete the lead and log for admin visibility
+    if (status === 'bounced') {
+         const { data: emailData } = await supabaseAdmin
+            .from('emails')
+            .select('lead_id, user_id')
+            .eq('resend_id', resendId)
+            .single();
+            
+         if (emailData?.lead_id) {
+             await handleBounceAutoDelete(supabaseAdmin, emailData.lead_id, emailData.user_id, resendId);
+         }
+    }
+
+    // ── Buying Intent: fire intent signals for opens/clicks from Resend webhook ──
+    // Self-hosted tracking (GET /track/open/:id, /track/click/:id) is the primary
+    // source, but Resend may catch events our tracker misses (e.g. Apple Mail
+    // prefetching from Resend's own pixel). We dedup via KV so the same
+    // email+event doesn't produce duplicate intent signals.
+    if (status === 'opened' || status === 'clicked') {
+      (async () => {
+        try {
+          const dedupKey = `intent:resend_dedup:${resendId}:${status}`;
+          const alreadyFired = await kv.get(dedupKey);
+          if (alreadyFired) return; // Self-hosted tracker already recorded this
+
+          // Look up the email to get user_id and lead_id
+          const { data: emailRow } = await supabaseAdmin
+            .from('emails')
+            .select('id, user_id, lead_id')
+            .eq('resend_id', resendId)
+            .maybeSingle();
+
+          if (!emailRow?.user_id || !emailRow?.lead_id) return;
+
+          // Look up the lead for company context
+          const { data: lead } = await supabaseAdmin
+            .from('leads')
+            .select('id, business_name, contact_name, email')
+            .eq('id', emailRow.lead_id)
+            .maybeSingle();
+
+          if (!lead) return;
+
+          const signalDetail = status === 'opened' ? 'email_opened' : 'email_clicked';
+
+          await recordIntentSignal({
+            userId: emailRow.user_id,
+            companyId: lead.business_name ? `lead_${lead.id}` : undefined,
+            companyName: lead.business_name || lead.contact_name || 'Unknown',
+            personId: lead.id,
+            personName: lead.contact_name || undefined,
+            personEmail: lead.email || undefined,
+            signalType: 'email',
+            signalDetail,
+            metadata: { source: 'resend_webhook', resend_id: resendId, email_db_id: emailRow.id },
+          });
+
+          // Mark as fired so self-hosted tracker skips if it fires later
+          await kv.set(dedupKey, { fired_at: new Date().toISOString() });
+          console.log(`[INTENT] Resend webhook → ${signalDetail} for ${lead.business_name || lead.email}`);
+        } catch (intentErr) {
+          console.warn('[INTENT] Failed to record Resend webhook intent signal:', intentErr);
+        }
+      })();
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('[WEBHOOK] Error processing webhook:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Factory for Resend Webhook Handler
+const createResendWebhookHandler = (secretEnvName?: string) => async (c: any) => {
+  try {
+    const rawBody = await c.req.text();
+
+    // Verify Signature if Secret is provided
+    let signatureVerified = false;
+    let signatureError = null;
+    
+    if (secretEnvName) {
+      const secret = Deno.env.get(secretEnvName);
+      if (secret) {
+        const headers = {
+          "svix-id": c.req.header("svix-id") ?? "",
+          "svix-timestamp": c.req.header("svix-timestamp") ?? "",
+          "svix-signature": c.req.header("svix-signature") ?? "",
+        };
+        try {
+          const { Webhook } = await import("npm:svix");
+          const wh = new Webhook(secret);
+          wh.verify(rawBody, headers);
+          signatureVerified = true;
+        } catch (err) {
+          signatureError = err.message;
+          console.error(`[WEBHOOK] Signature verification failed for ${secretEnvName}: ${err}`);
+          
+          // Log failure to KV for diagnostics
+          await kv.set('last_webhook_event', {
+            timestamp: new Date().toISOString(),
+            success: false,
+            error: `Signature verification failed: ${err.message}`,
+            headers: headers
+          });
+          
+          return c.text("Invalid signature", 401);
+        }
+      } else {
+        console.warn(`[WEBHOOK] Secret ${secretEnvName} not found in environment, skipping verification.`);
+      }
+    }
+
+    let payload;
+    try {
+      payload = JSON.parse(rawBody);
+    } catch (e) {
+      console.error("[WEBHOOK] Failed to parse JSON body");
+      return c.text("Invalid JSON", 400);
+    }
+
+    const { type, data } = payload;
+    const resendId = data?.email_id;
+
+    // Log the event to KV store for diagnostics
+    await kv.set('last_webhook_event', {
+      timestamp: new Date().toISOString(),
+      type: type,
+      resend_id: resendId,
+      signature_verified: signatureVerified,
+      success: true // Tentative, updated below if processing fails
+    });
+
+    console.log(`[WEBHOOK] Received event: ${type} for ID: ${resendId}`);
+
+    if (!resendId) {
+      console.log("[WEBHOOK] No email_id found in payload, ignoring");
+      return c.text("No email_id", 200);
+    }
+
+    // Connect to Supabase with Service Role to bypass RLS
+    const supabaseAdmin = getSupabaseAdmin();
+
+    // Map Resend event to our status
+    let status = 'sent';
+    let updateData: any = {}; // Removed updated_at as it may not exist in the schema
+
+    switch (type) {
+      case 'email.sent': 
+        status = 'sent'; 
+        break;
+      case 'email.delivered': 
+        status = 'delivered'; 
+        updateData.delivered_at = new Date().toISOString(); 
+        break;
+      case 'email.opened': 
+        status = 'opened'; 
+        updateData.opened_at = new Date().toISOString(); 
+        break;
+      case 'email.clicked': 
+        status = 'clicked'; 
+        updateData.clicked_at = new Date().toISOString(); 
+        break;
+      case 'email.bounced': 
+        status = 'bounced'; 
+        break;
+      case 'email.complained': 
+        status = 'complained'; 
+        break;
+      default:
+        console.log(`[WEBHOOK] Ignoring non-status event type: ${type}`);
+        return c.text("Ignored event type", 200);
+    }
+
+    console.log(`[WEBHOOK] Processing update: Set status='${status}' for resend_id='${resendId}'`);
+
+    // Status hierarchy: sent < delivered < opened < clicked
+    // Prevent downgrades (e.g. Resend 'opened' webhook arriving after our self-hosted click tracker)
+    const STATUS_RANK: Record<string, number> = {
+      queued: 0, sent: 1, delivered: 2, opened: 3, clicked: 4,
+      bounced: 5, complained: 5, failed: 5,
+    };
+
+    // Fetch current email to check status before updating
+    const { data: existingEmail } = await supabaseAdmin
+      .from('emails')
+      .select('id, lead_id, status')
+      .eq('resend_id', resendId)
+      .single();
+
+    if (!existingEmail) {
+      console.warn(`[WEBHOOK] ⚠️ Email with resend_id '${resendId}' NOT FOUND in database.`);
+      return c.json({ success: true });
+    }
+
+    const currentRank = STATUS_RANK[existingEmail.status] ?? 0;
+    const newRank = STATUS_RANK[status] ?? 0;
+
+    // Skip if the new status would be a downgrade (e.g. 'opened' arriving after 'clicked')
+    // Exception: bounced/complained (rank 5) always apply regardless of current state
+    if (newRank <= currentRank && newRank < 5) {
+      console.log(`[WEBHOOK] Skipping downgrade: ${existingEmail.status}(${currentRank}) -> ${status}(${newRank}) for email ${existingEmail.id}`);
+      // Still record the event for audit purposes
+      try {
+        await supabaseAdmin.from('email_events').insert({
+          email_id: existingEmail.id,
+          event_type: status,
+          created_at: new Date().toISOString(),
+        });
+      } catch (_) { /* best-effort */ }
+      return c.json({ success: true });
+    }
+
+    // Update Email Record — Step 1: status only (guaranteed column)
+    const { data: email, error } = await supabaseAdmin
+      .from('emails')
+      .update({ status })
+      .eq('id', existingEmail.id)
+      .select('id, lead_id, status')
+      .single();
+
+    // Step 2: Try to set timestamp columns (may not exist — non-fatal)
+    if (Object.keys(updateData).length > 0) {
+      try {
+        const { error: tsError } = await supabaseAdmin
+          .from('emails')
+          .update(updateData)
+          .eq('id', existingEmail.id);
+        if (tsError) {
+          console.warn(`[WEBHOOK] Timestamp update failed (non-fatal, status already set to ${status}):`, tsError.code, tsError.message);
+        }
+      } catch (_) { /* non-fatal */ }
+    }
+
+    if (error) {
+      console.error(`[WEBHOOK] ❌ DB Update Error: ${error.message}`);
+    } else if (email) {
+      console.log(`[WEBHOOK] ✅ Successfully updated email ${email.id} to '${status}'`);
+      
+      // Create email_events record for tracking
+      try {
+        await supabaseAdmin.from('email_events').insert({
+          email_id: email.id,
+          event_type: status,
+          created_at: new Date().toISOString()
+        });
+      } catch (evtError) {
+        console.error(`[WEBHOOK] Failed to create event log:`, evtError);
+      }
+      
+      // Handle Bounce Side-Effects
+      if ((status === 'bounced' || status === 'complained') && email.lead_id) {
+         await supabaseAdmin
+            .from('leads')
+            .update({ bounced: true, status: 'bounced', updated_at: new Date().toISOString() })
+            .eq('id', email.lead_id);
+         console.log(`[WEBHOOK] Marked lead ${email.lead_id} as bounced (event: ${status})`);
+      }
+
+      // Pipeline auto-stage triggers based on email events
+      if (email.lead_id && (status === 'opened' || status === 'clicked')) {
+        // Look up lead email + user_id for pipeline trigger
+        try {
+          const { data: triggerLead } = await supabaseAdmin
+            .from('leads')
+            .select('email, user_id')
+            .eq('id', email.lead_id)
+            .maybeSingle();
+          if (triggerLead?.user_id && triggerLead?.email) {
+            firePipelineTrigger({
+              event_type: status === 'opened' ? 'email_opened' : 'email_clicked',
+              user_id: triggerLead.user_id,
+              email: triggerLead.email,
+              lead_id: email.lead_id,
+            }).catch(() => {});
+          }
+        } catch { /* best-effort */ }
+      }
+    }
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error(`[WEBHOOK] Critical Execution Error: ${error.message}`);
+    return c.json({ error: error.message }, 200); // Return 200 to satisfy webhook sender
+  }
+};
+
+// V1 Handler (No signature verification enforced for backward compat unless env var exists)
+const v1Handler = createResendWebhookHandler('RESEND_WEBHOOK_SECRET');
+app.post("/make-server-a8b2511f/webhooks/resend", v1Handler);
+app.post("/webhooks/resend", v1Handler);
+
+// V2 Webhook Endpoint - With Signature Verification
+app.post("/make-server-a8b2511f/webhooks/resend-v2", createResendWebhookHandler('RESEND_WEBHOOK_SECRET_V2'));
+app.post("/webhooks/resend-v2", createResendWebhookHandler('RESEND_WEBHOOK_SECRET_V2'));
+
+// GET Endpoint for V2 - To verify browser connectivity
+app.get("/make-server-a8b2511f/webhooks/resend-v2", (c) => c.text("Webhook V2 endpoint is reachable via GET. Use POST for webhooks.", 200));
+
+// PUBLIC HEALTH CHECK - No auth required, proves JWT verification is disabled
+app.get("/make-server-a8b2511f/public-health", (c) => {
+  return c.json({
+    status: "ok",
+    version: "3.2.0",
+    ai_provider: "gpt-4o-mini",
+    message: "✅ Public endpoint working! JWT verification is disabled.",
+    timestamp: new Date().toISOString(),
+    deployed: true,
+    openai_key_set: !!Deno.env.get('OPENAI_API_KEY'),
+  }, 200);
+});
+
+app.post("/make-server-a8b2511f/public-health", (c) => {
+  return c.json({
+    status: "ok",
+    message: "✅ POST to public endpoint working! Webhooks should work now.",
+    timestamp: new Date().toISOString()
+  }, 200);
+});
+
+// Async webhook processing function removed (refactored to resend-webhook.tsx)
+// Original function removed to reduce file size and duplicate logic
+
+
+// GET /test-webhook - Test endpoint to verify webhook is reachable
+app.get("/make-server-a8b2511f/test-webhook", async (c) => {
+  return c.json({ 
+    message: "Webhook endpoint is working!",
+    timestamp: new Date().toISOString(),
+    url: "POST /make-server-a8b2511f/webhooks/resend-v2"
+  });
+});
+
+// POST /test-webhook - Test webhook processing
+app.post("/make-server-a8b2511f/test-webhook", async (c) => {
+  try {
+    const payload = await c.req.json();
+    console.log('[TEST-WEBHOOK] Received payload:', JSON.stringify(payload));
+    return c.json({ 
+      success: true, 
+      received: payload,
+      message: "Webhook processing is working!"
+    });
+  } catch (error) {
+    console.error('[TEST-WEBHOOK] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /resend/webhook/diagnostics - Check Resend webhook status
+app.get("/make-server-a8b2511f/resend/webhook/diagnostics", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // Count emails sent in last 24 hours
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    
+    const { count: emailCount } = await supabase
+      .from('emails')
+      .select('*', { count: 'estimated', head: true })
+      .eq('user_id', user.id)
+      .gte('created_at', twentyFourHoursAgo);
+    
+    // Count emails with tracking events in last 24 hours
+    const { count: openedCount } = await supabase
+      .from('emails')
+      .select('*', { count: 'estimated', head: true })
+      .eq('user_id', user.id)
+      .gte('opened_at', twentyFourHoursAgo);
+      
+    const { count: clickedCount } = await supabase
+      .from('emails')
+      .select('*', { count: 'estimated', head: true })
+      .eq('user_id', user.id)
+      .gte('clicked_at', twentyFourHoursAgo);
+    
+    const eventsCount = (openedCount || 0) + (clickedCount || 0);
+    
+    const issues = [];
+    
+    // Check if we have emails but no events
+    if (emailCount && emailCount > 0 && eventsCount === 0) {
+      issues.push({
+        issue: 'No tracking events received in 24 hours',
+        fix: 'Check that Resend webhook is configured correctly at https://resend.com/webhooks'
+      });
+    }
+    
+    const webhookUrl = `https://${Deno.env.get('SUPABASE_URL')?.replace('https://', '')}/functions/v1/make-server-a8b2511f/webhooks/resend-v2`;
+    
+    return c.json({
+      diagnostics: {
+        emails_last_24h: emailCount || 0,
+        events_last_24h: eventsCount,
+        webhook_url: webhookUrl,
+        issues_detected: issues
+      }
+    });
+  } catch (error) {
+    console.error('[DIAGNOSTICS] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /maintenance/cleanup - Delete orphan emails
+app.post("/make-server-a8b2511f/maintenance/cleanup", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // 1. Get all valid campaign IDs for this user (with pagination for >1000)
+    let allCampaigns: any[] = [];
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data: campaigns } = await supabase
+        .from('campaigns')
+        .select('id')
+        .eq('user_id', user.id)
+        .range(from, from + batchSize - 1);
+      
+      if (campaigns && campaigns.length > 0) {
+        allCampaigns = allCampaigns.concat(campaigns);
+        from += batchSize;
+        hasMore = campaigns.length === batchSize;
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    const validCampaignIds = allCampaigns.map(c => c.id);
+    
+    // 2. Fetch all emails to identify orphans (with pagination for >1000)
+    // We only check emails that HAVE a campaign_id. If it's null (Quick Send), we keep it.
+    let allEmails: any[] = [];
+    from = 0;
+    hasMore = true;
+
+    while (hasMore) {
+      const { data: emails } = await supabase
+        .from('emails')
+        .select('id, campaign_id')
+        .eq('user_id', user.id)
+        .not('campaign_id', 'is', null)
+        .range(from, from + batchSize - 1);
+      
+      if (emails && emails.length > 0) {
+        allEmails = allEmails.concat(emails);
+        from += batchSize;
+        hasMore = emails.length === batchSize;
+      } else {
+        hasMore = false;
+      }
+    }
+        
+    if (allEmails.length === 0) {
+        return c.json({ success: true, deleted: 0 });
+    }
+    
+    // Identify emails whose campaign_id is NOT in the valid list
+    const emailsToDelete = allEmails.filter(e => !validCampaignIds.includes(e.campaign_id)).map(e => e.id);
+    
+    if (emailsToDelete.length > 0) {
+        console.log(`[MAINTENANCE] Deleting ${emailsToDelete.length} orphan emails for user ${user.id}`);
+        // Delete in batches of 1000 just in case
+        for (let i = 0; i < emailsToDelete.length; i += 1000) {
+            const batch = emailsToDelete.slice(i, i + 1000);
+            const { error } = await supabase
+                .from('emails')
+                .delete()
+                .in('id', batch);
+                
+            if (error) throw error;
+        }
+    }
+    
+    return c.json({ success: true, deleted: emailsToDelete.length });
+  } catch (error) {
+    console.error('[MAINTENANCE] Cleanup failed:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// API DIAGNOSTICS & DATA CLEANUP ENDPOINTS
+// ═════���═════════════════════════════════════════════════════════════════════
+
+// GET /api-diagnostics - Full API diagnostics for Hunter.io, Findymail, SerpAPI
+app.get("/make-server-a8b2511f/api-diagnostics", async (c) => {
+  try {
+    // This endpoint doesn't require authentication since it's checking system-level API keys
+    // but we'll add auth to prevent abuse
+    const { user } = await getAuthenticatedUser(c);
+    
+    console.log(`[API-DIAGNOSTICS] Running full diagnostics for user ${user.id}...`);
+    const { runFullDiagnostics } = await import("./api-diagnostics.tsx");
+    const report = await runFullDiagnostics();
+    
+    return c.json({ 
+      success: true, 
+      report 
+    });
+  } catch (error) {
+    console.error('[API-DIAGNOSTICS] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /api-health - Quick health check for API integrations
+app.get("/make-server-a8b2511f/api-health", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    
+    console.log(`[API-HEALTH] Quick health check for user ${user.id}...`);
+    const { quickHealthCheck } = await import("./api-diagnostics.tsx");
+    const health = await quickHealthCheck();
+    
+    return c.json({ 
+      success: true, 
+      ...health 
+    });
+  } catch (error) {
+    console.error('[API-HEALTH] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /city-cleanup/analyze - Analyze city field data pollution
+app.post("/make-server-a8b2511f/city-cleanup/analyze", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    console.log(`[CITY-CLEANUP] Analyzing city field for user ${user.id}...`);
+    const { analyzeCityFieldIssues } = await import("./city-cleanup.tsx");
+    const analysis = await analyzeCityFieldIssues(supabase, user.id);
+    
+    return c.json({ 
+      success: true, 
+      analysis 
+    });
+  } catch (error) {
+    console.error('[CITY-CLEANUP] Analysis error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /city-cleanup/fix - Fix city field data pollution
+app.post("/make-server-a8b2511f/city-cleanup/fix", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    
+    const options = {
+      dryRun: body.dryRun !== false, // Default to dry run for safety
+      fixCoordinates: body.fixCoordinates !== false,
+      fillEmptyCities: body.fillEmptyCities !== false,
+      removeInvalidCities: body.removeInvalidCities !== false
+    };
+    
+    console.log(`[CITY-CLEANUP] Running cleanup for user ${user.id} with options:`, options);
+    const { cleanupCityField } = await import("./city-cleanup.tsx");
+    const result = await cleanupCityField(supabase, user.id, options);
+    
+    return c.json({ 
+      success: true, 
+      result 
+    });
+  } catch (error) {
+    console.error('[CITY-CLEANUP] Cleanup error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DEMO ACCOUNT MANAGEMENT ENDPOINTS
+// ═══════════════════���═══════════════════════════════════════════════════════
+
+// POST /demo/seed - Seed demo data for demo account
+app.post("/make-server-a8b2511f/demo/seed", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // Only allow for demo@contndr.com or admin users
+    // Use user.email from getAuthenticatedUser (NOT supabase.auth.getUser() which has no session on service-role client)
+    const userEmail = user.email?.toLowerCase().trim();
+    
+    if (userEmail !== 'demo@contndr.com' && !isAdminEmail(userEmail)) {
+      console.log(`[DEMO] Seed rejected for non-demo user: ${userEmail}`);
+      return c.json({ 
+        error: 'This endpoint is only available for demo accounts' 
+      }, 403);
+    }
+    
+    const body = await c.req.json().catch(() => ({}));
+    
+    console.log(`[DEMO] Seeding demo data for user ${user.id} (${userEmail})...`);
+    const { seedDemoData } = await import("./demo-seeder.tsx");
+    const result = await seedDemoData(supabase, user.id, body.config || {});
+    
+    if (result.success) {
+      return c.json({ 
+        success: true, 
+        message: 'Demo data seeded successfully',
+        stats: result.stats 
+      });
+    } else {
+      return c.json({ 
+        success: false,
+        error: 'Failed to seed demo data',
+        stats: result.stats
+      }, 500);
+    }
+  } catch (error) {
+    console.error('[DEMO] Seed error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /demo/clear - Clear all demo data
+app.post("/make-server-a8b2511f/demo/clear", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // Only allow for demo@contndr.com or admin users
+    const userEmail = user.email?.toLowerCase().trim();
+    
+    if (userEmail !== 'demo@contndr.com' && !isAdminEmail(userEmail)) {
+      console.log(`[DEMO] Clear rejected for non-demo user: ${userEmail}`);
+      return c.json({ 
+        error: 'This endpoint is only available for demo accounts' 
+      }, 403);
+    }
+    
+    console.log(`[DEMO] Clearing demo data for user ${user.id} (${userEmail})...`);
+    const { clearDemoData } = await import("./demo-seeder.tsx");
+    const result = await clearDemoData(supabase, user.id);
+    
+    return c.json(result);
+  } catch (error) {
+    console.error('[DEMO] Clear error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /demo/traffic - Simulate live traffic for demo account
+app.post("/make-server-a8b2511f/demo/traffic", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // Only allow for demo@contndr.com or admin users
+    const userEmail = user.email?.toLowerCase().trim();
+    
+    if (userEmail !== 'demo@contndr.com' && !isAdminEmail(userEmail)) {
+      return c.json({ 
+        error: 'This endpoint is only available for demo accounts' 
+      }, 403);
+    }
+    
+    const body = await c.req.json().catch(() => ({}));
+    const count = body.count || 5;
+    
+    console.log(`[DEMO] Simulating live traffic for user ${user.id} (${userEmail})...`);
+    const { simulateLiveTraffic } = await import("./demo-seeder.tsx");
+    const result = await simulateLiveTraffic(supabase, user.id, count);
+    
+    return c.json(result);
+  } catch (error) {
+    console.error('[DEMO] Traffic sim error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /demo/status - Check if current user is a demo account
+app.get("/make-server-a8b2511f/demo/status", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const userEmail = user.email?.toLowerCase().trim();
+    
+    const isDemoAccount = userEmail === 'demo@contndr.com';
+    
+    // Get current data counts
+    const [leadsCount, campaignsCount, emailsCount, trackingCount] = await Promise.all([
+      supabase.from('leads').select('id', { count: 'estimated', head: true }).eq('user_id', user.id),
+      supabase.from('campaigns').select('id', { count: 'estimated', head: true }).eq('user_id', user.id),
+      supabase.from('emails').select('id', { count: 'estimated', head: true }).eq('user_id', user.id),
+      supabase.from('tracking_events').select('id', { count: 'estimated', head: true }).eq('user_id', user.id)
+    ]);
+    
+    return c.json({ 
+      isDemoAccount,
+      userEmail,
+      currentData: {
+        leads: leadsCount.count || 0,
+        campaigns: campaignsCount.count || 0,
+        emails: emailsCount.count || 0,
+        tracking_events: trackingCount.count || 0
+      }
+    });
+  } catch (error) {
+    console.error('[DEMO] Status error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ══════════��════════════════════════════════════════════════════════════════
+// LEAD SCORING ENDPOINTS
+// ════���══════════════════════════════════════════════════════════════════════
+
+// POST /leads/score/:leadId - Score a single lead
+app.post("/make-server-a8b2511f/leads/score/:leadId", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const leadId = c.req.param('leadId');
+    
+    // Verify lead belongs to user
+    const { data: lead } = await supabase
+      .from('leads')
+      .select('id')
+      .eq('id', leadId)
+      .eq('user_id', user.id)
+      .single();
+    
+    if (!lead) {
+      return c.json({ error: 'Lead not found' }, 404);
+    }
+    
+    console.log(`[LEAD-SCORING] Scoring lead ${leadId} for user ${user.id}...`);
+    const result = await scoreLead(supabase, leadId);
+    
+    return c.json({ 
+      success: true,
+      leadId,
+      score: result.score,
+      grade: result.grade,
+      factors: result.factors
+    });
+  } catch (error) {
+    console.error('[LEAD-SCORING] Score lead error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/score-all - Score all leads for the authenticated user
+app.post("/make-server-a8b2511f/leads/score-all", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    console.log(`[LEAD-SCORING] Starting bulk scoring for user ${user.id}...`);
+    
+    const result = await scoreAllLeads(supabase, user.id, (current, total) => {
+      if (current % 25 === 0) {
+        console.log(`[LEAD-SCORING] Progress: ${current}/${total}`);
+      }
+    });
+    
+    return c.json({
+      success: true,
+      stats: result
+    });
+  } catch (error) {
+    console.error('[LEAD-SCORING] Score all error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /leads/:leadId/score-breakdown - Get detailed scoring breakdown for a lead
+app.get("/make-server-a8b2511f/leads/:leadId/score-breakdown", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const leadId = c.req.param('leadId');
+    
+    // Verify lead belongs to user
+    const { data: lead } = await supabase
+      .from('leads')
+      .select('id')
+      .eq('id', leadId)
+      .eq('user_id', user.id)
+      .single();
+    
+    if (!lead) {
+      return c.json({ error: 'Lead not found' }, 404);
+    }
+    
+    const breakdown = await getLeadScoreBreakdown(supabase, leadId);
+    
+    return c.json({
+      success: true,
+      breakdown
+    });
+  } catch (error) {
+    console.error('[LEAD-SCORING] Breakdown error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /leads/rescore-all-intent - Manually trigger re-scoring with fresh intent data
+app.post("/make-server-a8b2511f/leads/rescore-all-intent", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    
+    console.log(`[RESCORE] Manual re-score triggered by user ${user.id}`);
+    const result = await rescoreAllUsersLeads();
+    
+    return c.json({
+      success: true,
+      stats: result,
+    });
+  } catch (error) {
+    console.error('[RESCORE] Manual re-score error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DATABASE MIGRATION ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// POST /db/add-score-column - Add score column to leads table if it doesn't exist
+app.post("/make-server-a8b2511f/db/add-score-column", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    console.log(`[DB-MIGRATION] Adding score column to leads table for user ${user.id}...`);
+    
+    // The score column doesn't exist in the database anymore
+    // Skip this check as the column has been removed
+    console.log('[SCORE] Score column not in use - scoring system deprecated');
+    
+    return c.json({
+      success: true,
+      message: 'Score column is not used in the current schema'
+    });
+  } catch (error) {
+    console.error('[DB-MIGRATION] Error checking score column:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /revenue/metrics
+app.get("/make-server-a8b2511f/revenue/metrics", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const brand = c.req.query('brand') || 'all';
+
+    // Outer timeout guard — if getRevenueMetrics is still slow despite internal
+    // parallelisation, bail gracefully instead of letting the 8 s KV timeout
+    // propagate as a 500 error to the frontend.
+    const METRICS_TIMEOUT_MS = 7000;
+
+    const metricsResult = await Promise.race([
+      getRevenueMetrics(user, brand as any, supabase),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`Revenue metrics timeout after ${METRICS_TIMEOUT_MS}ms`)),
+          METRICS_TIMEOUT_MS
+        )
+      ),
+    ]).catch(async (err) => {
+      console.warn('[REVENUE] getRevenueMetrics timed out or failed, attempting stale-cache fallback:', err.message);
+      // Try returning whatever is already cached, even if stale
+      try {
+        const cacheKey = `revenue_metrics:${user.id}:${brand}:isolated-v2`;
+        const stale = await Promise.race<any>([
+          kv.get(cacheKey),
+          new Promise<null>(r => setTimeout(() => r(null), 2000)),
+        ]);
+        if (stale) {
+          console.log('[REVENUE] Returning stale cached metrics as fallback');
+          return stale;
+        }
+      } catch (_) { /* ignore cache read error */ }
+      // Hard zero fallback so the frontend never crashes
+      return {
+        brand,
+        total_revenue: 0, monthly_revenue: 0, weekly_revenue: 0, daily_revenue: 0,
+        mrr: 0, arr: 0, total_customers: 0, active_subscriptions: 0,
+        churn_rate: 0, avg_deal_size: 0, conversion_rate: 0, revenue_per_lead: 0,
+        updated_at: new Date().toISOString(),
+        _fallback: true,
+      };
+    });
+
+    return c.json({ success: true, metrics: metricsResult });
+  } catch (error) {
+    console.error('Error fetching revenue metrics:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /revenue/funnel
+app.get("/make-server-a8b2511f/revenue/funnel", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const brand = c.req.query('brand') || 'all';
+    
+    const funnel = await getConversionFunnel(user, brand as any, supabase);
+    
+    return c.json({ success: true, funnel });
+  } catch (error) {
+    console.error('Error fetching funnel:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /revenue/payments
+app.get("/make-server-a8b2511f/revenue/payments", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const brand = c.req.query('brand') || 'all';
+    
+    const payments = await getPaymentsByBrand(user, brand as any);
+    
+    // Sort by date desc
+    payments.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    // Fire-and-forget background dedup to clean KV for next fetch
+    try {
+      const brandToDedup = (brand === 'all' || brand === 'default') ? 'default' : brand;
+      deduplicatePayments(user, brandToDedup).catch(e => console.warn('Background dedup failed:', e));
+    } catch (_) { /* ignore */ }
+    
+    return c.json({ success: true, payments });
+  } catch (error) {
+    console.error('Error fetching payments:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /revenue/sync - Force sync recent payments
+app.post("/make-server-a8b2511f/revenue/sync", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { brand = 'default', days = 30 } = await c.req.json();
+    
+    console.log(`[REVENUE SYNC] Force sync requested by user ${user.id} for brand="${brand}" (${days} days)`);
+    
+    const results: Record<string, { synced: number; errors: string[] }> = {};
+    
+    // Sync the requested brand (or 'default' which maps to the user's configured Stripe key)
+    const brandToSync = brand === 'all' ? 'default' : brand;
+    const syncRes = await syncHistoricalPayments(user, brandToSync, days);
+    results[brandToSync] = syncRes;
+    
+    // Also sync subscriptions
+    try {
+      const subRes = await syncStripeSubscriptions(user);
+      console.log(`[REVENUE SYNC] Subscriptions synced: ${subRes.synced}`);
+    } catch (subErr) {
+      console.warn('[REVENUE SYNC] Subscription sync failed:', subErr);
+    }
+    
+    // Clear metrics cache to force recalculation next time
+    const prefix = `revenue_metrics:${user.id}`;
+    await kv.del(`${prefix}:${brandToSync}`);
+    await kv.del(`${prefix}:all`);
+    await kv.del(`${prefix}:default`);
+    
+    return c.json({ success: true, results });
+  } catch (error) {
+    console.error('Error syncing revenue:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /revenue/deduplicate - Remove duplicate payments
+app.post("/make-server-a8b2511f/revenue/deduplicate", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { brand = 'default' } = await c.req.json();
+    
+    console.log(`[REVENUE DEDUPE] Deduplication requested by user ${user.id} for brand="${brand}"`);
+    
+    const brandToProcess = brand === 'all' ? 'default' : brand;
+    const result = await deduplicatePayments(user, brandToProcess);
+    
+    // Clear metrics cache to force recalculation with clean data
+    const prefix = `revenue_metrics:${user.id}`;
+    await kv.del(`${prefix}:${brandToProcess}`);
+    await kv.del(`${prefix}:all`);
+    await kv.del(`${prefix}:default`);
+    
+    return c.json({ 
+      success: result.success, 
+      duplicatesRemoved: result.duplicatesRemoved,
+      errors: result.errors 
+    });
+  } catch (error) {
+    console.error('Error deduplicating:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /analytics/overview (with caching)
+app.get("/make-server-a8b2511f/analytics/overview", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    
+    // Check cache first
+    const cacheKey = `analytics:${user.id}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return c.json(cached);
+    }
+    
+    // Fetch and cache
+    const { getAnalyticsOverview } = await import("./analytics-service.tsx");
+    const analytics = await getAnalyticsOverview(user, supabase);
+    setCache(cacheKey, analytics);
+    return c.json(analytics);
+  } catch (error) {
+    const status = (error as any)?.status || 500;
+    if (status !== 401) console.error('Error fetching analytics:', error);
+    return c.json({ error: error.message }, status);
+  }
+});
+
+// GET /emails/recent - Return recent sent emails + summary stats for diagnostics / health checks
+// Query params: limit (default 50, max 200)
+app.get("/make-server-a8b2511f/emails/recent", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const rawLimit = parseInt(c.req.query('limit') ?? '50', 10);
+    const limit = Math.min(isNaN(rawLimit) ? 50 : rawLimit, 200);
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Fetch recent emails — wrapped in withDbRetry to survive PostgREST cold-start
+    const { data: emails, error } = await withDbRetry(
+      () =>
+        supabase
+          .from('emails')
+          .select('id, resend_id, status, created_at, subject, to_email, from_email, opened_at, clicked_at, campaign_id')
+          .eq('user_id', user.id)
+          .gt('created_at', thirtyDaysAgo)
+          .order('created_at', { ascending: false })
+          .limit(limit),
+      'GET /emails/recent'
+    );
+
+    if (error) {
+      console.error('[EMAILS/RECENT] DB error:', error);
+      return c.json({ error: error.message }, 500);
+    }
+
+    const rows = emails ?? [];
+
+    // Build summary stats
+    const total        = rows.length;
+    const withResendId = rows.filter((e: any) => !!e.resend_id).length;
+    const opened       = rows.filter((e: any) => e.status === 'opened'  || !!e.opened_at).length;
+    const clicked      = rows.filter((e: any) => e.status === 'clicked' || !!e.clicked_at).length;
+    const bounced      = rows.filter((e: any) => e.status === 'bounced').length;
+    const delivered    = rows.filter((e: any) => e.status === 'delivered').length;
+    const sent         = rows.filter((e: any) => e.status === 'sent').length;
+
+    return c.json({
+      success: true,
+      emails: rows,
+      summary: { total, withResendId, opened, clicked, bounced, delivered, sent },
+    });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    if (status !== 401) console.error('[EMAILS/RECENT] Error:', error);
+    return c.json({ error: error.message }, status);
+  }
+});
+
+// GET /emails/webhook-diagnostics - Get last webhook event from KV
+app.get("/make-server-a8b2511f/emails/webhook-diagnostics", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const lastEvent = await kv.get('last_webhook_event');
+    return c.json({ lastEvent });
+  } catch (error) {
+    console.error('Error fetching webhook diagnostics:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /settings/email-config - Get email configuration
+app.get("/make-server-a8b2511f/settings/email-config", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    
+    // Get email config from KV store
+    const roadrSender = await kv.get(`email_config:${user.id}:roadr_sender`);
+    const sourcrSender = await kv.get(`email_config:${user.id}:sourcr_sender`);
+    
+    return c.json({ 
+      success: true,
+      config: {
+        roadr_sender: roadrSender || 'partner@roadr.com',
+        sourcr_sender: sourcrSender || 'or@covera.co'
+      }
+    });
+  } catch (error) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('Error loading email config:', error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// POST /settings/email-config - Save email configuration
+app.post("/make-server-a8b2511f/settings/email-config", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { roadr_sender, sourcr_sender } = await c.req.json();
+    
+    // Save to KV store
+    if (roadr_sender) {
+      await kv.set(`email_config:${user.id}:roadr_sender`, roadr_sender);
+    }
+    if (sourcr_sender) {
+      await kv.set(`email_config:${user.id}:sourcr_sender`, sourcr_sender);
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('Error saving email config:', error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// GET /settings/stripe-config
+app.get("/make-server-a8b2511f/settings/stripe-config", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    
+    // Add timeout to prevent dashboard from hanging
+    const timeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Query timeout after 5000ms')), 5000)
+    );
+    
+    const apiKey = await Promise.race([
+      kv.get(`stripe_config:${user.id}:default:secret_key`),
+      timeout
+    ]).catch(() => null); // Fallback to null on timeout
+    
+    return c.json({ 
+      success: true,
+      configured: !!apiKey
+    });
+  } catch (error) {
+    if (error.message.includes('Authentication failed')) return c.json({ error: 'Unauthorized' }, 401);
+    console.error('Error checking stripe config:', error);
+    return c.json({ success: false, configured: false }, 500);
+  }
+});
+
+// POST /settings/stripe-config
+app.post("/make-server-a8b2511f/settings/stripe-config", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { apiKey } = await c.req.json();
+    
+    if (!apiKey) {
+         return c.json({ error: 'API Key is required' }, 400);
+    }
+
+    await kv.set(`stripe_config:${user.id}:default:secret_key`, apiKey);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    if (error.message.includes('Authentication failed')) return c.json({ error: 'Unauthorized' }, 401);
+    console.error('Error saving stripe config:', error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// GET /settings/findymail-status - Check if Findymail is configured
+app.get("/make-server-a8b2511f/settings/findymail-status", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    
+    // Check if FINDYMAIL_API_KEY exists in environment
+    const apiKey = Deno.env.get('FINDYMAIL_API_KEY');
+    const configured = !!apiKey && apiKey.length > 0;
+    
+    return c.json({ configured });
+  } catch (error) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('Error checking Findymail status:', error);
+    return c.json({ configured: false, error: error.message }, 500);
+  }
+});
+
+// ============================================
+// AUTOMATION ENDPOINTS
+// ============================================
+
+// Create automation rule
+app.post("/make-server-a8b2511f/automation/rules", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+
+    const ruleData = await c.req.json();
+    
+    // Calculate next run time
+    const now = new Date();
+    let nextRun = new Date(now);
+    
+    switch (ruleData.frequency) {
+      case 'daily':
+        nextRun.setDate(nextRun.getDate() + 1);
+        break;
+      case 'weekly':
+        nextRun.setDate(nextRun.getDate() + 7);
+        break;
+      case 'monthly':
+        nextRun.setMonth(nextRun.getMonth() + 1);
+        break;
+    }
+
+    const { data, error } = await supabase
+      .from('automation_rules')
+      .insert({
+        ...ruleData,
+        user_id: user.id,
+        next_run_at: nextRun.toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating automation rule:', error);
+      return c.json({ error: "Failed to create automation rule", details: error.message }, 500);
+    }
+
+    console.log(`✅ Created automation rule: ${data.name}`);
+    return c.json({ success: true, rule: data });
+
+  } catch (error) {
+    console.error('Error creating automation rule:', error);
+    return c.json({ error: "Failed to create automation rule", details: error.message }, 500);
+  }
+});
+
+// Get all automation rules
+app.get("/make-server-a8b2511f/automation/rules", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+
+    const { data, error } = await supabase
+      .from('automation_rules')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching automation rules:', error);
+      // If table doesn't exist, return empty array instead of 500
+      if (error.code === '42P01') {
+         return c.json({ success: true, rules: [] });
+      }
+      return c.json({ error: "Failed to fetch automation rules", details: error.message }, 500);
+    }
+
+    return c.json({ success: true, rules: data });
+
+  } catch (error) {
+    console.error('Error fetching automation rules:', error);
+    return c.json({ error: "Failed to fetch automation rules", details: error.message }, 500);
+  }
+});
+
+// Run automation rule manually
+app.post("/make-server-a8b2511f/automation/rules/:id/run", async (c) => {
+  try {
+    // Ensure user is authenticated
+    await getAuthenticatedUser(c);
+    const ruleId = c.req.param('id');
+    
+    console.log(`🚀 Manually triggering automation rule: ${ruleId}`);
+    const result = await processAutomationRule(ruleId);
+    
+    return c.json({ success: true, result });
+
+  } catch (error) {
+    console.error('Error running automation rule:', error);
+    return c.json({ error: "Failed to run automation rule", details: error.message }, 500);
+  }
+});
+
+// Update automation rule
+app.put("/make-server-a8b2511f/automation/rules/:id", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const ruleId = c.req.param('id');
+    const updates = await c.req.json();
+
+    const { data, error } = await supabase
+      .from('automation_rules')
+      .update(updates)
+      .eq('id', ruleId)
+      .eq('user_id', user.id) // Ensure user owns the rule
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating automation rule:', error);
+      return c.json({ error: "Failed to update automation rule", details: error.message }, 500);
+    }
+
+    return c.json({ success: true, rule: data });
+
+  } catch (error) {
+    console.error('Error updating automation rule:', error);
+    return c.json({ error: "Failed to update automation rule", details: error.message }, 500);
+  }
+});
+
+// Delete automation rule
+app.delete("/make-server-a8b2511f/automation/rules/:id", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const ruleId = c.req.param('id');
+
+    const { error } = await supabase
+      .from('automation_rules')
+      .delete()
+      .eq('id', ruleId)
+      .eq('user_id', user.id); // Ensure user owns the rule
+
+    if (error) {
+      console.error('Error deleting automation rule:', error);
+      return c.json({ error: "Failed to delete automation rule", details: error.message }, 500);
+    }
+
+    return c.json({ success: true });
+
+  } catch (error) {
+    console.error('Error deleting automation rule:', error);
+    return c.json({ error: "Failed to delete automation rule", details: error.message }, 500);
+  }
+});
+
+// POST /lookup-business - Lookup business details
+app.post("/make-server-a8b2511f/lookup-business", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { query, brand } = await c.req.json();
+    
+    // Check if query is a URL
+    const isUrl = query.includes('.') && !query.includes(' ');
+    
+    if (isUrl) {
+      let url = query;
+      if (!url.startsWith('http')) {
+        url = 'https://' + url;
+      }
+      
+      try {
+        const { scrapeEmailsFromWebsite } = await import("./scraper.tsx");
+        const scrapeResult = await scrapeEmailsFromWebsite(url);
+        if (scrapeResult && scrapeResult.emails && scrapeResult.emails.length > 0) {
+            // Try to find a good contact name/email
+            const bestEmail = scrapeResult.emails[0];
+            
+            return c.json({
+                found: true,
+                business: {
+                    name: query, // Use domain as name fallback
+                    email: bestEmail,
+                    contactName: '',
+                    website: url
+                },
+                source: 'website_scrape'
+            });
+        }
+      } catch (e) {
+        console.warn('Scrape failed:', e);
+      }
+    }
+    
+    // Fallback: Check local DB
+    // This is a placeholder. In real app, search an enrichment API.
+    
+    return c.json({ found: false });
+    
+  } catch (error) {
+    console.error('Error looking up business:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /generate-quick-email
+app.post("/make-server-a8b2511f/generate-quick-email", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { email, businessName, contactName, brand } = await c.req.json();
+    
+    const firstName = contactName ? contactName.split(' ')[0] : 'there';
+    
+    let systemMessage = '';
+    let userPrompt = '';
+    
+    // Determine context based on brand
+    const normalizedBrand = (brand || '').toLowerCase();
+    
+    if (normalizedBrand === 'sourcr') {
+        systemMessage = `You are a representative of Sourcr (sourcr.net). You write high-converting cold emails helping businesses improve their digital presence.`;
+        userPrompt = `Write a HIGH-CONVERTING cold email for ${businessName}.
+        
+        CONTEXT:
+        Business: ${businessName}
+        Contact: ${contactName || 'Owner'}
+        
+        PRODUCT: Sourcr (Digital Product Studio - Websites & Apps).
+        Landing URL: sourcr.net
+        
+        RULES (The "3-Step Play"):
+        1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+        2. Educate & Dig: Address how a poor digital presence hurts their specific industry.
+        3. Format: STRICTLY under 75 words total.
+        4. Structure: Use short, concise paragraphs. Avoid walls of text.
+        5. Voice: Use the customer's language. Be conversational.
+        6. CTA: You MUST include the link "sourcr.net" in the closing sentence.
+        7. Clean Text: DO NOT use hyphens, dashes, or em-dashes. Use commas or periods instead.
+        
+        - DO NOT mention price.
+        - STOP after the CTA. Do NOT write a sign-off (e.g. "Best", "Thanks") or your name. We add the signature automatically.
+        `;
+    } else if (normalizedBrand === 'covera') {
+        systemMessage = `You are Otiniel Ribeiro, founder of Covera. You write high-converting cold emails that help business owners solve vendor risk and compliance headaches.`;
+        userPrompt = `Write a HIGH-CONVERTING cold email to the owner of ${businessName}.
+        
+        CONTEXT:
+        Business: ${businessName}
+        Contact: ${contactName || 'Owner'}
+        
+        PRODUCT: Covera - Vendor Risk Management.
+        Landing URL: covera.co
+        
+        RULES (The "3-Step Play"):
+        1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+        2. Educate & Dig: Address the risk vendors introduce (insurance/compliance) - we manage the RISK, not the vendors.
+        3. Format: STRICTLY under 75 words total.
+        4. Structure: Use short, concise paragraphs. Avoid walls of text.
+        5. Voice: Use the customer's language. Be conversational.
+        6. CTA: You MUST include the link "covera.co" in the closing sentence.
+        7. Clean Text: DO NOT use hyphens, dashes, or em-dashes. Use commas or periods instead.
+        
+        - DO NOT mention price.
+        - STOP after the CTA. Do NOT write a sign-off (e.g. "Best", "Thanks") or your name. We add the signature automatically.
+        `;
+    } else if (normalizedBrand === 'roadr') {
+        // Roadr-specific
+        systemMessage = `You are Otiniel Ribeiro, CEO of Roadr. Roadr is the "Daily Operating System for Car Ownership".`;
+        userPrompt = `Write a HIGH-CONVERTING cold email for ${businessName}.
+        
+        CONTEXT:
+        Business: ${businessName}
+        Contact: ${contactName || 'Owner'}
+        
+        PRODUCT: Roadr
+        Landing URL: roadr.com
+        
+        RULES (The "3-Step Play"):
+        1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+        2. Educate & Dig: Address a specific problem/trigger for their industry.
+        3. Format: STRICTLY under 75 words total.
+        4. Structure: Use short, concise paragraphs. Avoid walls of text.
+        5. Voice: Use the customer's language. Be conversational.
+        6. CTA: You MUST include the link "roadr.com" in the closing sentence.
+        7. Clean Text: DO NOT use hyphens, dashes, or em-dashes. Use commas or periods instead.
+        
+        - DO NOT mention price.
+        - STOP after the CTA. Do NOT write a sign-off (e.g. "Best", "Thanks") or your name. We add the signature automatically.
+        `;
+    } else {
+        // Generic / Custom brand — load KB context if available
+        let quickKBContext = '';
+        try {
+          quickKBContext = await getKnowledgeBaseContext(user.id, 'all', '');
+        } catch (e) { console.warn('[QUICK-EMAIL] KB load failed:', e); }
+
+        systemMessage = `You are a cold email copywriter. You write ultra-short, conversational outreach emails. You sound like a real person reaching out, not a salesperson. Never use dashes or em-dashes. Never list features. Never sound corporate or templated.`;
+        userPrompt = `Write a HIGH-CONVERTING cold email for ${businessName}.
+        
+        CONTEXT:
+        Business: ${businessName}
+        Contact: ${contactName || 'Owner'}
+        
+        PRODUCT: ${brand || 'our product'}
+        ${quickKBContext ? `\nKNOWLEDGE BASE:\n${quickKBContext}\n` : ''}
+        RULES:
+        1. Greeting: MANDATORY. Start with "Hi ${firstName},".
+        2. Educate & Dig: Address a specific problem/trigger for their industry.
+        3. Format: STRICTLY under 75 words total.
+        4. Structure: Use short, concise paragraphs. Avoid walls of text.
+        5. Voice: Use the customer's language. Be conversational.
+        6. CTA: Include a relevant CTA.
+        7. Clean Text: DO NOT use hyphens, dashes, or em-dashes. Use commas or periods instead.
+        
+        - DO NOT mention price.
+        - STOP after the CTA. Do NOT write a sign-off (e.g. "Best", "Thanks") or your name. We add the signature automatically.
+        `;
+    }
+    
+    // Generate via AI provider (OpenAI)
+    const quickAiResult = await generateAIWithRetries({
+      messages: [
+        { role: 'system', content: systemMessage },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.7,
+      maxTokens: 800,
+    }, 2);
+    console.log(`[QUICK-EMAIL] Generated via ${quickAiResult.provider}`);
+    let generatedText = quickAiResult.text || '';
+    
+    // Parse Subject/Body
+    const cleanValue = (val: string) => val.trim().replace(/^(\*\*|\*)/, '').replace(/(\*\*|\*)$/, '').trim();
+    const subjectMatch = generatedText.match(/(?:\*\*|\*)?Subject(?:\*\*|\*)?:?\s*(.+)/i);
+    const subject = subjectMatch ? cleanValue(subjectMatch[1]) : `${brand} Opportunity`;
+    
+    const bodyMatch = generatedText.match(/(?:\*\*|\*)?Body(?:\*\*|\*)?:?\s*([\s\S]+)/i);
+    let body = bodyMatch ? bodyMatch[1].trim() : generatedText;
+    
+    body = body.replace(/^(?:\*\*|\*)?Subject(?:\*\*|\*)?:.*$/mi, '').trim();
+    body = body.replace(/^(?:\*\*|\*)?Preview(?:\*\*|\*)?:.*$/mi, '').trim();
+    body = body.replace(/^(?:\*\*|\*)?Body(?:\*\*|\*)?:.*$/mi, '').trim();
+    
+    // Strip AI Signatures
+    const signOffPatterns = [
+        /Best regards,[\s\S]*$/i, /Best,[\s\S]*$/i, /Sincerely,[\s\S]*$/i,
+        /Cheers,[\s\S]*$/i, /Thanks,[\s\S]*$/i, /Looking forward to[\s\S]*$/i,
+        /Talk soon,[\s\S]*$/i, /Warm regards,[\s\S]*$/i
+    ];
+    for (const pattern of signOffPatterns) {
+         body = body.replace(pattern, '').trim();
+    }
+    
+    // Add Signature
+    let signature = `\n\nBest Regards,\nOtiniel Ribeiro | CEO`;
+    
+    if (normalizedBrand === 'roadr') {
+         signature += `\nE: partner@roadr.com\nW: roadr.com`;
+    } else if (normalizedBrand === 'covera') {
+         signature += `\nE: or@covera.co\nW: covera.co\nP: 323-333-9600`;
+    } else if (normalizedBrand === 'sourcr') {
+         signature += `\nE: or@sourcr.net\nW: sourcr.net\nP: +1 (305) 602-0230`;
+    }
+    
+    body += signature;
+    
+    return c.json({ subject, body });
+    
+  } catch (error) {
+    console.error('Error generating quick email:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /send-quick-email
+app.post("/make-server-a8b2511f/send-quick-email", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const { email, businessName, contactName, brand, subject, body } = await c.req.json();
+    
+    const normalizedBrand = (brand || 'Roadr').trim();
+    const brandLower = normalizedBrand.toLowerCase();
+    
+    // Determine sender email based on brand
+    let fromEmail = 'partner@roadr.com';
+    if (brandLower === 'sourcr') fromEmail = 'or@sourcr.net';
+    else if (brandLower === 'covera') fromEmail = 'or@covera.co';
+    
+    // 1. Find or Create Lead (before send, so we have leadId for tracking)
+    const { data: existingLead } = await supabase
+        .from('leads')
+        .select('id')
+        .eq('email', email)
+        .eq('user_id', user.id)
+        .maybeSingle();
+        
+    let leadId = existingLead?.id;
+    
+    if (!leadId) {
+        const { data: newLead } = await supabase
+            .from('leads')
+            .insert({
+                user_id: user.id,
+                business_name: businessName,
+                contact_name: contactName,
+                email: email,
+                status: 'contacted',
+                last_contacted: new Date().toISOString()
+            })
+            .select()
+            .single();
+        leadId = newLead?.id;
+    }
+    
+    // 2. Find or Create "Quick Send" Campaign
+    const campaignName = `Quick Send - ${normalizedBrand}`;
+    let campaignId: string | null = null;
+    
+    const { data: existingCampaign } = await supabase
+        .from('campaigns')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('name', campaignName)
+        .maybeSingle();
+        
+    if (existingCampaign) {
+        campaignId = existingCampaign.id;
+    } else {
+        const newId = crypto.randomUUID();
+        const { error: createError } = await supabase.from('campaigns').insert({
+            id: newId,
+            user_id: user.id,
+            name: campaignName,
+            status: 'active',
+            product: normalizedBrand,
+            brand: normalizedBrand,
+            from_email: fromEmail,
+            created_at: new Date().toISOString()
+        });
+        if (!createError) campaignId = newId;
+        else console.warn('Failed to create Quick Send campaign:', createError);
+    }
+
+    // 3. Pre-insert email record as 'queued' to get real UUID for tracking
+    let preEmailId: string | null = null;
+    if (leadId) {
+      const { data: preEmail } = await supabase
+        .from('emails')
+        .insert({
+          user_id: user.id,
+          lead_id: leadId,
+          subject,
+          body,
+          text_body: body,
+          html_body: body.replace(/\n/g, '<br>'),
+          status: 'queued',
+          direction: 'sent',
+          campaign_id: campaignId,
+        })
+        .select('id')
+        .single();
+      preEmailId = preEmail?.id || null;
+    }
+
+    // 4. Build tracked HTML
+    let htmlBody = textToHtml(body);
+    if (preEmailId) {
+      htmlBody = await injectAllTracking(htmlBody, preEmailId, user.id, leadId);
+    }
+
+    // 5. Send email
+    const emailResult = await sendEmail(user.id, {
+        from: fromEmail,
+        to: email,
+        subject,
+        html: htmlBody,
+        text: body,
+    });
+    
+    if (!emailResult.success) {
+        // Mark pre-inserted record as failed
+        if (preEmailId) {
+          await supabase.from('emails').update({ status: 'failed' }).eq('id', preEmailId);
+        }
+        throw new Error(emailResult.error || 'Failed to send email');
+    }
+
+    // 6. Update record — Gmail/Outlook = delivered immediately
+    if (preEmailId) {
+      let qeStatus = 'sent';
+      try {
+        const qep = await getEmailProvider(preEmailId);
+        if (qep === 'gmail_oauth' || qep === 'outlook_oauth') qeStatus = 'delivered';
+      } catch (_) { /* keep sent */ }
+
+      const qeTs = new Date().toISOString();
+      await supabase
+        .from('emails')
+        .update({
+          resend_id: emailResult.messageId || null,
+          html_body: htmlBody,
+          status: qeStatus,
+          sent_at: qeTs,
+          ...(qeStatus === 'delivered' ? { delivered_at: qeTs } : {}),
+        })
+        .eq('id', preEmailId);
+
+      // Record sent (and delivered) events
+      try {
+        const qeEvts: any[] = [{ email_id: preEmailId, event_type: 'sent', created_at: qeTs }];
+        if (qeStatus === 'delivered') {
+          qeEvts.push({ email_id: preEmailId, event_type: 'delivered', created_at: qeTs });
+        }
+        await supabase.from('email_events').insert(qeEvts);
+      } catch (_) { /* best-effort */ }
+    }
+    
+    return c.json({ success: true });
+    
+  } catch (error: any) {
+    console.error('Error sending quick email:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /analytics/tracking-by-provider - Per-provider open/click/bot analytics
+// Lightweight endpoint for the dashboard to validate tracking parity across providers.
+app.get("/make-server-a8b2511f/analytics/tracking-by-provider", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const daysBack = parseInt(c.req.query('days') || '30', 10);
+    const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+
+    const supabase = getSupabaseAdmin();
+
+    // 1. Fetch recent emails (id + status) for this user
+    const { data: emails, error: emailsErr } = await supabase
+      .from('emails')
+      .select('id, status, created_at')
+      .eq('user_id', user.id)
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(2000);
+
+    if (emailsErr) {
+      console.error('[TRACKING-ANALYTICS] Failed to fetch emails:', emailsErr);
+      return c.json({ error: 'Failed to fetch emails' }, 500);
+    }
+
+    if (!emails || emails.length === 0) {
+      return c.json({
+        success: true,
+        providers: {},
+        totals: { sent: 0, opened: 0, clicked: 0, openRate: 0, clickRate: 0 },
+        botBreakdown: { human: 0, bot: 0, proxy: 0 },
+        days: daysBack,
+        emailCount: 0,
+      });
+    }
+
+    // 2. Batch-lookup providers from KV
+    const providerKeys = emails.map((e: any) => `email_provider:${e.id}`);
+    let providerValues: any[] = [];
+    try {
+      // mget in chunks of 100 to avoid payload limits
+      for (let i = 0; i < providerKeys.length; i += 100) {
+        const chunk = providerKeys.slice(i, i + 100);
+        const chunkVals = await kv.mget(chunk);
+        providerValues = providerValues.concat(chunkVals);
+      }
+    } catch (kvErr) {
+      console.warn('[TRACKING-ANALYTICS] KV mget error, defaulting to resend:', kvErr);
+      providerValues = emails.map(() => null);
+    }
+
+    // 3. Aggregate by provider
+    const providerStats: Record<string, { sent: number; opened: number; clicked: number; delivered: number; bounced: number }> = {};
+    const STATUS_IS_SENT = new Set(['sent', 'delivered', 'opened', 'clicked', 'bounced', 'complained']);
+    const STATUS_IS_OPENED = new Set(['opened', 'clicked']);
+    const STATUS_IS_CLICKED = new Set(['clicked']);
+    const STATUS_IS_DELIVERED = new Set(['delivered', 'opened', 'clicked']);
+    const STATUS_IS_BOUNCED = new Set(['bounced']);
+
+    for (let i = 0; i < emails.length; i++) {
+      const email = emails[i];
+      const provider = providerValues[i] || 'resend';
+      const providerLabel = normalizeProviderLabel(provider);
+
+      if (!providerStats[providerLabel]) {
+        providerStats[providerLabel] = { sent: 0, opened: 0, clicked: 0, delivered: 0, bounced: 0 };
+      }
+
+      if (STATUS_IS_SENT.has(email.status)) providerStats[providerLabel].sent++;
+      if (STATUS_IS_OPENED.has(email.status)) providerStats[providerLabel].opened++;
+      if (STATUS_IS_CLICKED.has(email.status)) providerStats[providerLabel].clicked++;
+      if (STATUS_IS_DELIVERED.has(email.status)) providerStats[providerLabel].delivered++;
+      if (STATUS_IS_BOUNCED.has(email.status)) providerStats[providerLabel].bounced++;
+    }
+
+    // Add rates
+    const providersWithRates: Record<string, any> = {};
+    for (const [provider, stats] of Object.entries(providerStats)) {
+      providersWithRates[provider] = {
+        ...stats,
+        openRate: stats.sent > 0 ? ((stats.opened / stats.sent) * 100) : 0,
+        clickRate: stats.sent > 0 ? ((stats.clicked / stats.sent) * 100) : 0,
+        deliveryRate: stats.sent > 0 ? ((stats.delivered / stats.sent) * 100) : 0,
+        bounceRate: stats.sent > 0 ? ((stats.bounced / stats.sent) * 100) : 0,
+      };
+    }
+
+    // 4. Totals
+    const totals = Object.values(providerStats).reduce(
+      (acc, s) => ({
+        sent: acc.sent + s.sent,
+        opened: acc.opened + s.opened,
+        clicked: acc.clicked + s.clicked,
+        delivered: acc.delivered + s.delivered,
+        bounced: acc.bounced + s.bounced,
+      }),
+      { sent: 0, opened: 0, clicked: 0, delivered: 0, bounced: 0 },
+    );
+
+    // 5. Bot/human breakdown — prefix-scoped to this userId
+    const botBreakdown = { human: 0, bot: 0, proxy: 0 };
+    try {
+      const uaEntries = await kv.getByPrefix(`tracking_ua:${user.id}:`);
+      if (Array.isArray(uaEntries)) {
+        for (const val of uaEntries) {
+          if (!val || typeof val !== 'object') continue;
+          const classification = val.classification || 'human';
+          if (classification === 'human') botBreakdown.human++;
+          else if (classification === 'bot') botBreakdown.bot++;
+          else if (classification === 'proxy') botBreakdown.proxy++;
+        }
+      }
+    } catch (uaErr) {
+      console.warn('[TRACKING-ANALYTICS] UA breakdown error:', uaErr);
+    }
+
+    return c.json({
+      success: true,
+      providers: providersWithRates,
+      totals: {
+        ...totals,
+        openRate: totals.sent > 0 ? ((totals.opened / totals.sent) * 100) : 0,
+        clickRate: totals.sent > 0 ? ((totals.clicked / totals.sent) * 100) : 0,
+      },
+      botBreakdown,
+      days: daysBack,
+      emailCount: emails.length,
+    });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    if (status !== 401) console.error('[TRACKING-ANALYTICS] Error:', error);
+    return c.json({ error: error.message }, status);
+  }
+});
+
+function normalizeProviderLabel(provider: string): string {
+  switch (provider) {
+    case 'gmail_oauth': return 'Gmail';
+    case 'outlook_oauth': return 'Outlook';
+    case 'smtp': return 'SMTP';
+    case 'resend': return 'Resend';
+    default: return provider || 'Resend';
+  }
+}
+
+// GET /admin/tracking-analytics - Admin-only: Cross-user tracking analytics
+// Aggregates open/click/bot stats across ALL users for platform-wide visibility.
+app.get("/make-server-a8b2511f/admin/tracking-analytics", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const daysBack = parseInt(c.req.query('days') || '30', 10);
+    const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+    const supabase = getSupabaseAdmin();
+
+    // 1. Fetch ALL users' recent emails (no user_id filter)
+    const { data: emails, error: emailsErr } = await supabase
+      .from('emails')
+      .select('id, status, created_at, user_id')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(5000);
+
+    if (emailsErr) {
+      console.error('[ADMIN-TRACKING] Failed to fetch emails:', emailsErr);
+      return c.json({ error: 'Failed to fetch emails' }, 500);
+    }
+
+    if (!emails || emails.length === 0) {
+      return c.json({
+        success: true,
+        providers: {},
+        totals: { sent: 0, opened: 0, clicked: 0, delivered: 0, bounced: 0, openRate: 0, clickRate: 0 },
+        botBreakdown: { human: 0, bot: 0, proxy: 0 },
+        userBreakdown: [],
+        days: daysBack,
+        emailCount: 0,
+      });
+    }
+
+    // 2. Batch-lookup providers from KV
+    const providerKeys = emails.map((e: any) => `email_provider:${e.id}`);
+    let providerValues: any[] = [];
+    try {
+      for (let i = 0; i < providerKeys.length; i += 100) {
+        const chunk = providerKeys.slice(i, i + 100);
+        const chunkVals = await kv.mget(chunk);
+        providerValues = providerValues.concat(chunkVals);
+      }
+    } catch (kvErr) {
+      console.warn('[ADMIN-TRACKING] KV mget error:', kvErr);
+      providerValues = emails.map(() => null);
+    }
+
+    // 3. Aggregate by provider (platform-wide) + per-user
+    const providerStats: Record<string, { sent: number; opened: number; clicked: number; delivered: number; bounced: number }> = {};
+    const STATUS_IS_SENT = new Set(['sent', 'delivered', 'opened', 'clicked', 'bounced', 'complained']);
+    const STATUS_IS_OPENED = new Set(['opened', 'clicked']);
+    const STATUS_IS_CLICKED = new Set(['clicked']);
+    const STATUS_IS_DELIVERED = new Set(['delivered', 'opened', 'clicked']);
+    const STATUS_IS_BOUNCED = new Set(['bounced']);
+
+    const userStatsMap: Record<string, { userId: string; sent: number; opened: number; clicked: number; delivered: number; bounced: number }> = {};
+
+    for (let i = 0; i < emails.length; i++) {
+      const email = emails[i];
+      const provider = providerValues[i] || 'resend';
+      const providerLabel = normalizeProviderLabel(provider);
+
+      if (!providerStats[providerLabel]) {
+        providerStats[providerLabel] = { sent: 0, opened: 0, clicked: 0, delivered: 0, bounced: 0 };
+      }
+      if (!userStatsMap[email.user_id]) {
+        userStatsMap[email.user_id] = { userId: email.user_id, sent: 0, opened: 0, clicked: 0, delivered: 0, bounced: 0 };
+      }
+
+      if (STATUS_IS_SENT.has(email.status)) { providerStats[providerLabel].sent++; userStatsMap[email.user_id].sent++; }
+      if (STATUS_IS_OPENED.has(email.status)) { providerStats[providerLabel].opened++; userStatsMap[email.user_id].opened++; }
+      if (STATUS_IS_CLICKED.has(email.status)) { providerStats[providerLabel].clicked++; userStatsMap[email.user_id].clicked++; }
+      if (STATUS_IS_DELIVERED.has(email.status)) { providerStats[providerLabel].delivered++; userStatsMap[email.user_id].delivered++; }
+      if (STATUS_IS_BOUNCED.has(email.status)) { providerStats[providerLabel].bounced++; userStatsMap[email.user_id].bounced++; }
+    }
+
+    // Add rates to providers
+    const providersWithRates: Record<string, any> = {};
+    for (const [provider, stats] of Object.entries(providerStats)) {
+      providersWithRates[provider] = {
+        ...stats,
+        openRate: stats.sent > 0 ? ((stats.opened / stats.sent) * 100) : 0,
+        clickRate: stats.sent > 0 ? ((stats.clicked / stats.sent) * 100) : 0,
+        deliveryRate: stats.sent > 0 ? ((stats.delivered / stats.sent) * 100) : 0,
+        bounceRate: stats.sent > 0 ? ((stats.bounced / stats.sent) * 100) : 0,
+      };
+    }
+
+    // 4. Totals
+    const totals = Object.values(providerStats).reduce(
+      (acc, s) => ({ sent: acc.sent + s.sent, opened: acc.opened + s.opened, clicked: acc.clicked + s.clicked, delivered: acc.delivered + s.delivered, bounced: acc.bounced + s.bounced }),
+      { sent: 0, opened: 0, clicked: 0, delivered: 0, bounced: 0 },
+    );
+
+    // 5. Bot/human breakdown — scan ALL users' UA keys
+    const botBreakdown = { human: 0, bot: 0, proxy: 0 };
+    try {
+      const uaEntries = await kv.getByPrefix(`tracking_ua:`);
+      if (Array.isArray(uaEntries)) {
+        for (const val of uaEntries) {
+          if (!val || typeof val !== 'object') continue;
+          const classification = (val as any).classification || 'human';
+          if (classification === 'human') botBreakdown.human++;
+          else if (classification === 'bot') botBreakdown.bot++;
+          else if (classification === 'proxy') botBreakdown.proxy++;
+        }
+      }
+    } catch (uaErr) {
+      console.warn('[ADMIN-TRACKING] UA breakdown error:', uaErr);
+    }
+
+    // 6. Build per-user breakdown with email lookups
+    let userEmailMap: Record<string, string> = {};
+    try {
+      const { data: { users: authUsers } } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+      if (authUsers) {
+        for (const u of authUsers) {
+          userEmailMap[u.id] = u.email || u.id;
+        }
+      }
+    } catch (authErr) {
+      console.warn('[ADMIN-TRACKING] Could not fetch user emails:', authErr);
+    }
+
+    const userBreakdown = Object.values(userStatsMap)
+      .map(u => ({
+        ...u,
+        email: userEmailMap[u.userId] || u.userId,
+        openRate: u.sent > 0 ? ((u.opened / u.sent) * 100) : 0,
+        clickRate: u.sent > 0 ? ((u.clicked / u.sent) * 100) : 0,
+        deliveryRate: u.sent > 0 ? ((u.delivered / u.sent) * 100) : 0,
+      }))
+      .sort((a, b) => b.sent - a.sent);
+
+    return c.json({
+      success: true,
+      providers: providersWithRates,
+      totals: {
+        ...totals,
+        openRate: totals.sent > 0 ? ((totals.opened / totals.sent) * 100) : 0,
+        clickRate: totals.sent > 0 ? ((totals.clicked / totals.sent) * 100) : 0,
+      },
+      botBreakdown,
+      userBreakdown,
+      days: daysBack,
+      emailCount: emails.length,
+      uniqueUsers: Object.keys(userStatsMap).length,
+    });
+  } catch (error: any) {
+    console.error('[ADMIN-TRACKING] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ── Supabase query retry helper (PGRST002 schema-cache transient errors) ──────
+// PostgREST occasionally returns PGRST002 "Could not query the database for the
+// schema cache" when its internal cache is being refreshed.  The error is
+// self-resolving within seconds, so we just retry with exponential back-off.
+async function retrySupabaseOp<T>(
+  fn: () => Promise<{ data: T | null; error: any }>,
+  label = 'supabase op',
+  maxRetries = 3,
+): Promise<{ data: T | null; error: any }> {
+  let lastError: any = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const result = await fn();
+    if (!result.error || result.error?.code !== 'PGRST002') {
+      return result;
+    }
+    lastError = result.error;
+    const delayMs = 300 * Math.pow(2, attempt); // 300ms, 600ms, 1200ms, 2400ms
+    console.warn(`[RETRY] ${label} hit PGRST002 (attempt ${attempt + 1}/${maxRetries + 1}) — retrying in ${delayMs}ms…`);
+    await new Promise(r => setTimeout(r, delayMs));
+  }
+  console.error(`[RETRY] ${label} failed after ${maxRetries + 1} attempts with PGRST002`);
+  return { data: null, error: lastError };
+}
+
+// GET /track/open/:id - Open tracking pixel endpoint (provider-agnostic)
+// Returns a 1x1 transparent GIF and records the open event.
+app.get("/make-server-a8b2511f/track/open/:id", async (c) => {
+  try {
+    const emailId = c.req.param('id');
+    if (!emailId) {
+      return new Response(TRACKING_PIXEL_GIF, {
+        headers: { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0' },
+      });
+    }
+
+    const userAgent = c.req.header('user-agent') || '';
+    const uaClass = classifyUserAgent(userAgent);
+    console.log(`[OPEN TRACK] Open detected for email: ${emailId} (UA: ${uaClass.label}, bot: ${uaClass.isBot})`);
+
+    const supabase = getSupabaseAdmin();
+
+    // Capture user-agent for bot/human analytics (userId added after DB lookup)
+    let openUserId: string | undefined;
+
+    // Only upgrade status if it's currently sent or delivered (don't downgrade from clicked)
+    try {
+      const { data: email } = await retrySupabaseOp(
+        () => supabase
+          .from('emails')
+          .select('id, status, user_id, lead_id, campaign_id, resend_id')
+          .eq('id', emailId)
+          .single(),
+        `open-track-lookup:${emailId}`,
+      );
+
+      if (email) {
+        openUserId = email.user_id;
+        // Fire-and-forget UA capture now that we have the userId
+        storeTrackingUserAgent(emailId, 'opened', userAgent, openUserId).catch(() => {});
+
+        const currentStatus = email.status;
+        const now = new Date().toISOString();
+        // Only update if not already in a "higher" state
+        if (currentStatus === 'sent' || currentStatus === 'delivered' || currentStatus === 'queued') {
+          // Step 1: Update status (guaranteed column) — this MUST succeed
+          const { data: statusResult, error: statusError } = await retrySupabaseOp(
+            () => supabase
+              .from('emails')
+              .update({ status: 'opened' })
+              .eq('id', emailId)
+              .select('id, status'),
+            `open-track-status-update:${emailId}`,
+          );
+
+          if (statusError) {
+            console.error('[OPEN TRACK] CRITICAL: Failed to update email status after retries:', statusError);
+          } else {
+            console.log('[OPEN TRACK] ✅ Email status updated to opened:', statusResult);
+          }
+
+          // Step 2: Try to set timestamp columns (may not exist on all schemas)
+          try {
+            const { error: tsError } = await supabase
+              .from('emails')
+              .update({ opened_at: now })
+              .eq('id', emailId);
+            if (tsError) {
+              console.warn('[OPEN TRACK] Timestamp columns update failed (non-fatal, status already set):', tsError.code, tsError.message);
+            }
+          } catch (tsErr) {
+            console.warn('[OPEN TRACK] Timestamp update exception (non-fatal):', tsErr);
+          }
+        } else if (currentStatus === 'opened') {
+          // Already opened — try setting timestamp if missing (non-fatal)
+          try {
+            await supabase.from('emails').update({ opened_at: now }).eq('id', emailId);
+          } catch (_) { /* non-fatal */ }
+        }
+
+        // Update lead status to 'engaged' if currently 'contacted'
+        if (email.lead_id) {
+          await retrySupabaseOp(
+            () => supabase
+              .from('leads')
+              .update({ status: 'engaged' })
+              .eq('id', email.lead_id)
+              .in('status', ['contacted']),
+            `open-track-lead-engaged:${email.lead_id}`,
+          );
+        }
+
+        // Always record the event (captures multiple opens)
+        await retrySupabaseOp(
+          () => supabase.from('email_events').insert({
+            email_id: emailId,
+            user_id: email.user_id,
+            event_type: 'opened',
+            created_at: new Date().toISOString(),
+          }),
+          `open-track-event-insert:${emailId}`,
+        );
+
+        // Record intent signal for email open (fire-and-forget)
+        if (email.lead_id && email.user_id) {
+          (async () => {
+            try {
+              const { data: lead } = await supabase.from('leads').select('id, business_name, contact_name, email').eq('id', email.lead_id).maybeSingle();
+              if (lead) {
+                const isMultipleOpens = currentStatus === 'opened';
+                await recordIntentSignal({
+                  userId: email.user_id,
+                  companyId: lead.business_name ? `lead_${lead.id}` : undefined,
+                  companyName: lead.business_name || lead.contact_name || 'Unknown',
+                  personId: lead.id,
+                  personName: lead.contact_name || undefined,
+                  personEmail: lead.email || undefined,
+                  signalType: 'email',
+                  signalDetail: isMultipleOpens ? 'email_opened_multiple' : 'email_opened',
+                  metadata: { email_id: emailId, campaign_id: email.campaign_id, source: 'self_hosted_pixel' },
+                });
+                // Set Resend dedup key so the Resend webhook doesn't double-fire (fire-and-forget)
+                if (email.resend_id) {
+                  kv.set(`intent:resend_dedup:${email.resend_id}:opened`, { fired_at: new Date().toISOString() })
+                    .catch((kvErr) => console.warn('[INTENT] Failed to set dedup key (non-fatal):', kvErr?.message));
+                }
+              }
+            } catch (e) { console.warn('[INTENT] Failed to record open signal:', e); }
+          })();
+
+          // ── Map Visit: Create a recent_visit_v2 entry so this lead appears on the live map ──
+          // Fire-and-forget — must not block the pixel response
+          (async () => {
+            try {
+              // 1. Read Cloudflare geo headers from the open-pixel request (most accurate — real IP of opener)
+              const cfLat     = c.req.header('cf-iplatitude');
+              const cfLon     = c.req.header('cf-iplongitude');
+              const cfCity    = c.req.header('cf-ipcity');
+              const cfCountry = c.req.header('cf-ipcountry');
+              const cfRegion  = c.req.header('cf-region-code') || c.req.header('cf-region');
+
+              const latitude  = cfLat ? parseFloat(cfLat) : null;
+              const longitude = cfLon ? parseFloat(cfLon) : null;
+
+              // 2. Only proceed if we have real coordinates (don't place dots in the ocean)
+              if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) {
+                console.log('[OPEN TRACK MAP] No CF geo headers — skipping map visit creation');
+                return;
+              }
+
+              // 3. Fetch the full lead record for display fields
+              const { data: fullLead } = await supabase
+                .from('leads')
+                .select('id, business_name, contact_name, email, city, state, country, brand, phone, website')
+                .eq('id', email.lead_id)
+                .maybeSingle();
+
+              if (!fullLead) {
+                console.log('[OPEN TRACK MAP] Lead not found — skipping map visit');
+                return;
+              }
+
+              // 4. Build the visit record (same schema as web tracking visits)
+              const visitId  = crypto.randomUUID();
+              const nowMs    = Date.now();
+              const atomicKey = `recent_visit_v2:${email.user_id}:${nowMs}:${visitId}`;
+
+              const visitData: any = {
+                id:         visitId,
+                user_id:    email.user_id,
+                lead_id:    email.lead_id,
+                brand:      fullLead.brand || 'contndr',
+                url:        `email:opened:${emailId}`,
+                title:      `Email Opened — ${fullLead.business_name || fullLead.contact_name || 'Lead'}`,
+                timestamp:  new Date(nowMs).toISOString(),
+                user_agent: userAgent,
+                city:       cfCity    || fullLead.city    || '',
+                country:    cfCountry || fullLead.country || '',
+                region:     cfRegion  || fullLead.state   || '',
+                latitude,
+                longitude,
+                source:      'email_open',
+                email_id:    emailId,
+                campaign_id: email.campaign_id || null,
+                kv_key:      atomicKey,
+              };
+
+              await kv.set(atomicKey, visitData);
+              console.log(`[OPEN TRACK MAP] ✅ Map visit created for lead ${email.lead_id} (${fullLead.business_name || fullLead.contact_name})`);
+            } catch (mapErr: any) {
+              console.warn('[OPEN TRACK MAP] Failed to create map visit (non-fatal):', mapErr?.message || mapErr);
+            }
+          })();
+        }
+
+        // Write live event to KV for real-time frontend polling (fire-and-forget to avoid blocking)
+        if (email.campaign_id && (currentStatus === 'sent' || currentStatus === 'delivered' || currentStatus === 'queued')) {
+          const ts = Date.now();
+          const liveEventKey = `live_event:${email.campaign_id}:${ts}:open`;
+          kv.set(liveEventKey, {
+            type: 'opened',
+            email_id: emailId,
+            lead_id: email.lead_id,
+            campaign_id: email.campaign_id,
+            user_id: email.user_id,
+            timestamp: ts,
+          }).then(() => {
+            console.log(`[OPEN TRACK] ✅ Wrote live event to KV: ${liveEventKey}`);
+          }).catch((kvErr) => {
+            // Don't crash on KV errors - the main DB update already succeeded
+            console.warn(`[OPEN TRACK] Failed to write live event (non-fatal):`, kvErr?.message || kvErr);
+          });
+        } else {
+          console.log(`[OPEN TRACK] ℹ️ Not writing live event (campaign_id=${email.campaign_id}, status=${currentStatus})`);
+        }
+
+        console.log(`[OPEN TRACK] Recorded open for email ${emailId} (was: ${currentStatus}, UA: ${uaClass.label})`);
+      } else {
+        console.warn(`[OPEN TRACK] Email record not found: ${emailId}`);
+      }
+    } catch (dbError) {
+      console.error('[OPEN TRACK] DB error (pixel still returned):', dbError);
+    }
+
+    // Always return the pixel — even if DB fails, we don't want broken images
+    return new Response(TRACKING_PIXEL_GIF, {
+      headers: {
+        'Content-Type': 'image/gif',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    });
+  } catch (error) {
+    console.error('[OPEN TRACK] Error:', error);
+    return new Response(TRACKING_PIXEL_GIF, {
+      headers: { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store' },
+    });
+  }
+});
+
+// GET /track/click/:id - Click tracking redirect endpoint
+app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
+  try {
+    const trackingId = c.req.param('id');
+
+    // ── Step 1: Decode destination URL ───────────────────────────────────
+    // New emails encode the URL as base64url in ?u= so the redirect works
+    // even if the KV analytics write timed out.  Legacy emails (no ?u=) fall
+    // back to the KV lookup.
+    let destinationUrl: string | null = null;
+    const encodedUrl = c.req.query('u');
+    if (encodedUrl) {
+      try {
+        // Restore URL-safe base64 → standard base64, then decode
+        const b64 = encodedUrl.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = b64 + '=='.slice(0, (4 - b64.length % 4) % 4);
+        destinationUrl = atob(padded);
+      } catch (decodeErr) {
+        // Possibly percent-encoded fallback — try decodeURIComponent
+        try { destinationUrl = decodeURIComponent(encodedUrl); } catch (_) {}
+        console.warn(`[CLICK TRACK] Failed to base64-decode ?u= param for ${trackingId}, tried decodeURIComponent:`, destinationUrl?.slice(0, 80));
+      }
+    }
+
+    // ── Step 2: KV lookup for analytics data + legacy URL fallback ────────
+    const trackingData = await kv.get(`click_track:${trackingId}`).catch(() => null);
+    if (!destinationUrl && trackingData?.url) {
+      destinationUrl = trackingData.url;
+    }
+
+    if (!destinationUrl) {
+      // We have no URL to redirect to — don't invent one.
+      // Serve a minimal self-contained page so the recipient knows the link
+      // couldn't be resolved rather than landing on an unrelated domain.
+      console.warn(`[CLICK TRACK] No destination URL resolvable for ${trackingId} (no ?u= param, no KV data) — returning 410`);
+      return c.html(
+        `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Link unavailable</title>` +
+        `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+        `<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;` +
+        `min-height:100vh;margin:0;background:#f5f5f5;}` +
+        `.box{background:#fff;padding:2rem 2.5rem;border-radius:12px;text-align:center;max-width:360px;` +
+        `box-shadow:0 2px 12px rgba(0,0,0,.08);}` +
+        `h2{margin:0 0 .5rem;font-size:1.1rem;color:#111;}p{margin:0;font-size:.9rem;color:#666;}</style></head>` +
+        `<body><div class="box"><h2>Link unavailable</h2>` +
+        `<p>This tracking link could not be resolved. It may have expired or been sent before tracking was set up.</p>` +
+        `</div></body></html>`,
+        410,
+      );
+    }
+
+    const email_id  = trackingData?.email_id  || trackingId.split('_')[0] || '';
+    const user_id   = trackingData?.user_id   || '';
+    const lead_id   = trackingData?.lead_id   || null;
+    const url       = destinationUrl;
+    
+    const clickUA = c.req.header('user-agent') || '';
+    const clickUAClass = classifyUserAgent(clickUA);
+    console.log(`[CLICK TRACK] Click detected - Email: ${email_id}, Lead: ${lead_id}, URL: ${url} (UA: ${clickUAClass.label})`);
+
+    // Capture user-agent for bot/human analytics (fire-and-forget)
+    storeTrackingUserAgent(email_id, 'clicked', clickUA, user_id).catch(() => {});
+    
+    // Update email status to 'clicked' in database
+    const supabase = getSupabaseAdmin();
+    
+    try {
+      const now = new Date().toISOString();
+      // Step 1: Update status (guaranteed column) — this MUST succeed
+      const { data: statusResult, error: statusError } = await supabase
+        .from('emails')
+        .update({ status: 'clicked' })
+        .eq('id', email_id)
+        .select('id, status');
+      
+      if (statusError) {
+        console.error('[CLICK TRACK] CRITICAL: Failed to update email status:', statusError);
+      } else {
+        console.log('[CLICK TRACK] ✅ Email status updated to clicked:', statusResult);
+      }
+
+      // Step 2: Try to set timestamp columns (may not exist on all schemas)
+      // A click implies an open — set opened_at too
+      try {
+        const { error: tsError } = await supabase
+          .from('emails')
+          .update({ clicked_at: now, opened_at: now })
+          .eq('id', email_id);
+        if (tsError) {
+          console.warn('[CLICK TRACK] Timestamp columns update failed (non-fatal, status already set):', tsError.code, tsError.message);
+        }
+      } catch (tsErr) {
+        console.warn('[CLICK TRACK] Timestamp update exception (non-fatal):', tsErr);
+      }
+      
+      // Also update lead status if needed
+      if (lead_id) {
+        await supabase
+          .from('leads')
+          .update({ status: 'engaged' })
+          .eq('id', lead_id);
+      }
+      
+      // Record click event
+      await supabase
+        .from('email_events')
+        .insert({
+          user_id,
+          email_id,
+          event_type: 'clicked',
+          created_at: now,
+        });
+        
+      // Write live event to KV for real-time frontend polling (fire-and-forget)
+      try {
+        const { data: clickEmail } = await supabase
+          .from('emails')
+          .select('campaign_id')
+          .eq('id', email_id)
+          .single();
+        if (clickEmail?.campaign_id) {
+          const ts = Date.now();
+          const liveEventKey = `live_event:${clickEmail.campaign_id}:${ts}:click`;
+          kv.set(liveEventKey, {
+            type: 'clicked',
+            email_id,
+            lead_id,
+            campaign_id: clickEmail.campaign_id,
+            user_id,
+            timestamp: ts,
+          }).then(() => {
+            console.log(`[CLICK TRACK] ✅ Wrote live event to KV: ${liveEventKey}`);
+          }).catch((kvErr) => {
+            console.warn(`[CLICK TRACK] Failed to write live event (non-fatal):`, kvErr?.message || kvErr);
+          });
+        } else {
+          console.log(`[CLICK TRACK] ℹ️ Not writing live event (no campaign_id found for email ${email_id})`);
+        }
+      } catch (e) {
+        console.warn('[CLICK TRACK] Failed to query campaign_id for live event (non-fatal):', e?.message || e);
+      }
+
+      console.log(`[CLICK TRACK] Successfully recorded click for email ${email_id}`);
+
+      // Record intent signals for email click (fire-and-forget)
+      if (lead_id && user_id) {
+        (async () => {
+          try {
+            const { data: lead } = await supabase.from('leads').select('id, business_name, contact_name, email').eq('id', lead_id).maybeSingle();
+            if (lead) {
+              const intentCompanyId = lead.business_name ? `lead_${lead.id}` : undefined;
+              const intentCompanyName = lead.business_name || lead.contact_name || 'Unknown';
+
+              // 1. Email engagement signal (email_clicked)
+              await recordIntentSignal({
+                userId: user_id,
+                companyId: intentCompanyId,
+                companyName: intentCompanyName,
+                personId: lead.id,
+                personName: lead.contact_name || undefined,
+                personEmail: lead.email || undefined,
+                signalType: 'email',
+                signalDetail: 'email_clicked',
+                metadata: { email_id, clicked_url: url, source: 'self_hosted_redirect' },
+              });
+
+              // 2. Website visit signal (they're visiting the site via the link)
+              if (intentCompanyId) {
+                const today = new Date().toISOString().split('T')[0];
+                const webDedupKey = `intent:web_dedup:${user_id}:${intentCompanyId}:email_click_visit:${today}`;
+                const alreadyFiredWeb = await kv.get(webDedupKey);
+                if (!alreadyFiredWeb) {
+                  await kv.set(webDedupKey, { fired: true });
+                  await recordIntentSignal({
+                    userId: user_id,
+                    companyId: intentCompanyId,
+                    companyName: intentCompanyName,
+                    personId: lead.id,
+                    personName: lead.contact_name || undefined,
+                    personEmail: lead.email || undefined,
+                    signalType: 'website',
+                    signalDetail: 'email_click_visit',
+                    metadata: { email_id, clicked_url: url, source: 'email_click_redirect' },
+                  });
+                  console.log(`[INTENT] Website visit signal from email click: ${intentCompanyName} → ${url}`);
+                }
+              }
+
+              // Set Resend dedup key so the Resend webhook doesn't double-fire
+              try {
+                const { data: clickEmailForDedup } = await supabase.from('emails').select('resend_id').eq('id', email_id).maybeSingle();
+                if (clickEmailForDedup?.resend_id) {
+                  await kv.set(`intent:resend_dedup:${clickEmailForDedup.resend_id}:clicked`, { fired_at: new Date().toISOString() });
+                }
+              } catch (_) { /* non-critical dedup */ }
+            }
+          } catch (e) { console.warn('[INTENT] Failed to record click signal:', e); }
+        })();
+      }
+    } catch (dbError) {
+      console.error('[CLICK TRACK] Database update error:', dbError);
+      // Continue with redirect even if DB update fails
+    }
+    
+    // Redirect to the actual URL
+    // Append lid (Lead ID) so the landing page tracking script can identify the visitor
+    let redirectUrl = url;
+    if (lead_id) {
+      // Use string manipulation to preserve hash if present (params should come before hash)
+      // but simplistic appending usually works for standard campaign URLs
+      if (url.includes('?')) {
+        redirectUrl += `&lid=${lead_id}`;
+      } else {
+        redirectUrl += `?lid=${lead_id}`;
+      }
+    }
+    
+    return c.redirect(redirectUrl);
+    
+  } catch (error) {
+    console.error('[CLICK TRACK] Unhandled error:', error);
+    // No hardcoded domain — serve an inline error page
+    return c.html(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Link error</title>` +
+      `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+      `<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;` +
+      `min-height:100vh;margin:0;background:#f5f5f5;}` +
+      `.box{background:#fff;padding:2rem 2.5rem;border-radius:12px;text-align:center;max-width:360px;` +
+      `box-shadow:0 2px 12px rgba(0,0,0,.08);}` +
+      `h2{margin:0 0 .5rem;font-size:1.1rem;color:#111;}p{margin:0;font-size:.9rem;color:#666;}</style></head>` +
+      `<body><div class="box"><h2>Something went wrong</h2>` +
+      `<p>This link could not be followed right now. Please try again or contact the sender.</p>` +
+      `</div></body></html>`,
+      500,
+    );
+  }
+});
+
+// GET /track/debug/:emailId - Debug endpoint to check email tracking status
+app.get("/make-server-a8b2511f/track/debug/:emailId", async (c) => {
+  try {
+    const emailId = c.req.param('emailId');
+    const supabase = getSupabaseAdmin();
+    
+    const { data: email, error } = await supabase
+      .from('emails')
+      .select('*')
+      .eq('id', emailId)
+      .single();
+    
+    if (error || !email) {
+      return c.json({ error: 'Email not found', emailId }, 404);
+    }
+    
+    return c.json({
+      email_id: email.id,
+      status: email.status,
+      opened_at: email.opened_at,
+      clicked_at: email.clicked_at,
+      sent_at: email.sent_at,
+      delivered_at: email.delivered_at,
+      resend_id: email.resend_id,
+      campaign_id: email.campaign_id,
+      lead_id: email.lead_id,
+      subject: email.subject,
+      created_at: email.created_at,
+    });
+  } catch (error) {
+    console.error('[TRACK DEBUG] Error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// --- CONTNDR BILLING ROUTES ---
+
+// Webhook (Public)
+app.post("/make-server-a8b2511f/billing/webhook", async (c) => {
+  try {
+    console.log('[BILLING] Received webhook');
+    // Webhooks don't use auth headers, they use signature verification
+    const result = await handleStripeWebhook(c.req.raw);
+    return c.json(result);
+  } catch (error) {
+    console.error('[BILLING] Stripe webhook error:', error);
+    return c.json({ error: error.message }, 400);
+  }
+});
+
+// Get Billing Config (Public Key)
+app.get("/make-server-a8b2511f/billing/config", async (c) => {
+  try {
+    // Return the publishable key so frontend can use it dynamically
+    const pKey1 = Deno.env.get('VITE_STRIPE_PUBLISHABLE_KEY');
+    const pKey2 = Deno.env.get('STRIPE_PUBLISHABLE_KEY');
+    const publishableKey = pKey1 || pKey2;
+    
+    console.log('[BILLING] Config requested. Keys found:', { 
+      vite_key: pKey1 ? 'Present' : 'Missing',
+      stripe_key: pKey2 ? 'Present' : 'Missing',
+      final_key: publishableKey ? 'Present' : 'Missing'
+    });
+
+    return c.json({ publishableKey });
+  } catch (error) {
+    console.error('[BILLING] Error fetching config:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Get Subscription Status (Auth)
+app.get("/make-server-a8b2511f/billing/status", async (c) => {
+  try {
+    console.log('[BILLING ENDPOINT] /billing/status called');
+    const { user } = await getAuthenticatedUser(c);
+    console.log('[BILLING ENDPOINT] Authenticated user:', user?.email, 'ID:', user?.id);
+    
+    const status = await getUserSubscriptionStatus(user);
+    
+    console.log('[BILLING ENDPOINT] Returning status:', JSON.stringify(status));
+    
+    // BULLETPROOF: Ensure response always has required fields
+    const response = {
+      status: status.status || 'inactive',
+      plan: status.plan || 'none',
+      isWhitelisted: status.isWhitelisted || false,
+      isTeamMember: status.isTeamMember || false,
+      teamOwnerId: status.teamOwnerId || null,
+      stripe_sub_id: status.stripe_sub_id,
+      updated_at: status.updated_at
+    };
+    
+    c.header('Cache-Control', 'private, max-age=30, stale-while-revalidate=60');
+    return c.json(response);
+  } catch (error) {
+    console.error('[BILLING ENDPOINT] Error in /billing/status:', error.message);
+    
+    // User's auth record was deleted — tell the frontend to sign out
+    if (error.message.includes('USER_NOT_FOUND')) {
+      console.log('[BILLING ENDPOINT] User no longer exists, returning user_not_found code');
+      return c.json({ error: 'USER_NOT_FOUND', message: 'Account no longer exists. Please sign up again.' }, 401);
+    }
+    
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      // Return pending/waitlist for unauthenticated requests
+      console.log('[BILLING ENDPOINT] Authentication failed, returning pending status');
+      return c.json({ status: 'pending', plan: 'waitlist', isWhitelisted: false }, 401);
+    }
+    console.error('[BILLING ENDPOINT] Internal error:', error);
+    // For any other error, return pending/waitlist (safe default)
+    return c.json({ status: 'pending', plan: 'waitlist', isWhitelisted: false }, 500);
+  }
+});
+
+// Save plan recommendation for analytics (Auth)
+app.post("/make-server-a8b2511f/billing/save-recommendation", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { recommendedPlan, reasons } = await c.req.json();
+    
+    if (!recommendedPlan || !['starter', 'professional', 'growth'].includes(recommendedPlan)) {
+      return c.json({ error: 'Invalid plan' }, 400);
+    }
+
+    // Merge into existing contndr_sub KV entry
+    const existing = await kv.get(`contndr_sub:${user.id}`) || {};
+    await kv.set(`contndr_sub:${user.id}`, {
+      ...existing,
+      recommended_plan: recommendedPlan,
+      recommendation_reasons: reasons || [],
+      recommendation_saved_at: new Date().toISOString(),
+    });
+
+    // Also update waitlist entry if it exists
+    const userEmail = user.email?.toLowerCase().trim();
+    const waitlistId = await kv.get(`waitlist:email:${userEmail}`);
+    if (waitlistId) {
+      const waitlistEntry = await kv.get(`waitlist:${waitlistId}`);
+      if (waitlistEntry) {
+        await kv.set(`waitlist:${waitlistId}`, {
+          ...waitlistEntry,
+          recommended_plan: recommendedPlan,
+          recommendation_reasons: reasons || [],
+        });
+      }
+    }
+
+    console.log(`[BILLING] Saved recommendation for ${user.email}: ${recommendedPlan} (${reasons?.join(', ')})`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('[BILLING] Save recommendation failed:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Create Checkout Session (Auth)
+app.post("/make-server-a8b2511f/billing/checkout", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { plan, interval, successUrl, cancelUrl, returnUrl, embedded, recommendedPlan, market } = await c.req.json();
+    
+    if (!plan || !['starter', 'professional', 'growth'].includes(plan)) {
+      return c.json({ error: 'Invalid plan selected' }, 400);
+    }
+    
+    // Default to monthly if not specified for backward compatibility
+    const billingInterval = interval || 'monthly';
+    if (!['monthly', 'yearly'].includes(billingInterval)) {
+        return c.json({ error: 'Invalid interval selected' }, 400);
+    }
+
+    // Persist chosen vs recommended for analytics before creating session
+    if (recommendedPlan && ['starter', 'professional', 'growth'].includes(recommendedPlan)) {
+      const existing = await kv.get(`contndr_sub:${user.id}`) || {};
+      await kv.set(`contndr_sub:${user.id}`, {
+        ...existing,
+        recommended_plan: recommendedPlan,
+        chosen_plan: plan,
+        chose_recommended: plan === recommendedPlan,
+        checkout_started_at: new Date().toISOString(),
+      });
+      console.log(`[BILLING] Analytics: recommended=${recommendedPlan}, chosen=${plan}, match=${plan === recommendedPlan}`);
+    }
+
+    // Regional pricing: pass the request and preferred market
+    const preferredMarket = market && ['US', 'BR', 'EU', 'GB', 'CA'].includes(market) ? market : undefined;
+    const result = await createCheckoutSession(user, plan, billingInterval, successUrl, cancelUrl, returnUrl, embedded, c.req.raw, preferredMarket);
+    
+    if (embedded) {
+        return c.json({ clientSecret: result });
+    } else {
+        return c.json({ url: result });
+    }
+  } catch (error: any) {
+    if (isAuthError(error)) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('[BILLING] Checkout session creation failed:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Cancel Subscription (Auth)
+app.post("/make-server-a8b2511f/billing/cancel", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json().catch(() => ({}));
+    const immediate = body.immediate === true;
+
+    console.log(`[BILLING] Cancel request from user ${user.id} (${user.email}), immediate: ${immediate}`);
+    const result = await cancelUserSubscription(user, immediate);
+    return c.json(result);
+  } catch (error: any) {
+    if (isAuthError(error)) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('[BILLING] Subscription cancellation failed:', error);
+    return c.json({ error: error.message }, 400);
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// REGIONAL PRICING ENDPOINTS
+// ════════════════════════════════════════════════════���═════════════════════
+
+// Get user's market for pricing (Auth)
+app.get("/make-server-a8b2511f/billing/market", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const market = await getUserMarket(user.id, c.req.raw);
+    
+    return c.json({ market });
+  } catch (error: any) {
+    if (isAuthError(error)) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('[REGIONAL PRICING] Get market failed:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Set user's market preference (Auth)
+app.post("/make-server-a8b2511f/billing/market", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { market } = await c.req.json();
+    
+    // STRICT MODE: We no longer allow manual currency switching
+    // We just return success to avoid breaking frontend clients that might still call this
+    console.log(`[REGIONAL PRICING] Blocked manual market update for ${user.id} to ${market} (Strict Mode)`);
+    
+    // Instead of saving the user's preference, we'll return the one strictly detected
+    const actualMarket = await getUserMarket(user.id, c.req.raw);
+    return c.json({ success: true, market: actualMarket });
+  } catch (error: any) {
+    if (isAuthError(error)) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('[REGIONAL PRICING] Set market failed:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Get detailed billing info for Settings > Billing (Auth)
+app.get("/make-server-a8b2511f/billing/details", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const sub = await kv.get(`contndr_sub:${user.id}`);
+    const isWl = await isUserWhitelisted(user.email);
+
+    // Use getUserSubscriptionStatus to resolve the effective plan for whitelisted,
+    // team-member, and auto-healed users (not just raw KV).
+    const effectiveStatus = await getUserSubscriptionStatus(user);
+
+    // Determine the source of truth: prefer KV sub if it has a real plan,
+    // otherwise fall back to the computed effective status.
+    const effectivePlan = (sub?.plan && sub.plan !== 'none' && sub.plan !== 'waitlist') ? sub.plan : (effectiveStatus.plan || 'none');
+    const effectiveSubStatus = (sub?.status === 'active') ? sub.status : (effectiveStatus.status || 'inactive');
+
+    // If user has a Stripe sub, fetch extra details from Stripe
+    let stripeDetails = null;
+    if (sub?.stripe_sub_id) {
+      try {
+        const stripe = await getStripe();
+        if (stripe) {
+          const stripeSub = await stripe.subscriptions.retrieve(sub.stripe_sub_id);
+          stripeDetails = {
+            current_period_end: stripeSub.current_period_end
+              ? new Date(stripeSub.current_period_end * 1000).toISOString()
+              : null,
+            current_period_start: stripeSub.current_period_start
+              ? new Date(stripeSub.current_period_start * 1000).toISOString()
+              : null,
+            cancel_at_period_end: stripeSub.cancel_at_period_end || false,
+            canceled_at: stripeSub.canceled_at
+              ? new Date(stripeSub.canceled_at * 1000).toISOString()
+              : null,
+            status: stripeSub.status,
+            interval: stripeSub.items?.data?.[0]?.price?.recurring?.interval || 'month',
+          };
+        }
+      } catch (stripeErr) {
+        console.warn('[BILLING] Could not fetch Stripe details:', stripeErr?.message);
+      }
+    }
+
+    return c.json({
+      plan: effectivePlan,
+      status: effectiveSubStatus,
+      isWhitelisted: isWl || effectiveStatus.isWhitelisted || false,
+      stripe_sub_id: sub?.stripe_sub_id || null,
+      cancel_at_period_end: sub?.cancel_at_period_end || stripeDetails?.cancel_at_period_end || false,
+      canceled_at: sub?.canceled_at || stripeDetails?.canceled_at || null,
+      current_period_end: sub?.current_period_end || stripeDetails?.current_period_end || null,
+      current_period_start: stripeDetails?.current_period_start || null,
+      interval: stripeDetails?.interval || null,
+      updated_at: sub?.updated_at || null,
+    });
+  } catch (error: any) {
+    if (isAuthError(error)) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('[BILLING] Error fetching billing details:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Admin Check User Subscription by Email (Admin Only)
+app.get("/make-server-a8b2511f/admin/check-subscription/:email", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    
+    // Admin check
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Forbidden - Admin access required' }, 403);
+    }
+    
+    const targetEmail = c.req.param('email');
+    if (!targetEmail) {
+      return c.json({ error: 'Email parameter required' }, 400);
+    }
+    
+    console.log(`[ADMIN] Checking subscription for email: ${targetEmail}`);
+    
+    // Get all users from KV store - check both new and legacy prefixes
+    const contndrSubs = await kv.getByPrefix('contndr_sub:');
+    const legacySubs = await kv.getByPrefix('sendlr_sub:');
+    const allSubs = [...contndrSubs, ...legacySubs];
+    
+    console.log(`[ADMIN] Found ${allSubs.length} total subscription records (${contndrSubs.length} contndr + ${legacySubs.length} legacy)`);
+    
+    // For now, return all subscriptions so admin can find by email manually
+    return c.json({
+      targetEmail,
+      note: 'Listing all subscriptions - find the user by checking your user database for the User ID',
+      totalSubscriptions: allSubs.length,
+      subscriptions: allSubs.map((sub: any) => ({
+        key: sub.key,
+        userId: sub.key.replace('contndr_sub:', '').replace('sendlr_sub:', ''),
+        subscription: sub.value
+      })),
+      instructions: [
+        '1. Find the userId for this email in your Supabase Auth dashboard',
+        '2. Look for contndr_sub:{userId} in the subscriptions list above',
+        '3. Or run debugSubscription() in the browser console when logged in as that user'
+      ]
+    });
+  } catch (error) {
+    console.error('[ADMIN] Error checking subscription:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Admin Whitelist (Auth + Admin Check)
+app.post("/make-server-a8b2511f/admin/whitelist", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    
+    // Simple admin check
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    
+    const { email } = await c.req.json();
+    if (!email) return c.json({ error: 'Email required' }, 400);
+    
+    await kv.set(`whitelist:${email}`, true);
+    return c.json({ success: true, message: `${email} whitelisted` });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Admin Grant Trial Access (Auth + Admin Check)
+app.post("/make-server-a8b2511f/admin/grant-trial", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    
+    // Admin check
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Forbidden - Admin access required' }, 403);
+    }
+    
+    const { userId, plan, days } = await c.req.json();
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+    
+    const trialPlan = plan || 'trial';
+    const trialDays = days || 14; // Default 14 days
+    
+    // Calculate expiry
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + trialDays);
+    
+    // Create subscription record
+    const subscription = {
+      status: 'active',
+      plan: trialPlan,
+      isWhitelisted: false,
+      trial: true,
+      trial_ends_at: expiresAt.toISOString(),
+      updated_at: new Date().toISOString(),
+      granted_by: user.email
+    };
+    
+    await kv.set(`contndr_sub:${userId}`, subscription);
+    
+    console.log(`[ADMIN] Trial access granted to user ${userId} by ${user.email}`);
+    console.log(`[ADMIN] Plan: ${trialPlan}, Expires: ${expiresAt.toISOString()}`);
+    
+    return c.json({ 
+      success: true, 
+      message: `Trial access granted to user ${userId}`,
+      subscription,
+      expiresIn: `${trialDays} days`
+    });
+  } catch (error) {
+    console.error('[ADMIN] Error granting trial:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Admin Revoke Subscription Access (Auth + Admin Check)
+app.post("/make-server-a8b2511f/admin/revoke-subscription", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    
+    // Check admin status
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized - Admin access required' }, 403);
+    }
+    
+    const { userId } = await c.req.json();
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+    
+    // Get existing subscription to log it (check both new and legacy keys)
+    const existingSub = await kv.get(`contndr_sub:${userId}`) || await kv.get(`sendlr_sub:${userId}`);
+    console.log(`[ADMIN] Revoking subscription for user ${userId} by ${user.email}`);
+    console.log(`[ADMIN] Previous subscription:`, existingSub);
+    
+    // Delete both new and legacy subscription records
+    await kv.del(`contndr_sub:${userId}`);
+    await kv.del(`sendlr_sub:${userId}`);
+    
+    console.log(`[ADMIN] ✅ Subscription revoked for user ${userId}`);
+    
+    return c.json({ 
+      success: true, 
+      message: `Subscription access revoked for user ${userId}`,
+      previousSubscription: existingSub
+    });
+  } catch (error) {
+    console.error('[ADMIN] Error revoking subscription:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /admin/users/inspect/:userId - Inspect raw KV data for a user (Admin Only)
+app.get("/make-server-a8b2511f/admin/users/inspect/:userId", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    const userId = c.req.param('userId');
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+    
+    // Fetch all relevant KV keys for this user
+    const [sub, legacySub, teamLink, stripeCustomer] = await Promise.all([
+      kv.get(`contndr_sub:${userId}`),
+      kv.get(`sendlr_sub:${userId}`),
+      kv.get(`user:${userId}:team`),
+      kv.get(`stripe_customer:${userId}`),
+    ]);
+    
+    // If they're a team owner, get their members list too
+    const teamMembers = await kv.get(`team:${userId}:members`).catch(() => null);
+    
+    // Check reverse mapping if stripe customer exists
+    let stripeReverse = null;
+    if (stripeCustomer) {
+      stripeReverse = await kv.get(`stripe_customer_reverse:${stripeCustomer}`).catch(() => null);
+    }
+    
+    return c.json({
+      userId,
+      contndr_sub: sub,
+      sendlr_sub: legacySub,
+      team_link: teamLink,
+      stripe_customer: stripeCustomer,
+      stripe_reverse_maps_to: stripeReverse,
+      team_members: teamMembers,
+    });
+  } catch (error) {
+    console.error('[ADMIN] Error inspecting user:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /careers/apply - Handle career application
+app.post("/make-server-a8b2511f/careers/apply", async (c) => {
+  try {
+    const body = await c.req.parseBody();
+    const { name, email, linkedin, notes, role } = body;
+    const resumeFile = body['resume']; // File object
+
+    console.log(`[CAREERS] Application received for ${role} from ${email}`);
+
+    // 1. Upload Resume to Supabase Storage (if present)
+    let resumeUrl = null;
+    let resumeContentBase64 = null;
+    let resumeName = null;
+
+    if (resumeFile && resumeFile instanceof File) {
+       resumeName = resumeFile.name;
+       const arrayBuffer = await resumeFile.arrayBuffer();
+       // Convert ArrayBuffer to Base64 manually
+       let binary = '';
+       const bytes = new Uint8Array(arrayBuffer);
+       const len = bytes.byteLength;
+       for (let i = 0; i < len; i++) {
+         binary += String.fromCharCode(bytes[i]);
+       }
+       resumeContentBase64 = btoa(binary);
+       
+       const supabase = getSupabaseAdmin();
+       
+       const bucketName = 'make-a8b2511f-careers';
+       const filePath = `${Date.now()}_${resumeFile.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+
+       // Check if bucket exists
+       const { data: buckets } = await supabase.storage.listBuckets();
+       if (!buckets?.find(b => b.name === bucketName)) {
+          await supabase.storage.createBucket(bucketName, { public: false });
+       }
+
+       // Upload
+       const { error: uploadError } = await supabase.storage
+          .from(bucketName)
+          .upload(filePath, resumeFile, {
+             contentType: resumeFile.type,
+             upsert: false
+          });
+
+       if (uploadError) {
+          console.error('[CAREERS] Resume upload failed:', uploadError);
+       } else {
+          // Create signed URL (valid for 7 days)
+          const { data: signedUrl } = await supabase.storage
+             .from(bucketName)
+             .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+          
+          resumeUrl = signedUrl?.signedUrl;
+       }
+    }
+
+    // 2. Send Email
+    const emailHtml = `
+      <h2>New Job Application</h2>
+      <p><strong>Role:</strong> ${role}</p>
+      <p><strong>Name:</strong> ${name}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>LinkedIn:</strong> <a href="${linkedin}">${linkedin}</a></p>
+      <p><strong>Notes:</strong><br>${(notes as string || '').replace(/\n/g, '<br>')}</p>
+      ${resumeUrl ? `<p><strong>Resume:</strong> <a href="${resumeUrl}">Download Resume</a></p>` : '<p><em>No resume uploaded or upload failed.</em></p>'}
+    `;
+
+    // Attach resume if available
+    const attachments = resumeContentBase64 ? [{
+        filename: resumeName || 'resume.pdf',
+        content: resumeContentBase64
+    }] : [];
+
+    const resendApiKey = Deno.env.get('RESEND_API_KEY');
+    if (resendApiKey) {
+        await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${resendApiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                from: 'careers@contndr.com',
+                to: 'careers@contndr.com',
+                subject: `New Application: ${role} - ${name}`,
+                html: emailHtml,
+                attachments: attachments,
+                reply_to: email as string
+            }),
+        });
+    } else {
+        console.warn('[CAREERS] RESEND_API_KEY missing, email not sent');
+    }
+
+    // 3. Store in KV (Optional, for backup)
+    await kv.set(`application:${Date.now()}:${email}`, {
+        role, name, email, linkedin, notes, resumeUrl,
+        timestamp: new Date().toISOString()
+    });
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('[CAREERS] Error processing application:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ============================================================================
+// AI CALL CAMPAIGNS CRUD ROUTES
+// ============================================================================
+
+// GET /ai-call-campaigns - List all AI call campaigns
+app.get("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-CALL-CAMPAIGNS");
+    if (authError || !user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    // Get all campaigns for this user — fall back to [] on DB statement timeout
+    const campaigns = await kv.getByPrefix(`ai-call-campaign:${user.id}:`).catch((e: any) => {
+      const msg: string = e?.message ?? String(e);
+      if (msg.includes('canceling statement') || msg.includes('timeout') || msg.includes('memory')) {
+        console.warn('[AI CAMPAIGNS] getByPrefix timed out — returning empty list:', msg.slice(0, 120));
+      } else {
+        console.error('[AI CAMPAIGNS] getByPrefix failed:', msg.slice(0, 200));
+      }
+      return [];
+    });
+    
+    return c.json({
+      success: true,
+      campaigns: campaigns || []
+    });
+  } catch (error) {
+    console.error('[AI CAMPAIGNS] Error listing campaigns:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /ai-call-campaigns - Create a new AI call campaign
+app.post("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-CALL-CAMPAIGNS");
+    if (authError || !user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const campaignData = await c.req.json();
+    
+    // Use client-provided ID if available, otherwise generate one
+    const campaignId = campaignData.id || `campaign_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Create campaign object
+    const campaign = {
+      ...campaignData,
+      id: campaignId,
+      user_id: user.id,
+      status: campaignData.status || 'draft',
+      calls_made: campaignData.calls_made || 0,
+      total_leads: campaignData.selected_leads?.length || campaignData.total_leads || 0,
+      created_at: campaignData.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    
+    // Store campaign
+    await kv.set(`ai-call-campaign:${user.id}:${campaignId}`, campaign);
+    
+    return c.json({
+      success: true,
+      campaign
+    });
+  } catch (error) {
+    console.error('[AI CAMPAIGNS] Error creating campaign:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// PUT /ai-call-campaigns/:id - Update an existing AI call campaign
+app.put("/make-server-a8b2511f/ai-call-campaigns/:id", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-CALL-CAMPAIGNS");
+    if (authError || !user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const campaignId = c.req.param('id');
+    const campaignData = await c.req.json();
+    
+    // Get existing campaign
+    const campaignKey = `ai-call-campaign:${user.id}:${campaignId}`;
+    const existingCampaign = await kv.get(campaignKey);
+    
+    if (!existingCampaign) {
+      return c.json({ error: "Campaign not found" }, 404);
+    }
+    
+    // Merge updates with existing campaign
+    const updatedCampaign = {
+      ...existingCampaign,
+      ...campaignData,
+      id: campaignId,
+      user_id: user.id,
+      total_leads: campaignData.selected_leads?.length || campaignData.total_leads || existingCampaign.total_leads || 0,
+      updated_at: new Date().toISOString()
+    };
+    
+    await kv.set(campaignKey, updatedCampaign);
+    
+    return c.json({
+      success: true,
+      campaign: updatedCampaign
+    });
+  } catch (error) {
+    console.error('[AI CAMPAIGNS] Error updating campaign:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// PATCH /ai-call-campaigns/:id/status - Update campaign status
+app.patch("/make-server-a8b2511f/ai-call-campaigns/:id/status", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-CALL-CAMPAIGNS");
+    if (authError || !user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const campaignId = c.req.param('id');
+    const { status } = await c.req.json();
+    
+    // Get existing campaign
+    const campaignKey = `ai-call-campaign:${user.id}:${campaignId}`;
+    const campaign = await kv.get(campaignKey);
+    
+    if (!campaign) {
+      return c.json({ error: "Campaign not found" }, 404);
+    }
+    
+    // Update status (clear pause_reason when resuming)
+    const updatedCampaign = {
+      ...campaign,
+      status,
+      ...(status === 'active' ? { pause_reason: undefined } : {}),
+      updated_at: new Date().toISOString()
+    };
+    
+    await kv.set(campaignKey, updatedCampaign);
+    
+    // If status is 'active', start the processor
+    if (status === 'active') {
+      const headers = new Headers();
+      headers.set('Authorization', c.req.header('Authorization') || '');
+      headers.set('Content-Type', 'application/json');
+      
+      fetch(
+        `${Deno.env.get('SUPABASE_URL')}/functions/v1/make-server-a8b2511f/ai-call/start/${campaignId}`,
+        { method: 'POST', headers }
+      ).catch(error => {
+        console.error('[AI CAMPAIGNS] Error starting processor:', error);
+      });
+    }
+    
+    return c.json({
+      success: true,
+      campaign: updatedCampaign
+    });
+  } catch (error) {
+    console.error('[AI CAMPAIGNS] Error updating campaign status:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// DELETE /ai-call-campaigns/:id - Delete a campaign
+app.delete("/make-server-a8b2511f/ai-call-campaigns/:id", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-CALL-CAMPAIGNS");
+    if (authError || !user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const campaignId = c.req.param('id');
+    
+    // Delete campaign
+    const campaignKey = `ai-call-campaign:${user.id}:${campaignId}`;
+    await kv.del(campaignKey);
+    
+    // Also delete tracking data
+    const trackingKey = `ai-call-tracking:${user.id}:${campaignId}`;
+    await kv.del(trackingKey);
+    
+    return c.json({
+      success: true,
+      message: "Campaign deleted successfully"
+    });
+  } catch (error) {
+    console.error('[AI CAMPAIGNS] Error deleting campaign:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ============================================================================
+// AI AGENT PROFILES CRUD ROUTES
+// ============================================================================
+
+// GET /ai-agents - List all AI agent profiles for a user
+app.get("/make-server-a8b2511f/ai-agents", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-AGENTS");
+    if (authError || !user) return c.json({ error: "Unauthorized" }, 401);
+
+    const agents = await kv.getByPrefix(`ai-agent:${user.id}:`);
+    return c.json({ success: true, agents: agents || [] });
+  } catch (error) {
+    console.error('[AI AGENTS] Error listing agents:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /ai-agents/:id - Get a single agent profile
+app.get("/make-server-a8b2511f/ai-agents/:id", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-AGENTS");
+    if (authError || !user) return c.json({ error: "Unauthorized" }, 401);
+
+    const agentId = c.req.param('id');
+    const agent = await kv.get(`ai-agent:${user.id}:${agentId}`);
+    if (!agent) return c.json({ error: "Agent not found" }, 404);
+    return c.json({ success: true, agent });
+  } catch (error) {
+    console.error('[AI AGENTS] Error getting agent:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /ai-agents - Create a new AI agent profile
+app.post("/make-server-a8b2511f/ai-agents", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-AGENTS");
+    if (authError || !user) return c.json({ error: "Unauthorized" }, 401);
+
+    const body = await c.req.json();
+    const agentId = `agent_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const agent = {
+      id: agentId,
+      user_id: user.id,
+      name: body.name || 'AI Assistant',
+      role: body.role || 'Receptionist',
+      voice: body.voice || 'rachel',
+      brand: body.brand || '',
+      greeting: body.greeting || '',
+      instructions: body.instructions || '',
+      knowledge_base: body.knowledge_base || '',
+      transfer_rules: body.transfer_rules || [],
+      fallback_action: body.fallback_action || 'email',
+      max_turns: body.max_turns ?? 12,
+      business_type: body.business_type || 'general',
+      business_name: body.business_name || '',
+      business_phone: body.business_phone || '',
+      operating_hours: body.operating_hours || '',
+      language: body.language || 'en',
+      is_default: body.is_default || false,
+      end_call_message: body.end_call_message || '',
+      voicemail_message: body.voicemail_message || '',
+      qualification_questions: body.qualification_questions || [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (agent.is_default) {
+      const existingAgents = await kv.getByPrefix(`ai-agent:${user.id}:`);
+      for (const existing of existingAgents) {
+        if (existing && existing.is_default) {
+          await kv.set(`ai-agent:${user.id}:${existing.id}`, { ...existing, is_default: false, updated_at: new Date().toISOString() });
+        }
+      }
+    }
+
+    await kv.set(`ai-agent:${user.id}:${agentId}`, agent);
+    return c.json({ success: true, agent });
+  } catch (error) {
+    console.error('[AI AGENTS] Error creating agent:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// PUT /ai-agents/:id - Update an AI agent profile
+app.put("/make-server-a8b2511f/ai-agents/:id", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-AGENTS");
+    if (authError || !user) return c.json({ error: "Unauthorized" }, 401);
+
+    const agentId = c.req.param('id');
+    const body = await c.req.json();
+
+    const existing = await kv.get(`ai-agent:${user.id}:${agentId}`);
+    if (!existing) return c.json({ error: "Agent not found" }, 404);
+
+    const updated = { ...existing, ...body, id: agentId, user_id: user.id, updated_at: new Date().toISOString() };
+
+    if (updated.is_default && !existing.is_default) {
+      const allAgents = await kv.getByPrefix(`ai-agent:${user.id}:`);
+      for (const a of allAgents) {
+        if (a && a.id !== agentId && a.is_default) {
+          await kv.set(`ai-agent:${user.id}:${a.id}`, { ...a, is_default: false, updated_at: new Date().toISOString() });
+        }
+      }
+    }
+
+    await kv.set(`ai-agent:${user.id}:${agentId}`, updated);
+    return c.json({ success: true, agent: updated });
+  } catch (error) {
+    console.error('[AI AGENTS] Error updating agent:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// DELETE /ai-agents/:id - Delete an AI agent profile
+app.delete("/make-server-a8b2511f/ai-agents/:id", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-AGENTS");
+    if (authError || !user) return c.json({ error: "Unauthorized" }, 401);
+
+    const agentId = c.req.param('id');
+    await kv.del(`ai-agent:${user.id}:${agentId}`);
+    return c.json({ success: true, message: "Agent deleted" });
+  } catch (error) {
+    console.error('[AI AGENTS] Error deleting agent:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /knowledge-base - Get knowledge base entries
+app.get("/make-server-a8b2511f/knowledge-base", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const brand = c.req.query('brand') as any || 'all';
+    
+    const teamId = await getTeamId(user.id);
+    const entries = await getKnowledgeBaseByBrand(teamId, brand);
+    return c.json({ success: true, data: entries });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /knowledge-base - Create a new entry
+app.post("/make-server-a8b2511f/knowledge-base", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    
+    const teamId = await getTeamId(user.id);
+    const result = await createKnowledgeBaseEntry({
+      ...body,
+      user_id: teamId
+    });
+    
+    if (!result.success) return c.json({ error: result.error }, 400);
+    return c.json(result);
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// PUT /knowledge-base/:id - Update an entry
+app.put("/make-server-a8b2511f/knowledge-base/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    
+    const teamId = await getTeamId(user.id);
+    const result = await updateKnowledgeBaseEntry(id, teamId, body);
+    
+    if (!result.success) return c.json({ error: result.error }, 400);
+    return c.json(result);
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// DELETE /knowledge-base/:id - Delete an entry
+app.delete("/make-server-a8b2511f/knowledge-base/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const id = c.req.param('id');
+    
+    const teamId = await getTeamId(user.id);
+    const result = await deleteKnowledgeBaseEntry(id, teamId);
+    
+    if (!result.success) return c.json({ error: result.error }, 400);
+    return c.json(result);
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /knowledge-base/seed-covera - Seed default entries
+app.post("/make-server-a8b2511f/knowledge-base/seed-covera", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const teamId = await getTeamId(user.id);
+    await initializeKnowledgeBase(teamId);
+    return c.json({ success: true, message: 'Knowledge base seeded successfully' });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ═══ WRITING PRESETS — reusable writing control configurations ═══
+
+// GET /writing-presets — list all presets for the team
+app.get("/make-server-a8b2511f/writing-presets", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const teamId = await getTeamId(user.id);
+    const prefix = `writing_preset:${teamId}:`;
+    const rows = await kv.getByPrefix(prefix);
+    const presets = rows
+      .map((r: any) => {
+        try { return typeof r.value === 'string' ? JSON.parse(r.value) : r.value; } catch { return null; }
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return c.json({ presets });
+  } catch (error: any) {
+    console.log("[WRITING-PRESETS] GET error:", error.message);
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// POST /writing-presets — save a new preset
+app.post("/make-server-a8b2511f/writing-presets", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const teamId = await getTeamId(user.id);
+    const body = await c.req.json();
+    const { name, tone, maxWords, customInstructions, exampleEmail } = body;
+    if (!name || !name.trim()) return c.json({ error: "Preset name is required" }, 400);
+    const id = crypto.randomUUID();
+    const preset = {
+      id,
+      name: name.trim(),
+      tone: tone || '',
+      maxWords: maxWords || 75,
+      customInstructions: customInstructions || '',
+      exampleEmail: exampleEmail || '',
+      createdAt: new Date().toISOString(),
+      createdBy: user.id,
+    };
+    await kv.set(`writing_preset:${teamId}:${id}`, JSON.stringify(preset));
+    return c.json({ success: true, preset });
+  } catch (error: any) {
+    console.log("[WRITING-PRESETS] POST error:", error.message);
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// DELETE /writing-presets/:id — delete a preset
+app.delete("/make-server-a8b2511f/writing-presets/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const teamId = await getTeamId(user.id);
+    const id = c.req.param("id");
+    await kv.del(`writing_preset:${teamId}:${id}`);
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.log("[WRITING-PRESETS] DELETE error:", error.message);
+    return c.json({ error: error.message }, error.status || 500);
+  }
+});
+
+// GET /team
+app.get("/make-server-a8b2511f/team", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const team = await getTeamMembers(user);
+    return c.json({ success: true, data: team });
+  } catch (error) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /team/invite
+app.post("/make-server-a8b2511f/team/invite", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const email = body.email;
+    
+    if (!email) throw new Error("Email required");
+    
+    await inviteMember(user, email);
+    return c.json({ success: true, message: "Invitation sent" });
+  } catch (error) {
+    return c.json({ error: error.message }, 400);
+  }
+});
+
+// POST /team/accept
+app.post("/make-server-a8b2511f/team/accept", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const token = body.token;
+    
+    if (!token) throw new Error("Token required");
+    
+    const result = await acceptInvite(user, token);
+    return c.json(result);
+  } catch (error) {
+    return c.json({ error: error.message }, 400);
+  }
+});
+
+// POST /team/cancel-invite
+app.post("/make-server-a8b2511f/team/cancel-invite", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const email = body.email;
+    
+    if (!email) throw new Error("Email required");
+    
+    await cancelInvite(user.id, email);
+    return c.json({ success: true, message: "Invitation cancelled" });
+  } catch (error) {
+    return c.json({ error: error.message }, 400);
+  }
+});
+
+// DELETE /team/member/:id
+app.delete("/make-server-a8b2511f/team/member/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const memberId = c.req.param('id');
+    
+    await removeMember(user.id, memberId);
+    return c.json({ success: true, message: "Member removed" });
+  } catch (error) {
+    return c.json({ error: error.message }, 400);
+  }
+});
+
+// POST /affiliate/click - Log affiliate link click (public, no auth required)
+app.post("/make-server-a8b2511f/affiliate/click", async (c) => {
+  try {
+    const { slug, referrer, timestamp } = await c.req.json();
+    
+    if (!slug || typeof slug !== 'string') {
+      return c.json({ error: "Missing or invalid slug" }, 400);
+    }
+
+    console.log(`[AFFILIATE] Click logged for slug: ${slug}, referrer: ${referrer}`);
+
+    // Store click in KV — append to a list keyed by slug
+    const clickKey = `affiliate_click:${slug}:${Date.now()}`;
+    await kv.set(clickKey, JSON.stringify({
+      slug,
+      referrer: referrer || null,
+      timestamp: timestamp || new Date().toISOString(),
+      ua: c.req.header('user-agent') || null,
+    }));
+
+    // Increment counter
+    const counterKey = `affiliate_counter:${slug}`;
+    const current = await kv.get(counterKey);
+    const count = current ? parseInt(current, 10) + 1 : 1;
+    await kv.set(counterKey, String(count));
+
+    return c.json({ success: true, clicks: count });
+  } catch (error) {
+    console.error('[AFFILIATE] Error logging click:', error);
+    return c.json({ error: "Failed to log click" }, 500);
+  }
+});
+
+// POST /affiliate/attribute - Late-bind affiliate ref for OAuth signups (requires auth)
+// Called from the frontend after a social login if sessionStorage has a pending ref
+app.post("/make-server-a8b2511f/affiliate/attribute", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { ref } = await c.req.json();
+
+    if (!ref || typeof ref !== 'string') {
+      return c.json({ error: "Missing or invalid ref" }, 400);
+    }
+
+    // Check if this user already has an affiliate attribution (prevent duplicates)
+    const existingRef = await kv.get(`affiliate_ref:${user.id}`);
+    if (existingRef) {
+      console.log(`[AFFILIATE] User ${user.id} already attributed to affiliate ${existingRef}, skipping`);
+      return c.json({ success: true, alreadyAttributed: true });
+    }
+
+    const affiliateUserId = await kv.get(`affiliate_slug:${ref}`);
+    if (!affiliateUserId) {
+      console.log(`[AFFILIATE] No affiliate found for slug: ${ref}`);
+      return c.json({ success: true, affiliateFound: false });
+    }
+
+    console.log(`[AFFILIATE] Late-bind attribution: slug=${ref}, affiliate=${affiliateUserId}, user=${user.id}`);
+
+    // Store which affiliate referred this user
+    await kv.set(`affiliate_ref:${user.id}`, affiliateUserId);
+
+    // Add to affiliate's referrals list
+    const referrals = (await kv.get(`affiliate:${affiliateUserId}:referrals`)) || [];
+    referrals.push({
+      id: crypto.randomUUID(),
+      referred_user_id: user.id,
+      referred_email: user.email || '',
+      signed_up_at: new Date().toISOString(),
+      status: 'signup',
+    });
+    await kv.set(`affiliate:${affiliateUserId}:referrals`, referrals);
+
+    return c.json({ success: true, affiliateFound: true });
+  } catch (error) {
+    console.error('[AFFILIATE] Error in late-bind attribution:', error);
+    return c.json({ error: "Failed to attribute referral" }, 500);
+  }
+});
+
+// POST /affiliate/enroll - Create affiliate account (requires auth)
+app.post("/make-server-a8b2511f/affiliate/enroll", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    let slug = body.slug?.trim()?.toLowerCase()?.replace(/[^a-z0-9-]/g, '') || '';
+
+    // Check if already enrolled
+    const existing = await kv.get(`affiliate:${user.id}`);
+    if (existing) {
+      return c.json({ error: "You are already enrolled as an affiliate" }, 400);
+    }
+
+    // Generate slug from name or email if not provided
+    if (!slug) {
+      const name = user.user_metadata?.full_name || user.user_metadata?.name || '';
+      if (name) {
+        slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      } else {
+        slug = (user.email?.split('@')[0] || 'user').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      }
+    }
+
+    // Ensure slug uniqueness — append random suffix if taken
+    let finalSlug = slug;
+    let existingSlug = await kv.get(`affiliate_slug:${finalSlug}`);
+    let attempts = 0;
+    while (existingSlug && attempts < 10) {
+      finalSlug = `${slug}-${Math.random().toString(36).substring(2, 6)}`;
+      existingSlug = await kv.get(`affiliate_slug:${finalSlug}`);
+      attempts++;
+    }
+    if (existingSlug) {
+      return c.json({ error: "Could not generate a unique slug. Try a different one." }, 400);
+    }
+
+    const affiliateData = {
+      slug: finalSlug,
+      userId: user.id,
+      email: user.email,
+      name: user.user_metadata?.full_name || user.user_metadata?.name || user.email,
+      commission_rate: 0.10,
+      status: 'active',
+      created_at: new Date().toISOString(),
+      paypal_email: null,
+      payout_method: 'paypal',
+    };
+
+    // Save affiliate record and slug reverse lookup
+    await kv.set(`affiliate:${user.id}`, affiliateData);
+    await kv.set(`affiliate_slug:${finalSlug}`, user.id);
+    // Initialize referrals list
+    await kv.set(`affiliate:${user.id}:referrals`, []);
+
+    console.log(`[AFFILIATE] Enrolled user ${user.id} with slug: ${finalSlug}`);
+    return c.json({ success: true, affiliate: affiliateData });
+  } catch (error) {
+    console.error('[AFFILIATE] Enroll error:', error);
+    return c.json({ error: error.message || "Failed to enroll" }, 500);
+  }
+});
+
+// GET /affiliate/dashboard - Get affiliate stats and referrals (requires auth)
+app.get("/make-server-a8b2511f/affiliate/dashboard", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+
+    const affiliate = await kv.get(`affiliate:${user.id}`);
+    if (!affiliate) {
+      return c.json({ enrolled: false });
+    }
+
+    // Get click count
+    const clickCount = await kv.get(`affiliate_counter:${affiliate.slug}`);
+    const totalClicks = clickCount ? parseInt(String(clickCount), 10) : 0;
+
+    // Get referrals
+    const referrals = (await kv.get(`affiliate:${user.id}:referrals`)) || [];
+
+    // Calculate stats
+    let totalSignups = 0;
+    let totalConversions = 0;
+    let totalEarned = 0;
+    let monthlyRecurring = 0;
+
+    const PLAN_PRICES: Record<string, number> = {
+      starter: 99,
+      professional: 199,
+      growth: 399,
+    };
+
+    for (const ref of referrals) {
+      totalSignups++;
+      if (ref.status === 'converted' || ref.status === 'active') {
+        totalConversions++;
+        const planPrice = PLAN_PRICES[ref.plan] || 0;
+        const commission = planPrice * 0.10;
+        ref.monthly_commission = commission;
+        monthlyRecurring += commission;
+
+        // Estimate total earned based on months active
+        if (ref.converted_at) {
+          const months = Math.max(1, Math.ceil(
+            (Date.now() - new Date(ref.converted_at).getTime()) / (30 * 24 * 60 * 60 * 1000)
+          ));
+          totalEarned += commission * months;
+        }
+      }
+      if (ref.status === 'churned' && ref.converted_at) {
+        const churned_at = ref.churned_at || new Date().toISOString();
+        const months = Math.max(1, Math.ceil(
+          (new Date(churned_at).getTime() - new Date(ref.converted_at).getTime()) / (30 * 24 * 60 * 60 * 1000)
+        ));
+        const planPrice = PLAN_PRICES[ref.plan] || 0;
+        totalEarned += planPrice * 0.10 * months;
+      }
+    }
+
+    return c.json({
+      enrolled: true,
+      affiliate,
+      stats: {
+        total_clicks: totalClicks,
+        total_signups: totalSignups,
+        total_conversions: totalConversions,
+        total_earned: Math.round(totalEarned * 100) / 100,
+        monthly_recurring: Math.round(monthlyRecurring * 100) / 100,
+      },
+      referrals,
+    });
+  } catch (error) {
+    console.error('[AFFILIATE] Dashboard error:', error);
+    return c.json({ error: error.message || "Failed to load dashboard" }, 500);
+  }
+});
+
+// POST /affiliate/update-payout - Update payout details (requires auth)
+app.post("/make-server-a8b2511f/affiliate/update-payout", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+
+    const affiliate = await kv.get(`affiliate:${user.id}`);
+    if (!affiliate) {
+      return c.json({ error: "Not enrolled as affiliate" }, 400);
+    }
+
+    affiliate.paypal_email = body.paypal_email?.trim() || affiliate.paypal_email;
+    affiliate.payout_method = body.payout_method || 'paypal';
+
+    await kv.set(`affiliate:${user.id}`, affiliate);
+
+    console.log(`[AFFILIATE] Updated payout for user ${user.id}: ${affiliate.paypal_email}`);
+    return c.json({ success: true, affiliate });
+  } catch (error) {
+    console.error('[AFFILIATE] Update payout error:', error);
+    return c.json({ error: error.message || "Failed to update" }, 500);
+  }
+});
+
+// GET /admin/affiliates - Get all affiliate accounts with performance data (Admin Only)
+app.get("/make-server-a8b2511f/admin/affiliates", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    // Get all KV entries with "affiliate:" prefix
+    const allAffiliateEntries = await kv.getByPrefix('affiliate:');
+
+    const PLAN_PRICES: Record<string, number> = {
+      starter: 99,
+      professional: 199,
+      growth: 399,
+    };
+
+    const affiliates: any[] = [];
+
+    for (const entry of allAffiliateEntries) {
+      // Only process main affiliate records (objects with a slug), skip referral arrays
+      // kv.getByPrefix returns values directly, not { key, value } pairs
+      const val = entry;
+      if (!val || typeof val !== 'object' || Array.isArray(val) || !val.slug) continue;
+
+      const affiliateData = val;
+      const affiliateUserId = affiliateData.userId;
+
+      // Load referrals
+      const referrals = (await kv.get(`affiliate:${affiliateUserId}:referrals`)) || [];
+
+      // Load click count
+      const clickCount = await kv.get(`affiliate_counter:${affiliateData.slug}`);
+      const totalClicks = clickCount ? parseInt(String(clickCount), 10) : 0;
+
+      // Calculate stats and enrich referrals with live subscription data
+      let totalSignups = 0;
+      let totalConversions = 0;
+      let totalEarned = 0;
+      let monthlyRecurring = 0;
+
+      for (const ref of referrals) {
+        totalSignups++;
+
+        // Enrich with live subscription status from KV
+        if (ref.referred_user_id) {
+          try {
+            const liveSub = await kv.get(`contndr_sub:${ref.referred_user_id}`);
+            if (liveSub) {
+              ref.live_subscription = {
+                plan: liveSub.plan || 'none',
+                status: liveSub.status || 'unknown',
+                stripe_sub_id: liveSub.stripe_sub_id || null,
+                updated_at: liveSub.updated_at || null,
+              };
+              if (liveSub.status === 'canceled' && (ref.status === 'active' || ref.status === 'converted')) {
+                ref.status_mismatch = true;
+              }
+            }
+          } catch (e) {
+            console.error(`[ADMIN] Error fetching live sub for ${ref.referred_user_id}:`, e);
+          }
+        }
+
+        if (ref.status === 'converted' || ref.status === 'active') {
+          totalConversions++;
+          const planPrice = PLAN_PRICES[ref.plan] || 0;
+          const commission = planPrice * (affiliateData.commission_rate || 0.10);
+          ref.monthly_commission = commission;
+          ref.subscriber_plan_price = planPrice;
+          monthlyRecurring += commission;
+
+          if (ref.converted_at) {
+            const months = Math.max(1, Math.ceil(
+              (Date.now() - new Date(ref.converted_at).getTime()) / (30 * 24 * 60 * 60 * 1000)
+            ));
+            ref.active_months = months;
+            ref.total_commission = Math.round(commission * months * 100) / 100;
+            totalEarned += commission * months;
+          }
+        }
+        if (ref.status === 'churned' && ref.converted_at) {
+          const churned_at = ref.churned_at || new Date().toISOString();
+          const months = Math.max(1, Math.ceil(
+            (new Date(churned_at).getTime() - new Date(ref.converted_at).getTime()) / (30 * 24 * 60 * 60 * 1000)
+          ));
+          const planPrice = PLAN_PRICES[ref.plan] || 0;
+          const commission = planPrice * (affiliateData.commission_rate || 0.10);
+          ref.active_months = months;
+          ref.total_commission = Math.round(commission * months * 100) / 100;
+          ref.subscriber_plan_price = planPrice;
+          ref.monthly_commission = commission;
+          totalEarned += commission * months;
+        }
+      }
+
+      affiliates.push({
+        userId: affiliateUserId,
+        email: affiliateData.email,
+        name: affiliateData.name,
+        slug: affiliateData.slug,
+        commission_rate: affiliateData.commission_rate || 0.10,
+        status: affiliateData.status || 'active',
+        created_at: affiliateData.created_at,
+        paypal_email: affiliateData.paypal_email || null,
+        payout_method: affiliateData.payout_method || null,
+        is_external: !!affiliateData.is_external,
+        stats: {
+          total_clicks: totalClicks,
+          total_signups: totalSignups,
+          total_conversions: totalConversions,
+          total_earned: Math.round(totalEarned * 100) / 100,
+          monthly_recurring: Math.round(monthlyRecurring * 100) / 100,
+        },
+        referrals,
+      });
+    }
+
+    // Sort by monthly recurring desc (top performers first)
+    affiliates.sort((a, b) => b.stats.monthly_recurring - a.stats.monthly_recurring);
+
+    // Aggregate totals
+    const totals = {
+      total_affiliates: affiliates.length,
+      total_clicks: affiliates.reduce((s, a) => s + a.stats.total_clicks, 0),
+      total_signups: affiliates.reduce((s, a) => s + a.stats.total_signups, 0),
+      total_conversions: affiliates.reduce((s, a) => s + a.stats.total_conversions, 0),
+      total_earned: Math.round(affiliates.reduce((s, a) => s + a.stats.total_earned, 0) * 100) / 100,
+      total_monthly_recurring: Math.round(affiliates.reduce((s, a) => s + a.stats.monthly_recurring, 0) * 100) / 100,
+    };
+
+    console.log(`[ADMIN] Loaded ${affiliates.length} affiliates`);
+    return c.json({ success: true, affiliates, totals });
+  } catch (error) {
+    console.error('[ADMIN] Error fetching affiliates:', error);
+    return c.json({ error: error.message || "Failed to load affiliates" }, 500);
+  }
+});
+
+// POST /admin/affiliates/create-external - Create an external affiliate (influencer) with login credentials
+// Admin creates an account, generates their referral link, they get access to /affiliate portal only
+app.post("/make-server-a8b2511f/admin/affiliates/create-external", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const { name, email, password, commission_rate, custom_slug } = await c.req.json();
+    if (!name || !email || !password) {
+      return c.json({ error: 'Name, email, and password are required' }, 400);
+    }
+    if (password.length < 6) {
+      return c.json({ error: 'Password must be at least 6 characters' }, 400);
+    }
+
+    // Create Supabase auth user with external affiliate metadata
+    const adminSupabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+
+    const { data: newUser, error: createError } = await adminSupabase.auth.admin.createUser({
+      email,
+      password,
+      user_metadata: {
+        full_name: name,
+        name,
+        is_external_affiliate: true,
+      },
+      // Automatically confirm the user's email since an email server hasn't been configured.
+      email_confirm: true,
+    });
+
+    if (createError) {
+      console.error('[ADMIN] Error creating external affiliate user:', createError);
+      return c.json({ error: `Failed to create user: ${createError.message}` }, 400);
+    }
+
+    const affiliateUserId = newUser.user.id;
+
+    // Generate slug
+    const namePart = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'partner';
+    let slug = custom_slug?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || namePart;
+    let existing = await kv.get(`affiliate_slug:${slug}`);
+    let attempts = 0;
+    while (existing && attempts < 10) {
+      slug = `${namePart}-${Math.random().toString(36).substring(2, 6)}`;
+      existing = await kv.get(`affiliate_slug:${slug}`);
+      attempts++;
+    }
+    if (existing) {
+      return c.json({ error: 'Could not generate unique slug after multiple attempts' }, 500);
+    }
+
+    const rate = typeof commission_rate === 'number' ? commission_rate : 0.10;
+
+    // Save affiliate record
+    await kv.set(`affiliate:${affiliateUserId}`, {
+      slug,
+      userId: affiliateUserId,
+      email,
+      name,
+      commission_rate: rate,
+      status: 'active',
+      created_at: new Date().toISOString(),
+      paypal_email: null,
+      payout_method: 'paypal',
+      is_external: true,
+    });
+    await kv.set(`affiliate_slug:${slug}`, affiliateUserId);
+    await kv.set(`affiliate:${affiliateUserId}:referrals`, []);
+
+    console.log(`[ADMIN] Created external affiliate: ${email} (slug: ${slug}, userId: ${affiliateUserId})`);
+
+    return c.json({
+      success: true,
+      affiliate: {
+        userId: affiliateUserId,
+        email,
+        name,
+        slug,
+        commission_rate: rate,
+        referral_link: `https://contndr.com/r/${slug}`,
+      },
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] Error creating external affiliate:', error);
+    return c.json({ error: error.message || "Failed to create affiliate" }, 500);
+  }
+});
+
+// DELETE /admin/affiliates/:userId - Delete an external affiliate
+app.delete("/make-server-a8b2511f/admin/affiliates/:userId", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const affiliateUserId = c.req.param('userId');
+    const affRaw = await kv.get(`affiliate:${affiliateUserId}`);
+    if (!affRaw) {
+      return c.json({ error: 'Affiliate not found' }, 404);
+    }
+    const aff = typeof affRaw === 'string' ? JSON.parse(affRaw) : affRaw;
+
+    // Only allow deleting external affiliates
+    if (!aff.is_external) {
+      return c.json({ error: 'Can only delete external affiliate accounts' }, 400);
+    }
+
+    // Delete auth user
+    const adminSupabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+    await adminSupabase.auth.admin.deleteUser(affiliateUserId);
+
+    // Clean up KV entries
+    await kv.del(`affiliate:${affiliateUserId}`);
+    await kv.del(`affiliate_slug:${aff.slug}`);
+    await kv.del(`affiliate:${affiliateUserId}:referrals`);
+    await kv.del(`affiliate_counter:${aff.slug}`);
+
+    console.log(`[ADMIN] Deleted external affiliate: ${aff.email} (slug: ${aff.slug})`);
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('[ADMIN] Error deleting affiliate:', error);
+    return c.json({ error: error.message || "Failed to delete affiliate" }, 500);
+  }
+});
+
+// POST /admin/affiliates/transfer-slug - Transfer an affiliate slug from one email to another
+// Used to move or@roadr.com's affiliate slug to or@contndr.com
+app.post("/make-server-a8b2511f/admin/affiliates/transfer-slug", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const { from_email, to_email } = await c.req.json();
+    if (!from_email || !to_email) {
+      return c.json({ error: 'from_email and to_email are required' }, 400);
+    }
+
+    const adminSupabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+
+    // Look up both users by email
+    const { data: { users: allUsers } } = await adminSupabase.auth.admin.listUsers();
+    const fromUser = allUsers?.find((u: any) => u.email?.toLowerCase() === from_email.toLowerCase());
+    const toUser = allUsers?.find((u: any) => u.email?.toLowerCase() === to_email.toLowerCase());
+
+    if (!fromUser) {
+      return c.json({ error: `User not found for email: ${from_email}` }, 404);
+    }
+    if (!toUser) {
+      return c.json({ error: `User not found for email: ${to_email}` }, 404);
+    }
+
+    // Get the source affiliate record
+    const fromAff = await kv.get(`affiliate:${fromUser.id}`);
+    if (!fromAff) {
+      return c.json({ error: `No affiliate record found for ${from_email}` }, 404);
+    }
+    const sourceAff = typeof fromAff === 'string' ? JSON.parse(fromAff) : fromAff;
+    const slug = sourceAff.slug;
+
+    if (!slug) {
+      return c.json({ error: `Source affiliate has no slug` }, 400);
+    }
+
+    // Get existing referrals and clicks from the source
+    const fromReferrals = await kv.get(`affiliate:${fromUser.id}:referrals`) || [];
+    const fromClicks = await kv.get(`affiliate_counter:${slug}`) || 0;
+
+    // Check if destination already has an affiliate record — clean up old slug if different
+    const toAff = await kv.get(`affiliate:${toUser.id}`);
+    if (toAff) {
+      const existingToAff = typeof toAff === 'string' ? JSON.parse(toAff) : toAff;
+      if (existingToAff.slug && existingToAff.slug !== slug) {
+        await kv.del(`affiliate_slug:${existingToAff.slug}`);
+        console.log(`[ADMIN] Cleaned up destination's old slug: ${existingToAff.slug}`);
+      }
+    }
+
+    // Create new affiliate record for destination user
+    const newAff = {
+      ...sourceAff,
+      userId: toUser.id,
+      email: to_email.toLowerCase(),
+      name: toUser.user_metadata?.full_name || toUser.user_metadata?.name || sourceAff.name,
+      updated_at: new Date().toISOString(),
+      transferred_from: from_email.toLowerCase(),
+    };
+
+    // Write new records
+    await kv.set(`affiliate:${toUser.id}`, newAff);
+    await kv.set(`affiliate_slug:${slug}`, toUser.id);
+    await kv.set(`affiliate:${toUser.id}:referrals`, fromReferrals);
+
+    // Clean up source
+    await kv.del(`affiliate:${fromUser.id}`);
+    await kv.del(`affiliate:${fromUser.id}:referrals`);
+
+    console.log(`[ADMIN] ✅ Transferred affiliate slug "${slug}" from ${from_email} (${fromUser.id}) to ${to_email} (${toUser.id}). ${fromReferrals.length} referrals transferred.`);
+
+    return c.json({
+      success: true,
+      slug,
+      from: { email: from_email, userId: fromUser.id },
+      to: { email: to_email, userId: toUser.id },
+      referrals_transferred: fromReferrals.length,
+      clicks_preserved: fromClicks,
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] Error transferring affiliate slug:', error);
+    return c.json({ error: error.message || "Failed to transfer slug" }, 500);
+  }
+});
+
+// GET /affiliate/portal/dashboard - External affiliate dashboard data (requires auth, affiliate-only)
+app.get("/make-server-a8b2511f/affiliate/portal/dashboard", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+
+    // Load affiliate record for this user
+    const affRaw = await kv.get(`affiliate:${user.id}`);
+    if (!affRaw) {
+      return c.json({ error: 'Not an affiliate' }, 403);
+    }
+    const aff = typeof affRaw === 'string' ? JSON.parse(affRaw) : affRaw;
+
+    // Load referrals
+    const referrals = (await kv.get(`affiliate:${user.id}:referrals`)) || [];
+
+    // Load click count
+    const clickCount = await kv.get(`affiliate_counter:${aff.slug}`);
+    const totalClicks = clickCount ? parseInt(String(clickCount), 10) : 0;
+
+    const PLAN_PRICES: Record<string, number> = {
+      starter: 99,
+      professional: 199,
+      growth: 399,
+    };
+
+    let totalSignups = 0;
+    let totalConversions = 0;
+    let totalEarned = 0;
+    let monthlyRecurring = 0;
+
+    for (const ref of referrals) {
+      totalSignups++;
+      if (ref.status === 'converted' || ref.status === 'active') {
+        totalConversions++;
+        const planPrice = PLAN_PRICES[ref.plan] || 0;
+        const commission = planPrice * (aff.commission_rate || 0.10);
+        ref.monthly_commission = commission;
+        monthlyRecurring += commission;
+
+        if (ref.converted_at) {
+          const months = Math.max(1, Math.ceil(
+            (Date.now() - new Date(ref.converted_at).getTime()) / (30 * 24 * 60 * 60 * 1000)
+          ));
+          ref.total_commission = Math.round(commission * months * 100) / 100;
+          totalEarned += commission * months;
+        }
+      }
+    }
+
+    return c.json({
+      success: true,
+      affiliate: {
+        name: aff.name,
+        email: aff.email,
+        slug: aff.slug,
+        commission_rate: aff.commission_rate || 0.10,
+        status: aff.status,
+        created_at: aff.created_at,
+        paypal_email: aff.paypal_email,
+        payout_method: aff.payout_method,
+        is_external: !!aff.is_external,
+      },
+      stats: {
+        total_clicks: totalClicks,
+        total_signups: totalSignups,
+        total_conversions: totalConversions,
+        total_earned: Math.round(totalEarned * 100) / 100,
+        monthly_recurring: Math.round(monthlyRecurring * 100) / 100,
+      },
+      referrals: referrals.map((r: any) => ({
+        id: r.id || r.referred_user_id,
+        referred_email: r.referred_email,
+        signed_up_at: r.signed_up_at,
+        converted_at: r.converted_at,
+        plan: r.plan,
+        monthly_commission: r.monthly_commission,
+        status: r.status,
+      })),
+    });
+  } catch (error: any) {
+    console.error('[AFFILIATE PORTAL] Error fetching dashboard:', error);
+    return c.json({ error: error.message || "Failed to load dashboard" }, 500);
+  }
+});
+
+// POST /affiliate/portal/update-payout - External affiliate updates payout info
+app.post("/make-server-a8b2511f/affiliate/portal/update-payout", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const affRaw = await kv.get(`affiliate:${user.id}`);
+    if (!affRaw) {
+      return c.json({ error: 'Not an affiliate' }, 403);
+    }
+    const aff = typeof affRaw === 'string' ? JSON.parse(affRaw) : affRaw;
+    const { paypal_email, payout_method } = await c.req.json();
+
+    aff.paypal_email = paypal_email || aff.paypal_email;
+    aff.payout_method = payout_method || aff.payout_method;
+    await kv.set(`affiliate:${user.id}`, aff);
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('[AFFILIATE PORTAL] Error updating payout:', error);
+    return c.json({ error: error.message || "Failed to update payout" }, 500);
+  }
+});
+
+// GET /admin/revenue - Revenue & subscriber analytics (Admin Only)
+app.get("/make-server-a8b2511f/admin/revenue", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const PLAN_PRICES_MONTHLY: Record<string, number> = {
+      starter: 99,
+      professional: 199,
+      growth: 399,
+    };
+
+    // 1. Fetch all auth users
+    const { data: { users: authUsers }, error: authError } = await supabase.auth.admin.listUsers({ page: 1, perPage: 500 });
+    if (authError) throw authError;
+
+    // 2. Build user lookup map
+    const userMap: Record<string, any> = {};
+    for (const u of authUsers) {
+      userMap[u.id] = { email: u.email, name: u.user_metadata?.name || '', created_at: u.created_at, last_sign_in_at: u.last_sign_in_at };
+    }
+
+    // 3. Fetch all subscriptions from KV (need both key and value)
+    const supabaseKv = getSupabaseAdmin();
+    const { data: rawSubs, error: subError } = await supabaseKv.from('kv_store_a8b2511f').select('key, value').like('key', 'contndr_sub:%');
+    if (subError) throw subError;
+
+    // 3a. Build a set of KV user IDs and their stripe_sub_ids for reconciliation
+    const kvUserStripeIds: Record<string, string | null> = {};
+    for (const row of (rawSubs || [])) {
+      const uid = row.key.replace('contndr_sub:', '');
+      kvUserStripeIds[uid] = row.value?.stripe_sub_id || null;
+    }
+
+    // 3b. Stripe reconciliation — fetch ALL active Stripe subs and heal KV gaps
+    // Catches subscribers who paid in Stripe but whose KV record is missing stripe_sub_id
+    const stripeSubMap: Record<string, { interval: string; amount: number; yearly_total: number | null; customerId: string; plan: string }> = {};
+    let healedCount = 0;
+    try {
+      const stripe = await getStripe();
+      if (stripe) {
+        let hasMore = true;
+        let startingAfter: string | undefined = undefined;
+        const allStripeSubs: any[] = [];
+        while (hasMore) {
+          const params: any = { status: 'active', limit: 100, expand: ['data.customer'] };
+          if (startingAfter) params.starting_after = startingAfter;
+          const page = await stripe.subscriptions.list(params);
+          allStripeSubs.push(...(page.data || []));
+          hasMore = page.has_more;
+          if (page.data?.length) startingAfter = page.data[page.data.length - 1].id;
+        }
+        hasMore = true;
+        startingAfter = undefined;
+        while (hasMore) {
+          const params: any = { status: 'trialing', limit: 100, expand: ['data.customer'] };
+          if (startingAfter) params.starting_after = startingAfter;
+          const page = await stripe.subscriptions.list(params);
+          allStripeSubs.push(...(page.data || []));
+          hasMore = page.has_more;
+          if (page.data?.length) startingAfter = page.data[page.data.length - 1].id;
+        }
+
+        console.log(`[ADMIN] Fetched ${allStripeSubs.length} active/trialing Stripe subscriptions for reconciliation`);
+
+        // Build email→userId lookup from auth users
+        const emailToUserId: Record<string, string> = {};
+        for (const u of authUsers) {
+          if (u.email) emailToUserId[u.email.toLowerCase().trim()] = u.id;
+        }
+
+        for (const stripeSub of allStripeSubs) {
+          const priceObj = stripeSub.items?.data?.[0]?.price;
+          const interval = priceObj?.recurring?.interval === 'year' ? 'yearly' : 'monthly';
+          const unitAmount = priceObj?.unit_amount || 0;
+          const amountDollars = unitAmount / 100;
+
+          let detectedPlan = 'starter';
+          const priceId = priceObj?.id;
+          for (const [planKey, planConfig] of Object.entries(PLANS)) {
+            if ((planConfig as any).monthly === priceId || (planConfig as any).yearly === priceId) {
+              detectedPlan = planKey;
+              break;
+            }
+          }
+
+          stripeSubMap[stripeSub.id] = {
+            interval,
+            amount: amountDollars,
+            yearly_total: interval === 'yearly' ? amountDollars : null,
+            customerId: typeof stripeSub.customer === 'string' ? stripeSub.customer : stripeSub.customer?.id,
+            plan: detectedPlan,
+          };
+
+          // Reconcile: find the auth user for this Stripe subscription
+          const custEmail = (typeof stripeSub.customer === 'object' ? stripeSub.customer?.email : null)?.toLowerCase()?.trim();
+          if (!custEmail) continue;
+
+          const matchedUserId = emailToUserId[custEmail];
+          if (!matchedUserId) continue;
+
+          // Check if this user's KV record is missing stripe_sub_id or has a different one
+          const existingStripeId = kvUserStripeIds[matchedUserId];
+          if (!existingStripeId || existingStripeId !== stripeSub.id) {
+            try {
+              const existingKv = await kv.get(`contndr_sub:${matchedUserId}`) || {};
+              const healedSub = {
+                ...existingKv,
+                plan: detectedPlan,
+                status: 'active',
+                stripe_sub_id: stripeSub.id,
+                stripe_customer_id: typeof stripeSub.customer === 'string' ? stripeSub.customer : stripeSub.customer?.id,
+                billing_interval: interval,
+                healed_from_revenue_reconciliation: true,
+                updated_at: new Date().toISOString(),
+              };
+              await kv.set(`contndr_sub:${matchedUserId}`, healedSub);
+              healedCount++;
+              console.log(`[ADMIN HEAL] Healed KV for ${custEmail} (${matchedUserId}) — stripe_sub_id=${stripeSub.id}, plan=${detectedPlan}, interval=${interval}, amount=$${amountDollars}`);
+
+              // Update rawSubs in memory so the rest of the function picks it up
+              const existingRow = (rawSubs || []).find((r: any) => r.key === `contndr_sub:${matchedUserId}`);
+              if (existingRow) {
+                existingRow.value = healedSub;
+              } else {
+                (rawSubs || []).push({ key: `contndr_sub:${matchedUserId}`, value: healedSub });
+              }
+              kvUserStripeIds[matchedUserId] = stripeSub.id;
+            } catch (healErr) {
+              console.error(`[ADMIN HEAL] Failed to heal KV for ${custEmail}:`, healErr);
+            }
+          }
+        }
+
+        if (healedCount > 0) {
+          console.log(`[ADMIN] Healed ${healedCount} KV records from Stripe reconciliation`);
+        }
+      }
+    } catch (stripeErr) {
+      console.error('[ADMIN] Error during Stripe reconciliation:', stripeErr);
+    }
+
+    const subscribers: any[] = [];
+    // Revenue counters — ONLY count Stripe-paid subscribers
+    const planCounts: Record<string, number> = { starter: 0, professional: 0, growth: 0 };
+    const planMrr: Record<string, number> = { starter: 0, professional: 0, growth: 0 };
+    let totalMrr = 0;
+    let activeCount = 0;         // total active (including non-paying)
+    let payingActiveCount = 0;   // only Stripe-paid active
+    let canceledCount = 0;
+    let trialingCount = 0;
+    let noneCount = 0;
+    let teamCount = 0;
+    let bypassCount = 0;
+    let internalCount = 0;
+
+    // Batch-fetch team membership KV keys so we can label team members
+    const allUserIds = (rawSubs || []).map((r: any) => r.key.replace('contndr_sub:', ''));
+    const teamOwnerValues = await Promise.all(allUserIds.map((uid: string) => kv.get(`user:${uid}:team`)));
+    const teamOwnerMap: Record<string, string | null> = {};
+    for (let i = 0; i < allUserIds.length; i++) {
+      teamOwnerMap[allUserIds[i]] = teamOwnerValues[i] || null;
+    }
+
+    for (const row of (rawSubs || [])) {
+      const userId = row.key.replace('contndr_sub:', '');
+      const sub = row.value;
+      if (!sub || typeof sub !== 'object') continue;
+
+      const userInfo = userMap[userId] || {};
+      const userEmail = (userInfo.email || '').toLowerCase().trim();
+      const plan = sub.plan || 'none';
+      const status = sub.status || 'inactive';
+      const monthlyListPrice = PLAN_PRICES_MONTHLY[plan] || 0;
+      const hasStripeId = !!sub.stripe_sub_id;
+
+      // Get actual Stripe billing interval + amount
+      const stripeInfo = hasStripeId ? stripeSubMap[sub.stripe_sub_id] : null;
+      const billingInterval = stripeInfo?.interval || 'monthly';
+      // MRR = for yearly subs, divide yearly total by 12; for monthly, use the amount directly
+      const actualMrr = stripeInfo
+        ? (billingInterval === 'yearly' ? Math.round((stripeInfo.amount / 12) * 100) / 100 : stripeInfo.amount)
+        : monthlyListPrice;
+      const displayPrice = stripeInfo?.amount || monthlyListPrice;
+
+      // Determine payment_type: 'stripe' | 'team' | 'internal' | 'bypass'
+      let paymentType = 'bypass';
+      if (hasStripeId) {
+        paymentType = 'stripe';
+      } else if (isInternalEmail(userEmail)) {
+        paymentType = 'internal';
+      } else {
+        const teamOwnerId = teamOwnerMap[userId];
+        if (teamOwnerId && teamOwnerId !== userId) {
+          paymentType = 'team';
+        }
+      }
+
+      const isPaying = hasStripeId;
+      const effectivePrice = isPaying ? actualMrr : 0;
+
+      // Count by status
+      if (status === 'active') {
+        activeCount++;
+        if (isPaying) {
+          payingActiveCount++;
+          if (plan in planCounts) {
+            planCounts[plan]++;
+            planMrr[plan] += actualMrr;
+          }
+          totalMrr += actualMrr;
+        } else {
+          if (paymentType === 'team') teamCount++;
+          else if (paymentType === 'internal') internalCount++;
+          else bypassCount++;
+        }
+      } else if (status === 'canceled') {
+        canceledCount++;
+      } else if (status === 'trialing') {
+        trialingCount++;
+      } else {
+        noneCount++;
+      }
+
+      // Check if this subscriber was an affiliate referral
+      let affiliateInfo = null;
+      try {
+        const affUserId = await kv.get(`affiliate_ref:${userId}`);
+        if (affUserId) {
+          const affData = await kv.get(`affiliate:${affUserId}`);
+          if (affData) {
+            const commRate = affData.commission_rate || 0.10;
+            affiliateInfo = {
+              affiliate_name: affData.name || affData.email,
+              affiliate_email: affData.email,
+              affiliate_slug: affData.slug,
+              commission_rate: commRate,
+              monthly_commission: isPaying ? Math.round(actualMrr * commRate * 100) / 100 : 0,
+            };
+          }
+        }
+      } catch (e) {
+        // Non-critical
+      }
+
+      // Calculate lifetime value — only for Stripe-paid subscribers
+      let lifetimeMonths = 0;
+      let lifetimeRevenue = 0;
+      if (sub.updated_at && status === 'active' && isPaying) {
+        lifetimeMonths = Math.max(1, Math.ceil((Date.now() - new Date(sub.updated_at).getTime()) / (30 * 24 * 60 * 60 * 1000)));
+        lifetimeRevenue = actualMrr * lifetimeMonths;
+      }
+
+      subscribers.push({
+        user_id: userId,
+        email: userInfo.email || 'unknown',
+        name: userInfo.name || '',
+        user_created_at: userInfo.created_at || null,
+        last_sign_in_at: userInfo.last_sign_in_at || null,
+        plan,
+        plan_price: effectivePrice,
+        list_price: monthlyListPrice,
+        billing_interval: billingInterval,
+        billing_amount: isPaying ? displayPrice : 0,
+        mrr: effectivePrice,
+        status,
+        stripe_sub_id: sub.stripe_sub_id || null,
+        subscription_updated_at: sub.updated_at || null,
+        lifetime_months: lifetimeMonths,
+        lifetime_revenue: Math.round(lifetimeRevenue * 100) / 100,
+        affiliate: affiliateInfo,
+        payment_type: paymentType,
+        is_paying: isPaying,
+      });
+    }
+
+    // Sort: paying active first, then non-paying active, then canceled, then others
+    subscribers.sort((a, b) => {
+      const statusOrder: Record<string, number> = { active: 0, trialing: 1, canceled: 2 };
+      const sa = statusOrder[a.status] ?? 3;
+      const sb = statusOrder[b.status] ?? 3;
+      if (sa !== sb) return sa - sb;
+      if (a.status === 'active' && b.status === 'active') {
+        if (a.is_paying !== b.is_paying) return a.is_paying ? -1 : 1;
+      }
+      return b.plan_price - a.plan_price;
+    });
+
+    // Aggregate totals — only Stripe-paid revenue
+    const totalLifetimeRevenue = subscribers.reduce((s, sub) => s + sub.lifetime_revenue, 0);
+    const totalAffiliateCommission = subscribers
+      .filter(sub => sub.is_paying)
+      .reduce((s, sub) => s + (sub.affiliate?.monthly_commission || 0), 0);
+    const netMrr = totalMrr - totalAffiliateCommission;
+
+    const summary = {
+      total_subscribers: payingActiveCount,
+      total_users: authUsers.length,
+      total_mrr: Math.round(totalMrr * 100) / 100,
+      total_arr: Math.round(totalMrr * 12 * 100) / 100,
+      net_mrr: Math.round(netMrr * 100) / 100,
+      net_arr: Math.round(netMrr * 12 * 100) / 100,
+      total_lifetime_revenue: Math.round(totalLifetimeRevenue * 100) / 100,
+      total_affiliate_commission_mrr: Math.round(totalAffiliateCommission * 100) / 100,
+      active_count: activeCount,
+      paying_active_count: payingActiveCount,
+      canceled_count: canceledCount,
+      trialing_count: trialingCount,
+      non_paying_breakdown: { team: teamCount, internal: internalCount, bypass: bypassCount },
+      plan_breakdown: {
+        starter: { count: planCounts.starter, mrr: Math.round(planMrr.starter * 100) / 100 },
+        professional: { count: planCounts.professional, mrr: Math.round(planMrr.professional * 100) / 100 },
+        growth: { count: planCounts.growth, mrr: Math.round(planMrr.growth * 100) / 100 },
+      },
+    };
+
+    console.log(`[ADMIN] Revenue: ${payingActiveCount} paying subscribers (${activeCount} total active), MRR=$${Math.round(totalMrr * 100) / 100}${healedCount > 0 ? `, healed ${healedCount} KV records` : ''}`);
+    return c.json({ success: true, summary, subscribers, healed: healedCount });
+  } catch (error) {
+    console.error('[ADMIN] Error fetching revenue data:', error);
+    return c.json({ error: error.message || "Failed to load revenue data" }, 500);
+  }
+});
+
+// ===========================================================================
+// OAuth Email Connect Routes
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// OAuth redirect helper — redirects back to the origin URL with OAuth result params
+// ---------------------------------------------------------------------------
+function oauthRedirect(c: any, origin: string, result: { email?: string; error?: string; provider?: string }) {
+  const params = result.email
+    ? `oauth_email=${encodeURIComponent(result.email)}&oauth_provider=${encodeURIComponent(result.provider || 'unknown')}`
+    : `oauth_error=${encodeURIComponent(result.error || 'Unknown error')}`;
+
+  if (origin) {
+    // Check if origin already has query params
+    const separator = origin.includes('?') ? '&' : '?';
+    const redirectUrl = `${origin}${separator}${params}`;
+    console.log(`[OAUTH] Redirecting back to: ${redirectUrl}`);
+    return c.redirect(redirectUrl);
+  }
+
+  // No origin fallback — minimal self-closing page
+  console.log('[OAUTH] No origin available, returning minimal HTML fallback');
+  const label = result.email ? '✓ Connected' : '✗ Failed';
+  return new Response(
+    `<!DOCTYPE html><html><head><title>Done</title></head><body style="font-family:system-ui;text-align:center;margin-top:40vh;background:#000;color:#fff"><script>try{window.close()}catch(e){}</script><p>${label}</p><p style="color:#666;font-size:13px">You can close this window.</p></body></html>`,
+    { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+  );
+}
+
+// GET /auth/gmail/connect - Initiate Gmail OAuth (opened as popup by frontend)
+app.get("/make-server-a8b2511f/auth/gmail/connect", async (c) => {
+  const origin = c.req.query("origin") || '';
+  try {
+    const token = c.req.query("token");
+    const syncOnly = c.req.query("sync_only") === "true";
+    const rotationMode = c.req.query("mode") === "rotation";
+    if (!token) return oauthRedirect(c, origin, { error: "Missing authentication token" });
+
+    const supabaseClient = getSupabaseAdmin();
+    const { user: gmailUser, error } = await (await import("./auth-helpers.tsx")).authGetUser(supabaseClient, token, "OAUTH-GMAIL");
+    if (error || !gmailUser) {
+      console.error("[OAUTH] Gmail connect auth failed:", error?.message);
+      return oauthRedirect(c, origin, { error: "Invalid or expired session" });
+    }
+    const data = { user: gmailUser };
+
+    const state = await createOAuthState(data.user.id, "gmail", origin, syncOnly, rotationMode);
+    return c.redirect(getGmailAuthUrl(state));
+  } catch (err: any) {
+    console.error("[OAUTH] Gmail connect error:", err);
+    return oauthRedirect(c, origin, { error: err.message });
+  }
+});
+
+// GET /auth/gmail/callback - Handle Google OAuth callback
+app.get("/make-server-a8b2511f/auth/gmail/callback", async (c) => {
+  let origin = '';
+  try {
+    const code = c.req.query("code");
+    const state = c.req.query("state");
+    const errorParam = c.req.query("error");
+
+    // Verify state first to recover origin for redirect
+    const stateData = state ? await verifyOAuthState(state) : null;
+    origin = stateData?.origin || '';
+
+    if (errorParam) {
+      console.error(`[OAUTH] Gmail callback: Google denied access: ${errorParam}`);
+      return oauthRedirect(c, origin, { error: `Google denied access: ${errorParam}` });
+    }
+    if (!code || !stateData) {
+      console.error('[OAUTH] Gmail callback: missing code or invalid state');
+      return oauthRedirect(c, origin, { error: 'Missing code or invalid state. Please try again.' });
+    }
+
+    const tokens = await exchangeGmailCode(code);
+    const userInfo = await getGmailUserInfo(tokens.access_token);
+
+    if (stateData.rotationMode) {
+      // Rotation mode: store under rotation keys, don't change primary provider
+      await storeRotationTokens(stateData.userId, "gmail", tokens, userInfo);
+      console.log(`[OAUTH] Gmail connected for ROTATION: ${userInfo.email}`);
+      return oauthRedirect(c, origin, { email: userInfo.email, provider: 'gmail_rotation' });
+    } else {
+      await storeGmailTokens(stateData.userId, tokens, userInfo, stateData.syncOnly);
+      console.log(`[OAUTH] Gmail connected: ${userInfo.email} (syncOnly=${!!stateData.syncOnly})`);
+      return oauthRedirect(c, origin, { email: userInfo.email, provider: 'gmail' });
+    }
+  } catch (err: any) {
+    console.error("[OAUTH] Gmail callback error:", err);
+    return oauthRedirect(c, origin, { error: err.message });
+  }
+});
+
+// GET /auth/outlook/connect - Initiate Outlook OAuth
+app.get("/make-server-a8b2511f/auth/outlook/connect", async (c) => {
+  const origin = c.req.query("origin") || '';
+  try {
+    const token = c.req.query("token");
+    const rotationMode = c.req.query("mode") === "rotation";
+    if (!token) return oauthRedirect(c, origin, { error: "Missing authentication token" });
+
+    const supabaseClient = getSupabaseAdmin();
+    const { user: outlookUser, error } = await (await import("./auth-helpers.tsx")).authGetUser(supabaseClient, token, "OAUTH-OUTLOOK");
+    if (error || !outlookUser) {
+      console.error("[OAUTH] Outlook connect auth failed:", error?.message);
+      return oauthRedirect(c, origin, { error: "Invalid or expired session" });
+    }
+    const data = { user: outlookUser };
+
+    const state = await createOAuthState(data.user.id, "outlook", origin, false, rotationMode);
+    return c.redirect(getOutlookAuthUrl(state));
+  } catch (err: any) {
+    console.error("[OAUTH] Outlook connect error:", err);
+    return oauthRedirect(c, origin, { error: err.message });
+  }
+});
+
+// GET /auth/outlook/callback - Handle Microsoft OAuth callback
+app.get("/make-server-a8b2511f/auth/outlook/callback", async (c) => {
+  let origin = '';
+  try {
+    const code = c.req.query("code");
+    const state = c.req.query("state");
+    const errorParam = c.req.query("error");
+
+    // Verify state first to recover origin for redirect
+    const stateData = state ? await verifyOAuthState(state) : null;
+    origin = stateData?.origin || '';
+
+    if (errorParam) {
+      console.error(`[OAUTH] Outlook callback: Microsoft denied access: ${errorParam}`);
+      return oauthRedirect(c, origin, { error: `Microsoft denied access: ${errorParam}` });
+    }
+    if (!code || !stateData) {
+      console.error('[OAUTH] Outlook callback: missing code or invalid state');
+      return oauthRedirect(c, origin, { error: 'Missing code or invalid state. Please try again.' });
+    }
+
+    const tokens = await exchangeOutlookCode(code);
+    const userInfo = await getOutlookUserInfo(tokens.access_token);
+
+    if (stateData.rotationMode) {
+      await storeRotationTokens(stateData.userId, "outlook", tokens, userInfo);
+      console.log(`[OAUTH] Outlook connected for ROTATION: ${userInfo.email}`);
+      return oauthRedirect(c, origin, { email: userInfo.email, provider: 'outlook_rotation' });
+    } else {
+      await storeOutlookTokens(stateData.userId, tokens, userInfo);
+      console.log(`[OAUTH] Outlook connected: ${userInfo.email}`);
+      return oauthRedirect(c, origin, { email: userInfo.email, provider: 'outlook' });
+    }
+  } catch (err: any) {
+    console.error("[OAUTH] Outlook callback error:", err);
+    return oauthRedirect(c, origin, { error: err.message });
+  }
+});
+
+// POST /auth/email/disconnect - Disconnect an OAuth email provider
+app.post("/make-server-a8b2511f/auth/email/disconnect", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { provider } = await c.req.json();
+    if (provider !== "gmail_oauth" && provider !== "outlook_oauth") {
+      return c.json({ error: "Invalid provider" }, 400);
+    }
+    await disconnectProvider(user.id, provider);
+    console.log(`[OAUTH] Disconnected ${provider} for user ${user.id}`);
+    return c.json({ success: true });
+  } catch (error: any) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error("[OAUTH] Disconnect error:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ===========================================================================
+// User Email Settings (KV-backed)
+// ===========================================================================
+
+// GET /settings/user-settings - Get user's email settings
+app.get("/make-server-a8b2511f/settings/user-settings", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const settings = await getEmailSettingsFromKV(user.id);
+    return c.json({ success: true, settings });
+  } catch (error: any) {
+    if (isAuthError(error)) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error("[SETTINGS] Error loading user settings:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /settings/user-settings - Save user email settings
+app.post("/make-server-a8b2511f/settings/user-settings", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+
+    // Save provider
+    if (body.email_provider) {
+      await kv.set(kvProviderKey(user.id), body.email_provider);
+    }
+
+    // Save SMTP config if applicable
+    if (body.email_provider === "smtp" && body.smtp_host) {
+      await saveSmtpConfigToKV(user.id, {
+        host: body.smtp_host,
+        port: body.smtp_port || 587,
+        username: body.smtp_username || "",
+        password: body.smtp_password,
+        from_name: body.smtp_from_name,
+        from_email: body.smtp_from_email || "",
+      });
+    }
+
+    // Save brand senders
+    if (body.roadr_sender !== undefined) {
+      await kv.set(`email_config:${user.id}:roadr_sender`, body.roadr_sender);
+    }
+    if (body.sourcr_sender !== undefined) {
+      await kv.set(`email_config:${user.id}:sourcr_sender`, body.sourcr_sender);
+    }
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error("[SETTINGS] Error saving user settings:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ===========================================================================
+// Email Signature Settings (KV-backed)
+// ===========================================================================
+
+// GET /settings/signature - Get user's email signature
+app.get("/make-server-a8b2511f/settings/signature", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const raw = await kv.get(`signature:${user.id}`);
+    const signature = raw ? JSON.parse(raw) : null;
+    // ✅ DISABLED: Affiliate tracking removed — no longer return affiliate slug to frontend
+    return c.json({ success: true, signature });
+  } catch (error: any) {
+    if (isAuthError(error)) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error("[SETTINGS] Error loading signature:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /settings/signature - Save user's email signature
+app.post("/make-server-a8b2511f/settings/signature", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+
+    const signatureData = {
+      closing_line: body.closing_line || 'Best Regards',
+      full_name: body.full_name || '',
+      title: body.title || '',
+      email: body.email || '',
+      phone: body.phone || '',
+      website: body.website || '',
+      custom_html: body.custom_html || '',
+      updated_at: new Date().toISOString(),
+    };
+
+    await kv.set(`signature:${user.id}`, JSON.stringify(signatureData));
+
+    return c.json({ success: true, signature: signatureData });
+  } catch (error: any) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error("[SETTINGS] Error saving signature:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// DYNAMIC SITEMAP & SEO ROUTES
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Serves a dynamically generated sitemap.xml
+ * Google can ping: https://{host}/functions/v1/make-server-a8b2511f/sitemap.xml
+ */
+app.get("/make-server-a8b2511f/sitemap.xml", async (c) => {
+  try {
+    const baseUrl = "https://contndr.com";
+    const today = new Date().toISOString().split("T")[0];
+
+    const staticPages = [
+      { loc: "/", lastmod: today, changefreq: "weekly", priority: "1.0" },
+      { loc: "/about", lastmod: today, changefreq: "monthly", priority: "0.8" },
+      { loc: "/security", lastmod: today, changefreq: "monthly", priority: "0.7" },
+      { loc: "/contact", lastmod: today, changefreq: "monthly", priority: "0.7" },
+      { loc: "/careers", lastmod: today, changefreq: "weekly", priority: "0.6" },
+      { loc: "/blog", lastmod: today, changefreq: "weekly", priority: "0.9" },
+      { loc: "/privacy", lastmod: "2026-01-29", changefreq: "yearly", priority: "0.3" },
+      { loc: "/terms", lastmod: "2026-01-29", changefreq: "yearly", priority: "0.3" },
+    ];
+
+    const knownBlogPosts = [
+      { slug: "future-of-outbound-sales-automation", date: "2026-02-01" },
+      { slug: "ai-changing-sales-development-2026", date: "2026-01-28" },
+      { slug: "email-deliverability-guide", date: "2026-01-15" },
+      { slug: "salesforce-to-contndr-migration", date: "2025-12-10" },
+    ];
+
+    const esc = (s: string) =>
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    let urlEntries = staticPages.map(
+      (p) => `
+  <url>
+    <loc>${esc(baseUrl + p.loc)}</loc>
+    <lastmod>${p.lastmod}</lastmod>
+    <changefreq>${p.changefreq}</changefreq>
+    <priority>${p.priority}</priority>
+  </url>`
+    );
+
+    for (const post of knownBlogPosts) {
+      urlEntries.push(`
+  <url>
+    <loc>${esc(baseUrl + "/blog/" + post.slug)}</loc>
+    <lastmod>${post.date}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>`);
+    }
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">${urlEntries.join("")}
+</urlset>`;
+
+    return new Response(xml, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": "public, max-age=3600, s-maxage=86400",
+        "X-Robots-Tag": "noindex",
+      },
+    });
+  } catch (error: any) {
+    console.error("[SITEMAP] Error generating sitemap:", error);
+    return c.text("Error generating sitemap", 500);
+  }
+});
+
+/** SEO health check — returns crawlable page count */
+app.get("/make-server-a8b2511f/seo/health", async (c) => {
+  const pages = [
+    "/", "/about", "/security", "/contact", "/careers",
+    "/blog",
+    "/blog/future-of-outbound-sales-automation",
+    "/blog/ai-changing-sales-development-2026",
+    "/blog/email-deliverability-guide",
+    "/blog/salesforce-to-contndr-migration",
+    "/privacy", "/terms",
+  ];
+  return c.json({
+    status: "healthy",
+    indexablePages: pages.length,
+    pages,
+    sitemapUrl: "https://contndr.com/sitemap.xml",
+    robotsTxtUrl: "https://contndr.com/robots.txt",
+    lastUpdated: new Date().toISOString(),
+  });
+});
+
+// ===========================================================================
+// Verified Sending Emails (Resend domain validation)
+// ===========================================================================
+
+// Cache verified Resend domains for 5 minutes to avoid hammering the API
+let _resendDomainsCache: { domains: any[]; fetchedAt: number } | null = null;
+const RESEND_DOMAINS_TTL = 5 * 60 * 1000;
+
+async function getResendVerifiedDomains(): Promise<{ name: string; status: string; id: string }[]> {
+  const now = Date.now();
+  if (_resendDomainsCache && (now - _resendDomainsCache.fetchedAt) < RESEND_DOMAINS_TTL) {
+    return _resendDomainsCache.domains;
+  }
+  const resendKey = Deno.env.get('RESEND_API_KEY');
+  if (!resendKey) {
+    console.error('[VERIFIED-SENDERS] RESEND_API_KEY not configured');
+    return [];
+  }
+  try {
+    const response = await fetch('https://api.resend.com/domains', {
+      headers: { 'Authorization': `Bearer ${resendKey}` },
+    });
+    if (!response.ok) {
+      console.error('[VERIFIED-SENDERS] Failed to fetch Resend domains:', await response.text());
+      return _resendDomainsCache?.domains || [];
+    }
+    const data = await response.json();
+    const domains = (data.data || []).map((d: any) => ({
+      name: d.name,
+      status: d.status,
+      id: d.id,
+    }));
+    _resendDomainsCache = { domains, fetchedAt: now };
+    console.log(`[VERIFIED-SENDERS] Cached ${domains.length} Resend domains`);
+    return domains;
+  } catch (err) {
+    console.error('[VERIFIED-SENDERS] Error fetching Resend domains:', err);
+    return _resendDomainsCache?.domains || [];
+  }
+}
+
+function kvVerifiedSendersKey(userId: string) {
+  return `verified_senders:${userId}`;
+}
+
+// GET /settings/verified-senders
+app.get("/make-server-a8b2511f/settings/verified-senders", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const raw = await kv.get(kvVerifiedSendersKey(user.id));
+    const senders = raw ? JSON.parse(raw) : [];
+    const domains = await getResendVerifiedDomains();
+    const verifiedDomainNames = domains
+      .filter((d: any) => d.status === 'verified')
+      .map((d: any) => d.name);
+    return c.json({ success: true, senders, verified_domains: verifiedDomainNames });
+  } catch (error: any) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error("[VERIFIED-SENDERS] Error loading verified senders:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /settings/verified-senders
+app.post("/make-server-a8b2511f/settings/verified-senders", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { email, display_name } = await c.req.json();
+    if (!email || typeof email !== 'string') {
+      return c.json({ error: 'Email address is required' }, 400);
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      return c.json({ error: 'Invalid email format' }, 400);
+    }
+    const domain = cleanEmail.split('@')[1];
+    const domains = await getResendVerifiedDomains();
+    const verifiedDomain = domains.find((d: any) => d.name === domain && d.status === 'verified');
+    if (!verifiedDomain) {
+      return c.json({
+        error: `Domain "${domain}" is not verified on Resend. Please verify the domain first, or connect via Gmail/Outlook in Email Config settings.`,
+        domain,
+        available_domains: domains.filter((d: any) => d.status === 'verified').map((d: any) => d.name),
+      }, 400);
+    }
+    const raw = await kv.get(kvVerifiedSendersKey(user.id));
+    const senders: any[] = raw ? JSON.parse(raw) : [];
+    if (senders.some((s: any) => s.email === cleanEmail)) {
+      return c.json({ error: 'This email is already in your verified senders list' }, 400);
+    }
+    const newSender = {
+      email: cleanEmail,
+      display_name: display_name?.trim() || '',
+      domain,
+      added_at: new Date().toISOString(),
+      resend_domain_id: verifiedDomain.id,
+      is_default: senders.length === 0,
+    };
+    senders.push(newSender);
+    await kv.set(kvVerifiedSendersKey(user.id), JSON.stringify(senders));
+    console.log(`[VERIFIED-SENDERS] User ${user.id} added: ${cleanEmail} (${domain})`);
+    return c.json({ success: true, sender: newSender, senders });
+  } catch (error: any) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error("[VERIFIED-SENDERS] Error adding verified sender:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// DELETE /settings/verified-senders
+app.delete("/make-server-a8b2511f/settings/verified-senders", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { email } = await c.req.json();
+    if (!email) {
+      return c.json({ error: 'Email address is required' }, 400);
+    }
+    const raw = await kv.get(kvVerifiedSendersKey(user.id));
+    const senders: any[] = raw ? JSON.parse(raw) : [];
+    const filtered = senders.filter((s: any) => s.email !== email.toLowerCase());
+    if (filtered.length === senders.length) {
+      return c.json({ error: 'Email not found in your verified senders' }, 404);
+    }
+    if (filtered.length > 0 && !filtered.some((s: any) => s.is_default)) {
+      filtered[0].is_default = true;
+    }
+    await kv.set(kvVerifiedSendersKey(user.id), JSON.stringify(filtered));
+    console.log(`[VERIFIED-SENDERS] User ${user.id} removed: ${email}`);
+    return c.json({ success: true, senders: filtered });
+  } catch (error: any) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error("[VERIFIED-SENDERS] Error removing verified sender:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// PATCH /settings/verified-senders/set-default
+app.patch("/make-server-a8b2511f/settings/verified-senders/set-default", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { email } = await c.req.json();
+    if (!email) {
+      return c.json({ error: 'Email address is required' }, 400);
+    }
+    const raw = await kv.get(kvVerifiedSendersKey(user.id));
+    const senders: any[] = raw ? JSON.parse(raw) : [];
+    const updated = senders.map((s: any) => ({
+      ...s,
+      is_default: s.email === email.toLowerCase(),
+    }));
+    await kv.set(kvVerifiedSendersKey(user.id), JSON.stringify(updated));
+    return c.json({ success: true, senders: updated });
+  } catch (error: any) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error("[VERIFIED-SENDERS] Error setting default sender:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ════════════════════════════════════════════��══════════════════════════
+// MULTI-STEP SEQUENCES
+// ═══════════════════════════════════════════════════════════════════════
+
+app.get("/make-server-a8b2511f/sequences", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const sequences = await listSequences(user.id);
+    return c.json({ sequences });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post("/make-server-a8b2511f/sequences", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const sequence = await createSequence(user.id, body);
+    return c.json({ sequence });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get("/make-server-a8b2511f/sequences/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const seqId = c.req.param('id');
+    const sequence = await getSequence(user.id, seqId);
+    if (!sequence) return c.json({ error: 'Sequence not found' }, 404);
+    const stats = await getSequenceStats(user.id, seqId);
+    return c.json({ sequence, stats });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put("/make-server-a8b2511f/sequences/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const seqId = c.req.param('id');
+    const body = await c.req.json();
+    const sequence = await updateSequence(user.id, seqId, body);
+    if (!sequence) return c.json({ error: 'Sequence not found' }, 404);
+    return c.json({ sequence });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete("/make-server-a8b2511f/sequences/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    await deleteSequence(user.id, c.req.param('id'));
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post("/make-server-a8b2511f/sequences/:id/enroll", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const seqId = c.req.param('id');
+    const { leadIds } = await c.req.json();
+    if (!leadIds || !Array.isArray(leadIds)) return c.json({ error: 'leadIds array required' }, 400);
+    const result = await enrollLeads(user.id, seqId, leadIds);
+    return c.json(result);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get("/make-server-a8b2511f/sequences/:id/enrollment", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const seqId = c.req.param('id');
+    const enrollment = await getEnrollment(user.id, seqId);
+    const stats = await getSequenceStats(user.id, seqId);
+    return c.json({ enrollment, stats });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post("/make-server-a8b2511f/sequences/process", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const result = await processSequences(user.id);
+    return c.json(result);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// ─── LinkedIn Tasks (multi-channel sequence touchpoints) ─────────────
+
+app.get("/make-server-a8b2511f/linkedin-tasks", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const taskIds: string[] = (await kv.get(`linkedin_tasks:${user.id}`)) || [];
+    const tasks: any[] = [];
+    for (const id of taskIds) {
+      const task = await kv.get(`linkedin_task:${user.id}:${id}`);
+      if (task) tasks.push(task);
+    }
+    const status = c.req.query('status') || 'all';
+    const filtered = status === 'all' ? tasks : tasks.filter((t: any) => t.status === status);
+    filtered.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return c.json({ tasks: filtered, total: filtered.length });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put("/make-server-a8b2511f/linkedin-tasks/:taskId", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const taskId = c.req.param('taskId');
+    const { status } = await c.req.json();
+    const task = await kv.get(`linkedin_task:${user.id}:${taskId}`);
+    if (!task) return c.json({ error: 'Task not found' }, 404);
+    (task as any).status = status;
+    (task as any).completedAt = new Date().toISOString();
+    await kv.set(`linkedin_task:${user.id}:${taskId}`, task);
+    return c.json({ success: true, task });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post("/make-server-a8b2511f/sequences/reply-detected", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { email, leadId } = await c.req.json();
+    const stopped = await handleReplyDetected(user.id, email, leadId);
+    return c.json({ stopped });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// UNSUBSCRIBE / OPT-OUT / BLACKLIST / COMPLIANCE
+// ═══════════════════════════════════════════════════════════════════════
+
+app.get("/make-server-a8b2511f/unsubscribe/:payload", async (c) => {
+  try {
+    const payload = c.req.param('payload');
+    const decoded = JSON.parse(atob(payload));
+    const { u: userId, e: email } = decoded;
+    if (!userId || !email) return c.text('Invalid unsubscribe link', 400);
+    await recordUnsubscribe(userId, email);
+    await handleReplyDetected(userId, email);
+    return c.html(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unsubscribed</title><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#fafafa;color:#333;}.card{background:#fff;border-radius:12px;padding:48px;max-width:400px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.08);}h1{font-size:24px;margin:0 0 12px;}p{color:#666;margin:0;line-height:1.6;}.check{width:48px;height:48px;background:#1ED4A7;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px;}.check svg{width:24px;height:24px;fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;}</style></head><body><div class="card"><div class="check"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></div><h1>Unsubscribed</h1><p>You've been removed from our mailing list.</p></div></body></html>`);
+  } catch (error: any) {
+    console.error("[COMPLIANCE] Unsubscribe error:", error);
+    return c.text('Something went wrong.', 500);
+  }
+});
+
+app.get("/make-server-a8b2511f/compliance/stats", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const stats = await getComplianceStats(user.id);
+    return c.json(stats);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get("/make-server-a8b2511f/compliance/unsubscribes", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const emails = await getUnsubscribes(user.id);
+    return c.json({ emails });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete("/make-server-a8b2511f/compliance/unsubscribes", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { email } = await c.req.json();
+    await removeUnsubscribe(user.id, email);
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.get("/make-server-a8b2511f/compliance/blacklist", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const blacklist = await getBlacklist(user.id);
+    return c.json(blacklist);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post("/make-server-a8b2511f/compliance/blacklist", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { entries, type } = await c.req.json();
+    if (!entries || !type) return c.json({ error: 'entries and type required' }, 400);
+    const added = await addToBlacklist(user.id, entries, type);
+    return c.json({ added });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete("/make-server-a8b2511f/compliance/blacklist", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { entries, type } = await c.req.json();
+    const removed = await removeFromBlacklist(user.id, entries, type);
+    return c.json({ removed });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post("/make-server-a8b2511f/compliance/blacklist/import", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { csvContent } = await c.req.json();
+    if (!csvContent) return c.json({ error: 'csvContent required' }, 400);
+    const parsed = parseBlacklistCSV(csvContent);
+    let emailsAdded = 0, domainsAdded = 0;
+    if (parsed.emails.length > 0) emailsAdded = await addToBlacklist(user.id, parsed.emails, 'email');
+    if (parsed.domains.length > 0) domainsAdded = await addToBlacklist(user.id, parsed.domains, 'domain');
+    return c.json({ emailsAdded, domainsAdded, totalParsed: parsed.emails.length + parsed.domains.length });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post("/make-server-a8b2511f/compliance/check", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { email } = await c.req.json();
+    const result = await checkCompliance(user.id, email);
+    return c.json(result);
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// EMAIL WARM-UP
+// ═══════════════════════════════════════════════════════════════════════
+
+app.get("/make-server-a8b2511f/warmup/accounts", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const accounts = await listWarmupAccounts(user.id);
+    return c.json({ accounts });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post("/make-server-a8b2511f/warmup/start", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const { email, provider, targetDailyLimit, warmupDurationDays, maxBounceRate } = await c.req.json();
+    if (!email || !provider) return c.json({ error: 'email and provider required' }, 400);
+    const account = await startWarmup(user.id, email, provider, { targetDailyLimit, warmupDurationDays, maxBounceRate });
+    return c.json({ account });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post("/make-server-a8b2511f/warmup/:id/pause", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    await pauseWarmup(user.id, c.req.param('id'));
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post("/make-server-a8b2511f/warmup/:id/resume", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    await resumeWarmup(user.id, c.req.param('id'));
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete("/make-server-a8b2511f/warmup/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    await deleteWarmup(user.id, c.req.param('id'));
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// SENDER ROTATION
+// ═══════════════════════════════════════════════════════════════════════
+
+app.get("/make-server-a8b2511f/sender-rotation/accounts", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const accounts = await getSenderAccounts(user.id);
+    const config = await getRotationConfig(user.id);
+    const stats = await getRotationStats(user.id);
+    return c.json({ accounts, config, stats });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.post("/make-server-a8b2511f/sender-rotation/accounts", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const account = await addSenderAccount(user.id, body);
+    return c.json({ account });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.delete("/make-server-a8b2511f/sender-rotation/accounts/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    await removeSenderAccount(user.id, c.req.param('id'));
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put("/make-server-a8b2511f/sender-rotation/accounts/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    await updateSenderAccount(user.id, c.req.param('id'), body);
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+app.put("/make-server-a8b2511f/sender-rotation/config", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const config = await setRotationConfig(user.id, body);
+    return c.json({ config });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// ===========================================================================
+// EMAIL TEMPLATES — CRUD stored in KV
+// ===========================================================================
+
+// GET /templates — list user's saved templates
+app.get("/make-server-a8b2511f/templates", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const prefix = `email_template:${user.id}:`;
+    const raw = await kv.getByPrefix(prefix);
+    const templates = (raw || []).map((r: any) => {
+      try { return typeof r === 'string' ? JSON.parse(r) : r; } catch { return null; }
+    }).filter(Boolean).sort((a: any, b: any) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+    return c.json({ success: true, templates });
+  } catch (err: any) {
+    console.log(`[TEMPLATES] List error: ${err.message}`);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// POST /templates — create a new template
+app.post("/make-server-a8b2511f/templates", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const id = crypto.randomUUID();
+    const template = {
+      id,
+      user_id: user.id,
+      name: body.name || 'Untitled Template',
+      subject: body.subject || '',
+      body: body.body || '',
+      category: body.category || 'general',
+      tags: body.tags || [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await kv.set(`email_template:${user.id}:${id}`, JSON.stringify(template));
+    return c.json({ success: true, template });
+  } catch (err: any) {
+    console.log(`[TEMPLATES] Create error: ${err.message}`);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// PUT /templates/:id — update a template
+app.put("/make-server-a8b2511f/templates/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const id = c.req.param("id");
+    const existing = await kv.get(`email_template:${user.id}:${id}`);
+    if (!existing) return c.json({ error: 'Template not found' }, 404);
+    const current = typeof existing === 'string' ? JSON.parse(existing) : existing;
+    const body = await c.req.json();
+    const updated = {
+      ...current,
+      name: body.name ?? current.name,
+      subject: body.subject ?? current.subject,
+      body: body.body ?? current.body,
+      category: body.category ?? current.category,
+      tags: body.tags ?? current.tags,
+      updated_at: new Date().toISOString(),
+    };
+    await kv.set(`email_template:${user.id}:${id}`, JSON.stringify(updated));
+    return c.json({ success: true, template: updated });
+  } catch (err: any) {
+    console.log(`[TEMPLATES] Update error: ${err.message}`);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// DELETE /templates/:id — delete a template
+app.delete("/make-server-a8b2511f/templates/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const id = c.req.param("id");
+    await kv.del(`email_template:${user.id}:${id}`);
+    return c.json({ success: true });
+  } catch (err: any) {
+    console.log(`[TEMPLATES] Delete error: ${err.message}`);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// POST /native/push-token — register iOS device token
+app.post("/make-server-a8b2511f/native/push-token", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const { token, platform, app: appName } = body;
+    
+    if (!token) return c.json({ error: 'Token is required' }, 400);
+
+    const userMetadata = user.user_metadata || {};
+    const orgId = userMetadata.org || 'default';
+
+    const tokenData = {
+      id: crypto.randomUUID(),
+      user_id: user.id,
+      org_id: orgId,
+      platform: platform || 'ios',
+      app: appName || 'contndr',
+      token,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      last_seen_at: new Date().toISOString(),
+    };
+
+    // Store in KV by user ID
+    await kv.set(`push_token:${user.id}:${token}`, tokenData);
+
+    // Maintain an index of user tokens
+    const userTokens = await kv.get(`push_tokens:${user.id}`) || [];
+    if (!userTokens.includes(token)) {
+      userTokens.push(token);
+      await kv.set(`push_tokens:${user.id}`, userTokens);
+    }
+
+    console.log(`[NATIVE] Registered push token for user ${user.id} (${platform})`);
+    return c.json({ success: true });
+  } catch (err: any) {
+    console.error(`[NATIVE] Push token registration error: ${err.message}`);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ===========================================================================
+
+// Helper: detect harmless client-disconnect errors
+function isClientDisconnect(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    isConnectionClosedMsg(msg) ||
+    (err instanceof Error && err.name === 'Http') ||
+    (err instanceof Error && err.name === 'AbortError') ||
+    (err instanceof Error && (err as any).code === 'EPIPE')
+  );
+}
+
+// ── One-time migration: transfer affiliate slug from or@roadr.com → or@contndr.com ──
+(async () => {
+  // Delay 12s after cold-start so migration doesn't compete with initial requests for DB connections
+  await new Promise((r) => setTimeout(r, 12000));
+  try {
+    const MIGRATION_KEY = 'affiliate_slug_transfer_roadr_to_contndr:done';
+    let done: any;
+    try {
+      done = await kv.get(MIGRATION_KEY);
+    } catch (kvErr: any) {
+      // If DB memory is full, run automatic GC to free space
+      if (kvErr?.message?.includes('memory full') || kvErr?.message?.includes('shared memory')) {
+        console.log('[STARTUP-GC] Database memory exhausted — running automatic garbage collection...');
+        try {
+          const gcResult = await runKvGarbageCollection();
+          const total = gcResult.dpx_deleted + gcResult.dp_deleted + gcResult.admin_events_deleted
+            + gcResult.click_track_deleted + gcResult.email_track_deleted + gcResult.misc_deleted;
+          console.log(`[STARTUP-GC] Automatic GC freed ${total} keys. Retrying migration...`);
+          // Retry the migration check after GC
+          try {
+            done = await kv.get(MIGRATION_KEY);
+          } catch {
+            console.log('[AFFILIATE MIGRATION] Still failing after GC — skipping.');
+            return;
+          }
+        } catch (gcErr) {
+          console.error('[STARTUP-GC] Automatic GC failed:', gcErr);
+          return;
+        }
+      } else if (kvErr?.message?.includes('timeout') || kvErr?.message?.includes('Query timeout')) {
+        // DB still warming up on cold start — skip migration, it'll retry next restart
+        console.log('[AFFILIATE MIGRATION] DB timeout on cold start — skipping until next restart.');
+        return;
+      } else {
+        // Any other transient error (connection reset, fetch failed, etc.) — skip gracefully
+        const msg = kvErr?.message ?? String(kvErr);
+        console.log(`[AFFILIATE MIGRATION] Transient error on cold start — skipping until next restart: ${msg.slice(0, 120)}`);
+        return;
+      }
+    }
+    if (done) return;
+
+    console.log('[AFFILIATE MIGRATION] Checking if or@roadr.com affiliate slug needs transfer to or@contndr.com...');
+
+    const adminSupabase = getSupabaseAdmin();
+    // Retry listUsers for cold-start resilience (PGRST002, connection reset, etc.)
+    let allUsers: any[] | undefined;
+    for (let _migAttempt = 0; _migAttempt < 3; _migAttempt++) {
+      try {
+        const { data: { users } } = await adminSupabase.auth.admin.listUsers();
+        allUsers = users;
+        break;
+      } catch (listErr: any) {
+        const msg = listErr?.message ?? String(listErr);
+        const isTransient = msg.includes('schema cache') || msg.includes('PGRST002') || msg.includes('connection reset')
+          || msg.includes('fetch failed') || msg.includes('Database error') || msg.includes('Unexpected failure')
+          || msg.includes('tls handshake') || msg.includes('error sending request') || msg.includes('client error')
+          || msg.includes('timeout');
+        if (isTransient && _migAttempt < 2) {
+          console.log(`[AFFILIATE MIGRATION] listUsers transient error (attempt ${_migAttempt + 1}/3), retrying: ${msg.slice(0, 100)}`);
+          await new Promise(r => setTimeout(r, 2000 * Math.pow(2, _migAttempt)));
+          continue;
+        }
+        throw listErr;
+      }
+    }
+    const fromUser = allUsers?.find((u: any) => u.email?.toLowerCase() === 'or@roadr.com');
+    const toUser = allUsers?.find((u: any) => u.email?.toLowerCase() === 'or@contndr.com');
+
+    if (!fromUser || !toUser) {
+      console.log('[AFFILIATE MIGRATION] One or both users not found, marking as done');
+      await kv.set(MIGRATION_KEY, true);
+      return;
+    }
+
+    const fromAff = await kv.get(`affiliate:${fromUser.id}`);
+    if (!fromAff) {
+      console.log('[AFFILIATE MIGRATION] No affiliate record for or@roadr.com, marking as done');
+      await kv.set(MIGRATION_KEY, true);
+      return;
+    }
+
+    const sourceAff = typeof fromAff === 'string' ? JSON.parse(fromAff) : fromAff;
+    const slug = sourceAff.slug;
+    if (!slug) {
+      console.log('[AFFILIATE MIGRATION] Source has no slug, marking as done');
+      await kv.set(MIGRATION_KEY, true);
+      return;
+    }
+
+    // Transfer referrals
+    const fromReferrals = await kv.get(`affiliate:${fromUser.id}:referrals`) || [];
+
+    // Clean up destination's old slug if different
+    const toAff = await kv.get(`affiliate:${toUser.id}`);
+    if (toAff) {
+      const existingToAff = typeof toAff === 'string' ? JSON.parse(toAff) : toAff;
+      if (existingToAff.slug && existingToAff.slug !== slug) {
+        await kv.del(`affiliate_slug:${existingToAff.slug}`);
+      }
+    }
+
+    // Create new record for or@contndr.com
+    await kv.set(`affiliate:${toUser.id}`, {
+      ...sourceAff,
+      userId: toUser.id,
+      email: 'or@contndr.com',
+      name: toUser.user_metadata?.full_name || toUser.user_metadata?.name || sourceAff.name,
+      updated_at: new Date().toISOString(),
+      transferred_from: 'or@roadr.com',
+    });
+    await kv.set(`affiliate_slug:${slug}`, toUser.id);
+    await kv.set(`affiliate:${toUser.id}:referrals`, fromReferrals);
+
+    // Clean up source
+    await kv.del(`affiliate:${fromUser.id}`);
+    await kv.del(`affiliate:${fromUser.id}:referrals`);
+
+    await kv.set(MIGRATION_KEY, true);
+    console.log(`[AFFILIATE MIGRATION] ✅ Transferred slug "${slug}" from or@roadr.com → or@contndr.com (${fromReferrals.length} referrals)`);
+  } catch (err) {
+    console.error('[AFFILIATE MIGRATION] Error (non-fatal):', err);
+  }
+})();
+
+// ─── POST /admin/cleanup-duplicate-followups ──────────────────────────────────
+// One-shot cleanup: for every lead in a campaign, find all email rows where the
+// same lead has multiple entries at the same sequence_number, and mark all but
+// the best one as 'failed'. Fixes historical data from the duplicate-followup bug.
+// Protected: admin only. Default: dry_run=true. Pass dry_run: false to apply.
+app.post("/make-server-a8b2511f/admin/cleanup-duplicate-followups", async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    if (!isAdminEmail(user.email)) return c.json({ error: 'Admin only' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const campaignId: string | undefined = body.campaign_id;
+    const dryRun: boolean = body.dry_run !== false; // default dry_run=true for safety
+
+    console.log(`[CLEANUP] Starting duplicate follow-up cleanup. campaign_id=${campaignId ?? 'ALL'}, dry_run=${dryRun}`);
+
+    // Fetch all emails in scope
+    let query = supabase
+      .from('emails')
+      .select('id, campaign_id, lead_id, sequence_number, status, sent_at, created_at')
+      .in('status', ['sent', 'delivered', 'opened', 'queued', 'failed']);
+
+    if (campaignId) {
+      query = query.eq('campaign_id', campaignId);
+    }
+
+    const { data: allEmails, error: fetchError } = await query.order('created_at', { ascending: true });
+
+    if (fetchError) {
+      return c.json({ error: `Failed to fetch emails: ${fetchError.message}` }, 500);
+    }
+
+    // Group by (campaign_id, lead_id, sequence_number) — find groups with > 1 row
+    const groups = new Map<string, any[]>();
+    for (const email of allEmails || []) {
+      if (!email.lead_id || !email.campaign_id || email.sequence_number == null) continue;
+      const key = `${email.campaign_id}::${email.lead_id}::${email.sequence_number}`;
+      const group = groups.get(key) || [];
+      group.push(email);
+      groups.set(key, group);
+    }
+
+    const duplicateGroups = Array.from(groups.entries()).filter(([, rows]) => rows.length > 1);
+    console.log(`[CLEANUP] Found ${duplicateGroups.length} duplicate group(s) across ${(allEmails || []).length} email rows`);
+
+    let totalMarkedFailed = 0;
+    const details: Array<{ key: string; kept: string; failed: string[] }> = [];
+
+    for (const [key, rows] of duplicateGroups) {
+      // Sort: prefer sent/delivered/opened over queued/failed; then by created_at desc (latest first)
+      const statusPriority = (s: string) => ({ opened: 4, delivered: 3, sent: 2, queued: 1, failed: 0 })[s] ?? 0;
+      rows.sort((a: any, b: any) => {
+        const sp = statusPriority(b.status) - statusPriority(a.status);
+        if (sp !== 0) return sp;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+
+      const [keep, ...duplicates] = rows;
+      const duplicateIds = duplicates.map((r: any) => r.id);
+
+      console.log(`[CLEANUP] Group ${key}: keeping ${keep.id} (${keep.status}), marking ${duplicateIds.length} duplicate(s) as failed`);
+      details.push({ key, kept: keep.id, failed: duplicateIds });
+
+      if (!dryRun && duplicateIds.length > 0) {
+        const { error: updateError } = await supabase
+          .from('emails')
+          .update({ status: 'failed', lead_status: 'duplicate_followup_cleaned' })
+          .in('id', duplicateIds);
+
+        if (updateError) {
+          console.error(`[CLEANUP] Error updating group ${key}:`, updateError);
+        } else {
+          totalMarkedFailed += duplicateIds.length;
+        }
+      } else {
+        totalMarkedFailed += duplicateIds.length; // count for dry run report
+      }
+    }
+
+    console.log(`[CLEANUP] Done. ${dryRun ? '[DRY RUN — no changes made]' : ''} Duplicate rows found: ${totalMarkedFailed}`);
+
+    return c.json({
+      success: true,
+      dry_run: dryRun,
+      duplicate_groups_found: duplicateGroups.length,
+      duplicate_rows_found: totalMarkedFailed,
+      marked_as_failed: dryRun ? 0 : totalMarkedFailed,
+      message: dryRun
+        ? `Dry run complete. Found ${totalMarkedFailed} duplicate follow-up row(s) across ${duplicateGroups.length} group(s). Re-run with dry_run: false to apply.`
+        : `Cleanup complete. Marked ${totalMarkedFailed} duplicate follow-up row(s) as failed.`,
+      details: details.slice(0, 100), // cap response size
+    });
+  } catch (err: any) {
+    console.error('[CLEANUP] Unexpected error:', err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+Deno.serve({
+  // Prevent "connection closed before message completed" from crashing the worker
+  onError(error: unknown) {
+    if (isClientDisconnect(error)) {
+      return new Response(null, { status: 499 }); // Client Closed Request
+    }
+    console.error('[SERVER] Unhandled serve error:', error);
+    return new Response('Internal Server Error', { status: 500 });
+  },
+}, (req: Request) => {
+  // Wrap app.fetch so any errors thrown during Hono's handler chain
+  // (including client disconnects that surface mid-response) are caught
+  // before they reach Deno's respondWith() and trigger an unhandled rejection.
+  return app.fetch(req).then((response: Response) => {
+    // ── KEY FIX for "connection closed before message completed" ──────
+    // For streaming responses (SSE), Deno's respondWith() reads from
+    // the body and writes to TCP.  If the client disconnects mid-stream,
+    // the TCP write fails and throws inside respondWith().
+    //
+    // Fix: Pipe the original body through a TransformStream and give
+    // respondWith() the *proxy* readable.  When the client disconnects:
+    //   1. req.signal fires → pipeTo aborts → writable closes → readable ends
+    //   2. respondWith() sees the readable end cleanly → no TCP write error
+    //   3. The .catch() on pipeTo absorbs the AbortError silently
+    //
+    // We only wrap SSE streams (text/event-stream) to avoid unnecessary
+    // overhead on short-lived JSON responses.
+    const ct = response.headers.get('content-type') || '';
+    if (response.body && ct.includes('text/event-stream')) {
+      try {
+        const { readable, writable } = new TransformStream();
+        const pipeOptions: StreamPipeOptions = {};
+        if (req.signal) pipeOptions.signal = req.signal;
+        response.body.pipeTo(writable, pipeOptions).catch(() => {
+          // Expected: AbortError / connection closed — silently swallow
+        });
+        return new Response(readable, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      } catch {
+        // TransformStream creation failed somehow — return original
+        return response;
+      }
+    }
+    return response;
+  }).catch((err: unknown) => {
+    if (isClientDisconnect(err)) {
+      return new Response(null, { status: 499 });
+    }
+    console.error('[SERVER] Unhandled fetch error:', err);
+    return new Response('Internal Server Error', { status: 500 });
+  });
+});
