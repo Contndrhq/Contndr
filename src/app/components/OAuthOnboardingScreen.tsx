@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Building2, ArrowRight, Loader2 } from 'lucide-react';
+import { Building2, ArrowRight, Loader2, Phone } from 'lucide-react';
 import { ContndrLogo } from './ContndrLogo';
 import { projectId } from '../utils/supabase/info';
 import { getAuthHeaders } from '../lib/auth';
@@ -18,6 +18,7 @@ export function OAuthOnboardingScreen({ user, onComplete, onLogout }: OAuthOnboa
   const displayName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.user_metadata?.user_name || '';
   
   const [companyName, setCompanyName] = useState('');
+  const [phone, setPhone] = useState('');
   const [businessType, setBusinessType] = useState('');
   const [monthlyLeadVolume, setMonthlyLeadVolume] = useState('');
   const [teamSize, setTeamSize] = useState('');
@@ -43,6 +44,7 @@ export function OAuthOnboardingScreen({ user, onComplete, onLogout }: OAuthOnboa
           },
           body: JSON.stringify({
             company: companyName,
+            phone,
             businessType,
             monthlyLeadVolume,
             teamSize,
@@ -127,6 +129,21 @@ export function OAuthOnboardingScreen({ user, onComplete, onLogout }: OAuthOnboa
                   onChange={(e) => setCompanyName(e.target.value)}
                   required
                   placeholder="Acme Inc."
+                  className={`${inputClass} pl-10`}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className={labelClass}>{t('oauthOnboarding.phoneNumber')}</label>
+              <div className="relative">
+                <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500/70" />
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  required
+                  placeholder="+1 (555) 123-4567"
                   className={`${inputClass} pl-10`}
                 />
               </div>

@@ -18,6 +18,7 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    phone: '',
     businessType: '',
     monthlyLeadVolume: '',
   });
@@ -59,7 +60,7 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!formData.email || !formData.name) return;
+    if (!formData.email || !formData.name || !formData.phone) return;
 
     setLoading(true);
     try {
@@ -187,7 +188,7 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
               <form onSubmit={handleSubmit} className="px-8 md:px-10 pb-8 md:pb-10">
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 col-span-2">
                       <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">{t('waitlist.fullName')}</label>
                       <input
                         type="text"
@@ -206,6 +207,17 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
                         value={formData.email}
                         onChange={e => setFormData({ ...formData, email: e.target.value })}
                         placeholder="jane@company.com"
+                        className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder:text-gray-600 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/40 transition-all text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">{t('waitlist.phoneNumber')}</label>
+                      <input
+                        type="tel"
+                        required
+                        value={formData.phone}
+                        onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                        placeholder="+1 (555) 123-4567"
                         className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder:text-gray-600 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/40 transition-all text-sm"
                       />
                     </div>

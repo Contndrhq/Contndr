@@ -263,6 +263,7 @@ interface WaitlistEntry {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   businessType: string;
   monthlyLeadVolume: string;
   teamSize?: string;
@@ -1439,9 +1440,10 @@ export function AdminDashboard() {
   }
 
   const filteredWaitlist = waitlistEntries.filter(entry =>
-    entry.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    entry.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    entry.businessType.toLowerCase().includes(searchTerm.toLowerCase())
+    (entry.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (entry.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (entry.phone || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (entry.businessType || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const filteredUsers = users.filter(user =>
@@ -1452,15 +1454,15 @@ export function AdminDashboard() {
   const downloadCSV = () => {
     const data = activeTab === 'waitlist' ? filteredWaitlist : filteredUsers;
     const headers = activeTab === 'waitlist'
-      ? ['ID', 'Name', 'Email', 'Type', 'Volume', 'Team Size', 'Revenue', 'Status', 'Date']
-      : ['ID', 'Email', 'Name', 'Created', 'Last Login', 'Plan'];
+      ? ['ID', 'Name', 'Email', 'Phone', 'Type', 'Volume', 'Team Size', 'Revenue', 'Status', 'Date']
+      : ['ID', 'Email', 'Phone', 'Name', 'Created', 'Last Login', 'Plan'];
     const csvContent = [
       headers.join(','),
       ...data.map((item: any) => {
         if (activeTab === 'waitlist') {
-          return [item.id, `"${item.name}"`, item.email, item.businessType, item.monthlyLeadVolume, item.teamSize || '', item.annualRevenue || '', item.status, item.created_at].join(',');
+          return [item.id, `"${item.name}"`, item.email, item.phone || '', item.businessType, item.monthlyLeadVolume, item.teamSize || '', item.annualRevenue || '', item.status, item.created_at].join(',');
         } else {
-          return [item.id, item.email, `"${item.user_metadata?.name || ''}"`, item.created_at, item.last_sign_in_at, item.subscription?.plan].join(',');
+          return [item.id, item.email, item.user_metadata?.phone || '', `"${item.user_metadata?.name || ''}"`, item.created_at, item.last_sign_in_at, item.subscription?.plan].join(',');
         }
       })
     ].join('\n');
@@ -1866,6 +1868,7 @@ export function AdminDashboard() {
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-zinc-900 dark:text-zinc-200">{entry.name}</p>
                           <p className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5 truncate">{entry.email}</p>
+                          {entry.phone && <p className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5 truncate">{entry.phone}</p>}
                           <p className="text-[10px] text-zinc-500 dark:text-zinc-700 mt-0.5">{new Date(entry.created_at).toLocaleDateString()}</p>
                         </div>
                         <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border flex-shrink-0 ${
@@ -1938,6 +1941,7 @@ export function AdminDashboard() {
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium text-zinc-900 dark:text-zinc-200">{user.user_metadata?.name || 'User'}</p>
                             <p className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5 truncate">{user.email}</p>
+                            {user.user_metadata?.phone && <p className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5 truncate">{user.user_metadata.phone}</p>}
                             {(user.user_metadata?.teamSize || user.user_metadata?.annualRevenue) && (
                               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                 {user.user_metadata?.teamSize && user.user_metadata.teamSize !== 'Unknown' && (
@@ -2042,6 +2046,7 @@ export function AdminDashboard() {
                         <td className="px-6 py-4">
                           <div className="font-medium text-sm text-zinc-900 dark:text-zinc-200">{entry.name}</div>
                           <div className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5">{entry.email}</div>
+                          {entry.phone && <div className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5">{entry.phone}</div>}
                           <div className="text-[10px] text-zinc-500 dark:text-zinc-700 mt-1">{new Date(entry.created_at).toLocaleDateString()}</div>
                         </td>
                         <td className="px-6 py-4">
@@ -2112,6 +2117,7 @@ export function AdminDashboard() {
                         <td className="px-6 py-4">
                           <div className="font-medium text-sm text-zinc-900 dark:text-zinc-200">{user.user_metadata?.name || 'User'}</div>
                           <div className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5">{user.email}</div>
+                          {user.user_metadata?.phone && <div className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5">{user.user_metadata.phone}</div>}
                           {(user.user_metadata?.businessType || user.user_metadata?.teamSize || user.user_metadata?.annualRevenue) && (
                             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                               {user.user_metadata?.businessType && user.user_metadata.businessType !== 'Unknown' && (

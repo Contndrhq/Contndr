@@ -2068,7 +2068,7 @@ Style Reference (use this as the base, adapt for their industry):
 "Quick one, are you currently handling customer follow-ups and sales manually after inquiries come in?
 We've been quietly rolling out a private AI sales system to a small group of businesses handling high-value transactions.
 Not public yet, but opening a few additional spots.
-If you're curious, you can request access here:
+If you're curious, you can apply for access here:
 contndr.com"
 
 Tone:
@@ -2085,7 +2085,7 @@ CRITICAL RULES:
 - Never list features or benefits
 - No sign-off or signature (added automatically)
 
-Email Goal: Spark curiosity. Get them to click the link to request access.`;
+Email Goal: Spark curiosity. Get them to click the link to apply for access.`;
                 } else if (newProduct.startsWith('sourcr_') && isAdmin) {
                   brand = 'sourcr';
                   fromEmail = 'or@sourcr.net'; // Otiniel R. email for Sourcr

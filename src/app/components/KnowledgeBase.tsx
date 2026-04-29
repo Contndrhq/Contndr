@@ -135,7 +135,7 @@ export function KnowledgeBase() {
           brand: 'contndr',
           category: 'Strategy',
           title: 'Outreach & Call to Action',
-          content: 'Do NOT ask prospects to "sign up". General access is closed.\\nInstead, invite them to "request access" or "join the priority list".\\nLeverage FOMO (Fear Of Missing Out) by mentioning limited spots are released every 48 hours.\\nFor high-value prospects, offer to "skip the line" by booking a demo directly.\\nThe goal is to make access feel earned and exclusive.',
+          content: 'Do NOT ask prospects to "sign up". General access is closed.\\nInstead, invite them to "apply for access" or "join the priority list".\\nLeverage FOMO (Fear Of Missing Out) by mentioning limited spots are released every 48 hours.\\nFor high-value prospects, offer to "skip the line" by booking a demo directly.\\nThe goal is to make access feel earned and exclusive.',
           is_active: true
         },
         {

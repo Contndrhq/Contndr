@@ -22,6 +22,7 @@ export function AuthScreen({ onAuthSuccess, onBack, initialMode = 'signin', redi
   const [resetCode, setResetCode] = useState('');
   const [name, setName] = useState('');
   const [companyName, setCompanyName] = useState('');
+  const [phone, setPhone] = useState('');
   const [businessType, setBusinessType] = useState('');
   const [monthlyLeadVolume, setMonthlyLeadVolume] = useState('');
   const [teamSize, setTeamSize] = useState('');
@@ -278,6 +279,7 @@ export function AuthScreen({ onAuthSuccess, onBack, initialMode = 'signin', redi
             password, 
             name, 
             company: companyName,
+            phone,
             businessType,
             monthlyLeadVolume,
             teamSize,
@@ -364,7 +366,7 @@ export function AuthScreen({ onAuthSuccess, onBack, initialMode = 'signin', redi
             <form onSubmit={mode === 'signin' ? handleSignIn : mode === 'forgot' ? handleForgotPassword : mode === 'reset' ? handleResetPassword : handleSignUp} className="space-y-5">
                 {mode === 'signup' && (
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
+                        <div className="space-y-2 col-span-2">
                             <label className="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">{t('auth.fullName')}</label>
                             <input
                                 type="text"
@@ -383,6 +385,17 @@ export function AuthScreen({ onAuthSuccess, onBack, initialMode = 'signin', redi
                                 onChange={(e) => setCompanyName(e.target.value)}
                                 required
                                 placeholder={t('auth.placeholderCompany')}
+                                className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl px-4 py-3 text-base !text-white placeholder:text-gray-500 focus:outline-none focus:border-white/50 focus:ring-1 focus:ring-white/50 transition-all"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">{t('auth.phoneNumber')}</label>
+                            <input
+                                type="tel"
+                                value={phone}
+                                onChange={(e) => setPhone(e.target.value)}
+                                required
+                                placeholder="+1 (555) 123-4567"
                                 className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl px-4 py-3 text-base !text-white placeholder:text-gray-500 focus:outline-none focus:border-white/50 focus:ring-1 focus:ring-white/50 transition-all"
                             />
                         </div>

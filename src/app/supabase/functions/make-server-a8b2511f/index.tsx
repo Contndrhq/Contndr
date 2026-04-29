@@ -921,12 +921,12 @@ app.post("/make-server-a8b2511f/automation/check-and-run", async (c) => {
 // POST /auth/signup-v2 - Create a new user (Version 2)
 app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
   try {
-    const { email, password, name, company, businessType, monthlyLeadVolume, teamSize, annualRevenue, ref } = await c.req.json();
+    const { email, password, name, company, phone, businessType, monthlyLeadVolume, teamSize, annualRevenue, ref } = await c.req.json();
     
     console.log('[AUTH] Signup V2 request for:', email, ref ? `(referred by: ${ref})` : '');
     
-    if (!email || !password) {
-      return c.json({ error: "Email and password are required" }, 400);
+    if (!email || !password || !phone) {
+      return c.json({ error: "Email, password, and phone number are required" }, 400);
     }
     
     const normalizedEmail = email.toLowerCase().trim();
@@ -962,6 +962,7 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
       user_metadata: { 
         name: name || 'User',
         brand: company || name || 'My Brand',
+        phone: phone || '',
         businessType: businessType || 'Unknown',
         monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
         teamSize: teamSize || 'Unknown',
@@ -987,7 +988,7 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
         // Log admin event for new signup
         logAdminEvent('new_signup', 'New Signup', `${name || 'User'} (${normalizedEmail}) just signed up`, {
           email: normalizedEmail,
-          metadata: { name, company, businessType, plan: subscriptionPlan, status: subscriptionStatus }
+          metadata: { name, company, phone, businessType, plan: subscriptionPlan, status: subscriptionStatus }
         }).catch(() => {});
         await kv.set(`contndr_sub:${data.user.id}`, {
             status: subscriptionStatus,
@@ -1003,6 +1004,7 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
                 const entry = await kv.get(`waitlist:${waitlistId}`);
                 if (entry) {
                     entry.userId = data.user.id;
+                    entry.phone = phone || entry.phone || '';
                     // If they are approved, they are fully signed up.
                     // If pending, they are 'pending_signup' (signed up but waiting)
                     entry.status = isApproved ? 'signed_up' : 'pending_signup';
@@ -1017,6 +1019,7 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
                    id: entryId,
                    name: name || 'User',
                    email: normalizedEmail,
+                   phone: phone || '',
                    businessType: businessType || 'Unknown',
                    monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
                    teamSize: teamSize || 'Unknown',
@@ -1088,7 +1091,7 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
 app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
-    const { company, businessType, monthlyLeadVolume, teamSize, annualRevenue } = await c.req.json();
+    const { company, phone, businessType, monthlyLeadVolume, teamSize, annualRevenue } = await c.req.json();
     
     const userEmail = user.email?.toLowerCase().trim();
     const userName = user.user_metadata?.full_name || user.user_metadata?.name || user.user_metadata?.user_name || 'OAuth User';
@@ -1096,8 +1099,8 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
     
     console.log(`[AUTH] Complete OAuth profile for: ${userEmail} (${provider})`);
     
-    if (!company || !businessType) {
-      return c.json({ error: 'Company and business type are required' }, 400);
+    if (!company || !phone || !businessType) {
+      return c.json({ error: 'Company, phone number, and business type are required' }, 400);
     }
     
     const supabase = getSupabaseAdmin();
@@ -1107,6 +1110,7 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
       user_metadata: {
         ...user.user_metadata,
         brand: company,
+        phone: phone || '',
         businessType: businessType || 'Unknown',
         monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
         teamSize: teamSize || 'Unknown',
@@ -1141,6 +1145,7 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
       email: userEmail,
       name: userName,
       company: company,
+      phone: phone || '',
       businessType: businessType,
       monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
       teamSize: teamSize || 'Unknown',
@@ -1154,7 +1159,7 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
     // 4. Log admin event for new OAuth signup
     logAdminEvent('new_signup', 'New OAuth Signup', `${userName} (${userEmail}) signed up via ${provider}`, {
       email: userEmail,
-      metadata: { name: userName, company, businessType, plan: 'waitlist', status: 'pending', provider }
+      metadata: { name: userName, company, phone, businessType, plan: 'waitlist', status: 'pending', provider }
     }).catch(() => {});
     
     console.log(`[AUTH] OAuth profile completed for ${userEmail} — waitlist entry: ${waitlistId}`);
@@ -2085,10 +2090,10 @@ app.post("/make-server-a8b2511f/contact", async (c) => {
 app.post("/make-server-a8b2511f/waitlist", async (c) => {
   try {
     const body = await c.req.json();
-    const { name, email, businessType, monthlyLeadVolume } = body;
+    const { name, email, phone, businessType, monthlyLeadVolume } = body;
 
-    if (!name || !email) {
-      return c.json({ error: "Name and email are required" }, 400);
+    if (!name || !email || !phone) {
+      return c.json({ error: "Name, email, and phone number are required" }, 400);
     }
 
     // Check for duplicate email
@@ -2102,6 +2107,7 @@ app.post("/make-server-a8b2511f/waitlist", async (c) => {
       id: entryId,
       name,
       email: email.toLowerCase(),
+      phone,
       businessType: businessType || '',
       monthlyLeadVolume: monthlyLeadVolume || '',
       created_at: new Date().toISOString(),
@@ -2123,12 +2129,12 @@ app.post("/make-server-a8b2511f/waitlist", async (c) => {
     const currentCount = (await kv.get(countKey)) || 127; // Base count
     await kv.set(countKey, currentCount + 1);
 
-    console.log(`[WAITLIST] New entry from ${email} - ${businessType} - ${monthlyLeadVolume} (${entryId})`);
+    console.log(`[WAITLIST] New entry from ${email} - ${phone} - ${businessType} - ${monthlyLeadVolume} (${entryId})`);
 
     // Log admin event
     logAdminEvent('waitlist_join', 'New Waitlist Entry', `${name} (${email}) joined the waitlist — ${businessType || 'Unknown business'}`, {
       email: email.toLowerCase(),
-      metadata: { name, businessType, monthlyLeadVolume, position: currentCount + 1 }
+      metadata: { name, phone, businessType, monthlyLeadVolume, position: currentCount + 1 }
     }).catch(() => {});
 
     // Send confirmation email
