@@ -20,7 +20,7 @@ type StripePriceMapping = Record<Market, Record<PlanKey, StripePriceConfig>>;
 
 // Get Stripe price IDs from environment variables
 // Format: STRIPE_PRICE_{PLAN}_{INTERVAL}_{MARKET}
-// Example: STRIPE_PRICE_STARTER_MONTHLY_US, STRIPE_PRICE_PROFESSIONAL_YEARLY_BR
+// Example: STRIPE_PRICE_SCALE_MONTHLY_US, STRIPE_PRICE_ENTERPRISE_YEARLY_BR
 
 function getEnvPriceId(plan: PlanKey, interval: 'monthly' | 'yearly', market: Market): string {
   const envKey = `STRIPE_PRICE_${plan.toUpperCase()}_${interval.toUpperCase()}_${market}`;
@@ -52,73 +52,73 @@ function getLegacyEnvPriceId(plan: PlanKey, interval: 'monthly' | 'yearly'): str
 
 export const STRIPE_PRICES: StripePriceMapping = {
   US: {
-    starter: {
-      monthly: getEnvPriceId('starter', 'monthly', 'US') || getLegacyEnvPriceId('starter', 'monthly'),
-      yearly: getEnvPriceId('starter', 'yearly', 'US') || getLegacyEnvPriceId('starter', 'yearly'),
-    },
-    professional: {
-      monthly: getEnvPriceId('professional', 'monthly', 'US') || getLegacyEnvPriceId('professional', 'monthly'),
-      yearly: getEnvPriceId('professional', 'yearly', 'US') || getLegacyEnvPriceId('professional', 'yearly'),
-    },
     growth: {
       monthly: getEnvPriceId('growth', 'monthly', 'US') || getLegacyEnvPriceId('growth', 'monthly'),
       yearly: getEnvPriceId('growth', 'yearly', 'US') || getLegacyEnvPriceId('growth', 'yearly'),
     },
+    scale: {
+      monthly: getEnvPriceId('scale', 'monthly', 'US') || getLegacyEnvPriceId('scale', 'monthly'),
+      yearly: getEnvPriceId('scale', 'yearly', 'US') || getLegacyEnvPriceId('scale', 'yearly'),
+    },
+    enterprise: {
+      monthly: getEnvPriceId('enterprise', 'monthly', 'US') || getLegacyEnvPriceId('enterprise', 'monthly'),
+      yearly: getEnvPriceId('enterprise', 'yearly', 'US') || getLegacyEnvPriceId('enterprise', 'yearly'),
+    },
   },
   BR: {
-    starter: {
-      monthly: getEnvPriceId('starter', 'monthly', 'BR'),
-      yearly: getEnvPriceId('starter', 'yearly', 'BR'),
-    },
-    professional: {
-      monthly: getEnvPriceId('professional', 'monthly', 'BR'),
-      yearly: getEnvPriceId('professional', 'yearly', 'BR'),
-    },
     growth: {
       monthly: getEnvPriceId('growth', 'monthly', 'BR'),
       yearly: getEnvPriceId('growth', 'yearly', 'BR'),
     },
+    scale: {
+      monthly: getEnvPriceId('scale', 'monthly', 'BR'),
+      yearly: getEnvPriceId('scale', 'yearly', 'BR'),
+    },
+    enterprise: {
+      monthly: getEnvPriceId('enterprise', 'monthly', 'BR'),
+      yearly: getEnvPriceId('enterprise', 'yearly', 'BR'),
+    },
   },
   EU: {
-    starter: {
-      monthly: getEnvPriceId('starter', 'monthly', 'EU'),
-      yearly: getEnvPriceId('starter', 'yearly', 'EU'),
-    },
-    professional: {
-      monthly: getEnvPriceId('professional', 'monthly', 'EU'),
-      yearly: getEnvPriceId('professional', 'yearly', 'EU'),
-    },
     growth: {
       monthly: getEnvPriceId('growth', 'monthly', 'EU'),
       yearly: getEnvPriceId('growth', 'yearly', 'EU'),
     },
+    scale: {
+      monthly: getEnvPriceId('scale', 'monthly', 'EU'),
+      yearly: getEnvPriceId('scale', 'yearly', 'EU'),
+    },
+    enterprise: {
+      monthly: getEnvPriceId('enterprise', 'monthly', 'EU'),
+      yearly: getEnvPriceId('enterprise', 'yearly', 'EU'),
+    },
   },
   GB: {
-    starter: {
-      monthly: getEnvPriceId('starter', 'monthly', 'GB'),
-      yearly: getEnvPriceId('starter', 'yearly', 'GB'),
-    },
-    professional: {
-      monthly: getEnvPriceId('professional', 'monthly', 'GB'),
-      yearly: getEnvPriceId('professional', 'yearly', 'GB'),
-    },
     growth: {
       monthly: getEnvPriceId('growth', 'monthly', 'GB'),
       yearly: getEnvPriceId('growth', 'yearly', 'GB'),
     },
+    scale: {
+      monthly: getEnvPriceId('scale', 'monthly', 'GB'),
+      yearly: getEnvPriceId('scale', 'yearly', 'GB'),
+    },
+    enterprise: {
+      monthly: getEnvPriceId('enterprise', 'monthly', 'GB'),
+      yearly: getEnvPriceId('enterprise', 'yearly', 'GB'),
+    },
   },
   CA: {
-    starter: {
-      monthly: getEnvPriceId('starter', 'monthly', 'CA'),
-      yearly: getEnvPriceId('starter', 'yearly', 'CA'),
-    },
-    professional: {
-      monthly: getEnvPriceId('professional', 'monthly', 'CA'),
-      yearly: getEnvPriceId('professional', 'yearly', 'CA'),
-    },
     growth: {
       monthly: getEnvPriceId('growth', 'monthly', 'CA'),
       yearly: getEnvPriceId('growth', 'yearly', 'CA'),
+    },
+    scale: {
+      monthly: getEnvPriceId('scale', 'monthly', 'CA'),
+      yearly: getEnvPriceId('scale', 'yearly', 'CA'),
+    },
+    enterprise: {
+      monthly: getEnvPriceId('enterprise', 'monthly', 'CA'),
+      yearly: getEnvPriceId('enterprise', 'yearly', 'CA'),
     },
   },
 };

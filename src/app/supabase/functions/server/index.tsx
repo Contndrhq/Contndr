@@ -16415,7 +16415,7 @@ app.post("/make-server-a8b2511f/billing/checkout", async (c) => {
     const { user } = await getAuthenticatedUser(c);
     const { plan, interval, successUrl, cancelUrl, returnUrl, embedded, recommendedPlan, market } = await c.req.json();
     
-    if (!plan || !['starter', 'professional', 'growth'].includes(plan)) {
+    if (!plan || !['growth', 'scale', 'enterprise'].includes(plan)) {
       return c.json({ error: 'Invalid plan selected' }, 400);
     }
     
@@ -16426,7 +16426,7 @@ app.post("/make-server-a8b2511f/billing/checkout", async (c) => {
     }
 
     // Persist chosen vs recommended for analytics before creating session
-    if (recommendedPlan && ['starter', 'professional', 'growth'].includes(recommendedPlan)) {
+    if (recommendedPlan && ['growth', 'scale', 'enterprise'].includes(recommendedPlan)) {
       const existing = await kv.get(`contndr_sub:${user.id}`) || {};
       await kv.set(`contndr_sub:${user.id}`, {
         ...existing,

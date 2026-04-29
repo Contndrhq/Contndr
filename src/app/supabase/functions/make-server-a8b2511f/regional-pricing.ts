@@ -13,7 +13,7 @@
  */
 
 export type Market = 'US' | 'BR' | 'EU' | 'GB' | 'CA';
-export type PlanKey = 'starter' | 'professional' | 'growth';
+export type PlanKey = 'growth' | 'scale' | 'enterprise';
 export type BillingInterval = 'monthly' | 'yearly';
 
 export interface MarketConfig {
@@ -72,88 +72,88 @@ export const MARKET_CONFIG: Record<Market, MarketConfig> = {
 
 export const PRICING_BY_MARKET: Record<Market, Record<PlanKey, PlanPricing>> = {
   US: {
-    starter: {
-      monthly: 9900,  // $99.00
-      yearly: 99000,  // $990.00 (20% off = $83/mo)
-      yearlyMonthly: 8250,
-    },
-    professional: {
-      monthly: 19900,  // $199.00
-      yearly: 199000,  // $1,990.00 (20% off = $166/mo)
-      yearlyMonthly: 16583,
-    },
     growth: {
-      monthly: 39900,  // $399.00
-      yearly: 399000,  // $3,990.00 (20% off = $333/mo)
-      yearlyMonthly: 33250,
+      monthly: 49900,
+      yearly: 499000,
+      yearlyMonthly: 41583,
+    },
+    scale: {
+      monthly: 99900,
+      yearly: 999000,
+      yearlyMonthly: 83250,
+    },
+    enterprise: {
+      monthly: 250000,
+      yearly: 2500000,
+      yearlyMonthly: 208333,
     },
   },
   BR: {
-    starter: {
-      monthly: 5900,  // R$59.00
-      yearly: 59000,  // R$590.00 (20% off = R$49/mo)
-      yearlyMonthly: 4917,
-    },
-    professional: {
-      monthly: 11900,  // R$119.00
-      yearly: 119000,  // R$1,190.00 (20% off = R$99/mo)
-      yearlyMonthly: 9917,
-    },
     growth: {
-      monthly: 24900,  // R$249.00
-      yearly: 249000,  // R$2,490.00 (20% off = R$207/mo)
-      yearlyMonthly: 20750,
+      monthly: 29900,
+      yearly: 299000,
+      yearlyMonthly: 24917,
+    },
+    scale: {
+      monthly: 59900,
+      yearly: 599000,
+      yearlyMonthly: 49917,
+    },
+    enterprise: {
+      monthly: 149900,
+      yearly: 1499000,
+      yearlyMonthly: 124917,
     },
   },
   EU: {
-    starter: {
-      monthly: 7900,  // €79.00
-      yearly: 79000,  // €79.00 (20% off = €66/mo)
-      yearlyMonthly: 6583,
-    },
-    professional: {
-      monthly: 14900,  // €149.00
-      yearly: 149000,  // €1,490.00 (20% off = €124/mo)
-      yearlyMonthly: 12417,
-    },
     growth: {
-      monthly: 27900,  // €279.00
-      yearly: 279000,  // €2,790.00 (20% off = €233/mo)
-      yearlyMonthly: 23250,
+      monthly: 39900,
+      yearly: 399000,
+      yearlyMonthly: 33250,
+    },
+    scale: {
+      monthly: 79900,
+      yearly: 799000,
+      yearlyMonthly: 66583,
+    },
+    enterprise: {
+      monthly: 199900,
+      yearly: 1999000,
+      yearlyMonthly: 166583,
     },
   },
   GB: {
-    starter: {
-      monthly: 7900,  // £79.00
-      yearly: 79000,  // £79.00 (20% off = £66/mo)
-      yearlyMonthly: 6583,
-    },
-    professional: {
-      monthly: 15900,  // £159.00
-      yearly: 159000,  // £1,590.00 (20% off = £133/mo)
-      yearlyMonthly: 13250,
-    },
     growth: {
-      monthly: 29900,  // £299.00
-      yearly: 299000,  // £2,990.00 (20% off = £249/mo)
-      yearlyMonthly: 24917,
+      monthly: 39900,
+      yearly: 399000,
+      yearlyMonthly: 33250,
+    },
+    scale: {
+      monthly: 79900,
+      yearly: 799000,
+      yearlyMonthly: 66583,
+    },
+    enterprise: {
+      monthly: 199900,
+      yearly: 1999000,
+      yearlyMonthly: 166583,
     },
   },
   CA: {
-    starter: {
-      monthly: 9900,  // CA$99.00
-      yearly: 99000,  // CA$990.00 (20% off = CA$83/mo)
-      yearlyMonthly: 8250,
-    },
-    professional: {
-      monthly: 19900,  // CA$199.00
-      yearly: 199000,  // CA$1,990.00 (20% off = CA$166/mo)
-      yearlyMonthly: 16583,
-    },
     growth: {
-      monthly: 34900,  // CA$349.00
-      yearly: 349000,  // CA$3,490.00 (20% off = CA$291/mo)
-      yearlyMonthly: 29083,
+      monthly: 49900,
+      yearly: 499000,
+      yearlyMonthly: 41667,
+    },
+    scale: {
+      monthly: 99900,
+      yearly: 999000,
+      yearlyMonthly: 83250,
+    },
+    enterprise: {
+      monthly: 249900,
+      yearly: 2499000,
+      yearlyMonthly: 208250,
     },
   },
 };

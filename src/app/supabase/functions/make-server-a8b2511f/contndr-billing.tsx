@@ -10,6 +10,25 @@ const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET') || Deno.env.
 
 // Price IDs from Environment Variables
 export const PLANS = {
+  growth: {
+    monthly: Deno.env.get('STRIPE_PRICE_GROWTH') || 'price_1Q...',
+    yearly: Deno.env.get('STRIPE_PRICE_GROWTH_YEARLY') || 'price_1Q...',
+    name: 'Growth',
+    amount: 49900
+  },
+  scale: {
+    monthly: Deno.env.get('STRIPE_PRICE_SCALE') || 'price_1Q...',
+    yearly: Deno.env.get('STRIPE_PRICE_SCALE_YEARLY') || 'price_1Q...',
+    name: 'Scale',
+    amount: 99900
+  },
+  enterprise: {
+    monthly: Deno.env.get('STRIPE_PRICE_ENTERPRISE') || 'price_1Q...',
+    yearly: Deno.env.get('STRIPE_PRICE_ENTERPRISE_YEARLY') || 'price_1Q...',
+    name: 'Enterprise',
+    amount: 250000
+  },
+  // Legacy aliases kept so existing Stripe subscriptions can still be detected.
   starter: {
     monthly: Deno.env.get('STRIPE_PRICE_STARTER') || 'price_1Q...',
     yearly: Deno.env.get('STRIPE_PRICE_STARTER_YEARLY') || 'price_1Q...',
@@ -21,12 +40,6 @@ export const PLANS = {
     yearly: Deno.env.get('STRIPE_PRICE_PROFESSIONAL_YEARLY') || 'price_1Q...',
     name: 'Professional',
     amount: 19900
-  },
-  growth: {
-    monthly: Deno.env.get('STRIPE_PRICE_GROWTH') || 'price_1Q...', 
-    yearly: Deno.env.get('STRIPE_PRICE_GROWTH_YEARLY') || 'price_1Q...',
-    name: 'Growth',
-    amount: 39900
   }
 };
 
@@ -431,7 +444,7 @@ export async function getUserSubscriptionStatus(user: any) {
 
 export async function createCheckoutSession(
   user: any, 
-  planType: 'starter' | 'professional' | 'growth', 
+  planType: 'growth' | 'scale' | 'enterprise',
   interval: 'monthly' | 'yearly', 
   successUrl?: string, 
   cancelUrl?: string,
