@@ -68,6 +68,23 @@ function isGenericEmail(email: string): boolean {
   return false;
 }
 
+function getPrimaryPhone(lead: Pick<ApolloLead, 'phone_numbers' | 'organization'>): string {
+  return (lead.phone_numbers || []).find((p) => p?.raw_number?.trim())?.raw_number?.trim()
+    || lead.organization?.phone?.trim()
+    || '';
+}
+
+function hasUsableEmail(lead: Pick<ApolloLead, 'email' | 'email_verification'>): boolean {
+  const email = lead.email?.trim();
+  if (!email || isGenericEmail(email)) return false;
+  if (lead.email_verification?.is_role_based) return false;
+  return true;
+}
+
+function isContactableLead(lead: Pick<ApolloLead, 'email' | 'email_verification' | 'phone_numbers' | 'organization'>): boolean {
+  return hasUsableEmail(lead) || !!getPrimaryPhone(lead);
+}
+
 // ── Strip emoji and unicode decorators ──
 function stripDisplayEmoji(str: string): string {
   if (!str) return '';
@@ -2359,7 +2376,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
 
   // ── Save to CRM ──
   const handleSaveToCRM = async () => {
-    const toSave = results.filter(l => selectedIds.has(l.id) && !isGenericEmail(l.email || ''));
+    const toSave = filteredResults.filter(l => selectedIds.has(l.id) && isContactableLead(l));
     if (toSave.length === 0) {
       toast.error(t('apolloProSearch.toastNoValidLeads'));
       return;
@@ -2426,10 +2443,11 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
   };
 
   const handleSaveAll = async () => {
-    // In preview mode, include leads with email available flag (backend will auto-reveal)
-    // BLOCK generic/role-based emails — decision makers only
-    const withEmail = results.filter(l => l.email && !existingEmails.has(l.email.toLowerCase()) && !isGenericEmail(l.email));
-    if (withEmail.length === 0) {
+    const contactable = filteredResults.filter(l => {
+      if (!isContactableLead(l)) return false;
+      return !l.email || !existingEmails.has(l.email.toLowerCase());
+    });
+    if (contactable.length === 0) {
       toast.info(t('apolloProSearch.toastNoNewLeads'));
       return;
     }
@@ -2441,8 +2459,8 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
       let totalSkipped = 0;
       let totalDnsBlocked = 0;
 
-      for (let i = 0; i < withEmail.length; i += 100) {
-        const batch = withEmail.slice(i, i + 100);
+      for (let i = 0; i < contactable.length; i += 100) {
+        const batch = contactable.slice(i, i + 100);
         const response = await fetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/apollo/save-to-crm`,
           {
@@ -2477,7 +2495,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
       realtimeManager.emit('lead:created', { count: totalSaved, source: 'deep-prospect' });
 
       const newEmails = new Set(existingEmails);
-      withEmail.forEach(l => { if (l.email) newEmails.add(l.email.toLowerCase()); });
+      contactable.forEach(l => { if (l.email) newEmails.add(l.email.toLowerCase()); });
       setExistingEmails(newEmails);
     } catch (error) {
       toast.error(t('apolloProSearch.toastFailedToSaveLeads'));
@@ -2550,12 +2568,11 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
 
   // ── Filtering & Sorting ──
   const filteredResults = useMemo(() => {
-    // QUALITY GATE: Require real person name + real company + email.
-    // Phone is bonus enrichment — NOT a hard gate. Requiring phone was silently
-    // dropping 80%+ of all returned results and starving users of leads.
-    // Generic/role-based emails are still blocked.
+    // QUALITY GATE: main results must be usable contacts, not profile-only rows.
+    // A lead needs a real person, company, and at least one contact channel:
+    // verified/non-generic email or a direct/company phone.
     const initialCount = results.length;
-    const filterReasons = { genericEmail: 0, roleBasedEmail: 0, noName: 0, noCompany: 0 };
+    const filterReasons = { genericEmail: 0, roleBasedEmail: 0, noName: 0, noCompany: 0, noContact: 0 };
     let filtered = results.filter(l => {
       // Block generic/role-based emails (info@, sales@, etc.) — not decision makers
       if (l.email?.trim() && isGenericEmail(l.email)) { filterReasons.genericEmail++; return false; }
@@ -2566,13 +2583,9 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
       const companyName = (l.organization?.name || '').trim();
       const hasCompany = companyName.length >= 2 && companyName !== '—' && companyName !== '-';
       if (!hasCompany) { filterReasons.noCompany++; return false; }
-      // DO NOT require email here — leads without email are still valid contacts.
-      // The email filter tabs (All / Has Email / No Email) handle this at display level.
-      // Requiring email here was silently dropping ~30-60% of results and making the
-      // "All" header count match only the email subset, not total leads returned.
+      if (!isContactableLead(l)) { filterReasons.noContact++; return false; }
       // DEDUPLICATE against CRM — never show leads the user already has (by email)
       if (l.email && existingEmails.has(l.email.toLowerCase())) return false;
-      // Phone shown when available but NOT a hard gate — don't block leads without it.
       return true;
     });
 
@@ -2580,7 +2593,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
     const qualityGateFiltered = initialCount - filtered.length;
     if (qualityGateFiltered > 0) {
       console.log(`[LEAD FINDER] Quality gate: ${initialCount} → ${filtered.length} leads (filtered ${qualityGateFiltered})`);
-      console.log(`[LEAD FINDER] Filter reasons: genericEmail=${filterReasons.genericEmail}, roleBasedEmail=${filterReasons.roleBasedEmail}, noName=${filterReasons.noName}, noCompany=${filterReasons.noCompany}`);
+      console.log(`[LEAD FINDER] Filter reasons: genericEmail=${filterReasons.genericEmail}, roleBasedEmail=${filterReasons.roleBasedEmail}, noName=${filterReasons.noName}, noCompany=${filterReasons.noCompany}, noContact=${filterReasons.noContact}`);
     }
 
     // Text search
@@ -2642,7 +2655,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
     });
 
     return filtered;
-  }, [results, resultSearch, emailFilter, sortField, sortAsc, showOnlyInArea, searchLocationString]);
+  }, [results, resultSearch, emailFilter, sortField, sortAsc, showOnlyInArea, searchLocationString, existingEmails]);
 
   // Count of preview/tier2 leads without email that are hidden from main results
   // These can be revealed via the "Reveal Emails" prompt
@@ -2697,8 +2710,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
   };
 
   const progressPct = progress ? Math.round((progress.fetched / progress.total) * 100) : 0;
-  // Exclude generic/role-based emails from counts — decision makers only
-  const newLeadsCount = results.filter(l => l.email && !existingEmails.has(l.email.toLowerCase()) && !isGenericEmail(l.email)).length;
+  const newLeadsCount = filteredResults.filter(l => isContactableLead(l) && (!l.email || !existingEmails.has(l.email.toLowerCase()))).length;
 
   // Extracted filter form for reuse in both sidebar and mobile sheet
   const renderFilterForm = () => (

@@ -4,11 +4,10 @@
 // NO Apollo dependency — uses SerpAPI + Google + LinkedIn + directories.
 // Enrichment: Hunter.io → Findymail → Pattern Guessing → Email Verification
 //
-// QUALITY GATE FIX (2026-03-14):
-// - Tier2 leads (without email but with name+company+title) are now marked
-//   with _preview=true flag so frontend doesn't filter them out
-// - Cache loading now includes tier2 leads (previously only kept tier1 w/email)
-// - Frontend quality gate accepts _preview flag for leads pending email reveal
+// QUALITY GATE:
+// - Main results must have a usable email or phone number.
+// - Phone-only leads may be marked _preview because email is unavailable.
+// - Profile-only rows are kept out of cache, pool, and final results.
 // ══════════════════════════════════════════════════════════════════════════
 
 import { Hono } from "npm:hono";
@@ -698,13 +697,40 @@ function isGenericEmail(email: string): boolean {
   return false;
 }
 
+function hasContactEmail(lead: DeepLead): boolean {
+  const email = (lead.email || "").trim();
+  if (!email || isGenericEmail(email)) return false;
+  if (lead.email_verification?.is_role_based) return false;
+  return true;
+}
+
+function hasContactPhone(lead: DeepLead): boolean {
+  return !!(
+    lead.phone_numbers?.some((p: any) => (p?.raw_number || "").trim())
+    || (lead.organization?.phone || "").trim()
+  );
+}
+
+function isContactableLead(lead: DeepLead): boolean {
+  return hasContactEmail(lead) || hasContactPhone(lead);
+}
+
+function filterContactablePeople<T extends DeepLead>(people: T[], context: string): T[] {
+  const filtered = people.filter(isContactableLead);
+  const dropped = people.length - filtered.length;
+  if (dropped > 0) {
+    console.log(`[DEEP PROSPECT] ${context}: dropped ${dropped} profile-only leads without email or phone`);
+  }
+  return filtered;
+}
+
 // ── Quality gate — reject leads that don't have essential data ──
 function isQualityLead(lead: DeepLead): boolean {
-  // ═══ HARD REQUIREMENT: Must have an email — no email, no deal ═══
-  if (!lead.email?.trim()) return false;
+  // Main results must be contactable: verified/non-generic email or phone.
+  if (!isContactableLead(lead)) return false;
 
   // ═══ BLOCK GENERIC EMAILS — decision makers only ═══
-  if (isGenericEmail(lead.email)) {
+  if (lead.email?.trim() && isGenericEmail(lead.email)) {
     console.log(`[QUALITY] Rejected generic email: ${lead.email} (${lead.name})`);
     return false;
   }
@@ -1592,11 +1618,10 @@ app.post("/search-stream", async (c) => {
               console.log(`[DEEP PROSPECT] Cache hit: ${data.people.length} leads`);
               send("phase", { phase: 1, name: "Cache hit — loading saved results", status: "complete" });
 
-              // Apply quality gate + industry filter to cached results
-              // Accept both full-quality leads (with email) AND partial-quality leads (preview mode, no email yet)
+              // Apply quality gate + industry filter to cached results.
+              // Keep only contactable leads so stale cache cannot show profile-only rows.
               let qualityPeople = (data.people as DeepLead[]).filter(l => {
                 if (isQualityLead(l)) return true;
-                // Also accept tier2 leads (without email but with name+company+title) from cache
                 const isPartialQualityLead = (lead: DeepLead): boolean => {
                   const name = (lead.name || "").trim();
                   if (!name || name === "\u2014" || name === "-") return false;
@@ -1621,10 +1646,8 @@ app.post("/search-stream", async (c) => {
                   if (titleClean.split(/\s+/).length > 8) return false;
                   return true;
                 };
-                if (!l.email && isPartialQualityLead(l)) {
-                  // Mark as preview so frontend doesn't filter it out
+                if (!l.email && isContactableLead(l) && isPartialQualityLead(l)) {
                   (l as any)._preview = true;
-                  // Don't set _has_email = false - let it be undefined so frontend quality gate allows it
                   return true;
                 }
                 return false;
@@ -1639,9 +1662,10 @@ app.post("/search-stream", async (c) => {
                 qualityPeople = qualityPeople.filter(l => matchesLocationFilter(l, organization_locations));
                 console.log(`[DEEP PROSPECT] Cache location filter: ${preLocCount} → ${qualityPeople.length} leads`);
               }
+              qualityPeople = filterContactablePeople(qualityPeople, "cache");
               const withEmail = qualityPeople.filter(l => l.email).length;
-              const withoutEmail = qualityPeople.filter(l => !l.email).length;
-              console.log(`[DEEP PROSPECT] Cache quality gate: ${data.people.length} → ${qualityPeople.length} leads (${withEmail} with email, ${withoutEmail} preview/tier2)`);
+              const withPhone = qualityPeople.filter(l => l.phone_numbers?.length > 0 || l.organization?.phone).length;
+              console.log(`[DEEP PROSPECT] Cache quality gate: ${data.people.length} → ${qualityPeople.length} leads (${withEmail} with email, ${withPhone} with phone)`);
 
               // If cache is all junk or doesn't have enough leads, skip it and re-search
               // We only skip cache if db_only is false and we need more leads, or if qualityPeople is empty.
@@ -1690,7 +1714,7 @@ app.post("/search-stream", async (c) => {
             const poolPromise = searchPool(poolCriteria, undefined, Math.min(max_results * 2, 5000));
             const poolTimeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error('searchPool timed out after 25s')), 25_000));
             const poolResult = await Promise.race([poolPromise, poolTimeout]);
-            poolLeads = poolResult.leads;
+            poolLeads = filterContactablePeople(poolResult.leads as any as DeepLead[], "local pool") as any as PoolLead[];
             // Apply strict industry filter to pool results
             if (organization_industries?.length) {
               const preFilterCount = poolLeads.length;
@@ -2179,7 +2203,7 @@ app.post("/search-stream", async (c) => {
           send("phase", { phase: 3, name: "Building lead profiles", status: "complete" });
 
           // Stream the newly built leads immediately so the UI shows them while enriching
-          // Mark leads without email as _preview so the frontend quality gate doesn't filter them
+          // Mark leads without email as preview while enrichment is still running.
           if (leads.length > 0) {
             const previewLeads = leads.map(l => {
               if (!l.email) return { ...l, _preview: true };
@@ -2605,7 +2629,7 @@ app.post("/search-stream", async (c) => {
           const mergedEmails = new Set<string>();
           const mergedNames = new Set<string>();
           const tier1People: DeepLead[] = []; // With email
-          const tier2People: DeepLead[] = []; // Without email but have name+company+title
+          const tier2People: DeepLead[] = []; // Phone-only contactable leads.
 
           // Helper: check if lead has basic data (name + company + title) but no email
           // More lenient for leads with LinkedIn URL — still actionable for outreach
@@ -2672,13 +2696,14 @@ app.post("/search-stream", async (c) => {
             }
             const email = (dlead.email || "").toLowerCase();
             const nameKey = (dlead.name || "").toLowerCase();
-            if (email && isQualityLead(dlead)) {
-              if (!mergedEmails.has(email)) {
-                mergedEmails.add(email);
+            if (isQualityLead(dlead)) {
+              if (!email && mergedNames.has(nameKey)) continue;
+              if (!email || !mergedEmails.has(email)) {
+                if (email) mergedEmails.add(email);
                 mergedNames.add(nameKey);
                 tier1People.push(dlead);
               }
-            } else if (isPartialQualityLead(dlead) && !mergedNames.has(nameKey)) {
+            } else if (isContactableLead(dlead) && isPartialQualityLead(dlead) && !mergedNames.has(nameKey)) {
               mergedNames.add(nameKey);
               if (!dlead.email) dlead.email_status = "unavailable";
               tier2People.push(dlead);
@@ -2699,13 +2724,14 @@ app.post("/search-stream", async (c) => {
             }
             const email = (dlead.email || "").toLowerCase();
             const nameKey = (dlead.name || "").toLowerCase();
-            if (email && isQualityLead(dlead)) {
-              if (!mergedEmails.has(email)) {
-                mergedEmails.add(email);
+            if (isQualityLead(dlead)) {
+              if (!email && mergedNames.has(nameKey)) continue;
+              if (!email || !mergedEmails.has(email)) {
+                if (email) mergedEmails.add(email);
                 mergedNames.add(nameKey);
                 tier1People.push(dlead);
               }
-            } else if (isPartialQualityLead(dlead) && !mergedNames.has(nameKey)) {
+            } else if (isContactableLead(dlead) && isPartialQualityLead(dlead) && !mergedNames.has(nameKey)) {
               mergedNames.add(nameKey);
               if (!dlead.email) dlead.email_status = "unavailable";
               tier2People.push(dlead);
@@ -2725,7 +2751,7 @@ app.post("/search-stream", async (c) => {
           if (organization_industries?.length) {
             console.log(`[DEEP PROSPECT] Industry filter active: [${organization_industries.join(', ')}]`);
           }
-          console.log(`[DEEP PROSPECT] Two-tier merge: ${tier1People.length} with email (tier 1), ${tier2People.length} without email (tier 2), from ${preQualityCount} total candidates`);
+          console.log(`[DEEP PROSPECT] Two-tier merge: ${tier1People.length} primary contacts, ${tier2People.length} phone-only contacts, from ${preQualityCount} total candidates`);
 
           // Sort within each tier: leads WITH industry first, then without
           const sortByIndustry = (a: DeepLead, b: DeepLead) => {
@@ -2736,7 +2762,7 @@ app.post("/search-stream", async (c) => {
           tier1People.sort(sortByIndustry);
           tier2People.sort(sortByIndustry);
 
-          // Fill: tier 1 first (with email), then tier 2 (without email) to reach max_results
+          // Fill contactable leads first. Tier 2 is phone-only contactable leads that missed full email quality.
           const finalPeople: DeepLead[] = [];
           for (const p of tier1People) {
             if (finalPeople.length >= max_results) break;
@@ -2745,20 +2771,19 @@ app.post("/search-stream", async (c) => {
           if (finalPeople.length < max_results) {
             for (const p of tier2People) {
               if (finalPeople.length >= max_results) break;
-              // Mark tier2 leads (without email) as preview so frontend doesn't filter them out
+              // Mark phone-only tier2 leads as preview so the UI can show that email may still be unavailable.
               (p as any)._preview = true;
-              // Don't set _has_email = false - let it be undefined so frontend quality gate allows it
               finalPeople.push(p);
             }
           }
 
           const withIndustry = finalPeople.filter(l => l.organization?.industry).length;
           const previewLeads = finalPeople.filter(l => (l as any)._preview).length;
-          console.log(`[DEEP PROSPECT] Final output: ${finalPeople.length} leads (${finalPeople.filter(l => l.email).length} with email, ${finalPeople.filter(l => !l.email).length} without email [${previewLeads} marked as preview for frontend], ${withIndustry} with industry)`);
+          console.log(`[DEEP PROSPECT] Final output: ${finalPeople.length} contactable leads (${finalPeople.filter(l => l.email).length} with email, ${finalPeople.filter(l => l.phone_numbers?.length > 0 || l.organization?.phone).length} with phone, ${previewLeads} preview, ${withIndustry} with industry)`);
 
           // Save to pool
           send("phase", { phase: 9, name: "Saving to database", status: "processing" });
-          const poolSaved = await saveToPool(leads.filter(l => l.email) as any as PoolLead[]).catch(() => ({ saved: 0, skipped: 0 }));
+          const poolSaved = await saveToPool(filterContactablePeople(leads, "pool save") as any as PoolLead[]).catch(() => ({ saved: 0, skipped: 0 }));
           send("phase", { phase: 9, name: "Saving to database", status: "complete", saved: poolSaved.saved });
 
           // Cache results

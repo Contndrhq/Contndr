@@ -678,6 +678,66 @@ function transformApolloLead(person: any): ApolloLead {
   };
 }
 
+const CONTACT_EMAIL_PREFIX_BLOCKLIST = new Set([
+  'info', 'contact', 'hello', 'sales', 'support', 'admin', 'office',
+  'inquiries', 'inquiry', 'careers', 'jobs', 'hr', 'team', 'help',
+  'marketing', 'media', 'press', 'billing', 'accounts', 'reception',
+  'frontdesk', 'mail', 'webmaster', 'staff', 'general', 'service',
+  'services', 'noreply', 'no-reply', 'do-not-reply', 'donotreply',
+  'feedback', 'subscribe', 'unsubscribe', 'newsletter', 'news',
+  'postmaster', 'hostmaster', 'abuse', 'security', 'privacy',
+  'compliance', 'legal', 'procurement', 'purchasing', 'vendor',
+  'vendors', 'suppliers', 'partners', 'partnership', 'affiliates',
+  'advertising', 'ads', 'bookings', 'booking', 'reservations',
+  'events', 'orders', 'order', 'returns', 'shipping', 'delivery',
+  'customerservice', 'customercare', 'customer-service', 'customer-care',
+  'helpdesk', 'help-desk', 'techsupport', 'tech-support', 'it',
+  'itsupport', 'it-support', 'webteam', 'web-team', 'digital',
+  'socialmedia', 'social-media', 'pr', 'comms', 'communications',
+  'editorial', 'editor', 'editors', 'submissions', 'apply',
+  'applications', 'recruit', 'recruiting', 'recruitment', 'talent',
+  'operations', 'ops', 'finance', 'accounting', 'payroll',
+  'invoices', 'invoice', 'payments', 'membership', 'members',
+  'community', 'volunteer', 'donate', 'donations',
+]);
+
+function isGenericContactEmail(email: string | null | undefined): boolean {
+  const lower = (email || "").toLowerCase().trim();
+  const atIdx = lower.indexOf('@');
+  if (atIdx <= 0) return false;
+  const prefix = lower.substring(0, atIdx);
+  if (CONTACT_EMAIL_PREFIX_BLOCKLIST.has(prefix)) return true;
+  const stripped = prefix.replace(/\d+$/, '');
+  return stripped !== prefix && CONTACT_EMAIL_PREFIX_BLOCKLIST.has(stripped);
+}
+
+function hasContactEmail(lead: any): boolean {
+  const email = (lead?.email || "").trim();
+  if (!email || isGenericContactEmail(email)) return false;
+  if (lead?.email_verification?.is_role_based) return false;
+  return true;
+}
+
+function hasContactPhone(lead: any): boolean {
+  return !!(
+    lead?.phone_numbers?.some((p: any) => (p?.raw_number || "").trim())
+    || (lead?.organization?.phone || "").trim()
+  );
+}
+
+function isContactableLead(lead: any): boolean {
+  return hasContactEmail(lead) || hasContactPhone(lead);
+}
+
+function filterContactablePeople<T extends any>(people: T[], context: string): T[] {
+  const filtered = people.filter(isContactableLead);
+  const dropped = people.length - filtered.length;
+  if (dropped > 0) {
+    console.log(`[APOLLO] ${context}: dropped ${dropped} profile-only leads without email or phone`);
+  }
+  return filtered;
+}
+
 // ── Hybrid enrichment helper ──
 // Strategy: Apollo /mixed_people/api_search returns PREVIEW data only (obfuscated last names,
 // no emails, no phones, no LinkedIn, no org details — just boolean flags like has_email, has_direct_phone).
@@ -1005,7 +1065,7 @@ async function hybridEnrichPeople(
 
   // ── Assemble final list preserving original order ──
   const idOrder = new Map(allRawPeople.map((p: any, i: number) => [p.id, i]));
-  const enrichedPeople = [...revealedMap.values()].sort(
+  const enrichedPeople = filterContactablePeople([...revealedMap.values()], "enrichment").sort(
     (a, b) => (idOrder.get(a.id) ?? 999) - (idOrder.get(b.id) ?? 999)
   );
 
@@ -1201,14 +1261,14 @@ app.post("/search-stream", async (c) => {
 
             if (isEnrichedCache) {
               // Already enriched — return directly (no credit burn)
-              cachedEnriched = cached.people;
+              cachedEnriched = filterContactablePeople(cached.people, "cache");
               cachedSources = cached.enrichment_sources || cachedSources;
               console.log(`[APOLLO SSE] Returning ${cachedEnriched.length} pre-enriched cached leads (no re-reveal needed)`);
             } else {
               // Old raw cache — must enrich (this path handles legacy cache entries)
               send("phase", { phase: 4, name: "Enriching contacts", status: "processing" });
               const enrichResult = await hybridEnrichPeople(cached.people, user.id, send, () => isCancelled);
-              cachedEnriched = enrichResult.people;
+              cachedEnriched = filterContactablePeople(enrichResult.people, "legacy cache enrichment");
               cachedSources = { hunter: enrichResult.hunterFound, findymail: enrichResult.findymailFound, apollo_reveal: enrichResult.apolloRevealCount, phone_enrich: enrichResult.phoneEnrichFound, hunter_phone: enrichResult.hunterPhoneFound, pattern_guessed: enrichResult.patternGuessed, verified: enrichResult.verified, verified_valid: enrichResult.verifiedValid, verified_risky: enrichResult.verifiedRisky, verified_invalid: enrichResult.verifiedInvalid };
               // Upgrade cache to enriched format so next hit is free
               setCachedSearch(cacheKey, cachedEnriched, cached.params || {}, cachedSources).catch(() => {});
@@ -1259,7 +1319,7 @@ app.post("/search-stream", async (c) => {
           let poolSize = 0;
           try {
             const poolResult = await searchPool(poolCriteria, undefined, Math.min(max_results, 200));
-            poolLeads = poolResult.leads;
+            poolLeads = filterContactablePeople(poolResult.leads, "local pool");
             poolKvMatches = poolResult.kvMatches;
             poolDbMatches = poolResult.dbMatches;
             poolSize = poolResult.totalPoolSize;
@@ -1298,7 +1358,7 @@ app.post("/search-stream", async (c) => {
             } catch (_) {}
             send("phase", { phase: 3, name: "CRM dedup check", status: "complete" });
 
-            const poolResults = poolLeads.slice(0, max_results) as any as ApolloLead[];
+          const poolResults = filterContactablePeople(poolLeads, "pool response").slice(0, max_results) as any as ApolloLead[];
             const poolStats = {
               total: poolResults.length,
               with_email: poolResults.filter(p => p.email).length,
@@ -1519,7 +1579,7 @@ app.post("/search-stream", async (c) => {
           send("activity", { message: `Starting multi-source enrichment for ${trimmedPeople.length} contacts...`, type: "info" });
 
           const enrichResult = await hybridEnrichPeople(trimmedPeople, user.id, send, () => isCancelled);
-          const enrichedPeople = enrichResult.people;
+          const enrichedPeople = filterContactablePeople(enrichResult.people, "external enrichment");
           const apolloCreditsExhausted = enrichResult.creditsExhausted;
           const enrichmentSources = { hunter: enrichResult.hunterFound, findymail: enrichResult.findymailFound, apollo_reveal: enrichResult.apolloRevealCount, phone_enrich: enrichResult.phoneEnrichFound, hunter_phone: enrichResult.hunterPhoneFound, pattern_guessed: enrichResult.patternGuessed, verified: enrichResult.verified, verified_valid: enrichResult.verifiedValid, verified_risky: enrichResult.verifiedRisky, verified_invalid: enrichResult.verifiedInvalid };
 
@@ -1542,15 +1602,16 @@ app.post("/search-stream", async (c) => {
 
           // Add pool leads first
           for (const pl of poolLeads) {
+            if (!isContactableLead(pl)) continue;
             const email = (pl.email || "").toLowerCase();
-            if (email && !mergedEmails.has(email)) {
-              mergedEmails.add(email);
-              mergedPeople.push(pl as any as ApolloLead);
-            }
+            if (email && mergedEmails.has(email)) continue;
+            if (email) mergedEmails.add(email);
+            mergedPeople.push(pl as any as ApolloLead);
           }
 
           // Then add enriched external leads
           for (const el of enrichedPeople) {
+            if (!isContactableLead(el)) continue;
             const email = (el.email || "").toLowerCase();
             if (!email || !mergedEmails.has(email)) {
               if (email) mergedEmails.add(email);
@@ -1981,6 +2042,12 @@ app.post("/save-to-crm", async (c) => {
 
         const phone =
           lead.phone_numbers?.[0]?.raw_number || lead.organization?.phone || "";
+
+        if (!emailLower && !phone) {
+          console.log(`[APOLLO] Blocked profile-only lead without email or phone: ${lead.name || 'unknown'}`);
+          results.skipped++;
+          continue;
+        }
 
         // ── Clean & validate business_name and contact_name before CRM insert ──
         const rawBizName = (lead.organization?.name || "").trim();
