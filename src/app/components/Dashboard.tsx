@@ -663,28 +663,25 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
           </div>
 
           {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
             
-            {/* Row 1: Pipeline Snapshot + Leaderboard */}
-            <div className="h-[360px]">
+            <div className="h-[320px]">
                <DashboardPipelineSnapshot onNavigate={onNavigate} />
             </div>
 
-            <div className="h-[360px]">
+            <div className="h-[320px]">
                <DashboardTeamSnapshot onNavigate={onNavigate} stats={stats} />
             </div>
 
-            {/* Row 2: Agent Mode + Today's Focus */}
-            <div className="h-[360px]">
+            <div className="h-[320px] lg:col-span-2 xl:col-span-1">
                <DashboardAgentMode onNavigate={onNavigate} />
             </div>
 
-            <div className="h-[340px]">
+            <div className="h-[300px]">
                <DashboardTodayFocus onNavigate={onNavigate} />
             </div>
 
-            {/* Row 3: Recent Activity */}
-            <div className="h-[340px] lg:col-span-2">
+            <div className="h-[300px] lg:col-span-1 xl:col-span-2">
                <RecentActivityFeed onNavigate={onNavigate} />
             </div>
           </div>

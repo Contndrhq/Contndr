@@ -142,7 +142,7 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
 
         // Show ALL team activity (sent, opens, clicks, replies, campaigns, leads)
         if (teamData.activities && teamData.activities.length > 0) {
-          setActivities(teamData.activities.slice(0, 30));
+          setActivities(teamData.activities.slice(0, 12));
           setLoading(false);
           return;
         }
@@ -397,7 +397,7 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
       );
 
-      setActivities(activityList.slice(0, 25));
+      setActivities(activityList.slice(0, 12));
     } catch (error) {
       console.error('Error loading personal activities:', error);
     } finally {
@@ -531,7 +531,7 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
   }
 
   return (
-    <div className="glass-card p-4 sm:p-5 h-full max-h-full flex flex-col overflow-hidden">
+    <div className="glass-card p-4 h-full max-h-full flex flex-col overflow-hidden">
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider">{t('dashboard.recentActivity')}</h3>
@@ -541,7 +541,12 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
             </span>
           )}
         </div>
-        <TrendingUp className="w-4 h-4 text-gray-500" />
+        <button
+          onClick={() => onNavigate?.('inbox')}
+          className="text-[11px] font-medium text-zinc-400 hover:text-[#1ED4A7] transition-colors"
+        >
+          {t('common.viewAll', 'View All')}
+        </button>
       </div>
 
       {loading ? (
@@ -553,10 +558,7 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
           <p className="text-[11px] text-gray-400 mt-1">{t('dashboard.opensClicksReplies')}</p>
         </div>
       ) : (
-        <div className="relative space-y-0 flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-0">
-          {/* Vertical line connecting items */}
-          <div className="absolute left-[15px] top-2 bottom-6 w-px bg-gray-200 dark:bg-white/10" />
-          
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-4 gap-y-1 flex-1 overflow-y-auto pr-1 custom-scrollbar min-h-0">
           {activities.map((activity) => {
             const engagement = isEngagement(activity.type);
             const engagementLabel = getEngagementLabel(activity.type);
@@ -564,23 +566,22 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
             return (
               <div
                 key={activity.id}
-                className={`relative flex items-start gap-3 pb-3.5 last:pb-0 group ${onNavigate ? 'cursor-pointer' : ''}`}
+                className={`flex items-start gap-2.5 rounded-lg px-2 py-2 group hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors ${onNavigate ? 'cursor-pointer' : ''}`}
                 onClick={() => handleActivityClick(activity)}
               >
-                {/* Icon circle — teal ring for engagement events */}
-                <div className={`relative z-10 flex items-center justify-center w-8 h-8 rounded-full shadow-sm transition-colors
+                <div className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors flex-shrink-0
                   ${engagement
-                    ? 'bg-[#1ED4A7]/5 dark:bg-[#1ED4A7]/10 border border-[#1ED4A7]/30 group-hover:border-[#1ED4A7]/50'
-                    : 'bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-white/10 group-hover:border-[#1ED4A7]/30'
+                    ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]'
+                    : 'bg-zinc-100 dark:bg-white/[0.04]'
                   }`}
                 >
                   {getIcon(activity.type)}
                 </div>
 
-                <div className="flex-1 min-w-0 pt-0.5">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2 mb-0.5">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <p className={`text-[13px] font-medium truncate transition-colors
+                      <p className={`text-[12.5px] font-medium truncate transition-colors
                         ${engagement
                           ? 'text-[#1ED4A7] group-hover:text-[#1ED4A7]/80'
                           : 'text-gray-900 dark:text-white group-hover:text-[#1ED4A7]'
@@ -595,7 +596,7 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-gray-500 whitespace-nowrap font-medium tabular-nums">
+                    <span className="text-[10.5px] text-gray-500 whitespace-nowrap font-medium tabular-nums">
                       {formatTimestamp(activity.timestamp)}
                     </span>
                   </div>
@@ -603,7 +604,7 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
                   {/* Subject line + engagement counts + team attribution */}
                   <div className="flex items-center gap-2 flex-wrap">
                     {activity.metadata?.subject && (
-                      <p className="text-[12px] text-gray-500 truncate group-hover:text-gray-400 dark:group-hover:text-gray-400 transition-colors max-w-[60%]">
+                      <p className="text-[11px] text-gray-500 truncate group-hover:text-gray-400 dark:group-hover:text-gray-400 transition-colors max-w-[70%]">
                         {activity.metadata.subject}
                       </p>
                     )}

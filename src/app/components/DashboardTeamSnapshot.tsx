@@ -56,11 +56,14 @@ export function DashboardTeamSnapshot({ onNavigate, stats }: { onNavigate: (view
 
   async function loadTeam() {
     try {
-      // Check demo
+      // Check current session and scope cache per user. The previous global
+      // dashboard:team-snapshot key could leak a solo/team state between accounts.
       let isDemo = false;
+      let sessionUserId = 'anonymous';
       try {
         const { data: { session } } = await supabase.auth.getSession();
         isDemo = session?.user?.email === 'demo@contndr.com';
+        sessionUserId = session?.user?.id || sessionUserId;
       } catch (_) {}
 
       // Demo account ALWAYS gets demo data - never fetch real team data
@@ -71,7 +74,7 @@ export function DashboardTeamSnapshot({ onNavigate, stats }: { onNavigate: (view
       }
 
       const data = await apiCache.fetch(
-        'dashboard:team-snapshot',
+        `dashboard:team-snapshot:${sessionUserId}`,
         async () => {
           const res = await authenticatedFetch(
             `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/team/leaderboard`
@@ -96,7 +99,7 @@ export function DashboardTeamSnapshot({ onNavigate, stats }: { onNavigate: (view
       }));
 
       setMembers(m);
-      setTeamSize(data.team_size || m.length);
+      setTeamSize(Math.max(Number(data.team_size || 0), m.length));
     } catch (err) {
       console.error('[DASHBOARD] Team snapshot error:', err);
     } finally {
@@ -117,7 +120,7 @@ export function DashboardTeamSnapshot({ onNavigate, stats }: { onNavigate: (view
     );
   }
 
-  // Solo / no team — show Campaign Pulse + Buying Intent instead of empty invite
+  // Solo / no team — show a compact campaign pulse instead of an empty team card.
   if (teamSize <= 1) {
     if (stats) {
       return <DashboardSoloSidebar stats={stats} onNavigate={onNavigate} />;
