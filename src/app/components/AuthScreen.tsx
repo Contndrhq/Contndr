@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { Eye, EyeOff, Loader2, Star, Quote, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { formatPhoneInput } from '../lib/phone-format';
 
 interface AuthScreenProps {
   onAuthSuccess: (session: any) => void;
@@ -393,7 +394,7 @@ export function AuthScreen({ onAuthSuccess, onBack, initialMode = 'signin', redi
                             <input
                                 type="tel"
                                 value={phone}
-                                onChange={(e) => setPhone(e.target.value)}
+                                onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
                                 required
                                 placeholder="+1 (555) 123-4567"
                                 className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl px-4 py-3 text-base !text-white placeholder:text-gray-500 focus:outline-none focus:border-white/50 focus:ring-1 focus:ring-white/50 transition-all"

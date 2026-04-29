@@ -6,6 +6,7 @@ import { projectId } from '../utils/supabase/info';
 import { getAuthHeaders } from '../lib/auth';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+import { formatPhoneInput } from '../lib/phone-format';
 
 interface OAuthOnboardingScreenProps {
   user: any;
@@ -141,7 +142,7 @@ export function OAuthOnboardingScreen({ user, onComplete, onLogout }: OAuthOnboa
                 <input
                   type="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
                   required
                   placeholder="+1 (555) 123-4567"
                   className={`${inputClass} pl-10`}

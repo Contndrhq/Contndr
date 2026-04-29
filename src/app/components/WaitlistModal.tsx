@@ -4,6 +4,7 @@ import { X, ArrowRight, CheckCircle2, Users, Clock, Sparkles, CalendarDays } fro
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { useTranslation } from 'react-i18next';
+import { formatPhoneInput } from '../lib/phone-format';
 
 interface WaitlistModalProps {
   isOpen: boolean;
@@ -216,7 +217,7 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
                         type="tel"
                         required
                         value={formData.phone}
-                        onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                        onChange={e => setFormData({ ...formData, phone: formatPhoneInput(e.target.value) })}
                         placeholder="+1 (555) 123-4567"
                         className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder:text-gray-600 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/40 transition-all text-sm"
                       />
