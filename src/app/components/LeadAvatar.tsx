@@ -26,19 +26,33 @@ interface LeadAvatarProps {
   email?: string;
   /** LinkedIn profile URL — used as fallback when Gravatar has no avatar */
   linkedinUrl?: string;
+  /** Avatar URL already included in a parent payload. Avoids extra avatar lookups in dense lists. */
+  avatarUrl?: string | null;
+  avatarConfidence?: number | null;
+  lookup?: boolean;
   /** px value — rendered as width/height */
   size?: number;
   className?: string;
 }
 
-export function LeadAvatar({ name, email, linkedinUrl, size = 36, className = '' }: LeadAvatarProps) {
+export function LeadAvatar({
+  name,
+  email,
+  linkedinUrl,
+  avatarUrl: providedAvatarUrl,
+  avatarConfidence,
+  lookup = true,
+  size = 36,
+  className = '',
+}: LeadAvatarProps) {
   const [imgFailed, setImgFailed] = useState(false);
 
   // Use the batched avatar hook — SerpAPI LinkedIn photo lookup
-  const avatarUrl = useLeadAvatar(email, linkedinUrl, name);
+  const fetchedAvatarUrl = useLeadAvatar(lookup && !providedAvatarUrl ? email : null, linkedinUrl, name);
+  const avatarUrl = providedAvatarUrl ?? fetchedAvatarUrl;
 
   // Get confidence score from the client-side cache
-  const confidence = email ? getAvatarConfidence(email) : 0;
+  const confidence = avatarConfidence ?? (email ? getAvatarConfidence(email) : 0);
 
   const initials = useMemo(() => getInitials(name), [name]);
 

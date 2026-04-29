@@ -114,7 +114,7 @@ export function MobileLeadCard({
   const seniority = inferSeniorityFromTitle(lead.job_title || '');
   const seniorityOpt = seniority ? SENIORITY_OPTIONS.find(s => s.value === seniority) : null;
 
-  const linkedinUrl = lead.person_linkedin_url || lead.linkedin;
+  const linkedinUrl = lead.person_linkedin_url || lead.linkedin_url || lead.linkedin;
   const companyLinkedinUrl = extractCompanyLinkedin(lead);
   const websiteUrl = lead.website || (companyDomain ? `https://${companyDomain}` : null);
 
@@ -148,6 +148,9 @@ export function MobileLeadCard({
               name={lead.contact_name || lead.business_name || '?'}
               email={lead.email}
               linkedinUrl={linkedinUrl}
+              avatarUrl={lead.avatarUrl || lead.avatar_url}
+              avatarConfidence={lead.avatarConfidence ?? lead.avatar_confidence}
+              lookup={false}
               size={36}
             />
           </div>

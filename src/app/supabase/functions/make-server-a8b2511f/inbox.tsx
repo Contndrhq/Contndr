@@ -11,6 +11,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
 import { firePipelineTrigger } from "./pipeline.tsx";
+import { attachCachedAvatars } from "./avatar-cache.tsx";
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL') ?? '',
@@ -44,6 +45,11 @@ export interface ConversationThread {
   brand: string;
   leadName: string;
   leadEmail: string;
+  avatarUrl?: string | null;
+  avatar_url?: string | null;
+  avatarConfidence?: number;
+  avatar_confidence?: number;
+  leadLinkedinUrl?: string | null;
   leadPhone?: string;
   leadCompany?: string;
   lastMessageAt: string;
@@ -411,7 +417,7 @@ export async function getConversations(filters?: {
     // ── KV cache (55 s TTL, per user + filter combo) ──────────────────
     const INBOX_CACHE_TTL_MS = 55_000;
     const filterHash = `${filters?.sentiment || ''}:${filters?.unreadOnly || false}:${filters?.brand || ''}:${filters?.campaignId || ''}`;
-    const cacheKey = `inbox:cache:${filters.userId}:${filterHash}`;
+    const cacheKey = `inbox:cache:v2:${filters.userId}:${filterHash}`;
 
     if (!filters?.force) {
       try {
@@ -433,7 +439,7 @@ export async function getConversations(filters?: {
 
     const buildQuery = (withJoin: boolean) => {
       const selectStr = withJoin
-        ? `*, lead:leads (id, business_name, contact_name, email, phone, category), campaign:campaigns (id, brand)`
+        ? `*, lead:leads (id, business_name, contact_name, email, phone, category, linkedin_url), campaign:campaigns (id, brand)`
         : `*`;
       let q = supabase
         .from('emails')
@@ -470,7 +476,7 @@ export async function getConversations(filters?: {
             const batch = leadIds.slice(i, i + 100);
             const { data: leads } = await supabase
               .from('leads')
-              .select('id, business_name, contact_name, email, phone, category')
+              .select('id, business_name, contact_name, email, phone, category, linkedin_url')
               .in('id', batch);
             if (leads) {
               for (const l of leads) leadMap.set(l.id, l);
@@ -609,6 +615,7 @@ export async function getConversations(filters?: {
                 brand, // Will be filled later if empty
                 leadName: (() => { const n = (lead.contact_name || '').trim(); return (['Visitor','Unknown','Anonymous Visitor','Anonymous'].includes(n) ? '' : n) || lead.business_name || 'Unknown'; })(),
                 leadEmail: lead.email,
+                leadLinkedinUrl: lead.linkedin_url || null,
                 leadPhone: lead.phone,
                 leadCompany: lead.business_name,
                 lastMessageAt: lastMsg.sentAt,
@@ -750,6 +757,7 @@ export async function getConversations(filters?: {
                   brand: 'Unknown', 
                   leadName: (() => { const n = (lead.contact_name || '').trim(); return (['Visitor','Unknown','Anonymous Visitor','Anonymous'].includes(n) ? '' : n) || lead.business_name || 'Unknown'; })(),
                   leadEmail: lead.email,
+                  leadLinkedinUrl: lead.linkedin_url || null,
                   leadPhone: lead.phone,
                   leadCompany: lead.business_name,
                   lastMessageAt: reply.receivedAt,
@@ -822,6 +830,12 @@ export async function getConversations(filters?: {
     if (filters?.limit) {
       threads = threads.slice(0, filters.limit);
     }
+
+    threads = await attachCachedAvatars(
+      threads,
+      (thread: any) => thread.leadEmail,
+      (thread: any) => thread.leadLinkedinUrl,
+    );
 
     // ── Cache the result (always — fallback data is still valid) ─────
     try {

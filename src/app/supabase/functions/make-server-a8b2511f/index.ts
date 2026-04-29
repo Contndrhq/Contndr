@@ -48,6 +48,7 @@ import quickbooksApp from "./quickbooks.tsx";
 import teamSharingApp from "./team-sharing.tsx";
 import salesLeaderboardApp from "./sales-leaderboard.tsx";
 import gravatarApp from "./gravatar.tsx";
+import { attachCachedAvatars } from "./avatar-cache.tsx";
 import aiAssistantApp from "./ai-assistant.tsx";
 import pipelineApp from "./pipeline.tsx";
 import { firePipelineTrigger } from "./pipeline.tsx";
@@ -4642,6 +4643,12 @@ app.get("/make-server-a8b2511f/crm/leads", async (c) => {
         );
       }
     }
+
+    leads = await attachCachedAvatars(
+      leads,
+      (lead: any) => lead.email,
+      (lead: any) => lead.person_linkedin_url || lead.linkedin_url || lead.linkedin,
+    );
 
     // When pre-filtered at DB level, totalCount is already accurate.
     // When post-filtered, use filtered leads.length as approximate total (single-page only).

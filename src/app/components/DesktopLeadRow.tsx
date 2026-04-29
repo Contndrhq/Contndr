@@ -160,7 +160,10 @@ export function DesktopLeadRow({
             <LeadAvatar
               name={lead.contact_name || lead.business_name || '?'}
               email={lead.email}
-              linkedinUrl={lead.person_linkedin_url || lead.linkedin}
+              linkedinUrl={lead.person_linkedin_url || lead.linkedin_url || lead.linkedin}
+              avatarUrl={lead.avatarUrl || lead.avatar_url}
+              avatarConfidence={lead.avatarConfidence ?? lead.avatar_confidence}
+              lookup={false}
               size={36}
             />
           </div>

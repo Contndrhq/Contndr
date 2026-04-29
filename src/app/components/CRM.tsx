@@ -31,7 +31,6 @@ import { SmartPhoneButton } from './SmartPhoneButton';
 import { isCountryName } from '../utils/country-names';
 import { isValidStateForCountry } from '../utils/us-states';
 import { toTitleCase } from '../utils/title-case';
-import { prefetchAvatars } from '../lib/gravatar';
 import { dispatchAppEvent, useAppEventRefresh } from '../lib/app-events';
 import { useDemoMode, DEMO_LEADS } from './DemoContext';
 import { useTranslation } from 'react-i18next';
@@ -123,6 +122,7 @@ interface Lead {
   account_owner?: string;
   last_contacted?: string;
   person_linkedin_url?: string;
+  linkedin_url?: string;
   city?: string;
   state?: string;
   country?: string;
@@ -182,6 +182,10 @@ interface Lead {
   is_revealed?: boolean;
   has_email?: boolean;
   has_phone?: boolean;
+  avatarUrl?: string | null;
+  avatar_url?: string | null;
+  avatarConfidence?: number;
+  avatar_confidence?: number;
 }
 
 interface Client {
@@ -498,7 +502,7 @@ export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds
 
   async function loadData() {
     // Only show spinner on cold load (no cached data) — stale-while-revalidate keeps UI populated
-    const hasCachedLeads = !!apiCache.get('crm:leads:p1');
+    const hasCachedLeads = !!apiCache.get('crm:leads:v2:p1');
     if (!hasCachedLeads) setLoading(true);
     try {
       if (activeTab === 'leads') {
@@ -570,7 +574,7 @@ export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds
 
       const filterQuery = filterParams.toString();
       const targetPage = page || currentPage;
-      const cacheKey = `crm:leads:p${targetPage}${filterQuery ? ':' + filterQuery : ''}`;
+      const cacheKey = `crm:leads:v2:p${targetPage}${filterQuery ? ':' + filterQuery : ''}`;
 
       // Fetch ONE page of leads with server-side filters (100 per page)
       // Includes one automatic retry on timeout (57014) since parallel query execution
@@ -612,9 +616,6 @@ export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds
       setTotalLeads(safeData.total);
       if (page) setCurrentPage(page);
 
-      // Pre-warm Gravatar avatar cache for visible leads
-      prefetchAvatars(safeData.leads.map((l: Lead) => ({ email: l.email, linkedinUrl: l.person_linkedin_url, name: l.contact_name || l.business_name })));
-      
       console.log(`[CRM] Loaded page ${targetPage}: ${safeData.leads.length} leads, ${safeData.total} total`);
     } catch (error: any) {
       // Suppress auth errors (authenticatedFetch already retried once)
