@@ -15,7 +15,7 @@ import { searchPool, saveToPool, getPoolStats, type PoolLead, type SearchCriteri
 
 // ── Plan Lead Limits (mirrored from index.tsx for module isolation) ──
 const PLAN_LEAD_LIMITS: Record<string, number> = {
-  none: 100, starter: 2500, professional: 10000, growth: -1,
+  none: 100, starter: 2500, professional: 10000, growth: 10000, scale: 50000, enterprise: -1,
 };
 
 function getLeadLimitForPlan(plan: string | undefined | null): number {

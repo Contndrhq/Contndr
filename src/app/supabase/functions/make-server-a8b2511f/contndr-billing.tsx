@@ -133,26 +133,14 @@ export async function getUserSubscriptionStatus(user: any) {
   console.log('[BILLING] User Email:', userEmail);
   console.log('[BILLING] User ID:', user.id);
 
-  // 1. Check for admin emails - Premium Growth membership
-  if (userEmail === 'or@roadr.com' || userEmail === 'admin@contndr.com' || userEmail === 'demo@contndr.com' || userEmail === 'axel@redaxemedia.com' || userEmail === 'or@contndr.com' || userEmail?.endsWith('@contndr.com')) {
-    console.log('[BILLING] Admin/VIP email detected, granting full access');
-    return { status: 'active', plan: 'growth', isWhitelisted: true };
-  }
-
-  // 2. Check Whitelist first (legacy users)
-  if (await isUserWhitelisted(user.email)) {
-    console.log('[BILLING] User is whitelisted, granting access');
-    return { status: 'active', plan: 'growth', isWhitelisted: true };
-  }
-
-  // 3. Check KV Store for ACTIVE subscription (check both new and legacy keys)
+  // 1. Check KV first. Explicit admin/Stripe plan assignments must win over
+  // internal-email fallbacks, otherwise Enterprise users can appear as Growth.
   let sub;
   try {
     sub = await kv.get(`contndr_sub:${user.id}`);
     if (!sub) {
       sub = await kv.get(`sendlr_sub:${user.id}`);
       if (sub) {
-        // Migrate legacy key to new key
         try {
           await kv.set(`contndr_sub:${user.id}`, sub);
           console.log('[BILLING] Migrated legacy sendlr_sub key to contndr_sub for user:', user.id);
@@ -163,30 +151,13 @@ export async function getUserSubscriptionStatus(user: any) {
     }
   } catch (err: any) {
     console.warn(`[BILLING] Failed to read subscription from KV for user ${user.id}:`, err?.message || err);
-    // If KV fails (e.g. database memory full), we should aggressively check Stripe directly instead of defaulting to waitlist
-    console.log('[BILLING] KV read failed, jumping straight to Stripe sync to prevent lockout...');
-    try {
-      const healed = await syncStripeSubscription(user.id, userEmail);
-      if (healed.synced && healed.subscription && ['active', 'trialing'].includes(healed.subscription.status)) {
-        return {
-          status: healed.subscription.status,
-          plan: healed.subscription.plan,
-          isWhitelisted: false,
-          stripe_sub_id: healed.subscription.stripe_sub_id,
-          updated_at: healed.subscription.updated_at
-        };
-      }
-    } catch (stripeErr: any) {
-      console.warn('[BILLING] Stripe sync fallback also failed:', stripeErr?.message || stripeErr);
-    }
-    // Continue with sub = undefined
   }
-  
-  if (sub && sub.status === 'active') {
+
+  if (sub && sub.status === 'active' && sub.plan && sub.plan !== 'none' && sub.plan !== 'waitlist') {
     console.log('[BILLING] Found ACTIVE subscription in KV store:', JSON.stringify(sub));
     const normalizedSub = {
       status: sub.status,
-      plan: sub.plan || 'none',
+      plan: sub.plan,
       isWhitelisted: sub.isWhitelisted || false,
       stripe_sub_id: sub.stripe_sub_id,
       cancel_at_period_end: sub.cancel_at_period_end || false,
@@ -197,10 +168,6 @@ export async function getUserSubscriptionStatus(user: any) {
     return normalizedSub;
   }
 
-  // 3a. ADMIN OVERRIDE: If an admin explicitly assigned a plan (updated_by field exists)
-  // and the plan is a real plan (not 'none'/'waitlist'), treat it as active.
-  // This prevents admin-assigned plans from being blocked by stale status values
-  // (e.g. status stuck at 'pending' from signup while admin already set plan to 'growth').
   if (sub && sub.updated_by && sub.plan && sub.plan !== 'none' && sub.plan !== 'waitlist') {
     console.log(`[BILLING] ✅ Admin override detected (set by ${sub.updated_by}): plan=${sub.plan}, healing status to active`);
     sub.status = 'active';
@@ -215,6 +182,37 @@ export async function getUserSubscriptionStatus(user: any) {
       updated_at: sub.updated_at,
       adminOverride: true,
     };
+  }
+
+  // 2. Internal/admin fallback. This is only a fallback after explicit billing data.
+  if (userEmail === 'or@roadr.com' || userEmail === 'admin@contndr.com' || userEmail === 'demo@contndr.com' || userEmail === 'axel@redaxemedia.com' || userEmail === 'or@contndr.com' || userEmail?.endsWith('@contndr.com')) {
+    console.log('[BILLING] Admin/VIP email detected, granting full access');
+    return { status: 'active', plan: 'enterprise', isWhitelisted: true };
+  }
+
+  // 3. Check Whitelist first (legacy users)
+  if (await isUserWhitelisted(user.email)) {
+    console.log('[BILLING] User is whitelisted, granting access');
+    return { status: 'active', plan: 'enterprise', isWhitelisted: true };
+  }
+
+  // 4. If KV failed earlier, aggressively check Stripe directly instead of defaulting to waitlist.
+  if (!sub) {
+    try {
+      console.log('[BILLING] No usable KV subscription, checking Stripe sync fallback...');
+      const healed = await syncStripeSubscription(user.id, userEmail);
+      if (healed.synced && healed.subscription && ['active', 'trialing'].includes(healed.subscription.status)) {
+        return {
+          status: healed.subscription.status,
+          plan: healed.subscription.plan,
+          isWhitelisted: false,
+          stripe_sub_id: healed.subscription.stripe_sub_id,
+          updated_at: healed.subscription.updated_at
+        };
+      }
+    } catch (stripeErr: any) {
+      console.warn('[BILLING] Stripe sync fallback failed:', stripeErr?.message || stripeErr);
+    }
   }
 
   if (sub) {
@@ -295,14 +293,14 @@ export async function getUserSubscriptionStatus(user: any) {
             // Also heal the owner's KV so this shortcut isn't needed next time
             await kv.set(`contndr_sub:${teamId}`, {
               ...(ownerSub || {}),
-              plan: 'growth',
+              plan: 'enterprise',
               status: 'active',
               isWhitelisted: true,
               updated_at: new Date().toISOString(),
             });
             return {
               status: 'active',
-              plan: 'growth',
+              plan: 'enterprise',
               isWhitelisted: false,
               isTeamMember: true,
               teamOwnerId: teamId,

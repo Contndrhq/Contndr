@@ -11,7 +11,7 @@ import { checkMxRecords } from "./email-verify.tsx";
 
 // ── Plan Lead Limits (mirrored for module isolation) ──
 const PLAN_LEAD_LIMITS: Record<string, number> = {
-  none: 100, starter: 2500, professional: 10000, growth: -1,
+  none: 100, starter: 2500, professional: 10000, growth: 10000, scale: 50000, enterprise: -1,
 };
 
 function getLeadLimitForPlan(plan: string | undefined | null): number {

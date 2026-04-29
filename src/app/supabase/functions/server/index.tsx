@@ -675,7 +675,9 @@ const PLAN_LEAD_LIMITS: Record<string, number> = {
   none:         100,
   starter:      2500,
   professional: 10000,
-  growth:       -1,    // unlimited
+  growth:       10000,
+  scale:        50000,
+  enterprise:   -1,    // unlimited
 };
 
 function getLeadLimitForPlan(plan: string | undefined | null): number {
@@ -1235,10 +1237,10 @@ app.post("/make-server-a8b2511f/org/setup-contndr", async (c) => {
       console.log('[ORG] Created org account:', userId);
     }
 
-    // Set subscription to active/growth (bypass payment)
+    // Set subscription to active/enterprise (bypass payment)
     await kv.set(`contndr_sub:${userId}`, {
       status: 'active',
-      plan: 'growth',
+      plan: 'enterprise',
       isWhitelisted: true,
       updated_at: new Date().toISOString(),
       updated_by: 'org_setup',
@@ -1253,7 +1255,7 @@ app.post("/make-server-a8b2511f/org/setup-contndr", async (c) => {
       domain: 'contndr.com',
       created_at: new Date().toISOString(),
       bypass_payment: true,
-      plan: 'growth',
+      plan: 'enterprise',
     });
 
     // Initialize team if not exists
@@ -1343,10 +1345,10 @@ app.post("/make-server-a8b2511f/org/onboard-rep", async (c) => {
       repUserId = data.user.id;
     }
 
-    // Set subscription to active/growth (bypass payment via org)
+    // Set subscription to active/enterprise (bypass payment via org)
     await kv.set(`contndr_sub:${repUserId}`, {
       status: 'active',
-      plan: 'growth',
+      plan: 'enterprise',
       isWhitelisted: true,
       updated_at: new Date().toISOString(),
       updated_by: userEmail,
@@ -1446,10 +1448,10 @@ app.post("/make-server-a8b2511f/org/promote-admin", async (c) => {
       return c.json({ error: `Failed to update user metadata: ${updateErr.message}` }, 500);
     }
 
-    // 3. Set subscription to active/growth (bypass payment)
+    // 3. Set subscription to active/enterprise (bypass payment)
     await kv.set(`contndr_sub:${userId}`, {
       status: 'active',
-      plan: 'growth',
+      plan: 'enterprise',
       isWhitelisted: true,
       updated_at: new Date().toISOString(),
       updated_by: callerEmail,
@@ -2437,14 +2439,17 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
     
     const usersWithSubs = users.map(u => {
       const sub = subMap[u.id] || { status: 'none' };
-      // Internal/VIP users always get growth/unlimited regardless of stored KV plan
+      // Internal/VIP users get full access only as a fallback. Explicit admin/Stripe
+      // plans still win so Enterprise users display and enforce Enterprise limits.
       const internal = isInternalEmail(u.email);
-      const plan = internal ? 'growth' : (sub?.plan || 'none');
+      const plan = sub?.plan && sub.plan !== 'none' && sub.plan !== 'waitlist'
+        ? sub.plan
+        : internal ? 'enterprise' : 'none';
       const leadCount = leadCountMap[u.id] || 0;
       const leadLimit = getLeadLimitForPlan(plan);
       // Enrich the sub object for display so admin dashboard shows the effective plan
       if (internal && (!sub.plan || sub.plan === 'none' || sub.plan === 'waitlist')) {
-        sub.plan = 'growth';
+        sub.plan = 'enterprise';
         sub.status = 'active';
         sub.isWhitelisted = true;
         sub._internalOverride = true;

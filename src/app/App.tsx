@@ -1195,30 +1195,17 @@ function AppContent() {
       console.log('[BILLING] ========== CHECKING SUBSCRIPTION ==========');
       console.log('[BILLING] User:', userEmail);
       
-      // Skip API check for VIP emails (admin/demo/org) or admin UIDs to prevent lock out during dev
-      // This includes sales reps with @contndr.com for billing bypass
-      if (isAdminUid(user?.id)) {
-          console.log('[BILLING] Admin UID detected in frontend, setting active status');
-          const vipStatus = { status: 'active', plan: 'growth', isWhitelisted: true };
-          apiCache.set(cacheKey, vipStatus, { staleTime: 300_000, cacheTime: 600_000 });
-          setSubscriptionStatus(vipStatus);
-          return;
-      }
-      if (userEmail === 'admin@contndr.com' || userEmail === 'or@roadr.com' || userEmail === 'demo@contndr.com' || userEmail === 'or@contndr.com' || userEmail?.endsWith('@contndr.com')) {
-          console.log('[BILLING] VIP email detected in frontend, setting active status');
-          const vipStatus = { status: 'active', plan: 'growth', isWhitelisted: true };
-          // Cache VIP status so subsequent auth state changes don't spam the console
-          apiCache.set(cacheKey, vipStatus, { staleTime: 300_000, cacheTime: 600_000 });
-          setSubscriptionStatus(vipStatus);
-          console.log('[BILLING] ================================================');
-          return;
-      }
-
       const headers = await getAuthHeaders();
       // If no auth headers yet, wait for session to initialize
       if (!headers.Authorization) {
         console.log('[BILLING] Waiting for session initialization...');
-        setSubscriptionStatus({ status: 'pending', plan: 'waitlist', isWhitelisted: false });
+        if (isAdminUid(user?.id)) {
+          const fallbackStatus = { status: 'active', plan: 'enterprise', isWhitelisted: true };
+          apiCache.set(cacheKey, fallbackStatus, { staleTime: 30_000, cacheTime: 60_000 });
+          setSubscriptionStatus(fallbackStatus);
+        } else {
+          setSubscriptionStatus({ status: 'pending', plan: 'waitlist', isWhitelisted: false });
+        }
         console.log('[BILLING] ================================================');
         return;
       }
