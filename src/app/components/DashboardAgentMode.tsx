@@ -27,6 +27,16 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
     load();
   }, [load]);
 
+  useEffect(() => {
+    const onUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail) setData(detail);
+      else load();
+    };
+    window.addEventListener('agent-mode-updated', onUpdated);
+    return () => window.removeEventListener('agent-mode-updated', onUpdated);
+  }, [load]);
+
   const run = async () => {
     setRunning(true);
     try {
@@ -127,4 +137,3 @@ function MiniStat({ icon: Icon, label, value }: { icon: any; label: string; valu
     </div>
   );
 }
-

@@ -73,24 +73,32 @@ export function AgentModeSettings() {
     load();
   }, [load]);
 
-  const save = async () => {
+  const saveConfig = async (config: AgentModeConfig, quiet = false) => {
     setSaving(true);
     try {
       const res = await authenticatedFetch(`${API_BASE}/agent-mode`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(draft),
+        body: JSON.stringify(config),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Unable to save Agent Mode');
       setData(json);
       setDraft({ ...DEFAULT_CONFIG, ...(json.config || {}) });
-      toast.success('Agent Mode saved');
+      window.dispatchEvent(new CustomEvent('agent-mode-updated', { detail: json }));
+      if (!quiet) toast.success('Agent Mode saved');
+      return json;
     } catch (err: any) {
       toast.error('Could not save Agent Mode', { description: err.message });
+      await load();
+      throw err;
     } finally {
       setSaving(false);
     }
+  };
+
+  const save = async () => {
+    await saveConfig(draft);
   };
 
   const runNow = async () => {
@@ -108,8 +116,14 @@ export function AgentModeSettings() {
     }
   };
 
-  const setField = <K extends keyof AgentModeConfig>(key: K, value: AgentModeConfig[K]) => {
-    setDraft(prev => ({ ...prev, [key]: value }));
+  const setField = <K extends keyof AgentModeConfig>(key: K, value: AgentModeConfig[K], persist = false) => {
+    setDraft(prev => {
+      const next = { ...prev, [key]: value };
+      if (persist) {
+        saveConfig(next, true).catch(() => {});
+      }
+      return next;
+    });
   };
 
   if (loading) {
@@ -139,7 +153,7 @@ export function AgentModeSettings() {
         <div className="flex items-center gap-2 sm:justify-end">
           <button
             onClick={runNow}
-            disabled={!canUseAgent || running}
+            disabled={!canUseAgent || running || saving}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-zinc-200 dark:border-white/[0.08] text-[12.5px] font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-white/[0.04] disabled:opacity-50"
           >
             {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
@@ -167,7 +181,7 @@ export function AgentModeSettings() {
           icon={Bot}
           title="Enable Agent Mode"
           desc="Allow Contndr to monitor work and surface daily priorities."
-          right={<ToggleSwitch checked={draft.enabled} disabled={!canUseAgent} onChange={checked => setField('enabled', checked)} />}
+          right={<ToggleSwitch checked={draft.enabled} disabled={!canUseAgent || saving} onChange={checked => setField('enabled', checked, true)} />}
         />
         <div className="py-3.5 px-4">
           <div className="flex bg-zinc-100 dark:bg-white/[0.06] rounded-lg p-0.5 border border-zinc-200/60 dark:border-white/[0.06] w-full sm:w-fit">
@@ -177,7 +191,8 @@ export function AgentModeSettings() {
             ].map(option => (
               <button
                 key={option.id}
-                onClick={() => setField('autonomyLevel', option.id as AgentModeConfig['autonomyLevel'])}
+                onClick={() => setField('autonomyLevel', option.id as AgentModeConfig['autonomyLevel'], true)}
+                disabled={saving || !canUseAgent}
                 className={`px-4 py-1.5 rounded-md text-[11.5px] font-medium transition-all ${
                   draft.autonomyLevel === option.id
                     ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm'
@@ -195,16 +210,16 @@ export function AgentModeSettings() {
       </SettingsSection>
 
       <SettingsSection title="Permissions">
-        <PermissionRow title="Process due follow-ups" desc="Send configured follow-ups when campaign timing rules are met." checked={draft.autoFollowUps} onChange={v => setField('autoFollowUps', v)} />
-        <PermissionRow title="Launch prepared campaigns" desc="Start ready campaigns within daily action limits." checked={draft.autoLaunchCampaigns} onChange={v => setField('autoLaunchCampaigns', v)} />
-        <PermissionRow title="Pause weak campaigns" desc="Flag or pause campaigns when performance moves outside guardrails." checked={draft.autoPauseLowQuality} onChange={v => setField('autoPauseLowQuality', v)} />
+        <PermissionRow title="Process due follow-ups" desc="Send configured follow-ups when campaign timing rules are met." checked={draft.autoFollowUps} disabled={saving || !canUseAgent} onChange={v => setField('autoFollowUps', v, true)} />
+        <PermissionRow title="Launch prepared campaigns" desc="Start ready campaigns within daily action limits." checked={draft.autoLaunchCampaigns} disabled={saving || !canUseAgent} onChange={v => setField('autoLaunchCampaigns', v, true)} />
+        <PermissionRow title="Pause weak campaigns" desc="Flag or pause campaigns when performance moves outside guardrails." checked={draft.autoPauseLowQuality} disabled={saving || !canUseAgent} onChange={v => setField('autoPauseLowQuality', v, true)} />
         <PermissionRow
           title="Call hot visitors"
-          desc="Scale/Enterprise only. Trigger AI calls after identified prospects visit from campaign links."
+          desc={canAutoCall ? 'Automatically arm AI calls when identified prospects visit from campaign links.' : 'Scale/Enterprise only. Upgrade or refresh billing to enable visitor-triggered AI calls.'}
           checked={draft.autoCallHotVisitors && !!canAutoCall}
-          disabled={!canAutoCall}
+          disabled={saving || !canAutoCall}
           icon={Phone}
-          onChange={v => setField('autoCallHotVisitors', v)}
+          onChange={v => setField('autoCallHotVisitors', v, true)}
         />
       </SettingsSection>
 
@@ -274,6 +289,7 @@ function ToggleSwitch({ checked, disabled, onChange }: {
 }) {
   return (
     <button
+      type="button"
       role="switch"
       aria-checked={checked}
       disabled={disabled}

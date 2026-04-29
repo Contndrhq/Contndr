@@ -31,7 +31,7 @@ import quoApp from "./quo.tsx";
 import quoWebrtcApp from "./quo-webrtc.tsx";
 import elevenLabsApp from "./elevenlabs.tsx";
 import calendlyApp from "./calendly.tsx";
-import aiCallProcessorApp from "./ai-call-processor.tsx";
+import aiCallProcessorApp, { processCampaign as processAICallCampaign } from "./ai-call-processor.tsx";
 import aiCreditsApp from "./ai-credits.tsx";
 import { allocateCredits as allocateAICredits, hasCredits as hasAICredits, deductCredits as deductAICredits } from "./ai-credits.tsx";
 import leadEngineApp from "./lead-engine.tsx";
@@ -587,6 +587,179 @@ function isValidBusinessEmail(email: string): boolean {
   const emailLower = email.toLowerCase().trim();
   const invalidPatterns = ['placeholder', 'example', 'test'];
   return !invalidPatterns.some(p => emailLower.includes(p));
+}
+
+function normalizeIntentPageFromUrl(rawUrl: string | null | undefined): string | null {
+  if (!rawUrl) return null;
+  try {
+    const path = new URL(rawUrl).pathname.toLowerCase();
+    if (path.includes('pricing')) return 'pricing';
+    if (path.includes('demo') || path.includes('book-call')) return 'demo';
+    if (path.includes('contact')) return 'contact';
+    if (path.includes('case-study') || path.includes('case_study')) return 'case_study';
+    if (path.includes('checkout')) return 'checkout';
+  } catch {
+    const lower = String(rawUrl).toLowerCase();
+    if (lower.includes('pricing')) return 'pricing';
+    if (lower.includes('demo') || lower.includes('book-call')) return 'demo';
+    if (lower.includes('contact')) return 'contact';
+    if (lower.includes('case-study') || lower.includes('case_study')) return 'case_study';
+    if (lower.includes('checkout')) return 'checkout';
+  }
+  return null;
+}
+
+async function maybeTriggerAgentHotVisitorCall(args: {
+  targetUserId: string | null | undefined;
+  lead: any;
+  visitData: any;
+  supabase: ReturnType<typeof createClient>;
+}) {
+  const { targetUserId, lead, visitData, supabase } = args;
+  try {
+    if (!targetUserId || !lead?.id || lead.id === 'anonymous' || !lead.phone) return;
+    if (!['page_view', 'visit', undefined, null].includes(visitData?.event_type)) return;
+
+    const page = normalizeIntentPageFromUrl(visitData?.url);
+    if (!page) return;
+
+    const { data: authUserResult } = await supabase.auth.admin.getUserById(targetUserId).catch(() => ({ data: null } as any));
+    const accountUser = authUserResult?.user || { id: targetUserId, email: null };
+    const subscription = await getUserSubscriptionStatus(accountUser);
+    const entitlements = getPlanEntitlements(subscription?.plan || 'none');
+    const config = sanitizeAgentModeConfig(await kvGetSafe(`agent_mode:${targetUserId}:config`), entitlements);
+    if (!config.enabled || !config.autoCallHotVisitors || !entitlements.aiCalling || !entitlements.intentAutoCall) return;
+
+    const campaigns = await kv.getByPrefix(`ai-call-campaign:${targetUserId}:`).catch((error: any) => {
+      console.warn('[AGENT HOT CALL] Could not load AI call campaigns:', error?.message || error);
+      return [];
+    });
+    const template = (campaigns || []).find((campaign: any) => {
+      if (!campaign || campaign.status !== 'active' || String(campaign.id || '').startsWith('agent-hot-')) return false;
+      const trigger = campaign.intent_trigger || {};
+      if (!trigger.enabled || trigger.mode !== 'known_campaign_visitor') return false;
+      const pages = Array.isArray(trigger.pages) && trigger.pages.length ? trigger.pages : ['pricing', 'demo', 'contact'];
+      return pages.includes(page);
+    });
+
+    if (!template) {
+      await kvSetSafe(`agent_hot_call_missing_template:${targetUserId}`, {
+        status: 'needs_active_ai_call_campaign',
+        lead_id: lead.id,
+        page,
+        last_seen_at: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const trigger = template.intent_trigger || {};
+    const now = Date.now();
+    const cooldownHours = Math.min(168, Math.max(1, Number(trigger.cooldown_hours || 24)));
+    const cooldownKey = `agent_hot_call_cooldown:${targetUserId}:${lead.id}:${template.id}`;
+    const cooldown = await kvGetSafe<any>(cooldownKey);
+    if (cooldown?.expires_at && new Date(cooldown.expires_at).getTime() > now) return;
+
+    const dateKey = new Date().toISOString().split('T')[0];
+    const dailyKey = `agent_hot_call_daily:${targetUserId}:${dateKey}`;
+    const daily = (await kvGetSafe<any>(dailyKey)) || { date: dateKey, count: 0 };
+    const maxDailyCalls = Math.min(250, Math.max(1, Number(trigger.max_daily_calls || config.maxDailyActions || 25)));
+    if ((daily.count || 0) >= maxDailyCalls) return;
+
+    daily.count = (daily.count || 0) + 1;
+    daily.updated_at = new Date().toISOString();
+    await kvSetSafe(dailyKey, daily);
+
+    const callCampaignId = `agent-hot-${now}-${crypto.randomUUID().slice(0, 8)}`;
+    const hotLead = {
+      ...lead,
+      business_name: lead.business_name || lead.contact_name || 'Known visitor',
+      contact_name: lead.contact_name || lead.business_name || 'Known visitor',
+    };
+    const callCampaign = {
+      ...template,
+      id: callCampaignId,
+      parent_campaign_id: template.id,
+      name: `Hot visitor: ${hotLead.business_name}`,
+      status: 'active',
+      selected_leads: [hotLead],
+      total_leads: 1,
+      calls_made: 0,
+      in_progress: 0,
+      completed_calls: 0,
+      trigger_source: 'agent_mode_hot_visitor',
+      trigger_visit: {
+        id: visitData.id,
+        page,
+        url: visitData.url,
+        campaign_id: visitData.campaign_id,
+        email_id: visitData.email_id,
+        timestamp: visitData.timestamp,
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const campaignKey = `ai-call-campaign:${targetUserId}:${callCampaignId}`;
+    const queueKey = `agent_hot_call:${targetUserId}:${now}:${callCampaignId}`;
+    await kvSetSafe(campaignKey, callCampaign);
+    await kvSetSafe(queueKey, {
+      id: callCampaignId,
+      status: 'queued',
+      template_campaign_id: template.id,
+      lead_id: lead.id,
+      page,
+      url: visitData.url,
+      queued_at: new Date().toISOString(),
+    });
+    await kvSetSafe(cooldownKey, {
+      lead_id: lead.id,
+      template_campaign_id: template.id,
+      queued_at: new Date().toISOString(),
+      expires_at: new Date(now + cooldownHours * 60 * 60 * 1000).toISOString(),
+    });
+
+    const work = processAICallCampaign(callCampaignId, targetUserId, callCampaign)
+      .then(async () => {
+        const finalCampaign = await kvGetSafe<any>(campaignKey);
+        await kvSetSafe(queueKey, {
+          id: callCampaignId,
+          status: finalCampaign?.status || 'processed',
+          template_campaign_id: template.id,
+          lead_id: lead.id,
+          page,
+          url: visitData.url,
+          queued_at: new Date(now).toISOString(),
+          processed_at: new Date().toISOString(),
+          calls_made: finalCampaign?.calls_made || 0,
+          pause_reason: finalCampaign?.pause_reason || null,
+        });
+      })
+      .catch(async (error: any) => {
+        await kvSetSafe(queueKey, {
+          id: callCampaignId,
+          status: 'failed',
+          template_campaign_id: template.id,
+          lead_id: lead.id,
+          page,
+          url: visitData.url,
+          queued_at: new Date(now).toISOString(),
+          failed_at: new Date().toISOString(),
+          error: String(error?.message || error).slice(0, 500),
+        });
+      });
+
+    try {
+      if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) {
+        EdgeRuntime.waitUntil(work);
+      } else {
+        work.catch(() => {});
+      }
+    } catch {
+      work.catch(() => {});
+    }
+  } catch (error: any) {
+    console.warn('[AGENT HOT CALL] Trigger skipped:', error?.message || error);
+  }
 }
 
 // ─── Centralized Admin Check ─────────────────────────────────────────
@@ -6235,7 +6408,7 @@ app.post("/make-server-a8b2511f/track/web", async (c) => {
       // 1. Validate Lead exists if ID provided
       const { data: foundLead, error: leadError } = await supabase
         .from('leads')
-        .select('id, user_id, email, business_name, brand')
+        .select('id, user_id, email, phone, contact_name, business_name, brand')
         .eq('id', lead_id)
         .single();
         
@@ -6590,6 +6763,10 @@ app.post("/make-server-a8b2511f/track/web", async (c) => {
           user_id: lead.user_id
         });
       }
+
+      maybeTriggerAgentHotVisitorCall({ targetUserId, lead, visitData, supabase }).catch((error: any) => {
+        console.warn('[AGENT HOT CALL] Background trigger failed:', error?.message || error);
+      });
 
       // Update Daily AND Hourly Analytics
       if (targetUserId) {
@@ -17477,7 +17654,7 @@ app.get("/make-server-a8b2511f/agent-mode", async (c) => {
   try {
     const { user, supabase } = await getAuthenticatedUser(c);
     const payload = await getAgentModePayload(user, supabase);
-    c.header('Cache-Control', 'private, max-age=20, stale-while-revalidate=60');
+    c.header('Cache-Control', 'no-store');
     return c.json(payload);
   } catch (error) {
     console.error('[AGENT MODE] Load failed:', error);
@@ -17504,6 +17681,7 @@ app.put("/make-server-a8b2511f/agent-mode", async (c) => {
     });
 
     const payload = await getAgentModePayload(user, supabase);
+    c.header('Cache-Control', 'no-store');
     return c.json(payload);
   } catch (error) {
     console.error('[AGENT MODE] Save failed:', error);

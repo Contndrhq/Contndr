@@ -122,7 +122,7 @@ app.post('/start/:campaignId', async (c) => {
 });
 
 // Main campaign processing function
-async function processCampaign(campaignId: string, userId: string, campaign: any) {
+export async function processCampaign(campaignId: string, userId: string, campaign: any) {
   const processorKey = `${userId}:${campaignId}`;
   
   // Prevent multiple processors for the same campaign
