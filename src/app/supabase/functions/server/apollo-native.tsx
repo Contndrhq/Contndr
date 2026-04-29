@@ -711,29 +711,18 @@ function isGenericContactEmail(email: string | null | undefined): boolean {
   return stripped !== prefix && CONTACT_EMAIL_PREFIX_BLOCKLIST.has(stripped);
 }
 
-function hasContactEmail(lead: any): boolean {
+function hasUsablePersonEmail(lead: any): boolean {
   const email = (lead?.email || "").trim();
   if (!email || isGenericContactEmail(email)) return false;
   if (lead?.email_verification?.is_role_based) return false;
   return true;
 }
 
-function hasContactPhone(lead: any): boolean {
-  return !!(
-    lead?.phone_numbers?.some((p: any) => (p?.raw_number || "").trim())
-    || (lead?.organization?.phone || "").trim()
-  );
-}
-
-function isContactableLead(lead: any): boolean {
-  return hasContactEmail(lead) || hasContactPhone(lead);
-}
-
-function filterContactablePeople<T extends any>(people: T[], context: string): T[] {
-  const filtered = people.filter(isContactableLead);
+function filterEmailQualifiedPeople<T extends any>(people: T[], context: string): T[] {
+  const filtered = people.filter(hasUsablePersonEmail);
   const dropped = people.length - filtered.length;
   if (dropped > 0) {
-    console.log(`[APOLLO] ${context}: dropped ${dropped} profile-only leads without email or phone`);
+    console.log(`[APOLLO] ${context}: dropped ${dropped} leads without usable person email`);
   }
   return filtered;
 }
@@ -1065,7 +1054,7 @@ async function hybridEnrichPeople(
 
   // ── Assemble final list preserving original order ──
   const idOrder = new Map(allRawPeople.map((p: any, i: number) => [p.id, i]));
-  const enrichedPeople = filterContactablePeople([...revealedMap.values()], "enrichment").sort(
+  const enrichedPeople = filterEmailQualifiedPeople([...revealedMap.values()], "enrichment").sort(
     (a, b) => (idOrder.get(a.id) ?? 999) - (idOrder.get(b.id) ?? 999)
   );
 
@@ -1261,14 +1250,14 @@ app.post("/search-stream", async (c) => {
 
             if (isEnrichedCache) {
               // Already enriched — return directly (no credit burn)
-              cachedEnriched = filterContactablePeople(cached.people, "cache");
+              cachedEnriched = filterEmailQualifiedPeople(cached.people, "cache");
               cachedSources = cached.enrichment_sources || cachedSources;
               console.log(`[APOLLO SSE] Returning ${cachedEnriched.length} pre-enriched cached leads (no re-reveal needed)`);
             } else {
               // Old raw cache — must enrich (this path handles legacy cache entries)
               send("phase", { phase: 4, name: "Enriching contacts", status: "processing" });
               const enrichResult = await hybridEnrichPeople(cached.people, user.id, send, () => isCancelled);
-              cachedEnriched = filterContactablePeople(enrichResult.people, "legacy cache enrichment");
+              cachedEnriched = filterEmailQualifiedPeople(enrichResult.people, "legacy cache enrichment");
               cachedSources = { hunter: enrichResult.hunterFound, findymail: enrichResult.findymailFound, apollo_reveal: enrichResult.apolloRevealCount, phone_enrich: enrichResult.phoneEnrichFound, hunter_phone: enrichResult.hunterPhoneFound, pattern_guessed: enrichResult.patternGuessed, verified: enrichResult.verified, verified_valid: enrichResult.verifiedValid, verified_risky: enrichResult.verifiedRisky, verified_invalid: enrichResult.verifiedInvalid };
               // Upgrade cache to enriched format so next hit is free
               setCachedSearch(cacheKey, cachedEnriched, cached.params || {}, cachedSources).catch(() => {});
@@ -1319,7 +1308,7 @@ app.post("/search-stream", async (c) => {
           let poolSize = 0;
           try {
             const poolResult = await searchPool(poolCriteria, undefined, Math.min(max_results, 200));
-            poolLeads = filterContactablePeople(poolResult.leads, "local pool");
+            poolLeads = filterEmailQualifiedPeople(poolResult.leads, "local pool");
             poolKvMatches = poolResult.kvMatches;
             poolDbMatches = poolResult.dbMatches;
             poolSize = poolResult.totalPoolSize;
@@ -1358,7 +1347,7 @@ app.post("/search-stream", async (c) => {
             } catch (_) {}
             send("phase", { phase: 3, name: "CRM dedup check", status: "complete" });
 
-          const poolResults = filterContactablePeople(poolLeads, "pool response").slice(0, max_results) as any as ApolloLead[];
+          const poolResults = filterEmailQualifiedPeople(poolLeads, "pool response").slice(0, max_results) as any as ApolloLead[];
             const poolStats = {
               total: poolResults.length,
               with_email: poolResults.filter(p => p.email).length,
@@ -1579,7 +1568,7 @@ app.post("/search-stream", async (c) => {
           send("activity", { message: `Starting multi-source enrichment for ${trimmedPeople.length} contacts...`, type: "info" });
 
           const enrichResult = await hybridEnrichPeople(trimmedPeople, user.id, send, () => isCancelled);
-          const enrichedPeople = filterContactablePeople(enrichResult.people, "external enrichment");
+          const enrichedPeople = filterEmailQualifiedPeople(enrichResult.people, "external enrichment");
           const apolloCreditsExhausted = enrichResult.creditsExhausted;
           const enrichmentSources = { hunter: enrichResult.hunterFound, findymail: enrichResult.findymailFound, apollo_reveal: enrichResult.apolloRevealCount, phone_enrich: enrichResult.phoneEnrichFound, hunter_phone: enrichResult.hunterPhoneFound, pattern_guessed: enrichResult.patternGuessed, verified: enrichResult.verified, verified_valid: enrichResult.verifiedValid, verified_risky: enrichResult.verifiedRisky, verified_invalid: enrichResult.verifiedInvalid };
 
@@ -1602,7 +1591,7 @@ app.post("/search-stream", async (c) => {
 
           // Add pool leads first
           for (const pl of poolLeads) {
-            if (!isContactableLead(pl)) continue;
+            if (!hasUsablePersonEmail(pl)) continue;
             const email = (pl.email || "").toLowerCase();
             if (email && mergedEmails.has(email)) continue;
             if (email) mergedEmails.add(email);
@@ -1611,7 +1600,7 @@ app.post("/search-stream", async (c) => {
 
           // Then add enriched external leads
           for (const el of enrichedPeople) {
-            if (!isContactableLead(el)) continue;
+            if (!hasUsablePersonEmail(el)) continue;
             const email = (el.email || "").toLowerCase();
             if (!email || !mergedEmails.has(email)) {
               if (email) mergedEmails.add(email);
@@ -2043,8 +2032,8 @@ app.post("/save-to-crm", async (c) => {
         const phone =
           lead.phone_numbers?.[0]?.raw_number || lead.organization?.phone || "";
 
-        if (!emailLower && !phone) {
-          console.log(`[APOLLO] Blocked profile-only lead without email or phone: ${lead.name || 'unknown'}`);
+        if (!emailLower) {
+          console.log(`[APOLLO] Blocked lead without mandatory email: ${lead.name || 'unknown'}`);
           results.skipped++;
           continue;
         }

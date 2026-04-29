@@ -5,8 +5,7 @@
 // Enrichment: Hunter.io → Findymail → Pattern Guessing → Email Verification
 //
 // QUALITY GATE:
-// - Main results must have a usable email or phone number.
-// - Phone-only leads may be marked _preview because email is unavailable.
+// - Main People Finder results must have a usable person email.
 // - Profile-only rows are kept out of cache, pool, and final results.
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -14,7 +13,7 @@ import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
 import { getTeamMemberIds } from "./team.tsx";
-import { verifyEmailBatch } from "./email-verify.tsx";
+import { guessEmails, verifyEmailBatch } from "./email-verify.tsx";
 import { searchPool, saveToPool, getPoolStats, type PoolLead, type SearchCriteria } from "./lead-pool.tsx";
 // Note: isValidPersonName & getRoleTier exist in enrichment_agent.tsx but are unused here.
 // This file uses its own local isCleanPersonName() and inferSeniority() instead.
@@ -41,6 +40,15 @@ function toTitleCase(str: string | null | undefined): string {
 }
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+
+function extractEmailDomain(raw: string | null | undefined): string {
+  return (raw || "")
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/.*/, "")
+    .toLowerCase()
+    .trim();
+}
 
 // ── Name Quality Validator — rejects garbage, partial, or non-human names ──
 function isCleanPersonName(firstName: string, lastName: string): boolean {
@@ -697,37 +705,25 @@ function isGenericEmail(email: string): boolean {
   return false;
 }
 
-function hasContactEmail(lead: DeepLead): boolean {
+function hasUsablePersonEmail(lead: DeepLead): boolean {
   const email = (lead.email || "").trim();
   if (!email || isGenericEmail(email)) return false;
   if (lead.email_verification?.is_role_based) return false;
   return true;
 }
 
-function hasContactPhone(lead: DeepLead): boolean {
-  return !!(
-    lead.phone_numbers?.some((p: any) => (p?.raw_number || "").trim())
-    || (lead.organization?.phone || "").trim()
-  );
-}
-
-function isContactableLead(lead: DeepLead): boolean {
-  return hasContactEmail(lead) || hasContactPhone(lead);
-}
-
-function filterContactablePeople<T extends DeepLead>(people: T[], context: string): T[] {
-  const filtered = people.filter(isContactableLead);
+function filterEmailQualifiedPeople<T extends DeepLead>(people: T[], context: string): T[] {
+  const filtered = people.filter(hasUsablePersonEmail);
   const dropped = people.length - filtered.length;
   if (dropped > 0) {
-    console.log(`[DEEP PROSPECT] ${context}: dropped ${dropped} profile-only leads without email or phone`);
+    console.log(`[DEEP PROSPECT] ${context}: dropped ${dropped} leads without usable person email`);
   }
   return filtered;
 }
 
 // ── Quality gate — reject leads that don't have essential data ──
 function isQualityLead(lead: DeepLead): boolean {
-  // Main results must be contactable: verified/non-generic email or phone.
-  if (!isContactableLead(lead)) return false;
+  if (!hasUsablePersonEmail(lead)) return false;
 
   // ═══ BLOCK GENERIC EMAILS — decision makers only ═══
   if (lead.email?.trim() && isGenericEmail(lead.email)) {
@@ -1619,7 +1615,7 @@ app.post("/search-stream", async (c) => {
               send("phase", { phase: 1, name: "Cache hit — loading saved results", status: "complete" });
 
               // Apply quality gate + industry filter to cached results.
-              // Keep only contactable leads so stale cache cannot show profile-only rows.
+              // Keep only email-qualified leads so stale cache cannot show profile-only rows.
               let qualityPeople = (data.people as DeepLead[]).filter(l => {
                 if (isQualityLead(l)) return true;
                 const isPartialQualityLead = (lead: DeepLead): boolean => {
@@ -1646,7 +1642,7 @@ app.post("/search-stream", async (c) => {
                   if (titleClean.split(/\s+/).length > 8) return false;
                   return true;
                 };
-                if (!l.email && isContactableLead(l) && isPartialQualityLead(l)) {
+                if (!l.email && hasUsablePersonEmail(l) && isPartialQualityLead(l)) {
                   (l as any)._preview = true;
                   return true;
                 }
@@ -1662,7 +1658,7 @@ app.post("/search-stream", async (c) => {
                 qualityPeople = qualityPeople.filter(l => matchesLocationFilter(l, organization_locations));
                 console.log(`[DEEP PROSPECT] Cache location filter: ${preLocCount} → ${qualityPeople.length} leads`);
               }
-              qualityPeople = filterContactablePeople(qualityPeople, "cache");
+              qualityPeople = filterEmailQualifiedPeople(qualityPeople, "cache");
               const withEmail = qualityPeople.filter(l => l.email).length;
               const withPhone = qualityPeople.filter(l => l.phone_numbers?.length > 0 || l.organization?.phone).length;
               console.log(`[DEEP PROSPECT] Cache quality gate: ${data.people.length} → ${qualityPeople.length} leads (${withEmail} with email, ${withPhone} with phone)`);
@@ -1714,7 +1710,7 @@ app.post("/search-stream", async (c) => {
             const poolPromise = searchPool(poolCriteria, undefined, Math.min(max_results * 2, 5000));
             const poolTimeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error('searchPool timed out after 25s')), 25_000));
             const poolResult = await Promise.race([poolPromise, poolTimeout]);
-            poolLeads = filterContactablePeople(poolResult.leads as any as DeepLead[], "local pool") as any as PoolLead[];
+            poolLeads = filterEmailQualifiedPeople(poolResult.leads as any as DeepLead[], "local pool") as any as PoolLead[];
             // Apply strict industry filter to pool results
             if (organization_industries?.length) {
               const preFilterCount = poolLeads.length;
@@ -2202,25 +2198,82 @@ app.post("/search-stream", async (c) => {
           console.log(`[DEEP PROSPECT] Industries: ${leads.map(l => l.organization?.industry || 'NONE').join(', ')}`);
           send("phase", { phase: 3, name: "Building lead profiles", status: "complete" });
 
-          // Stream the newly built leads immediately so the UI shows them while enriching
-          // Mark leads without email as preview while enrichment is still running.
-          if (leads.length > 0) {
-            const previewLeads = leads.map(l => {
-              if (!l.email) return { ...l, _preview: true };
-              return l;
-            });
-            send("people", { people: previewLeads, partial: true, preview: previewLeads.some(l => (l as any)._preview) });
+          // Do not stream profile-only rows. People Finder results are email-mandatory.
+          if (leads.some(l => l.email)) {
+            send("people", { people: leads.filter(l => l.email), partial: true, preview: false });
           }
 
           // ══════════════════════════════════════════════════════════════
-          // PHASE 4: Email Enrichment — Hunter → Findymail → Pattern
+          // PHASE 4: Email Enrichment — local patterns → Hunter → Findymail
           // ══════════════════════════════════════════════════════════════
           const leadsWithDomain = leads.filter(l => l.organization.website_url);
           const leadsNoDomain = leads.filter(l => !l.organization.website_url);
 
           console.log(`[DEEP PROSPECT] Phase 4: ${leadsWithDomain.length} leads have domains, ${leadsNoDomain.length} without`);
 
-          // ── Phase 4a: Hunter.io email finder ──
+          // ── Phase 4a: First-party email pattern resolver ──
+          // Cheaper than paid providers: learn same-domain formats from the
+          // local pool/current batch, generate one high-confidence candidate,
+          // and keep it only after verification.
+          let patternGuessed = 0;
+          const patternKnownEmails = [
+            ...poolLeads.map((lead: any) => ({
+              email: lead.email,
+              first_name: lead.first_name,
+              last_name: lead.last_name,
+              domain: extractEmailDomain(lead.organization?.website_url || lead.email?.split("@")[1] || ""),
+            })),
+            ...leads.filter(l => l.email).map((lead: any) => ({
+              email: lead.email,
+              first_name: lead.first_name,
+              last_name: lead.last_name,
+              domain: extractEmailDomain(lead.organization?.website_url || lead.email?.split("@")[1] || ""),
+            })),
+          ].filter((lead: any) => lead.email && lead.first_name && lead.last_name && lead.domain);
+
+          const patternTargets = leads
+            .filter(l => !l.email && l.first_name && l.last_name && l.organization.website_url)
+            .map(l => ({
+              id: l.id,
+              first_name: l.first_name,
+              last_name: l.last_name,
+              domain: extractEmailDomain(l.organization.website_url),
+            }))
+            .filter(l => l.domain);
+
+          if (patternTargets.length > 0 && patternKnownEmails.length > 0 && !isCancelled) {
+            send("phase", { phase: 4.5, name: `Resolving email patterns (${patternTargets.length})`, status: "processing" });
+            try {
+              const guesses = await guessEmails(patternTargets, patternKnownEmails);
+              const strictGuesses = [...guesses.entries()].filter(([, guess]) => guess.confidence >= 85);
+              if (strictGuesses.length > 0) {
+                const verificationResults = await verifyEmailBatch(
+                  strictGuesses.map(([id, guess]) => ({ id, email: guess.email })),
+                  15,
+                );
+                for (const [id, guess] of strictGuesses) {
+                  const verification = verificationResults.get(id);
+                  if (!verification || verification.status === "invalid" || !verification.mx_valid || verification.is_role_based) continue;
+                  const lead = leads.find(l => l.id === id);
+                  if (!lead || lead.email) continue;
+                  lead.email = guess.email;
+                  lead.email_status = verification.status === "valid" ? "verified" : "guessed";
+                  lead.email_verification = verification;
+                  (lead as any)._enrichment_source = "pattern_local";
+                  patternGuessed++;
+                }
+              }
+              if (patternGuessed > 0) {
+                send("activity", { message: `Resolved ${patternGuessed} emails from known company patterns`, type: "success" });
+                send("people", { people: leads.filter(l => l.email), partial: true, preview: false });
+              }
+            } catch (err: any) {
+              console.warn(`[DEEP PROSPECT] Local email pattern resolver failed: ${err.message}`);
+            }
+            send("phase", { phase: 4.5, name: "Resolving email patterns", status: "complete", found: patternGuessed });
+          }
+
+          // ── Phase 4b: Hunter.io email finder ──
           let hunterFound = 0;
           let hunterPhoneFound = 0;
 
@@ -2273,7 +2326,7 @@ app.post("/search-stream", async (c) => {
               }
 
               // Stream partial leads to frontend immediately
-              const enrichedSoFar = leads.filter(l => l.email || l.phone_numbers.length > 0);
+              const enrichedSoFar = leads.filter(l => l.email);
               if (enrichedSoFar.length > 0) {
                 send("people", { people: enrichedSoFar, partial: true, preview: false });
               }
@@ -2286,7 +2339,7 @@ app.post("/search-stream", async (c) => {
             send("phase", { phase: 5, name: "Finding email addresses", status: "complete" });
           }
 
-          // ── Phase 4b: Findymail for leads still missing email ──
+          // ── Phase 4c: Findymail for leads still missing email ──
           let findymailFound = 0;
 
           if (FINDYMAIL_KEY && !isCancelled) {
@@ -2330,7 +2383,7 @@ app.post("/search-stream", async (c) => {
                   }
                 }
                 
-                const enrichedSoFar = leads.filter(l => l.email || l.phone_numbers.length > 0);
+                const enrichedSoFar = leads.filter(l => l.email);
                 if (enrichedSoFar.length > 0) {
                   send("people", { people: enrichedSoFar, partial: true, preview: false });
                 }
@@ -2342,12 +2395,6 @@ app.post("/search-stream", async (c) => {
               send("phase", { phase: 6, name: "Advanced email search", status: "complete" });
             }
           }
-
-          // ── Phase 4c: DISABLED — No pattern guessing ──
-          // Pattern guessing (fabricating emails from firstname@domain.com) has been
-          // permanently removed. Only real verified emails from Hunter.io and Findymail
-          // are used. Fabricated emails cause bounces and damage sender reputation.
-          let patternGuessed = 0;
 
           // ══════════════════════════════════════════════════════════════
           // PHASE 5: Email Verification
@@ -2479,7 +2526,7 @@ app.post("/search-stream", async (c) => {
                 }
               }
               
-              const enrichedSoFar = leads.filter(l => l.email || l.phone_numbers.length > 0);
+              const enrichedSoFar = leads.filter(l => l.email);
               if (enrichedSoFar.length > 0) {
                 send("people", { people: enrichedSoFar, partial: true, preview: false });
               }
@@ -2515,7 +2562,7 @@ app.post("/search-stream", async (c) => {
                   onProgress: (done, total) => {
                     send("progress", { fetched: done, total, phase: "deep_phone" });
                     // Stream partial updates as phones are found
-                    const enrichedSoFar = leads.filter(l => l.email || l.phone_numbers.length > 0);
+                    const enrichedSoFar = leads.filter(l => l.email);
                     if (enrichedSoFar.length > 0) {
                       send("people", { people: enrichedSoFar, partial: true, preview: false });
                     }
@@ -2629,7 +2676,7 @@ app.post("/search-stream", async (c) => {
           const mergedEmails = new Set<string>();
           const mergedNames = new Set<string>();
           const tier1People: DeepLead[] = []; // With email
-          const tier2People: DeepLead[] = []; // Phone-only contactable leads.
+          const tier2People: DeepLead[] = []; // Phone-only email-qualified leads.
 
           // Helper: check if lead has basic data (name + company + title) but no email
           // More lenient for leads with LinkedIn URL — still actionable for outreach
@@ -2703,7 +2750,7 @@ app.post("/search-stream", async (c) => {
                 mergedNames.add(nameKey);
                 tier1People.push(dlead);
               }
-            } else if (isContactableLead(dlead) && isPartialQualityLead(dlead) && !mergedNames.has(nameKey)) {
+            } else if (hasUsablePersonEmail(dlead) && isPartialQualityLead(dlead) && !mergedNames.has(nameKey)) {
               mergedNames.add(nameKey);
               if (!dlead.email) dlead.email_status = "unavailable";
               tier2People.push(dlead);
@@ -2731,7 +2778,7 @@ app.post("/search-stream", async (c) => {
                 mergedNames.add(nameKey);
                 tier1People.push(dlead);
               }
-            } else if (isContactableLead(dlead) && isPartialQualityLead(dlead) && !mergedNames.has(nameKey)) {
+            } else if (hasUsablePersonEmail(dlead) && isPartialQualityLead(dlead) && !mergedNames.has(nameKey)) {
               mergedNames.add(nameKey);
               if (!dlead.email) dlead.email_status = "unavailable";
               tier2People.push(dlead);
@@ -2751,7 +2798,7 @@ app.post("/search-stream", async (c) => {
           if (organization_industries?.length) {
             console.log(`[DEEP PROSPECT] Industry filter active: [${organization_industries.join(', ')}]`);
           }
-          console.log(`[DEEP PROSPECT] Two-tier merge: ${tier1People.length} primary contacts, ${tier2People.length} phone-only contacts, from ${preQualityCount} total candidates`);
+          console.log(`[DEEP PROSPECT] Two-tier merge: ${tier1People.length} primary contacts, ${tier2People.length} email-qualified contacts, from ${preQualityCount} total candidates`);
 
           // Sort within each tier: leads WITH industry first, then without
           const sortByIndustry = (a: DeepLead, b: DeepLead) => {
@@ -2762,7 +2809,7 @@ app.post("/search-stream", async (c) => {
           tier1People.sort(sortByIndustry);
           tier2People.sort(sortByIndustry);
 
-          // Fill contactable leads first. Tier 2 is phone-only contactable leads that missed full email quality.
+          // Fill email-qualified leads first. Tier 2 is leads with usable emails that missed full email quality.
           const finalPeople: DeepLead[] = [];
           for (const p of tier1People) {
             if (finalPeople.length >= max_results) break;
@@ -2771,19 +2818,17 @@ app.post("/search-stream", async (c) => {
           if (finalPeople.length < max_results) {
             for (const p of tier2People) {
               if (finalPeople.length >= max_results) break;
-              // Mark phone-only tier2 leads as preview so the UI can show that email may still be unavailable.
-              (p as any)._preview = true;
               finalPeople.push(p);
             }
           }
 
           const withIndustry = finalPeople.filter(l => l.organization?.industry).length;
           const previewLeads = finalPeople.filter(l => (l as any)._preview).length;
-          console.log(`[DEEP PROSPECT] Final output: ${finalPeople.length} contactable leads (${finalPeople.filter(l => l.email).length} with email, ${finalPeople.filter(l => l.phone_numbers?.length > 0 || l.organization?.phone).length} with phone, ${previewLeads} preview, ${withIndustry} with industry)`);
+          console.log(`[DEEP PROSPECT] Final output: ${finalPeople.length} email-qualified leads (${finalPeople.filter(l => l.email).length} with email, ${finalPeople.filter(l => l.phone_numbers?.length > 0 || l.organization?.phone).length} with phone, ${previewLeads} preview, ${withIndustry} with industry)`);
 
           // Save to pool
           send("phase", { phase: 9, name: "Saving to database", status: "processing" });
-          const poolSaved = await saveToPool(filterContactablePeople(leads, "pool save") as any as PoolLead[]).catch(() => ({ saved: 0, skipped: 0 }));
+          const poolSaved = await saveToPool(filterEmailQualifiedPeople(leads, "pool save") as any as PoolLead[]).catch(() => ({ saved: 0, skipped: 0 }));
           send("phase", { phase: 9, name: "Saving to database", status: "complete", saved: poolSaved.saved });
 
           // Cache results
