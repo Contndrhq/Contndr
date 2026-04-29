@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bot, ChevronRight, Loader2, Play, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Bot, Loader2, Play, Phone, ShieldCheck, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { authenticatedFetch } from '../lib/auth';
 import { projectId } from '../utils/supabase/info';
@@ -67,50 +67,58 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
   const priorities = data?.recommendations || [];
   const canUse = data?.entitlements?.agentMode;
 
+  const statusText = enabled
+    ? `${config.autonomyLevel === 'autopilot' ? 'Autopilot' : 'Supervised'} active`
+    : canUse
+      ? 'Ready to activate'
+      : 'Premium automation';
+
   return (
-    <div className="glass-card h-full p-5 flex flex-col">
-      <div className="flex items-start justify-between gap-3 mb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${enabled ? 'bg-[#1ED4A7]/10' : 'bg-zinc-100 dark:bg-zinc-900'}`}>
-              <Bot className={`w-4 h-4 ${enabled ? 'text-[#1ED4A7]' : 'text-zinc-400'}`} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-zinc-900 dark:text-white">Agent Mode</h3>
-              <p className="text-xs text-zinc-500">{enabled ? `${config.autonomyLevel === 'autopilot' ? 'Autopilot' : 'Supervised'} active` : canUse ? 'Ready to activate' : 'Premium automation'}</p>
-            </div>
-          </div>
+    <div className="glass-card h-full p-4 sm:p-5 flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider">
+            Agent Mode
+          </h3>
+          <span className={`text-[10px] font-medium truncate ${enabled ? 'text-[#1ED4A7]' : 'text-zinc-400 dark:text-zinc-500'}`}>
+            {statusText}
+          </span>
         </div>
         <button
           onClick={() => {
             window.dispatchEvent(new CustomEvent('switch-settings-tab', { detail: 'agent-mode' }));
             onNavigate('settings');
           }}
-          className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+          className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 dark:text-zinc-500 hover:text-[#1ED4A7] transition-colors"
           title="Configure Agent Mode"
         >
-          <ChevronRight className="w-4 h-4" />
+          Configure <ArrowUpRight className="w-3 h-3" />
         </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 mb-4">
+      <div className="grid grid-cols-3 gap-2 mb-3">
         <MiniStat icon={Sparkles} label="Actions" value={String(config.maxDailyActions || 0)} />
         <MiniStat icon={ShieldCheck} label="Follow-ups" value={config.autoFollowUps ? 'On' : 'Off'} />
-        <MiniStat icon={Bot} label="Calls" value={config.autoCallHotVisitors ? 'On' : 'Off'} />
+        <MiniStat icon={Phone} label="Calls" value={config.autoCallHotVisitors ? 'On' : 'Off'} />
       </div>
 
-      <div className="flex-1 min-h-0 space-y-2 overflow-hidden">
+      <div className="flex-1 min-h-0 space-y-1.5 overflow-hidden border-t border-zinc-200 dark:border-white/[0.06] pt-3">
         {priorities.slice(0, 3).map((item: any) => (
-          <div key={item.id} className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-950/40 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium text-zinc-900 dark:text-white truncate">{item.title}</p>
-              <span className="text-[9px] uppercase tracking-wider text-[#1ED4A7]">{item.priority}</span>
+          <div key={item.id} className="rounded-lg px-2.5 py-2 hover:bg-zinc-50/70 dark:hover:bg-white/[0.03] transition-colors">
+            <div className="flex items-start gap-2">
+              <span className={`mt-1 h-1.5 w-1.5 rounded-full flex-shrink-0 ${item.priority === 'high' ? 'bg-[#1ED4A7]' : 'bg-zinc-400 dark:bg-zinc-600'}`} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[12px] font-medium text-zinc-900 dark:text-white truncate">{item.title}</p>
+                  <span className="text-[9px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500 flex-shrink-0">{item.priority}</span>
+                </div>
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mt-0.5 line-clamp-1">{item.detail}</p>
+              </div>
             </div>
-            <p className="text-xs text-zinc-500 mt-1 line-clamp-1">{item.detail}</p>
           </div>
         ))}
         {priorities.length === 0 && (
-          <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40 p-4 text-sm text-zinc-500">
+          <div className="rounded-lg px-2.5 py-4 text-[12px] text-zinc-500">
             No urgent priorities. The workspace is quiet.
           </div>
         )}
@@ -119,9 +127,9 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
       <button
         onClick={run}
         disabled={!canUse || running}
-        className="mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-black text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+        className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-zinc-50 dark:bg-white/[0.04] text-zinc-700 dark:text-zinc-300 text-[12px] font-medium hover:bg-zinc-100 dark:hover:bg-white/[0.07] hover:text-zinc-900 dark:hover:text-white transition-colors disabled:opacity-50 border border-zinc-200 dark:border-white/[0.06]"
       >
-        {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+        {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
         Run Agent Pass
       </button>
     </div>
@@ -130,10 +138,12 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
 
 function MiniStat({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-black/30 p-2">
-      <Icon className="w-3.5 h-3.5 text-[#1ED4A7] mb-1" />
-      <p className="text-[9px] uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className="text-sm font-bold text-zinc-900 dark:text-white">{value}</p>
+    <div className="rounded-lg border border-zinc-200 dark:border-white/[0.06] bg-zinc-50/60 dark:bg-white/[0.02] px-2.5 py-2">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon className="w-3 h-3 text-[#1ED4A7]" />
+        <p className="text-[9px] uppercase tracking-wider text-zinc-500 dark:text-zinc-500 truncate">{label}</p>
+      </div>
+      <p className="text-[13px] font-bold text-zinc-900 dark:text-white leading-none">{value}</p>
     </div>
   );
 }
