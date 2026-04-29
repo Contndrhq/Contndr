@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Bot, CheckCircle2, Loader2, Phone, Play, Save, Shield, Sparkles, Zap } from 'lucide-react';
+import { Bot, Loader2, Phone, Play, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { authenticatedFetch } from '../lib/auth';
 import { projectId } from '../utils/supabase/info';
@@ -125,173 +125,145 @@ export function AgentModeSettings() {
   const canAutoCall = entitlements?.aiCalling && entitlements?.intentAutoCall;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-[#1ED4A7]/10 flex items-center justify-center">
-              <Bot className="w-4 h-4 text-[#1ED4A7]" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-zinc-900 dark:text-white">Agent Mode</h2>
-              <p className="text-sm text-zinc-500">Let Contndr decide, prioritize, and execute the sales work that should not need your attention.</p>
-            </div>
+    <div className="max-w-3xl space-y-8">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-white/[0.08] dark:to-white/[0.03] flex items-center justify-center border border-zinc-200/80 dark:border-white/[0.06]">
+            <Bot className="w-4.5 h-4.5 text-zinc-600 dark:text-zinc-300" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-white tracking-tight">Agent Mode</h2>
+            <p className="text-[13px] text-zinc-500 dark:text-zinc-400">Configure how much work Contndr can handle for you.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 sm:justify-end">
           <button
             onClick={runNow}
             disabled={!canUseAgent || running}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 text-sm font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-900 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-zinc-200 dark:border-white/[0.08] text-[12.5px] font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-white/[0.04] disabled:opacity-50"
           >
-            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            Run Now
+            {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+            Run
           </button>
           <button
             onClick={save}
             disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-black text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-black text-[12.5px] font-semibold hover:opacity-90 disabled:opacity-50"
           >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             Save
           </button>
         </div>
       </div>
 
       {!canUseAgent && (
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-300">
-          Agent Mode is available on Growth, Scale, and Enterprise plans. Upgrade this workspace to activate autonomous execution.
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-[13px] text-amber-700 dark:text-amber-300">
+          Agent Mode is available on Growth, Scale, and Enterprise plans.
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5">
-        <div className="space-y-4">
-          <section className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#050505] p-5 shadow-sm dark:shadow-none">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">Autonomous operating system</h3>
-                  <StatusPill active={draft.enabled} />
-                </div>
-                <p className="text-xs text-zinc-500 mt-1 max-w-3xl">The agent monitors campaigns, processes follow-ups, protects deliverability, and surfaces the highest-value next move.</p>
-              </div>
-              <ToggleSwitch
-                checked={draft.enabled}
-                disabled={!canUseAgent}
-                onChange={checked => setField('enabled', checked)}
-              />
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#050505] p-5">
-            <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Mode</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-              {[
-                { id: 'supervised', title: 'Supervised', desc: 'Recommend and execute low-risk work only.' },
-                { id: 'autopilot', title: 'Autopilot', desc: 'Execute approved playbooks without daily confirmation.' },
-              ].map(option => (
-                <button
-                  key={option.id}
-                  onClick={() => setField('autonomyLevel', option.id as AgentModeConfig['autonomyLevel'])}
-                  className={`relative text-left p-4 rounded-xl border transition-all overflow-hidden ${draft.autonomyLevel === option.id ? 'border-[#1ED4A7]/70 bg-[#1ED4A7]/10 shadow-[0_0_0_1px_rgba(30,212,167,0.12)_inset]' : 'border-zinc-200 dark:border-white/[0.08] hover:bg-zinc-50 dark:hover:bg-white/[0.03]'}`}
-                >
-                  {draft.autonomyLevel === option.id && <div className="absolute right-3 top-3 w-2 h-2 rounded-full bg-[#1ED4A7]" />}
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
-                    {option.id === 'autopilot' ? <Zap className="w-4 h-4 text-[#1ED4A7]" /> : <Shield className="w-4 h-4 text-zinc-400" />}
-                    {option.title}
-                  </div>
-                  <p className="text-xs text-zinc-500 mt-1">{option.desc}</p>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#050505] p-5">
-            <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Permissions</label>
-            <div className="mt-3 space-y-2">
-              <PermissionRow title="Process due follow-ups" desc="Send configured follow-ups when campaign timing rules are met." checked={draft.autoFollowUps} onChange={v => setField('autoFollowUps', v)} />
-              <PermissionRow title="Launch prepared campaigns" desc="Autopilot can start campaigns that are ready and under daily action limits." checked={draft.autoLaunchCampaigns} onChange={v => setField('autoLaunchCampaigns', v)} />
-              <PermissionRow title="Pause weak campaigns" desc="Flag or pause campaigns when bounce, reply, or click signals move outside guardrails." checked={draft.autoPauseLowQuality} onChange={v => setField('autoPauseLowQuality', v)} />
-              <PermissionRow
-                title="Call hot visitors"
-                desc="Scale/Enterprise only. Trigger AI calls after identified prospects visit from campaign links."
-                checked={draft.autoCallHotVisitors && !!canAutoCall}
-                disabled={!canAutoCall}
-                icon={<Phone className="w-4 h-4 text-[#1ED4A7]" />}
-                onChange={v => setField('autoCallHotVisitors', v)}
-              />
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#050505] p-5 space-y-4">
-            <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Guardrails</label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Field label="Max daily actions">
-                <input type="number" min={1} max={250} value={draft.maxDailyActions} onChange={e => setField('maxDailyActions', Number(e.target.value || 1))} className={inputClass} />
-              </Field>
-              <Field label="Quiet hours start">
-                <input type="time" value={draft.quietHoursStart} onChange={e => setField('quietHoursStart', e.target.value)} className={inputClass} />
-              </Field>
-              <Field label="Quiet hours end">
-                <input type="time" value={draft.quietHoursEnd} onChange={e => setField('quietHoursEnd', e.target.value)} className={inputClass} />
-              </Field>
-            </div>
-            <Field label="Operating instructions">
-              <textarea value={draft.guardrails} onChange={e => setField('guardrails', e.target.value)} rows={4} className={`${inputClass} resize-none`} />
-            </Field>
-          </section>
-        </div>
-
-        <aside className="space-y-4">
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-4 h-4 text-[#1ED4A7]" />
-              <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">Current priorities</h3>
-            </div>
-            <div className="space-y-3">
-              {(data?.recommendations || []).map(item => (
-                <div key={item.id} className="rounded-lg bg-zinc-50 dark:bg-zinc-900 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-medium text-zinc-900 dark:text-white">{item.title}</p>
-                    <span className="text-[10px] uppercase tracking-wider text-[#1ED4A7]">{item.priority}</span>
-                  </div>
-                  <p className="text-xs text-zinc-500 mt-1">{item.detail}</p>
-                </div>
-              ))}
-              {(!data?.recommendations || data.recommendations.length === 0) && (
-                <p className="text-sm text-zinc-500">No urgent priorities detected.</p>
-              )}
-            </div>
+      <SettingsSection title="Autonomy">
+        <SettingRow
+          icon={Bot}
+          title="Enable Agent Mode"
+          desc="Allow Contndr to monitor work and surface daily priorities."
+          right={<ToggleSwitch checked={draft.enabled} disabled={!canUseAgent} onChange={checked => setField('enabled', checked)} />}
+        />
+        <div className="py-3.5 px-4">
+          <div className="flex bg-zinc-100 dark:bg-white/[0.06] rounded-lg p-0.5 border border-zinc-200/60 dark:border-white/[0.06] w-full sm:w-fit">
+            {[
+              { id: 'supervised', title: 'Supervised' },
+              { id: 'autopilot', title: 'Autopilot' },
+            ].map(option => (
+              <button
+                key={option.id}
+                onClick={() => setField('autonomyLevel', option.id as AgentModeConfig['autonomyLevel'])}
+                className={`px-4 py-1.5 rounded-md text-[11.5px] font-medium transition-all ${
+                  draft.autonomyLevel === option.id
+                    ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
+                }`}
+              >
+                {option.title}
+              </button>
+            ))}
           </div>
+          <p className="text-[11.5px] text-zinc-400 dark:text-zinc-500 mt-2">
+            {draft.autonomyLevel === 'autopilot' ? 'Execute approved playbooks without daily confirmation.' : 'Recommend actions and execute low-risk work only.'}
+          </p>
+        </div>
+      </SettingsSection>
 
-          {data?.lastRun && (
-            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
-                <CheckCircle2 className="w-4 h-4 text-[#1ED4A7]" />
-                Last agent pass
+      <SettingsSection title="Permissions">
+        <PermissionRow title="Process due follow-ups" desc="Send configured follow-ups when campaign timing rules are met." checked={draft.autoFollowUps} onChange={v => setField('autoFollowUps', v)} />
+        <PermissionRow title="Launch prepared campaigns" desc="Start ready campaigns within daily action limits." checked={draft.autoLaunchCampaigns} onChange={v => setField('autoLaunchCampaigns', v)} />
+        <PermissionRow title="Pause weak campaigns" desc="Flag or pause campaigns when performance moves outside guardrails." checked={draft.autoPauseLowQuality} onChange={v => setField('autoPauseLowQuality', v)} />
+        <PermissionRow
+          title="Call hot visitors"
+          desc="Scale/Enterprise only. Trigger AI calls after identified prospects visit from campaign links."
+          checked={draft.autoCallHotVisitors && !!canAutoCall}
+          disabled={!canAutoCall}
+          icon={Phone}
+          onChange={v => setField('autoCallHotVisitors', v)}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Guardrails">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-4 py-3.5">
+          <Field label="Max daily actions">
+            <input type="number" min={1} max={250} value={draft.maxDailyActions} onChange={e => setField('maxDailyActions', Number(e.target.value || 1))} className={inputClass} />
+          </Field>
+          <Field label="Quiet hours start">
+            <input type="time" value={draft.quietHoursStart} onChange={e => setField('quietHoursStart', e.target.value)} className={inputClass} />
+          </Field>
+          <Field label="Quiet hours end">
+            <input type="time" value={draft.quietHoursEnd} onChange={e => setField('quietHoursEnd', e.target.value)} className={inputClass} />
+          </Field>
+        </div>
+        <div className="px-4 pb-3.5">
+          <Field label="Operating instructions">
+            <textarea value={draft.guardrails} onChange={e => setField('guardrails', e.target.value)} rows={4} className={`${inputClass} resize-none`} />
+          </Field>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Priorities">
+        <div className="divide-y divide-zinc-100 dark:divide-white/[0.06]">
+          {(data?.recommendations || []).slice(0, 3).map(item => (
+            <div key={item.id} className="px-4 py-3.5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[13px] font-medium text-zinc-900 dark:text-white">{item.title}</p>
+                <span className="text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">{item.priority}</span>
               </div>
-              <p className="text-xs text-zinc-500 mt-1">{new Date(data.lastRun.ran_at).toLocaleString()}</p>
-              <div className="mt-3 space-y-2">
-                {(data.lastRun.actions || []).map((action: any, idx: number) => (
-                  <div key={idx} className="text-xs text-zinc-600 dark:text-zinc-400">{action.label}</div>
-                ))}
-              </div>
+              <p className="text-[11.5px] text-zinc-400 dark:text-zinc-500 mt-1">{item.detail}</p>
             </div>
+          ))}
+          {(!data?.recommendations || data.recommendations.length === 0) && (
+            <p className="px-4 py-3.5 text-[13px] text-zinc-500">No urgent priorities detected.</p>
           )}
-        </aside>
-      </div>
+        </div>
+      </SettingsSection>
+
+      {data?.lastRun && (
+        <p className="text-[11px] text-zinc-400 dark:text-zinc-500 text-center pt-1 pb-4">
+          Last agent pass: {new Date(data.lastRun.ran_at).toLocaleString()}
+        </p>
+      )}
     </div>
   );
 }
 
 const inputClass = 'w-full px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1ED4A7]/20 focus:border-[#1ED4A7]/50';
 
-function StatusPill({ active }: { active: boolean }) {
+function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${active ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]' : 'bg-zinc-100 text-zinc-500 dark:bg-white/[0.06] dark:text-zinc-500'}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-[#1ED4A7]' : 'bg-zinc-400 dark:bg-zinc-600'}`} />
-      {active ? 'Active' : 'Paused'}
-    </span>
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">{title}</h3>
+        <div className="flex-1 h-px bg-zinc-100 dark:bg-white/[0.06]" />
+      </div>
+      <div className="space-y-1">{children}</div>
+    </div>
   );
 }
 
@@ -333,24 +305,51 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function SettingRow({ icon: Icon, title, desc, right }: {
+  icon: typeof Bot;
+  title: string;
+  desc: string;
+  right: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.06] flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors shrink-0">
+          <Icon className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium text-zinc-900 dark:text-white">{title}</p>
+          <p className="text-[11.5px] text-zinc-400 dark:text-zinc-500">{desc}</p>
+        </div>
+      </div>
+      {right}
+    </div>
+  );
+}
+
 function PermissionRow({ title, desc, checked, disabled, icon, onChange }: {
   title: string;
   desc: string;
   checked: boolean;
   disabled?: boolean;
-  icon?: ReactNode;
+  icon?: typeof Bot;
   onChange: (checked: boolean) => void;
 }) {
+  const Icon = icon;
   return (
-    <div className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-4 transition-colors ${checked ? 'border-[#1ED4A7]/25 bg-[#1ED4A7]/[0.04]' : 'border-zinc-200 bg-zinc-50 dark:border-white/[0.06] dark:bg-white/[0.02]'} ${disabled ? 'opacity-60' : 'hover:bg-zinc-100 dark:hover:bg-white/[0.04]'}`}>
-      <div className="flex items-start gap-3 min-w-0">
-        {icon && <div className="mt-0.5 flex-shrink-0">{icon}</div>}
-        <div>
+    <div className={`flex items-center justify-between py-3.5 px-4 rounded-xl transition-colors group ${disabled ? 'opacity-60' : 'hover:bg-zinc-50 dark:hover:bg-white/[0.02]'}`}>
+      <div className="flex items-center gap-3 min-w-0">
+        {Icon && (
+          <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.06] flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors shrink-0">
+            <Icon className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+          </div>
+        )}
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-medium text-zinc-900 dark:text-white">{title}</p>
+            <p className="text-[13px] font-medium text-zinc-900 dark:text-white">{title}</p>
             {disabled && <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500 dark:bg-white/[0.08]">Locked</span>}
           </div>
-          <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
+          <p className="text-[11.5px] text-zinc-400 dark:text-zinc-500">{desc}</p>
         </div>
       </div>
       <ToggleSwitch checked={checked} disabled={disabled} onChange={onChange} />

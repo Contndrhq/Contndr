@@ -8,19 +8,15 @@ import { getAuthHeaders, authenticatedFetch } from '../lib/auth';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { notifyEmailClicked, notifyEmailOpened, notifyHighEngagement } from '../lib/notifications';
 import { RecentActivityFeed } from './RecentActivityFeed';
-import { EngagementIntelligence } from './EngagementIntelligence';
 import { DashboardTeamSnapshot } from './DashboardTeamSnapshot';
 import { DashboardPipelineSnapshot } from './DashboardPipelineSnapshot';
-import { DashboardCampaignSignals } from './DashboardCampaignSignals';
 import { DashboardTodayFocus } from './DashboardTodayFocus';
-import { DashboardAIInsights } from './DashboardAIInsights';
 import { useRealtimeRefresh } from './RealtimeProvider';
 import { apiCache } from '../lib/api-cache';
 import { LoadingSpinner } from './LoadingSpinner';
 import { syncEmailStatuses } from '../utils/syncEmailStatuses';
 import { useAppEventRefresh } from '../lib/app-events';
 import { useDemoMode, DEMO_DASHBOARD_STATS, DEMO_REVENUE_SNAP, DEMO_RECENT_CAMPAIGNS, DEMO_FOLLOW_UPS } from './DemoContext';
-import { DashboardCompetitiveGap } from './DashboardCompetitiveGap';
 import { useScrollHeader } from '../hooks/useScrollHeader';
 import { DashboardAgentMode } from './DashboardAgentMode';
 import { getLeadLimitForPlan } from '../lib/plan-entitlements';
@@ -666,9 +662,6 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
             />
           </div>
 
-          {/* AI Insights — inline ribbon */}
-          <DashboardAIInsights />
-
           {/* Main Content Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             
@@ -681,31 +674,18 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
                <DashboardTeamSnapshot onNavigate={onNavigate} stats={stats} />
             </div>
 
-            {/* Row 2: Campaign Performance & Signals + Engagement Heatmap */}
-            <div className="h-[360px]">
-               <DashboardCampaignSignals onNavigate={onNavigate} />
-            </div>
-
+            {/* Row 2: Agent Mode + Today's Focus */}
             <div className="h-[360px]">
                <DashboardAgentMode onNavigate={onNavigate} />
-            </div>
-
-            {/* Row 3: Recent Activity + Today's Focus */}
-            <div className="h-[340px]">
-               <RecentActivityFeed onNavigate={onNavigate} />
             </div>
 
             <div className="h-[340px]">
                <DashboardTodayFocus onNavigate={onNavigate} />
             </div>
 
-            <div className="h-[360px] lg:col-span-2">
-               <EngagementIntelligence brandFilter={selectedBrand} />
-            </div>
-
-            {/* Row 4: Competitive Intelligence */}
-            <div className="h-[360px] lg:col-span-2">
-               <DashboardCompetitiveGap onNavigate={onNavigate} />
+            {/* Row 3: Recent Activity */}
+            <div className="h-[340px] lg:col-span-2">
+               <RecentActivityFeed onNavigate={onNavigate} />
             </div>
           </div>
         </div>
