@@ -16,12 +16,13 @@ import LeadScoringManager from './LeadScoringManager';
 import { TrackingSettings } from './TrackingSettings';
 import { PreferencesSettings } from './PreferencesSettings';
 import { ComplianceSettings } from './ComplianceSettings';
+import { AgentModeSettings } from './AgentModeSettings';
 import { useTranslation } from 'react-i18next';
 
 // ─── Admin UIDs (supplement email-based checks) ─────────────────────
 const ADMIN_UIDS = ['004b2df9-3e3f-48ec-acfd-5374ab55b09f'];
 
-type SettingsTab = 'profile' | 'preferences' | 'signature' | 'email' | 'integrations' | 'tracking' | 'knowledge-base' | 'team' | 'affiliate' | 'billing' | 'diagnostics' | 'demo' | 'lead-scoring' | 'compliance';
+type SettingsTab = 'profile' | 'preferences' | 'signature' | 'email' | 'integrations' | 'tracking' | 'knowledge-base' | 'team' | 'affiliate' | 'billing' | 'diagnostics' | 'demo' | 'lead-scoring' | 'compliance' | 'agent-mode';
 
 export function Settings() {
   const { t } = useTranslation();
@@ -75,6 +76,8 @@ export function Settings() {
               setActiveTab('email');
             } else if (tab === 'warmup' || tab === 'warm-up') {
               setActiveTab('email');
+            } else if (tab === 'agent' || tab === 'agent-mode' || tab === 'autopilot') {
+              setActiveTab('agent-mode');
             } else {
               setActiveTab(tab as SettingsTab);
             }
@@ -91,6 +94,7 @@ export function Settings() {
     { id: 'profile', label: t('settings.profile', 'Profile') },
     { id: 'preferences', label: t('settings.preferences', 'Preferences') },
     { id: 'billing', label: t('settings.billing', 'Billing') },
+    { id: 'agent-mode', label: 'Agent Mode' },
     { id: 'email', label: t('settings.email', 'Email') },
     { id: 'signature', label: t('settings.signature', 'Signature') },
     { id: 'integrations', label: t('settings.integrations', 'Integrations') },
@@ -155,6 +159,8 @@ export function Settings() {
         {activeTab === 'affiliate' && <AffiliateSettings />}
         
         {activeTab === 'billing' && <BillingSettings />}
+
+        {activeTab === 'agent-mode' && <AgentModeSettings />}
         
         {activeTab === 'signature' && <SignatureSettings />}
         

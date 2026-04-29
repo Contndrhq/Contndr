@@ -79,7 +79,7 @@ import { resetCircuit } from "./kv-retry.tsx";
 import { createSequence, getSequence, updateSequence, deleteSequence, listSequences, enrollLeads, getEnrollment, getSequenceStats, processSequences, handleReplyDetected, processAllSequences } from "./sequence-engine.tsx";
 import { recordUnsubscribe, isUnsubscribed, getUnsubscribes, removeUnsubscribe, addToBlacklist, removeFromBlacklist, getBlacklist, isBlacklisted, parseBlacklistCSV, checkCompliance, getComplianceStats, injectUnsubscribeLink } from "./compliance.tsx";
 import { startWarmup, listWarmupAccounts, pauseWarmup, resumeWarmup, deleteWarmup, updateWarmupProgress, canSendWarmup, getSenderAccounts, addSenderAccount, removeSenderAccount, updateSenderAccount, getRotationConfig, setRotationConfig, pickNextSender, getRotationStats } from "./warmup-engine.tsx";
-import { getLeadLimitForPlan } from "./plan-entitlements.ts";
+import { getLeadLimitForPlan, getPlanEntitlements } from "./plan-entitlements.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -17298,6 +17298,285 @@ app.delete("/make-server-a8b2511f/ai-call-campaigns/:id", async (c) => {
   } catch (error) {
     console.error('[AI CAMPAIGNS] Error deleting campaign:', error);
     return c.json({ error: error.message }, 500);
+  }
+});
+
+// ============================================================================
+// AGENT MODE — Autonomous sales operating layer
+// ============================================================================
+
+const DEFAULT_AGENT_MODE_CONFIG = {
+  enabled: false,
+  autonomyLevel: 'supervised',
+  dailyBriefing: true,
+  autoFollowUps: true,
+  autoLaunchCampaigns: false,
+  autoPauseLowQuality: true,
+  autoCallHotVisitors: false,
+  maxDailyActions: 25,
+  quietHoursStart: '20:00',
+  quietHoursEnd: '08:00',
+  guardrails: 'Protect deliverability, avoid duplicate outreach, and never call outside business hours.',
+};
+
+function sanitizeAgentModeConfig(input: any, entitlements: any) {
+  const raw = { ...DEFAULT_AGENT_MODE_CONFIG, ...(input || {}) };
+  const config = {
+    enabled: !!raw.enabled,
+    autonomyLevel: raw.autonomyLevel === 'autopilot' ? 'autopilot' : 'supervised',
+    dailyBriefing: raw.dailyBriefing !== false,
+    autoFollowUps: raw.autoFollowUps !== false,
+    autoLaunchCampaigns: !!raw.autoLaunchCampaigns,
+    autoPauseLowQuality: raw.autoPauseLowQuality !== false,
+    autoCallHotVisitors: !!raw.autoCallHotVisitors,
+    maxDailyActions: Math.min(Math.max(Number(raw.maxDailyActions || 25), 1), 250),
+    quietHoursStart: String(raw.quietHoursStart || '20:00').slice(0, 5),
+    quietHoursEnd: String(raw.quietHoursEnd || '08:00').slice(0, 5),
+    guardrails: String(raw.guardrails || DEFAULT_AGENT_MODE_CONFIG.guardrails).slice(0, 2000),
+  };
+
+  if (!entitlements.agentMode) {
+    config.enabled = false;
+    config.autonomyLevel = 'supervised';
+    config.autoLaunchCampaigns = false;
+    config.autoCallHotVisitors = false;
+  }
+  if (!entitlements.aiCalling || !entitlements.intentAutoCall) {
+    config.autoCallHotVisitors = false;
+  }
+  return config;
+}
+
+async function getAgentModePayload(user: any, supabase: ReturnType<typeof createClient>) {
+  const subscription = await getUserSubscriptionStatus(user);
+  const plan = subscription?.plan || 'none';
+  const entitlements = getPlanEntitlements(plan);
+  const configKey = `agent_mode:${user.id}:config`;
+  const savedConfig = await kv.get(configKey);
+  const config = sanitizeAgentModeConfig(savedConfig, entitlements);
+  const recommendations = await buildAgentModeRecommendations(user.id, supabase, config, entitlements);
+  const lastRun = await kv.get(`agent_mode:${user.id}:last_run`);
+
+  return {
+    success: true,
+    config,
+    entitlements: {
+      plan,
+      agentMode: entitlements.agentMode,
+      aiCalling: entitlements.aiCalling,
+      intentAutoCall: entitlements.intentAutoCall,
+      monthlyLeadLimit: entitlements.monthlyLeadLimit,
+      seats: entitlements.seats,
+    },
+    recommendations,
+    lastRun: lastRun || null,
+  };
+}
+
+async function buildAgentModeRecommendations(userId: string, supabase: ReturnType<typeof createClient>, config: any, entitlements: any) {
+  const recommendations: Array<{ id: string; title: string; detail: string; priority: string; action: string }> = [];
+
+  const [leadCountRes, draftCampaignsRes, activeCampaignsRes, recentEmailsRes] = await Promise.all([
+    supabase.from('leads').select('id', { count: 'estimated', head: true }).eq('user_id', userId),
+    supabase.from('campaigns').select('id', { count: 'estimated', head: true }).eq('user_id', userId).in('status', ['draft', 'ready']),
+    supabase.from('campaigns').select('id', { count: 'estimated', head: true }).eq('user_id', userId).in('status', ['active', 'sending', 'completed']),
+    supabase.from('emails').select('id,status', { count: 'estimated' }).eq('user_id', userId).order('created_at', { ascending: false }).limit(100),
+  ]);
+
+  const leadCount = leadCountRes.count || 0;
+  const draftCampaigns = draftCampaignsRes.count || 0;
+  const activeCampaigns = activeCampaignsRes.count || 0;
+  const recentEmails = recentEmailsRes.data || [];
+  const sent = recentEmails.length;
+  const replies = recentEmails.filter((e: any) => e.status === 'replied').length;
+  const opens = recentEmails.filter((e: any) => ['opened', 'clicked', 'replied'].includes(e.status)).length;
+  const replyRate = sent > 0 ? replies / sent : 0;
+  const openRate = sent > 0 ? opens / sent : 0;
+
+  if (!entitlements.agentMode) {
+    recommendations.push({
+      id: 'upgrade-agent-mode',
+      title: 'Upgrade to activate Agent Mode',
+      detail: 'Autonomous prioritization is available on Growth, Scale, and Enterprise.',
+      priority: 'locked',
+      action: 'upgrade',
+    });
+    return recommendations;
+  }
+
+  if (!config.enabled) {
+    recommendations.push({
+      id: 'activate-agent-mode',
+      title: 'Activate Agent Mode',
+      detail: 'Turn on supervised mode so Contndr can process low-risk work and surface daily priorities.',
+      priority: 'high',
+      action: 'configure',
+    });
+  }
+
+  if (draftCampaigns > 0) {
+    recommendations.push({
+      id: 'review-prepared-campaigns',
+      title: `${draftCampaigns} prepared campaign${draftCampaigns === 1 ? '' : 's'} need review`,
+      detail: config.autoLaunchCampaigns ? 'Autopilot can launch ready campaigns within your daily action cap.' : 'Enable launch permission when you want the agent to start prepared campaigns.',
+      priority: 'high',
+      action: 'campaigns',
+    });
+  }
+
+  if (activeCampaigns > 0 && config.autoFollowUps) {
+    recommendations.push({
+      id: 'follow-up-engine',
+      title: 'Follow-up engine is armed',
+      detail: `${activeCampaigns} active campaign${activeCampaigns === 1 ? '' : 's'} can be checked for due follow-ups during the next agent pass.`,
+      priority: 'medium',
+      action: 'followups',
+    });
+  }
+
+  if (sent >= 20 && openRate < 0.18 && config.autoPauseLowQuality) {
+    recommendations.push({
+      id: 'deliverability-watch',
+      title: 'Deliverability watch recommended',
+      detail: `Recent open rate is ${(openRate * 100).toFixed(1)}%. The agent will watch for weak sender or audience signals.`,
+      priority: 'medium',
+      action: 'deliverability',
+    });
+  }
+
+  if (sent >= 20 && replyRate > 0.04) {
+    recommendations.push({
+      id: 'scale-winning-segment',
+      title: 'Scale the winning segment',
+      detail: `Recent reply rate is ${(replyRate * 100).toFixed(1)}%. Agent Mode should prioritize similar leads before broad prospecting.`,
+      priority: 'high',
+      action: 'lead-finder',
+    });
+  }
+
+  if (leadCount < 100) {
+    recommendations.push({
+      id: 'build-audience',
+      title: 'Build the audience first',
+      detail: 'Lead inventory is still light. Prioritize verified leads before launching broad automation.',
+      priority: 'medium',
+      action: 'lead-finder',
+    });
+  }
+
+  if (entitlements.aiCalling && !config.autoCallHotVisitors) {
+    recommendations.push({
+      id: 'enable-hot-visitor-calls',
+      title: 'Enable hot-visitor AI calls',
+      detail: 'Scale/Enterprise can trigger AI calls when an identified prospect visits from a campaign link.',
+      priority: 'medium',
+      action: 'ai-calls',
+    });
+  }
+
+  return recommendations.slice(0, 6);
+}
+
+app.get("/make-server-a8b2511f/agent-mode", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const payload = await getAgentModePayload(user, supabase);
+    c.header('Cache-Control', 'private, max-age=20, stale-while-revalidate=60');
+    return c.json(payload);
+  } catch (error) {
+    console.error('[AGENT MODE] Load failed:', error);
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+app.put("/make-server-a8b2511f/agent-mode", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const subscription = await getUserSubscriptionStatus(user);
+    const entitlements = getPlanEntitlements(subscription?.plan || 'none');
+    const body = await c.req.json().catch(() => ({}));
+    const config = sanitizeAgentModeConfig(body, entitlements);
+
+    if (body?.enabled && !entitlements.agentMode) {
+      return c.json({ error: 'Agent Mode requires Growth, Scale, or Enterprise.' }, 403);
+    }
+
+    await kv.set(`agent_mode:${user.id}:config`, {
+      ...config,
+      updated_at: new Date().toISOString(),
+      updated_by: user.email || user.id,
+    });
+
+    const payload = await getAgentModePayload(user, supabase);
+    return c.json(payload);
+  } catch (error) {
+    console.error('[AGENT MODE] Save failed:', error);
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+app.post("/make-server-a8b2511f/agent-mode/run", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const subscription = await getUserSubscriptionStatus(user);
+    const entitlements = getPlanEntitlements(subscription?.plan || 'none');
+    const config = sanitizeAgentModeConfig(await kv.get(`agent_mode:${user.id}:config`), entitlements);
+
+    if (!entitlements.agentMode) {
+      return c.json({ error: 'Agent Mode requires Growth, Scale, or Enterprise.' }, 403);
+    }
+
+    const actions: Array<{ type: string; label: string; result?: any }> = [];
+
+    if (!config.enabled) {
+      actions.push({ type: 'noop', label: 'Agent Mode is configured but disabled.' });
+    } else {
+      if (config.autoFollowUps) {
+        const followUpResult = await processAllFollowUps(user.id);
+        actions.push({
+          type: 'followups',
+          label: `Checked follow-ups: ${followUpResult.sent || 0} sent across ${followUpResult.processed || 0} campaign(s).`,
+          result: followUpResult,
+        });
+      }
+
+      if (config.autoLaunchCampaigns && config.autonomyLevel === 'autopilot') {
+        actions.push({
+          type: 'campaign_launch_guarded',
+          label: 'Campaign launch guard checked. Prepared campaigns remain behind readiness and daily action limits.',
+        });
+      }
+
+      if (config.autoPauseLowQuality) {
+        actions.push({
+          type: 'deliverability_guard',
+          label: 'Deliverability guard checked recent campaign signals for weak performance.',
+        });
+      }
+
+      if (config.autoCallHotVisitors) {
+        actions.push({
+          type: 'hot_visitor_calls',
+          label: entitlements.aiCalling ? 'Hot-visitor call triggers are armed for identified campaign traffic.' : 'Hot-visitor calls skipped because the plan does not include AI calling.',
+        });
+      }
+    }
+
+    const recommendations = await buildAgentModeRecommendations(user.id, supabase, config, entitlements);
+    const run = {
+      id: crypto.randomUUID(),
+      user_id: user.id,
+      ran_at: new Date().toISOString(),
+      config_snapshot: config,
+      actions: actions.slice(0, config.maxDailyActions),
+      recommendations,
+    };
+
+    await kv.set(`agent_mode:${user.id}:last_run`, run);
+    return c.json({ success: true, run, recommendations });
+  } catch (error) {
+    console.error('[AGENT MODE] Run failed:', error);
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
   }
 });
 

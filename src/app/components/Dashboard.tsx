@@ -22,6 +22,8 @@ import { useAppEventRefresh } from '../lib/app-events';
 import { useDemoMode, DEMO_DASHBOARD_STATS, DEMO_REVENUE_SNAP, DEMO_RECENT_CAMPAIGNS, DEMO_FOLLOW_UPS } from './DemoContext';
 import { DashboardCompetitiveGap } from './DashboardCompetitiveGap';
 import { useScrollHeader } from '../hooks/useScrollHeader';
+import { DashboardAgentMode } from './DashboardAgentMode';
+import { getLeadLimitForPlan } from '../lib/plan-entitlements';
 
 // ─── localStorage snapshot for instant hydration ──────────────────────
 // Updated: 2026-02-23 - Fixed build after email provider guard additions
@@ -76,6 +78,8 @@ interface DashboardProps {
 export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: DashboardProps) {
   const { t } = useTranslation();
   const isDemoMode = useDemoMode();
+  const leadLimit = getLeadLimitForPlan(subscriptionStatus?.plan);
+  const isUnlimitedLeads = leadLimit < 0;
 
   // Real-time sync: auto-refresh when events come in from other tabs/users
   const dashboardRefreshKey = useRealtimeRefresh([
@@ -593,19 +597,19 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
                 <p className="text-lg sm:text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">
                   {stats.totalLeads.toLocaleString()}
                 </p>
-                {subscriptionStatus?.plan === 'growth' ? (
+                {isUnlimitedLeads ? (
                   <span className="text-[9px] sm:text-[10px] text-[#1ED4A7] font-semibold uppercase tracking-wide ml-0.5">∞</span>
                 ) : (
                   <span className="text-[10px] sm:text-xs text-zinc-500 font-medium">
-                    / {(subscriptionStatus?.plan === 'professional' ? 10000 : subscriptionStatus?.plan === 'starter' ? 2500 : 100).toLocaleString()}
+                    / {leadLimit.toLocaleString()}
                   </span>
                 )}
               </div>
-              {subscriptionStatus?.plan !== 'growth' && (
+              {!isUnlimitedLeads && (
                 <div className="progress-bar-track">
                   <div 
                     className="progress-bar-fill" 
-                    style={{ width: `${Math.min(100, (stats.totalLeads / (subscriptionStatus?.plan === 'professional' ? 10000 : subscriptionStatus?.plan === 'starter' ? 2500 : 100)) * 100)}%` }}
+                    style={{ width: `${Math.min(100, (stats.totalLeads / leadLimit) * 100)}%` }}
                   />
                 </div>
               )}
@@ -683,7 +687,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
             </div>
 
             <div className="h-[360px]">
-               <EngagementIntelligence brandFilter={selectedBrand} />
+               <DashboardAgentMode onNavigate={onNavigate} />
             </div>
 
             {/* Row 3: Recent Activity + Today's Focus */}
@@ -693,6 +697,10 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
 
             <div className="h-[340px]">
                <DashboardTodayFocus onNavigate={onNavigate} />
+            </div>
+
+            <div className="h-[360px] lg:col-span-2">
+               <EngagementIntelligence brandFilter={selectedBrand} />
             </div>
 
             {/* Row 4: Competitive Intelligence */}
