@@ -546,9 +546,9 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-transparent">
+    <div className="h-full min-h-screen overflow-y-auto bg-transparent flex flex-col">
       {/* Header */}
-      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-zinc-200 dark:border-zinc-800 sm:sticky sm:top-0 sm:z-10 bg-white/80 dark:bg-black/80 backdrop-blur-md">
+      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-zinc-200 dark:border-zinc-800 sm:sticky sm:top-0 sm:z-10 bg-white/80 dark:bg-black/80 backdrop-blur-md flex-shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{t('dashboard.overview', 'Overview')}</h1>
 
@@ -577,9 +577,9 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
       </div>
 
       {/* Scrollable Content */}
-      <div className="px-4 py-3 sm:px-6 sm:py-6 space-y-3 sm:space-y-8 bg-transparent pb-[calc(env(safe-area-inset-bottom,20px)+20px)] sm:pb-6">
+      <div className="px-4 py-3 sm:px-6 sm:py-6 bg-transparent pb-[calc(env(safe-area-inset-bottom,20px)+20px)] sm:pb-6 flex-1 min-h-0 flex flex-col gap-3 sm:gap-8">
         {/* Key Metrics Grid — Revenue + Campaign combined */}
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-4 flex-shrink-0">
             {/* Total Leads — kept with usage bar */}
             <div 
               className="glass-card p-4 sm:p-5 cursor-pointer group"
@@ -663,7 +663,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
           </div>
 
           {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 xl:flex-1 xl:min-h-0 xl:grid-rows-[320px_minmax(260px,1fr)]">
             
             <div className="h-[320px]">
                <DashboardPipelineSnapshot onNavigate={onNavigate} />
@@ -677,11 +677,11 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
                <DashboardAgentMode onNavigate={onNavigate} />
             </div>
 
-            <div className="min-h-[260px]">
+            <div className="min-h-[260px] xl:h-full xl:min-h-0">
                <DashboardTodayFocus onNavigate={onNavigate} />
             </div>
 
-            <div className="min-h-[260px] lg:col-span-1 xl:col-span-2">
+            <div className="min-h-[260px] lg:col-span-1 xl:col-span-2 xl:h-full xl:min-h-0">
                <RecentActivityFeed onNavigate={onNavigate} />
             </div>
           </div>

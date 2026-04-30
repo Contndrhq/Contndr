@@ -153,7 +153,7 @@ export function DashboardTodayFocus({ onNavigate }: { onNavigate: (view: string)
   ];
 
   return (
-    <div className="glass-card p-5 min-h-full flex flex-col overflow-hidden">
+    <div className="glass-card p-5 h-full min-h-full flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between mb-4 flex-shrink-0">
         <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider">{t('common.today')}</h3>
