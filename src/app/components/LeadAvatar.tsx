@@ -4,7 +4,7 @@ import { useLeadAvatar, getAvatarConfidence } from '../lib/gravatar';
 // ── Confidence threshold ────────────────────────────────────────────
 // Below this threshold we show initials instead of a potentially
 // wrong person's photo. Matches the server-side backfill threshold.
-const MIN_DISPLAY_CONFIDENCE = 0.5;
+const MIN_DISPLAY_CONFIDENCE = 0.75;
 
 // ── Initials helper ──────────────────────────────────────────────────
 

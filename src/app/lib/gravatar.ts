@@ -52,7 +52,7 @@ const MAX_REPOLLS = 5; // up to 5 re-polls to catch all background results
 const REPOLL_DELAYS = [4000, 6000, 8000, 12000, 20000]; // escalating delays
 
 /** Client-side cache version — bump to invalidate stale null entries from previous strategies */
-const CLIENT_CACHE_VERSION = 5; // Bumped: removed overflow null-caching + multi-repoll
+const CLIENT_CACHE_VERSION = 6; // Bumped: suppress unsafe name-only avatar matches
 const CLIENT_CACHE_VERSION_KEY = '__avatar_cache_v';
 
 // Auto-clear stale cache on module load

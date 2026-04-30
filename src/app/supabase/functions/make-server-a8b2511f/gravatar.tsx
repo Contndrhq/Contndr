@@ -11,7 +11,7 @@
 //
 // Confidence scoring (returned to frontend):
 //   linkedin_exact: 0.95, google_kp: 0.90, linkedin_cdn: 0.85,
-//   serpapi_name_linkedin: 0.70, serpapi_name: 0.55, none: 0.00
+//   name-only lookups are disabled for display safety; none: 0.00
 //
 // Endpoints:
 //   POST /batch       — { emails, linkedin_urls?, names? } → { avatars, confidence, meta }
@@ -40,7 +40,7 @@ const MAX_BATCH_SIZE = 200;
 const LINKEDIN_CONCURRENCY = 5;
 const MAX_LINKEDIN_PER_BATCH = 10;
 const MAX_NAME_LOOKUPS_PER_BATCH = 5;
-const CACHE_VERSION = 8; // Bump: add storage pipeline + confidence scoring
+const CACHE_VERSION = 9; // Bump: disable unsafe name-only avatar matches
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -332,27 +332,14 @@ app.post("/batch", async (c) => {
       }
       linkedinPending += Math.max(0, withLinkedin.length - MAX_LINKEDIN_PER_BATCH);
 
-      // ── Name-based headshot lookups ───────────────────────────────
+      // ── Name-only headshot lookups disabled ───────────────────────
       const nameCandidates = withNameNoLinkedin.slice(0, MAX_NAME_LOOKUPS_PER_BATCH);
       if (nameCandidates.length > 0) {
-        console.log(`[AVATAR] SYNC: ${nameCandidates.length} name-based lookups (of ${withNameNoLinkedin.length} total)`);
-        for (let i = 0; i < nameCandidates.length; i += LINKEDIN_CONCURRENCY) {
-          const chunk = nameCandidates.slice(i, i + LINKEDIN_CONCURRENCY);
-          await Promise.allSettled(chunk.map(async ({ email, hash }) => {
-            const name = namesMap[email];
-            const emailDomain = email.split("@")[1] || "";
-            const companyHint = emailDomain.replace(/\.(com|net|org|io|co)$/i, "").replace(/\./g, " ");
-            console.log(`[AVATAR] Name search: "${name}" (${email}, hint: ${companyHint})`);
-
-            const photoUrl = await fetchHeadshotByName(name, companyHint || undefined, serpApiKey);
-            const source = photoUrl ? "serpapi_name" : "no_match";
-
-            const entry = await storeAndCacheAvatar(email, hash, photoUrl || "", source);
-            avatarResults[email] = entry.cdn_url || entry.url || null;
-            confidenceResults[email] = entry.avatar_confidence ?? 0;
-
-            if (photoUrl) console.log(`[AVATAR] Name search SUCCESS: ${email} -> ${(entry.cdn_url || photoUrl).slice(0, 80)}`);
-          }));
+        console.log(`[AVATAR] Skipping ${nameCandidates.length} name-only avatar lookups to avoid false matches`);
+        for (const { email, hash } of nameCandidates) {
+          const entry = await storeAndCacheAvatar(email, hash, "", "no_linkedin_no_name");
+          avatarResults[email] = null;
+          confidenceResults[email] = entry.avatar_confidence ?? 0;
         }
       }
       linkedinPending += Math.max(0, withNameNoLinkedin.length - MAX_NAME_LOOKUPS_PER_BATCH);
@@ -540,15 +527,9 @@ app.post("/refresh-all", async (c) => {
       fetched++;
     }
 
-    // Name-based lookups for leads without LinkedIn
+    // Name-only lookups are disabled. Wrong-person photos are worse than initials.
     for (const { email, hash } of withNames.slice(0, MAX_NAME_LOOKUPS_PER_BATCH)) {
-      const name = emailNamesMap[email];
-      const domain = email.split("@")[1] || "";
-      const companyHint = domain.replace(/\.(com|net|org|io|co)$/i, "").replace(/\./g, " ");
-      const photoUrl = await fetchHeadshotByName(name, companyHint || undefined, serpApiKey);
-      const entry = await storeAndCacheAvatar(email, hash, photoUrl || "", photoUrl ? "serpapi_name" : "no_match");
-      if (entry.storage_path) stored++;
-      if (photoUrl) linkedinFound++;
+      await storeAndCacheAvatar(email, hash, "", "no_linkedin_no_name");
       fetched++;
     }
 
@@ -696,12 +677,7 @@ app.post("/backfill", async (c) => {
         if (entry.storage_path) stored++;
         if (photoUrl) improved++;
       } else if (fullName.length >= 3) {
-        const domain = email.split("@")[1] || "";
-        const companyHint = domain.replace(/\.(com|net|org|io|co)$/i, "").replace(/\./g, " ");
-        const photoUrl = await fetchHeadshotByName(fullName, companyHint || undefined, serpApiKey);
-        const entry = await storeAndCacheAvatar(email, hash, photoUrl || "", photoUrl ? "serpapi_name" : "no_match");
-        if (entry.storage_path) stored++;
-        if (photoUrl) improved++;
+        await storeAndCacheAvatar(email, hash, "", "no_linkedin_no_name");
       } else {
         // No linkedin, no name — just mark as checked
         const entry: CachedAvatar = {

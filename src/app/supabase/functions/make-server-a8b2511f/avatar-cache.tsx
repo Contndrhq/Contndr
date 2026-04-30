@@ -38,6 +38,7 @@ function isSignedUrlUsable(expires: string | null | undefined): boolean {
 
 function bestAvatarUrl(entry: CachedAvatar | null | undefined): string | null {
   if (!entry) return null;
+  if ((entry.avatar_confidence ?? 0) > 0 && (entry.avatar_confidence ?? 0) < 0.75) return null;
   if (entry.cdn_url && isSignedUrlUsable(entry.cdn_url_expires)) return entry.cdn_url;
   return entry.url || null;
 }
