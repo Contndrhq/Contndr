@@ -1,0 +1,4 @@
+-- Remote baseline migration placeholder.
+-- This version exists in the Supabase migration history but was missing from
+-- this local repo snapshot. Keep this file so local migration history remains
+-- aligned with production without rewriting the remote history.
