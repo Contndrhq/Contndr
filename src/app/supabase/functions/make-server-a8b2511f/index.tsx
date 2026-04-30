@@ -17573,21 +17573,18 @@ app.patch("/make-server-a8b2511f/ai-call-campaigns/:id/status", async (c) => {
     
     // If status is 'active', start the processor
     if (status === 'active') {
-      const headers = new Headers();
-      headers.set('Authorization', c.req.header('Authorization') || '');
-      headers.set('Content-Type', 'application/json');
-      
-      fetch(
-        `${Deno.env.get('SUPABASE_URL')}/functions/v1/make-server-a8b2511f/ai-call/start/${campaignId}`,
-        { method: 'POST', headers }
-      ).catch(error => {
+      const work = processAICallCampaign(campaignId, user.id, updatedCampaign).catch((error: any) => {
         console.error('[AI CAMPAIGNS] Error starting processor:', error);
       });
+      if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) {
+        EdgeRuntime.waitUntil(work);
+      }
     }
     
     return c.json({
       success: true,
-      campaign: updatedCampaign
+      campaign: updatedCampaign,
+      processor_started: status === 'active'
     });
   } catch (error) {
     console.error('[AI CAMPAIGNS] Error updating campaign status:', error);

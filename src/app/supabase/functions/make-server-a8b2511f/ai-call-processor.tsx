@@ -3,6 +3,7 @@ import * as kv from './kv-retry.tsx';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const app = new Hono();
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
 // Global error handler for AI Call Processor routes
 app.onError((err, c) => {
@@ -17,9 +18,13 @@ app.onError((err, c) => {
 // Telnyx API base URL
 const TELNYX_API_BASE = 'https://api.telnyx.com/v2';
 
-// Helper to get Telnyx API key from environment
-function getTelnyxApiKey(): string | null {
-  return Deno.env.get('TELNYX_API_KEY') || null;
+// Helper to get Telnyx API key from environment or the settings UI KV store.
+async function getTelnyxApiKey(): Promise<string | null> {
+  return Deno.env.get('TELNYX_API_KEY') || await kv.get('telnyx:api_key') || null;
+}
+
+async function getTelnyxConnectionId(): Promise<string | null> {
+  return Deno.env.get('TELNYX_CONNECTION_ID') || await kv.get('telnyx:connection_id') || null;
 }
 
 // Helper to make Telnyx API requests
@@ -27,7 +32,7 @@ async function telnyxRequest(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const apiKey = getTelnyxApiKey();
+  const apiKey = await getTelnyxApiKey();
   
   if (!apiKey) {
     throw new Error('Telnyx API key not configured');
@@ -104,10 +109,12 @@ app.post('/start/:campaignId', async (c) => {
       return c.json({ error: "Campaign is not active" }, 400);
     }
 
-    // Start processing in background (don't await)
-    processCampaign(campaignId, user.id, campaign).catch(error => {
+    const work = processCampaign(campaignId, user.id, campaign).catch(error => {
       console.error(`❌ Error processing campaign ${campaignId}:`, error);
     });
+    if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) {
+      EdgeRuntime.waitUntil(work);
+    }
 
     return c.json({ 
       success: true, 
@@ -137,28 +144,42 @@ export async function processCampaign(campaignId: string, userId: string, campai
 
   try {
     const campaignKey = `ai-call-campaign:${userId}:${campaignId}`;
+    const pauseCampaign = async (pauseReason: string, lastError: string, sourceCampaign = campaign) => {
+      const pausedCampaign = {
+        ...sourceCampaign,
+        status: 'paused',
+        pause_reason: pauseReason,
+        last_error: lastError,
+        updated_at: new Date().toISOString()
+      };
+      await kv.set(campaignKey, pausedCampaign);
+      console.warn(`⏸️ Campaign ${campaignId} paused: ${lastError}`);
+    };
     
     // Get all phone numbers for the campaign brand
     const allNumbers = await kv.getByPrefix('telnyx:number:');
     console.log(`📱 All Telnyx numbers:`, JSON.stringify(allNumbers, null, 2));
     
-    const availableNumbers = allNumbers.filter(num => 
-      num.status === 'active' && 
-      (num.brand === campaign.brand || num.brand === 'both')
+    const activeNumbers = allNumbers.filter((num: any) => num.status === 'active' && num.phone_number);
+    const availableNumbers = activeNumbers.filter((num: any) =>
+      num.brand === campaign.brand || num.brand === 'both' || num.brand === 'all'
     );
     console.log(`📱 Available numbers for brand ${campaign.brand}:`, JSON.stringify(availableNumbers, null, 2));
 
-    if (availableNumbers.length === 0) {
-      console.error(`❌ No phone numbers available for brand ${campaign.brand}`);
+    const selectedNumber = availableNumbers[0] || activeNumbers[0];
+    if (!selectedNumber) {
+      const lastError = `No active Telnyx phone numbers are configured for outbound AI calls.`;
+      console.error(`❌ ${lastError}`);
       console.error(`💡 Please configure phone numbers in Settings > Phone Numbers`);
-      // Update campaign status to paused
-      const updated = { ...campaign, status: 'paused', updated_at: new Date().toISOString() };
-      await kv.set(campaignKey, updated);
+      await pauseCampaign('no_phone_number', lastError);
       activeProcessors.delete(processorKey);
       return;
     }
+    if (availableNumbers.length === 0 && activeNumbers.length > 0) {
+      console.warn(`⚠️ No brand-specific number for "${campaign.brand}". Falling back to active number ${selectedNumber.phone_number}.`);
+    }
 
-    const fromNumber = availableNumbers[0].phone_number;
+    const fromNumber = normalizePhoneToE164(selectedNumber.phone_number);
     console.log(`📞 Using phone number: ${fromNumber}`);
 
     // Get leads from campaign
@@ -175,6 +196,7 @@ export async function processCampaign(campaignId: string, userId: string, campai
       const completedCampaign = {
         ...campaign,
         status: 'completed',
+        last_error: 'No callable leads were selected for this campaign.',
         updated_at: new Date().toISOString()
       };
       await kv.set(campaignKey, completedCampaign);
@@ -184,8 +206,8 @@ export async function processCampaign(campaignId: string, userId: string, campai
     }
 
     // Validate Telnyx configuration — check env vars first, then KV store
-    const telnyxApiKey = Deno.env.get('TELNYX_API_KEY') || await kv.get('telnyx:api_key');
-    const telnyxConnectionId = Deno.env.get('TELNYX_CONNECTION_ID') || await kv.get('telnyx:connection_id');
+    const telnyxApiKey = await getTelnyxApiKey();
+    const telnyxConnectionId = await getTelnyxConnectionId();
     
     console.log(`🔑 Telnyx API Key: ${telnyxApiKey ? '✅ Configured' : '❌ Missing'}`);
     console.log(`🔌 Telnyx Connection ID: ${telnyxConnectionId ? '✅ Configured' : '❌ Missing'}`);
@@ -194,9 +216,7 @@ export async function processCampaign(campaignId: string, userId: string, campai
       console.error(`❌ Telnyx is not properly configured`);
       console.error(`💡 Please complete the Telnyx setup in Settings > Integrations`);
       
-      // Update campaign status to paused
-      const updated = { ...campaign, status: 'paused', updated_at: new Date().toISOString() };
-      await kv.set(campaignKey, updated);
+      await pauseCampaign('telnyx_not_configured', 'Telnyx API key or voice connection ID is missing.');
       activeProcessors.delete(processorKey);
       return;
     }
@@ -207,8 +227,12 @@ export async function processCampaign(campaignId: string, userId: string, campai
       campaignId,
       attemptedLeads: [],
       completedLeads: [],
+      failedLeads: [],
       callsMade: 0
     };
+    callTracking.attemptedLeads = Array.isArray(callTracking.attemptedLeads) ? callTracking.attemptedLeads : [];
+    callTracking.completedLeads = Array.isArray(callTracking.completedLeads) ? callTracking.completedLeads : [];
+    callTracking.failedLeads = Array.isArray(callTracking.failedLeads) ? callTracking.failedLeads : [];
     
     console.log(`📊 Call tracking:`, JSON.stringify(callTracking, null, 2));
 
@@ -226,11 +250,19 @@ export async function processCampaign(campaignId: string, userId: string, campai
         console.log(`⏭️  Skipping lead ${lead.business_name} - already called`);
         continue;
       }
+      const leadLabel = lead.business_name || lead.name || lead.full_name || lead.email || lead.id || 'Unknown lead';
 
       // Validate phone number
       if (!lead.phone) {
-        console.log(`⚠️  Skipping lead ${lead.business_name} - no phone number`);
+        console.log(`⚠️  Skipping lead ${leadLabel} - no phone number`);
         callTracking.attemptedLeads.push(lead.id);
+        callTracking.failedLeads.push({
+          leadId: lead.id,
+          leadName: leadLabel,
+          phone: null,
+          error: 'No phone number available for this lead.',
+          at: new Date().toISOString()
+        });
         await kv.set(callTrackingKey, callTracking);
         continue;
       }
@@ -270,7 +302,7 @@ export async function processCampaign(campaignId: string, userId: string, campai
         // Initiate the call
         try {
           const normalizedToNumber = normalizePhoneToE164(lead.phone);
-          console.log(`📞 Normalized phone number for ${lead.business_name}: ${lead.phone} -> ${normalizedToNumber}`);
+          console.log(`📞 Normalized phone number for ${leadLabel}: ${lead.phone} -> ${normalizedToNumber}`);
           
           console.log(`🚀 Initiating call to ${normalizedToNumber}...`);
           const callResponse = await telnyxRequest('/calls', {
@@ -370,6 +402,8 @@ export async function processCampaign(campaignId: string, userId: string, campai
             ...currentCampaign,
             calls_made: callTracking.callsMade,
             in_progress: callTracking.callsMade,
+            failed_calls: callTracking.failedLeads.length,
+            last_error: undefined,
             updated_at: new Date().toISOString()
           };
           await kv.set(campaignKey, updatedCampaign);
@@ -380,18 +414,48 @@ export async function processCampaign(campaignId: string, userId: string, campai
           await new Promise(resolve => setTimeout(resolve, 3000));
 
         } catch (error) {
-          console.error(`❌ Error calling ${lead.business_name}:`, error);
+          const message = error?.message || String(error);
+          console.error(`❌ Error calling ${leadLabel}:`, error);
           
           // Mark as attempted anyway
-          callTracking.attemptedLeads.push(lead.id);
+          if (!callTracking.attemptedLeads.includes(lead.id)) callTracking.attemptedLeads.push(lead.id);
+          callTracking.failedLeads.push({
+            leadId: lead.id,
+            leadName: leadLabel,
+            phone: normalizedPhone,
+            error: message,
+            at: new Date().toISOString()
+          });
           await kv.set(callTrackingKey, callTracking);
+          const currentAfterError = await kv.get(campaignKey) || currentCampaign;
+          await kv.set(campaignKey, {
+            ...currentAfterError,
+            failed_calls: callTracking.failedLeads.length,
+            last_error: message,
+            updated_at: new Date().toISOString()
+          });
         }
       } catch (error) {
-        console.error(`❌ Error calling ${lead.business_name}:`, error);
+        const message = error?.message || String(error);
+        console.error(`❌ Error calling ${leadLabel}:`, error);
         
         // Mark as attempted anyway
-        callTracking.attemptedLeads.push(lead.id);
+        if (!callTracking.attemptedLeads.includes(lead.id)) callTracking.attemptedLeads.push(lead.id);
+        callTracking.failedLeads.push({
+          leadId: lead.id,
+          leadName: leadLabel,
+          phone: lead.phone || null,
+          error: message,
+          at: new Date().toISOString()
+        });
         await kv.set(callTrackingKey, callTracking);
+        const currentAfterError = await kv.get(campaignKey) || currentCampaign;
+        await kv.set(campaignKey, {
+          ...currentAfterError,
+          failed_calls: callTracking.failedLeads.length,
+          last_error: message,
+          updated_at: new Date().toISOString()
+        });
       }
     }
 
@@ -403,6 +467,7 @@ export async function processCampaign(campaignId: string, userId: string, campai
         const completedCampaign = {
           ...finalCampaign,
           status: 'completed',
+          failed_calls: callTracking.failedLeads.length,
           updated_at: new Date().toISOString()
         };
         await kv.set(campaignKey, completedCampaign);

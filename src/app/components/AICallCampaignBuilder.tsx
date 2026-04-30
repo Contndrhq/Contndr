@@ -316,10 +316,26 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
       const url = isEditing
         ? `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/ai-call-campaigns/${campaignId}`
         : `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/ai-call-campaigns`;
-      const response = await fetch(url, { method: isEditing ? 'PUT' : 'POST', headers: await getAuthHeaders(), body: JSON.stringify(campaignPayload) });
+      const headers = await getAuthHeaders();
+      const response = await fetch(url, { method: isEditing ? 'PUT' : 'POST', headers, body: JSON.stringify(campaignPayload) });
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || `Failed to ${isEditing ? 'update' : 'create'} campaign`);
+      }
+
+      if (!isEditing && scheduleValue.mode === 'now') {
+        const startResponse = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/ai-call-campaigns/${campaignId}/status`,
+          {
+            method: 'PATCH',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'active' })
+          }
+        );
+        if (!startResponse.ok) {
+          const error = await startResponse.json().catch(() => ({}));
+          throw new Error(error.error || 'Campaign was created, but AI calling could not be started.');
+        }
       }
       onClose();
     } catch (error: any) {

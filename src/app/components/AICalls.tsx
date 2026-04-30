@@ -66,8 +66,10 @@ interface Campaign {
   brand: string;
   status: 'draft' | 'active' | 'paused' | 'completed';
   pause_reason?: string;
+  last_error?: string;
   total_leads: number;
   calls_made: number;
+  failed_calls?: number;
   created_at: string;
   selected_leads?: string[];
 }
@@ -183,7 +185,8 @@ export function AICalls({
       );
 
       if (response.ok) {
-        const updatedCampaign = { ...selectedCampaign, status: newStatus };
+        const payload = await response.json().catch(() => null);
+        const updatedCampaign = payload?.campaign || { ...selectedCampaign, status: newStatus };
         setSelectedCampaign(updatedCampaign);
         setCampaigns(campaigns.map(c => c.id === selectedCampaign.id ? updatedCampaign : c));
         if (newStatus === 'active') alert(t('aiCalls.campaignStarted'));
@@ -396,17 +399,26 @@ export function AICalls({
                   </div>
                 </div>
               )}
+              {selectedCampaign.last_error && (
+                <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                  <PhoneOff className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-red-300">Calling issue</p>
+                    <p className="text-[10px] text-red-300/80 mt-0.5 break-words">{selectedCampaign.last_error}</p>
+                  </div>
+                </div>
+              )}
               <div>
                 <div className="flex justify-between text-xs font-medium text-zinc-900 dark:text-white mb-1.5">
                   <span>{t('aiCalls.progress')}</span>
                   <span className="text-zinc-400">
-                    {selectedCampaign.calls_made}/{selectedCampaign.total_leads} ({Math.round((selectedCampaign.calls_made / Math.max(selectedCampaign.total_leads, 1)) * 100)}%)
+                    {selectedCampaign.calls_made + (selectedCampaign.failed_calls || 0)}/{selectedCampaign.total_leads} ({Math.round(((selectedCampaign.calls_made + (selectedCampaign.failed_calls || 0)) / Math.max(selectedCampaign.total_leads, 1)) * 100)}%)
                   </span>
                 </div>
                 <div className="h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-[#1ED4A7] rounded-full transition-all duration-500"
-                    style={{ width: (Math.min(100, Math.round((selectedCampaign.calls_made / Math.max(selectedCampaign.total_leads, 1)) * 100)) + '%') }}
+                    style={{ width: (Math.min(100, Math.round(((selectedCampaign.calls_made + (selectedCampaign.failed_calls || 0)) / Math.max(selectedCampaign.total_leads, 1)) * 100)) + '%') }}
                   />
                 </div>
               </div>
@@ -426,6 +438,13 @@ export function AICalls({
                     {t('aiCalls.callsMade')}
                   </div>
                   <p className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-white">{selectedCampaign.calls_made}</p>
+                </div>
+                <div className="bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800/50 p-3 sm:p-4 rounded-lg col-span-2">
+                  <div className="flex items-center gap-1.5 mb-1 text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                    <PhoneOff className="w-3 h-3" />
+                    Failed Attempts
+                  </div>
+                  <p className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-white">{selectedCampaign.failed_calls || 0}</p>
                 </div>
               </div>
 
@@ -599,7 +618,11 @@ function CampaignRow({ campaign, onViewDetails }: { campaign: Campaign; onViewDe
             'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'
           }`}>{campaign.status === 'paused' && campaign.pause_reason === 'insufficient_credits' ? t('aiCalls.noCredits') : campaign.status}</span>
         </div>
-        <p className="text-[10px] sm:text-xs text-zinc-500 truncate">{campaign.calls_made}/{campaign.total_leads} {t('aiCalls.calls')} &middot; {campaign.brand} &middot; {new Date(campaign.created_at).toLocaleDateString()}</p>
+        <p className="text-[10px] sm:text-xs text-zinc-500 truncate">
+          {campaign.calls_made}/{campaign.total_leads} {t('aiCalls.calls')}
+          {(campaign.failed_calls || 0) > 0 ? ` · ${campaign.failed_calls} failed` : ''}
+          {campaign.last_error ? ` · ${campaign.last_error}` : ` · ${campaign.brand} · ${new Date(campaign.created_at).toLocaleDateString()}`}
+        </p>
       </div>
       <button onClick={onViewDetails} className="px-2.5 py-1 sm:py-1.5 text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-white transition-colors flex-shrink-0">{t('aiCalls.details')}</button>
     </div>
