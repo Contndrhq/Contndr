@@ -80,12 +80,26 @@ export function useBroadcast() {
  */
 async function fetchCampaignStats(campaignId: string): Promise<{ sentCount: number; status: string; totalLeads: number } | null> {
   try {
-    const resp = await authenticatedFetch(
-      `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${campaignId}`,
+    const statusResp = await authenticatedFetch(
+      `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${campaignId}/status`,
       { signal: AbortSignal.timeout(10_000) }
     );
-    if (!resp.ok) return null;
-    const data = await resp.json();
+
+    if (statusResp.ok) {
+      const data = await statusResp.json();
+      return {
+        sentCount: data.leadStats?.sent ?? data.emailStats?.sent ?? data.sent_count ?? 0,
+        status: data.status || 'draft',
+        totalLeads: data.leadStats?.total ?? data.total_leads ?? 0,
+      };
+    }
+
+    const campaignResp = await authenticatedFetch(
+      `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${campaignId}`,
+      { signal: AbortSignal.timeout(8_000) }
+    );
+    if (!campaignResp.ok) return null;
+    const data = await campaignResp.json();
     return {
       sentCount: data.sent_count || 0,
       status: data.status || 'draft',
@@ -212,7 +226,35 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           throw new Error(error.error || 'Unable to launch campaign');
         }
 
-        setState(prev => ({ ...prev, statusText: 'Sending in background...' }));
+        const initialStats = await fetchCampaignStats(campaignId);
+        if (initialStats) {
+          const initialTotal = initialStats.totalLeads > 0 ? initialStats.totalLeads : total;
+          const initialComplete = initialStats.status === 'completed' || (initialTotal > 0 && initialStats.sentCount >= initialTotal);
+          setState(prev => ({
+            ...prev,
+            progress: Math.max(prev.progress, initialStats.sentCount),
+            successCount: Math.max(prev.successCount, initialStats.sentCount),
+            total: Math.max(prev.total, initialTotal),
+            done: initialComplete,
+            statusText: initialComplete ? '' : `Sending in background (${initialStats.sentCount}/${Math.max(initialTotal, 1)})...`,
+          }));
+          if (initialComplete) {
+            runningRef.current = false;
+            activeCampaignIdRef.current = '';
+            releaseSendLock(campaignId);
+            realtimeManager.emit('campaign:completed', { campaignName, sent: initialStats.sentCount, bounced: 0, failed: 0 });
+            if (initialStats.sentCount > 0) realtimeManager.emit('email:sent', { campaignName, count: initialStats.sentCount });
+            dispatchAppEvent({ type: 'campaigns:changed', meta: { action: 'broadcast_complete', sent: initialStats.sentCount } });
+            dispatchAppEvent({ type: 'leads:changed', meta: { action: 'emails_sent' } });
+            toast.success('Campaign sent', {
+              description: `${initialStats.sentCount} email${initialStats.sentCount !== 1 ? 's' : ''} delivered`,
+              duration: 5000,
+            });
+            return;
+          }
+        } else {
+          setState(prev => ({ ...prev, statusText: 'Sending in background...' }));
+        }
 
         let finalSent = 0;
         let finalTotal = total;

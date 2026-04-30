@@ -12930,11 +12930,17 @@ ABSOLUTE RULES:
             
             // Update pre-inserted email to 'retry_pending' instead of 'failed'
             if (preInsertedId) {
-              await supabase
-                .from('emails')
-                .update({ status: 'retry_pending', updated_at: new Date().toISOString() })
-                .eq('id', preInsertedId)
-                .catch(() => {});
+              try {
+                const { error: retryPendingError } = await supabase
+                  .from('emails')
+                  .update({ status: 'retry_pending', updated_at: new Date().toISOString() })
+                  .eq('id', preInsertedId);
+                if (retryPendingError) {
+                  console.warn('[SEND-BATCH] Failed to mark email retry_pending:', retryPendingError);
+                }
+              } catch (retryPendingErr) {
+                console.warn('[SEND-BATCH] Failed to mark email retry_pending:', retryPendingErr);
+              }
             }
             
             emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: false, error: `Queued for retry: ${errMsg}`, bounced: false, retryQueued: true });
@@ -13884,45 +13890,28 @@ app.get("/make-server-a8b2511f/campaigns/:id/bounced", async (c) => {
 });
 
 // ─── Live-event KV cleanup (throttled) ───────────────────────────────
-// Prunes live_event:* entries older than 1 hour.  Runs at most once per
-// 5 minutes, triggered fire-and-forget from the /live-events endpoint.
-let _lastLiveEventCleanup = 0;
-const LIVE_EVENT_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;  // 5 min
+// Live broadcast events are kept in a bounded per-campaign KV list. Avoid
+// prefix scans here: those were the source of broadcast stalls under load.
 const LIVE_EVENT_MAX_AGE_MS          = 60 * 60 * 1000;  // 1 hour
+const LIVE_EVENT_LIST_LIMIT          = 100;
 
-async function pruneStaleLiveEvents() {
-  const now = Date.now();
-  if (now - _lastLiveEventCleanup < LIVE_EVENT_CLEANUP_INTERVAL_MS) return;
-  _lastLiveEventCleanup = now;
+function liveEventsKey(campaignId: string) {
+  return `live_events:${campaignId}`;
+}
 
+async function appendLiveCampaignEvent(campaignId: string, event: any) {
   try {
-    const supabase = getSupabaseAdmin();
-    // Query the raw KV table for keys + values so we can identify stale rows.
-    // getByPrefix only returns values; we need the keys for deletion.
-    const { data, error } = await supabase
-      .from('kv_store_a8b2511f')
-      .select('key, value')
-      .like('key', 'live_event:%');
-
-    if (error || !data || data.length === 0) return;
-
-    const cutoff = now - LIVE_EVENT_MAX_AGE_MS;
-    const staleKeys: string[] = data
-      .filter((row: any) => {
-        const ts = row.value?.timestamp;
-        return typeof ts === 'number' && ts < cutoff;
-      })
-      .map((row: any) => row.key as string);
-
-    if (staleKeys.length === 0) return;
-
-    // Delete in batches of 200 to stay within Supabase .in() limits
-    for (let i = 0; i < staleKeys.length; i += 200) {
-      await kv.mdel(staleKeys.slice(i, i + 200));
-    }
-    console.log(`[LIVE-EVENT CLEANUP] Pruned ${staleKeys.length} stale entries`);
-  } catch (e) {
-    console.warn('[LIVE-EVENT CLEANUP] Error (non-fatal):', e);
+    const key = liveEventsKey(campaignId);
+    const existing = await kv.get(key).catch(() => []);
+    const events = Array.isArray(existing) ? existing : [];
+    const next = [...events, event]
+      .filter((e: any) => e && typeof e.timestamp === 'number' && Date.now() - e.timestamp < LIVE_EVENT_MAX_AGE_MS)
+      .slice(-LIVE_EVENT_LIST_LIMIT);
+    await kv.set(key, next);
+    return true;
+  } catch (error: any) {
+    console.warn('[LIVE EVENTS] Failed to append bounded live event (non-fatal):', error?.message || error);
+    return false;
   }
 }
 
@@ -13934,15 +13923,17 @@ app.get("/make-server-a8b2511f/campaigns/:id/live-events", async (c) => {
     const campaignId = c.req.param('id');
     const since = parseInt(c.req.query('since') || '0');
 
-    // Fetch live events from KV by prefix with additional timeout protection
-    // KV already has a 10s timeout, but we add a 9s timeout here to catch it early
+    // Fetch live events from a bounded per-campaign list. Older builds wrote one
+    // KV row per event and scanned by prefix, which became slow enough to stall
+    // broadcasts when the KV table was under pressure.
     let events: any[] = [];
     try {
-      const kvPromise = kv.getByPrefix(`live_event:${campaignId}:`);
-      const timeoutPromise = new Promise<any[]>((_, reject) => 
-        setTimeout(() => reject(new Error('Live events query timeout')), 9000)
+      const kvPromise = kv.get(liveEventsKey(campaignId));
+      const timeoutPromise = new Promise<any[]>((_, reject) =>
+        setTimeout(() => reject(new Error('Live events query timeout')), 2000)
       );
-      events = await Promise.race([kvPromise, timeoutPromise]);
+      const rawEvents = await Promise.race([kvPromise, timeoutPromise]);
+      events = Array.isArray(rawEvents) ? rawEvents : [];
     } catch (kvError: any) {
       console.warn('[LIVE EVENTS] KV fetch timeout/error (non-fatal):', kvError?.message || kvError);
       // Return empty events on timeout - frontend will retry
@@ -13953,9 +13944,6 @@ app.get("/make-server-a8b2511f/campaigns/:id/live-events", async (c) => {
     const recentEvents = (events || [])
       .filter((e: any) => e?.timestamp > since && e?.user_id === user.id)
       .sort((a: any, b: any) => a.timestamp - b.timestamp);
-
-    // Fire-and-forget cleanup of stale entries (throttled internally)
-    pruneStaleLiveEvents().catch(() => {});
 
     return c.json({
       events: recentEvents,
@@ -16300,19 +16288,16 @@ app.get("/make-server-a8b2511f/track/open/:id", async (c) => {
         // Write live event to KV for real-time frontend polling (fire-and-forget to avoid blocking)
         if (email.campaign_id && (currentStatus === 'sent' || currentStatus === 'delivered' || currentStatus === 'queued')) {
           const ts = Date.now();
-          const liveEventKey = `live_event:${email.campaign_id}:${ts}:open`;
-          kv.set(liveEventKey, {
+          const liveEvent = {
             type: 'opened',
             email_id: emailId,
             lead_id: email.lead_id,
             campaign_id: email.campaign_id,
             user_id: email.user_id,
             timestamp: ts,
-          }).then(() => {
-            console.log(`[OPEN TRACK] ✅ Wrote live event to KV: ${liveEventKey}`);
-          }).catch((kvErr) => {
-            // Don't crash on KV errors - the main DB update already succeeded
-            console.warn(`[OPEN TRACK] Failed to write live event (non-fatal):`, kvErr?.message || kvErr);
+          };
+          appendLiveCampaignEvent(email.campaign_id, liveEvent).then((ok) => {
+            if (ok) console.log(`[OPEN TRACK] ✅ Wrote bounded live event for campaign ${email.campaign_id}`);
           });
         } else {
           console.log(`[OPEN TRACK] ℹ️ Not writing live event (campaign_id=${email.campaign_id}, status=${currentStatus})`);
@@ -16464,18 +16449,16 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
           .single();
         if (clickEmail?.campaign_id) {
           const ts = Date.now();
-          const liveEventKey = `live_event:${clickEmail.campaign_id}:${ts}:click`;
-          kv.set(liveEventKey, {
+          const liveEvent = {
             type: 'clicked',
             email_id,
             lead_id,
             campaign_id: clickEmail.campaign_id,
             user_id,
             timestamp: ts,
-          }).then(() => {
-            console.log(`[CLICK TRACK] ✅ Wrote live event to KV: ${liveEventKey}`);
-          }).catch((kvErr) => {
-            console.warn(`[CLICK TRACK] Failed to write live event (non-fatal):`, kvErr?.message || kvErr);
+          };
+          appendLiveCampaignEvent(clickEmail.campaign_id, liveEvent).then((ok) => {
+            if (ok) console.log(`[CLICK TRACK] ✅ Wrote bounded live event for campaign ${clickEmail.campaign_id}`);
           });
         } else {
           console.log(`[CLICK TRACK] ℹ️ Not writing live event (no campaign_id found for email ${email_id})`);
