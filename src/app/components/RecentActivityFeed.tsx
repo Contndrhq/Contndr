@@ -577,7 +577,7 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
   }
 
   return (
-    <div className="glass-card p-4 h-full max-h-full flex flex-col overflow-hidden">
+    <div className="glass-card p-4 min-h-full flex flex-col overflow-hidden">
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider">{t('dashboard.recentActivity')}</h3>
@@ -604,7 +604,7 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
           <p className="text-[11px] text-gray-400 mt-1">{t('dashboard.opensClicksReplies')}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-4 gap-y-1 flex-1 content-start auto-rows-min items-start overflow-y-auto pr-1 custom-scrollbar min-h-0">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-4 gap-y-1 content-start auto-rows-min items-start pr-1">
           {activities.map((activity) => {
             const engagement = isEngagement(activity.type);
             const engagementLabel = getEngagementLabel(activity.type);
