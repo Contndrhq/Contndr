@@ -604,7 +604,7 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
           <p className="text-[11px] text-gray-400 mt-1">{t('dashboard.opensClicksReplies')}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-4 gap-y-1 flex-1 overflow-y-auto pr-1 custom-scrollbar min-h-0">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-4 gap-y-1 flex-1 content-start auto-rows-min items-start overflow-y-auto pr-1 custom-scrollbar min-h-0">
           {activities.map((activity) => {
             const engagement = isEngagement(activity.type);
             const engagementLabel = getEngagementLabel(activity.type);

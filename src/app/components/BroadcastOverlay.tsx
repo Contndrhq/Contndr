@@ -163,16 +163,13 @@ function DefaultPanel() {
               <Minimize2 className="w-3.5 h-3.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" />
             </button>
 
-            {/* Close (only when done) */}
-            {b.done && (
-              <button
-                onClick={b.dismiss}
-                className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
-                title="Close"
-              >
-                <X className="w-3.5 h-3.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" />
-              </button>
-            )}
+            <button
+              onClick={b.dismiss}
+              className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+              title={b.done ? 'Close' : 'Hide broadcast'}
+            >
+              <X className="w-3.5 h-3.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" />
+            </button>
           </div>
         </div>
 
@@ -302,16 +299,13 @@ function MaximizedPanel() {
               <Minimize2 className="w-4 h-4 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" />
             </button>
 
-            {/* Close (only when done) */}
-            {b.done && (
-              <button
-                onClick={b.dismiss}
-                className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
-                title="Close"
-              >
-                <X className="w-4 h-4 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" />
-              </button>
-            )}
+            <button
+              onClick={b.dismiss}
+              className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+              title={b.done ? 'Close' : 'Hide broadcast'}
+            >
+              <X className="w-4 h-4 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" />
+            </button>
           </div>
         </div>
 

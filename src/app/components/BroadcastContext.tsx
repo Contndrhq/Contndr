@@ -245,7 +245,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           successCount: Math.max(prev.successCount, finalSent),
           progress: Math.max(prev.progress, finalSent),
           total: Math.max(prev.total, finalTotal),
-          statusText: completed ? '' : 'Still sending in background...',
+          statusText: completed ? '' : 'Continuing in background. You can close this panel.',
         }));
         runningRef.current = false;
         activeCampaignIdRef.current = '';

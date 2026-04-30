@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowUpRight, Bot, Loader2, Play, Phone, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, Loader2, Play, Phone, ShieldCheck, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { authenticatedFetch } from '../lib/auth';
 import { projectId } from '../utils/supabase/info';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f`;
+
+function formatAgentRunTime(value?: string) {
+  if (!value) return 'Not run';
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) return 'Not run';
+  const diffMs = Date.now() - time.getTime();
+  const diffMins = Math.max(0, Math.floor(diffMs / 60000));
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) => void }) {
   const [data, setData] = useState<any>(null);
@@ -66,6 +79,9 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
   const enabled = !!config.enabled;
   const priorities = data?.recommendations || [];
   const canUse = data?.entitlements?.agentMode;
+  const lastRun = data?.lastRun;
+  const lastActions = Array.isArray(lastRun?.actions) ? lastRun.actions : [];
+  const lastActionLabel = lastActions[0]?.label || lastActions[0]?.title || lastActions[0]?.type;
 
   const statusText = enabled
     ? `${config.autonomyLevel === 'autopilot' ? 'Autopilot' : 'Supervised'} active`
@@ -102,8 +118,34 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
         <MiniStat icon={Phone} label="Calls" value={config.autoCallHotVisitors ? 'On' : 'Off'} />
       </div>
 
-      <div className="flex-1 min-h-0 space-y-1.5 overflow-hidden border-t border-zinc-200 dark:border-white/[0.06] pt-3">
-        {priorities.slice(0, 3).map((item: any) => (
+      <div className="flex-shrink-0 border-t border-zinc-200 dark:border-white/[0.06] pt-3 mb-3">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-500">
+            Last Pass
+          </p>
+          <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
+            {formatAgentRunTime(lastRun?.ran_at || lastRun?.created_at)}
+          </span>
+        </div>
+        <div className="rounded-lg bg-zinc-50/70 dark:bg-white/[0.025] border border-zinc-200 dark:border-white/[0.06] px-2.5 py-2">
+          <div className="flex items-start gap-2">
+            <CheckCircle2 className="w-3.5 h-3.5 text-[#1ED4A7] mt-0.5 flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[12px] font-medium text-zinc-900 dark:text-white truncate">
+                {lastActionLabel || 'No pass run yet'}
+              </p>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mt-0.5 line-clamp-1">
+                {lastActions.length > 0
+                  ? `${lastActions.length} workspace check${lastActions.length === 1 ? '' : 's'} evaluated`
+                  : 'Checks follow-ups, campaign health, deliverability, and hot visitor call triggers.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 space-y-1.5 overflow-hidden">
+        {priorities.slice(0, 2).map((item: any) => (
           <div key={item.id} className="rounded-lg px-2.5 py-2 hover:bg-zinc-50/70 dark:hover:bg-white/[0.03] transition-colors">
             <div className="flex items-start gap-2">
               <span className={`mt-1 h-1.5 w-1.5 rounded-full flex-shrink-0 ${item.priority === 'high' ? 'bg-[#1ED4A7]' : 'bg-zinc-400 dark:bg-zinc-600'}`} />

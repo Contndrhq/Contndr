@@ -13140,7 +13140,7 @@ app.post("/make-server-a8b2511f/campaigns/:id/launch", async (c) => {
 
     const state = await enqueueCampaign(user.id, campaignId, batchSize);
 
-    EdgeRuntime.waitUntil((async () => {
+    const backgroundWork = (async () => {
       const baseUrl = Deno.env.get('SUPABASE_URL');
       if (!baseUrl || !authHeader) {
         console.warn('[CAMPAIGN-LAUNCH] Missing SUPABASE_URL or auth header; queued campaign will rely on cron auto-resume');
@@ -13188,7 +13188,15 @@ app.post("/make-server-a8b2511f/campaigns/:id/launch", async (c) => {
           await new Promise(resolve => setTimeout(resolve, 3000 * consecutiveErrors));
         }
       }
-    })());
+    })();
+
+    if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) {
+      EdgeRuntime.waitUntil(backgroundWork);
+    } else {
+      backgroundWork.catch((err: any) => {
+        console.warn(`[CAMPAIGN-LAUNCH] Background worker failed for ${campaignId}:`, err?.message || err);
+      });
+    }
 
     return c.json({
       success: true,
