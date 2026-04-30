@@ -78,12 +78,13 @@ export function AdminEventToasts({ userEmail }: { userEmail?: string }) {
       if (!token) return;
 
       const since = lastPollRef.current;
-      const res = await fetch(`${API_BASE}/admin-events/recent?since=${encodeURIComponent(since)}`, {
+      const res = await fetch(`${API_BASE}/admin-events/recent?since=${encodeURIComponent(since)}&limit=50`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
 
       if (!res.ok) return;
       const data = await res.json();
+      if (data.degraded) return;
       const events = data.events || [];
 
       // Update timestamp for next poll

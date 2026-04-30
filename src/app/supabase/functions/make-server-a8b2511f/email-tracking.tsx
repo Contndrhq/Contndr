@@ -140,17 +140,17 @@ export async function injectClickTracking(
     // Used for click analytics and lead-level reporting only.
     // A KV timeout/failure no longer prevents the tracking URL from being
     // injected — the redirect destination is already encoded in the URL.
-    kv.set(`click_track:${trackingId}`, {
-      url: destinationUrl,
-      original_url: url,
-      email_id: emailId,
-      campaign_id: campaignId || null,
-      user_id: userId,
-      lead_id: leadId || null,
-      created_at: new Date().toISOString(),
-    }).catch((kvErr: any) => {
-      console.warn(`[TRACKING] Analytics KV write failed for ${trackingId} (redirect still works via ?u= param):`, kvErr?.message?.slice(0, 80) || kvErr);
-    });
+    if (!kv.isStorageDegraded()) {
+      kv.set(`click_track:${trackingId}`, {
+        url: destinationUrl,
+        original_url: url,
+        email_id: emailId,
+        campaign_id: campaignId || null,
+        user_id: userId,
+        lead_id: leadId || null,
+        created_at: new Date().toISOString(),
+      }).catch(() => kv.logStorageDegradedOnce('click_track_write'));
+    }
 
     // ── Rewrite href immediately — no await needed ────────────────────────
     const rewritten = fullMatch.replace(`href="${url}"`, `href="${trackingUrl}"`);
@@ -209,17 +209,17 @@ export async function wrapBareUrlsWithTracking(
     const trackingUrl = `${baseUrl}/track/click/${trackingId}?u=${encodedDestination}`;
 
     // Fire-and-forget KV write for analytics only
-    kv.set(`click_track:${trackingId}`, {
-      url: destinationUrl,
-      original_url: url,
-      email_id: emailId,
-      campaign_id: campaignId || null,
-      user_id: userId,
-      lead_id: leadId || null,
-      created_at: new Date().toISOString(),
-    }).catch((kvErr: any) => {
-      console.warn(`[TRACKING] Bare URL analytics KV write failed for ${trackingId} (redirect still works via ?u= param):`, kvErr?.message?.slice(0, 80) || kvErr);
-    });
+    if (!kv.isStorageDegraded()) {
+      kv.set(`click_track:${trackingId}`, {
+        url: destinationUrl,
+        original_url: url,
+        email_id: emailId,
+        campaign_id: campaignId || null,
+        user_id: userId,
+        lead_id: leadId || null,
+        created_at: new Date().toISOString(),
+      }).catch(() => kv.logStorageDegradedOnce('click_track_write'));
+    }
 
     const anchor = `<a href="${trackingUrl}" style="color: #000000; text-decoration: underline;">${url}</a>`;
     result = result.replace(url, anchor);
@@ -334,6 +334,7 @@ export async function resolveEmailProvider(userId: string): Promise<string> {
 /** Persist the provider that was used to send a specific email. */
 export async function storeEmailProvider(emailId: string, provider: string): Promise<void> {
   try {
+    if (kv.isStorageDegraded()) return;
     await kv.set(`email_provider:${emailId}`, provider);
   } catch (kvErr: any) {
     // Non-fatal: provider info is nice-to-have for analytics but not critical
@@ -360,6 +361,7 @@ export async function storeTrackingUserAgent(
   userId?: string,
 ): Promise<void> {
   try {
+    if (kv.isStorageDegraded()) return;
     const ts = Date.now();
     const cls = classifyUserAgent(userAgent);
     const prefix = userId ? `tracking_ua:${userId}` : `tracking_ua:_`;

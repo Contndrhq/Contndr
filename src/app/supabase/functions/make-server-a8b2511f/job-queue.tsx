@@ -187,6 +187,9 @@ export async function enqueueRetry(
   failureCategory: string,
   existingAttempts = 0,
 ): Promise<{ queued: boolean; deadLettered: boolean }> {
+  const storageGuard = kv.shouldSkipWriteHeavyTask('job-queue-enqueue-retry');
+  if (!storageGuard.ok) return { queued: false, deadLettered: false };
+
   const attempts = existingAttempts + 1;
 
   // Max retries exceeded → move to DLQ
@@ -304,6 +307,8 @@ export async function getRetryStats(userId: string): Promise<RetryStats> {
  */
 export async function updateRetryStats(userId: string, retriedCount: number, dlqCount: number): Promise<void> {
   try {
+    const storageGuard = kv.shouldSkipWriteHeavyTask('job-queue-update-stats');
+    if (!storageGuard.ok) return;
     const stats = await getRetryStats(userId);
     stats.totalRetried += retriedCount;
     stats.totalDLQ += dlqCount;

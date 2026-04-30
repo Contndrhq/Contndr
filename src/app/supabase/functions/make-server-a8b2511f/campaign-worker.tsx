@@ -43,6 +43,9 @@ function activeQueuesKey(userId: string) {
  * This marks the campaign as "sending" and stores the queue state.
  */
 export async function enqueueCampaign(userId: string, campaignId: string, batchSize = 5): Promise<CampaignQueueState> {
+  const storageGuard = kv.shouldSkipWriteHeavyTask('campaign-worker-enqueue');
+  if (!storageGuard.ok) throw new Error('storage_degraded');
+
   const campaign = await kv.get(`campaign:${userId}:${campaignId}`);
   if (!campaign) throw new Error('Campaign not found');
 
@@ -95,6 +98,9 @@ export async function getPendingCampaigns(userId: string): Promise<Array<{
   totalLeads: number;
   status: string;
 }>> {
+  const storageGuard = kv.shouldSkipWriteHeavyTask('campaign-worker-pending');
+  if (!storageGuard.ok) return [];
+
   const activeQueues: string[] = (await kv.get(activeQueuesKey(userId))) || [];
   const pending: Array<{
     campaignId: string;
@@ -179,6 +185,9 @@ async function cleanupCompletedCampaign(userId: string, campaignId: string) {
  * Update queue state after a batch completes.
  */
 export async function updateQueueState(userId: string, campaignId: string, batchSent: number, batchFailed: number, isComplete: boolean): Promise<CampaignQueueState | null> {
+  const storageGuard = kv.shouldSkipWriteHeavyTask('campaign-worker-update-queue');
+  if (!storageGuard.ok) return null;
+
   const state = await kv.get(queueKey(userId, campaignId)) as CampaignQueueState | null;
   if (!state) return null;
 
@@ -207,6 +216,16 @@ export async function processAllFollowUps(userId: string): Promise<{
   campaigns: Array<{ id: string; name: string; followUpsSent: number }>;
   errors: string[];
 }> {
+  const storageGuard = kv.shouldSkipWriteHeavyTask('campaign-worker-followups');
+  if (!storageGuard.ok) {
+    return {
+      processed: 0,
+      sent: 0,
+      campaigns: [],
+      errors: ['storage_degraded'],
+    };
+  }
+
   const result = {
     processed: 0,
     sent: 0,

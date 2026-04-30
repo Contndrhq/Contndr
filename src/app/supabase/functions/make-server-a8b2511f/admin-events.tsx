@@ -14,6 +14,12 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
 
 const adminEventsApp = new Hono();
+const DEGRADED_RECENT_RESPONSE = {
+  events: [],
+  degraded: true,
+  reason: "storage_unavailable",
+  retryAfterSeconds: 30,
+};
 
 // Admin UID + email constants (must match index.tsx ADMIN_EMAILS / ADMIN_UIDS)
 const ADMIN_EMAILS = ['admin@contndr.com', 'or@roadr.com', 'or@contndr.com'];
@@ -140,6 +146,24 @@ export async function logAdminEvent(
   extra?: { email?: string; metadata?: Record<string, any> }
 ) {
   try {
+    if (kv.isStorageDegraded()) {
+      kv.logStorageDegradedOnce('admin_event_logging');
+      return;
+    }
+    if (type === 'system') {
+      const noise = `${title} ${message}`.toLowerCase();
+      if (
+        noise.includes('gc') ||
+        noise.includes('garbage collection') ||
+        noise.includes('circuit') ||
+        noise.includes('retry') ||
+        noise.includes('boot') ||
+        noise.includes('schema cache')
+      ) {
+        return;
+      }
+    }
+
     const now = Date.now();
     const id = `${now}-${Math.random().toString(36).slice(2, 8)}`;
     const event: AdminEvent = {
@@ -158,7 +182,7 @@ export async function logAdminEvent(
     } catch (setErr: any) {
       // If DB memory is full, skip event logging entirely — it's non-critical
       if (setErr?.message?.includes('memory full') || setErr?.message?.includes('shared memory')) {
-        console.log(`[ADMIN-EVENT] ${type}: ${title} — ${message} (skipped KV write — DB memory full)`);
+        kv.logStorageDegradedOnce('admin_event_logging');
         return;
       }
       throw setErr;
@@ -213,8 +237,13 @@ adminEventsApp.get("/recent", async (c) => {
       return c.json({ error: 'Forbidden — admin access required' }, 403);
     }
 
-    const since = c.req.query('since') || new Date(Date.now() - 30_000).toISOString();
-    const sinceMs = new Date(since).getTime();
+    const now = Date.now();
+    const requestedLimit = parseInt(c.req.query('limit') || '50', 10);
+    const limit = Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 50, 200));
+    const sinceQuery = c.req.query('since');
+    let sinceMs = sinceQuery ? new Date(sinceQuery).getTime() : now - 30 * 60_000;
+    if (!Number.isFinite(sinceMs)) sinceMs = now - 30 * 60_000;
+    sinceMs = Math.max(sinceMs, now - 30 * 60_000);
 
     // Read from index
     const indexKey = 'admin_events_index';
@@ -222,11 +251,8 @@ adminEventsApp.get("/recent", async (c) => {
     try {
       index = ((await kv.get(indexKey)) as string[] | null) || [];
     } catch (kvErr: any) {
-      // If DB memory is full, return empty events instead of crashing
-      if (kvErr?.message?.includes('memory full') || kvErr?.message?.includes('shared memory')) {
-        return c.json({ events: [], warning: 'Database memory full — run /admin/kv-gc to free space' });
-      }
-      throw kvErr;
+      kv.logStorageDegradedOnce('admin_events_recent');
+      return c.json(DEGRADED_RECENT_RESPONSE, 200);
     }
 
     // IDs encode timestamp as prefix — filter by timestamp
@@ -236,21 +262,25 @@ adminEventsApp.get("/recent", async (c) => {
     });
 
     if (recentIds.length === 0) {
-      return c.json({ events: [] });
+      return c.json({ events: [], degraded: false });
     }
 
     // Fetch event records
     const events: AdminEvent[] = [];
-    const keys = recentIds.slice(0, 20).map(id => `admin_event:contndr:${id}`);
-    const records = await kv.mget(keys);
+    const keys = recentIds.slice(0, limit).map(id => `admin_event:contndr:${id}`);
+    const records = await kv.mget(keys).catch(() => null);
+    if (!records) {
+      kv.logStorageDegradedOnce('admin_events_recent_mget');
+      return c.json(DEGRADED_RECENT_RESPONSE, 200);
+    }
     for (const rec of records) {
       if (rec) events.push(rec as AdminEvent);
     }
 
-    return c.json({ events });
+    return c.json({ events, degraded: false });
   } catch (error: any) {
     console.error('[ADMIN-EVENTS] Error fetching recent:', error);
-    return c.json({ error: error.message }, 500);
+    return c.json(DEGRADED_RECENT_RESPONSE, 200);
   }
 });
 
@@ -275,7 +305,18 @@ adminEventsApp.get("/history", async (c) => {
     const typeFilter = c.req.query('type') || '';
 
     const indexKey = 'admin_events_index';
-    const index: string[] = ((await kv.get(indexKey)) as string[] | null) || [];
+    const index: string[] = await kv.get(indexKey).then((value) => (value as string[] | null) || []).catch(() => []);
+    if (kv.isStorageDegraded()) {
+      return c.json({
+        events: [],
+        total: 0,
+        page,
+        hasMore: false,
+        degraded: true,
+        reason: 'storage_unavailable',
+        retryAfterSeconds: 30,
+      });
+    }
 
     const start = page * limit;
     const slice = index.slice(start, start + limit);
@@ -304,7 +345,15 @@ adminEventsApp.get("/history", async (c) => {
     });
   } catch (error: any) {
     console.error('[ADMIN-EVENTS] Error fetching history:', error);
-    return c.json({ error: error.message }, 500);
+    return c.json({
+      events: [],
+      total: 0,
+      page: 0,
+      hasMore: false,
+      degraded: true,
+      reason: 'storage_unavailable',
+      retryAfterSeconds: 30,
+    }, 200);
   }
 });
 

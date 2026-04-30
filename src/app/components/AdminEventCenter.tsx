@@ -89,6 +89,7 @@ export function AdminEventCenter() {
   const [typeFilter, setTypeFilter] = useState('');
   const [clearing, setClearing] = useState(false);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const [degraded, setDegraded] = useState(false);
 
   const fetchEvents = useCallback(async (pageNum: number, append = false) => {
     try {
@@ -112,6 +113,11 @@ export function AdminEventCenter() {
       }
 
       const data = await res.json();
+      if (data.degraded) {
+        setDegraded(true);
+        return;
+      }
+      setDegraded(false);
       const fetched = data.events || [];
 
       if (append) {
@@ -123,6 +129,7 @@ export function AdminEventCenter() {
       setHasMore(data.hasMore ?? false);
       setPage(pageNum);
     } catch (err) {
+      setDegraded(true);
       console.error('[ADMIN-EVENTS] Error loading history:', err);
     } finally {
       setLoading(false);
@@ -211,6 +218,11 @@ export function AdminEventCenter() {
           <span className="text-[11px] text-zinc-500 tabular-nums">
             {total} total event{total !== 1 ? 's' : ''}
           </span>
+          {degraded && (
+            <span className="text-[11px] text-amber-400 bg-amber-400/10 border border-amber-400/15 rounded-full px-2 py-1">
+              Live data delayed
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

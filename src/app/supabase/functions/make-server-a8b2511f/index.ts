@@ -3305,7 +3305,26 @@ async function runKvGarbageCollection(): Promise<{
 
   // 7. Delete misc caches
   let miscCount = 0;
-  for (const prefix of ['scraper_cache:', 'brandfetch:', 'company_cache:', 'domain_cache:', 'enrichment_cache:']) {
+  for (const prefix of [
+    'scraper_cache:',
+    'brandfetch:',
+    'company_cache:',
+    'domain_cache:',
+    'enrichment_cache:',
+    'recent_visit_v2:',
+    'active_queues:',
+    'campaign_queue:',
+    'retry_queue:',
+    'retry_dlq:',
+    'intent:activity:',
+    'tracking_ua:',
+    'apollo_phone:',
+    'lead_pool:',
+    'deep_prospect:',
+    'company_search:',
+    'cache:',
+    'affiliate_slug_transfer_roadr_to_contndr:',
+  ]) {
     miscCount += await deleteByPrefix(prefix);
   }
   result.misc_deleted = miscCount;
@@ -3344,6 +3363,79 @@ app.post("/make-server-a8b2511f/admin/kv-gc", async (c) => {
   } catch (error: any) {
     console.error('[ADMIN] KV GC error:', error);
     return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/system/cleanup-storage — Emergency bounded cleanup for KV memory pressure
+app.post("/make-server-a8b2511f/admin/system/cleanup-storage", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const gcResult = await runKvGarbageCollection();
+    const total = gcResult.dpx_deleted + gcResult.dp_deleted + gcResult.admin_events_deleted
+      + gcResult.click_track_deleted + gcResult.email_track_deleted + gcResult.live_event_deleted + gcResult.misc_deleted;
+    return c.json({
+      success: true,
+      scanned: 'prefix',
+      total_deleted: total,
+      by_prefix: gcResult,
+      storageHealth: kv.getStorageHealth(),
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] cleanup-storage error:', error);
+    return c.json({ success: false, error: error.message, storageHealth: kv.getStorageHealth() }, 500);
+  }
+});
+
+// GET /admin/system/storage-health — Lightweight health snapshot for operators
+app.get("/make-server-a8b2511f/admin/system/storage-health", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const supabase = getSupabaseAdmin();
+    const prefixes = [
+      'admin_event:',
+      'email_track:',
+      'click_track:',
+      'dpx:',
+      'dp:',
+      'live_event:',
+      'live_events:',
+      'recent_visit_v2:',
+      'active_queues:',
+      'campaign_queue:',
+      'retry_queue:',
+      'campaign:',
+    ];
+    const estimatedKeyCountsByPrefix: Record<string, number> = {};
+    for (const prefix of prefixes) {
+      try {
+        const { count, error } = await supabase
+          .from('kv_store_a8b2511f')
+          .select('key', { count: 'estimated', head: true })
+          .like('key', `${prefix}%`);
+        estimatedKeyCountsByPrefix[prefix] = error ? -1 : (count || 0);
+      } catch {
+        estimatedKeyCountsByPrefix[prefix] = -1;
+      }
+    }
+
+    return c.json({
+      ...kv.getStorageHealth(),
+      estimatedKeyCountsByPrefix,
+    });
+  } catch (error: any) {
+    return c.json({
+      ...kv.getStorageHealth(),
+      estimatedKeyCountsByPrefix: {},
+      error: error.message,
+    }, 200);
   }
 });
 
@@ -12078,7 +12170,12 @@ app.post("/make-server-a8b2511f/campaigns/:id/send-batch", async (c) => {
   try {
     const { user, supabase } = await getAuthenticatedUser(c);
     const campaignId = c.req.param('id');
-    const limit = parseInt(c.req.query('limit') || '10');
+    const storageGuard = kv.shouldSkipWriteHeavyTask('send-batch');
+    if (!storageGuard.ok) {
+      return c.json({ ok: false, skipped: true, reason: 'storage_degraded', retryAfterSeconds: storageGuard.retryAfterSeconds || 30 }, 503);
+    }
+    const requestedLimit = parseInt(c.req.query('limit') || '5');
+    const limit = Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 5, 5));
 
     // ── Server-side in-flight guard ──────────────────────────────────
     inFlightKey = `${user.id}:${campaignId}`;
@@ -13235,6 +13332,10 @@ app.post("/make-server-a8b2511f/campaigns/:id/launch", async (c) => {
 app.get("/make-server-a8b2511f/campaigns/pending", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
+    const storageGuard = kv.shouldSkipWriteHeavyTask('campaigns-pending');
+    if (!storageGuard.ok) {
+      return c.json({ success: true, skipped: true, reason: 'storage_degraded', pending: [], retryAfterSeconds: storageGuard.retryAfterSeconds || 30 });
+    }
     const pending = await getPendingCampaigns(user.id);
     return c.json({ success: true, pending });
   } catch (error: any) {
@@ -13249,6 +13350,10 @@ app.get("/make-server-a8b2511f/campaigns/pending", async (c) => {
 app.post("/make-server-a8b2511f/campaigns/auto-resume", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
+    const storageGuard = kv.shouldSkipWriteHeavyTask('campaigns-auto-resume');
+    if (!storageGuard.ok) {
+      return c.json({ success: true, skipped: true, reason: 'storage_degraded', resumed: 0, pending: [], retryAfterSeconds: storageGuard.retryAfterSeconds || 30 });
+    }
     const pending = await getPendingCampaigns(user.id);
 
     // Also check for campaigns with pending retries
@@ -13326,6 +13431,10 @@ app.get("/make-server-a8b2511f/retry/stats", async (c) => {
 app.post("/make-server-a8b2511f/followups/auto-process", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
+    const storageGuard = kv.shouldSkipWriteHeavyTask('followups-auto-process');
+    if (!storageGuard.ok) {
+      return c.json({ success: true, skipped: true, reason: 'storage_degraded', processed: 0, sent: 0, campaigns: [], errors: [], retryAfterSeconds: storageGuard.retryAfterSeconds || 30 });
+    }
     console.log(`[WORKER] Processing follow-ups for user ${user.email}`);
     const result = await processAllFollowUps(user.id);
 
@@ -13908,6 +14017,8 @@ function liveEventsKey(campaignId: string) {
 
 async function appendLiveCampaignEvent(campaignId: string, event: any) {
   try {
+    const storageGuard = kv.shouldSkipWriteHeavyTask('live-event-append');
+    if (!storageGuard.ok) return false;
     const key = liveEventsKey(campaignId);
     const existing = await kv.get(key).catch(() => []);
     const events = Array.isArray(existing) ? existing : [];
@@ -16323,9 +16434,9 @@ app.get("/make-server-a8b2511f/track/open/:id", async (c) => {
                   metadata: { email_id: emailId, campaign_id: email.campaign_id, source: 'self_hosted_pixel' },
                 });
                 // Set Resend dedup key so the Resend webhook doesn't double-fire (fire-and-forget)
-                if (email.resend_id) {
+                if (email.resend_id && !kv.isStorageDegraded()) {
                   kv.set(`intent:resend_dedup:${email.resend_id}:opened`, { fired_at: new Date().toISOString() })
-                    .catch((kvErr) => console.warn('[INTENT] Failed to set dedup key (non-fatal):', kvErr?.message));
+                    .catch(() => kv.logStorageDegradedOnce('intent-dedup-write'));
                 }
               }
             } catch (e) { console.warn('[INTENT] Failed to record open signal:', e); }
@@ -16344,6 +16455,8 @@ app.get("/make-server-a8b2511f/track/open/:id", async (c) => {
 
               const latitude  = cfLat ? parseFloat(cfLat) : null;
               const longitude = cfLon ? parseFloat(cfLon) : null;
+
+              if (kv.isStorageDegraded()) return;
 
               // 2. Only proceed if we have real coordinates (don't place dots in the ocean)
               if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) {
@@ -16561,6 +16674,25 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
           event_type: 'clicked',
           created_at: now,
         });
+
+      // Durable click analytics table. This is best-effort so deployments that
+      // have not run the migration yet still redirect without interruption.
+      try {
+        await supabase
+          .from('click_events')
+          .insert({
+            tenant_id: resolvedUserId || null,
+            user_id: resolvedUserId || null,
+            lead_id: resolvedLeadId,
+            campaign_id: resolvedCampaignId,
+            email_id: email_id || null,
+            tracking_id: trackingId,
+            destination_url: url,
+            user_agent: clickUA,
+            metadata: { source: 'self_hosted_redirect' },
+            created_at: now,
+          });
+      } catch (_) { /* migration may not be applied yet */ }
         
       // Write live event to KV for real-time frontend polling (fire-and-forget)
       if (resolvedCampaignId) {
@@ -16590,6 +16722,7 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
       if (resolvedUserId && resolvedLeadId) {
         (async () => {
           try {
+            if (kv.isStorageDegraded()) return;
             const { data: fullLead } = await supabase
               .from('leads')
               .select('id, business_name, contact_name, email, city, state, country, brand, phone, website')
@@ -20305,9 +20438,9 @@ function isClientDisconnect(err: unknown): boolean {
 }
 
 // ── One-time migration: transfer affiliate slug from or@roadr.com → or@contndr.com ──
-(async () => {
-  // Delay 12s after cold-start so migration doesn't compete with initial requests for DB connections
-  await new Promise((r) => setTimeout(r, 12000));
+// This used to run on every cold start, which amplified KV pressure during
+// outages. It is now manual/admin-only.
+async function runAffiliateSlugTransferMigration() {
   try {
     const MIGRATION_KEY = 'affiliate_slug_transfer_roadr_to_contndr:done';
     let done: any;
@@ -20427,7 +20560,24 @@ function isClientDisconnect(err: unknown): boolean {
   } catch (err) {
     console.error('[AFFILIATE MIGRATION] Error (non-fatal):', err);
   }
-})();
+}
+
+app.post("/make-server-a8b2511f/admin/system/run-affiliate-migration", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    const storageGuard = kv.shouldSkipWriteHeavyTask('affiliate-migration');
+    if (!storageGuard.ok) {
+      return c.json({ ok: false, skipped: true, reason: 'storage_degraded', retryAfterSeconds: storageGuard.retryAfterSeconds || 30 }, 503);
+    }
+    await runAffiliateSlugTransferMigration();
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
 
 // ─── POST /admin/cleanup-duplicate-followups ──────────────────────────────────
 // One-shot cleanup: for every lead in a campaign, find all email rows where the

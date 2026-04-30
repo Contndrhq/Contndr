@@ -14,28 +14,46 @@
  */
 import * as kvRaw from "./kv_store.tsx";
 
-const MAX_RETRIES = 3;        // 3 attempts — enough for schema cache warm-up
+const READ_RETRIES = 2;       // Keep normal reads light under pressure
+const WRITE_RETRIES = 1;      // Never amplify memory pressure with write retries
 const BASE_DELAY_MS = 500;    // 500ms → 1s → 2s (with jitter)
 const QUERY_TIMEOUT_MS = 8000;    // 8s per single-row op — fires before DB's 10s limit
-const PREFIX_TIMEOUT_MS = 15000;  // 15s for prefix scans (may return many rows)
+const PREFIX_TIMEOUT_MS = 5000;   // Prefix scans must stay bounded and fail fast
 const BULK_WRITE_TIMEOUT_MS = 25000; // 25s for multi-row mset/mdel batches
 
 // ── Circuit Breaker ──────────────────────────────────────────────────
 // When the DB reports "out of shared memory", stop ALL writes for a
 // cooldown period to let the DB recover.
-const CIRCUIT_COOLDOWN_MS = 120_000; // 2 min cooldown
+const CIRCUIT_COOLDOWN_MS = 180_000; // 3 min cooldown
+const DEGRADED_LOG_SAMPLE_MS = 60_000;
 let _circuitOpenUntil = 0;
 let _circuitTrips = 0;
+let _lastMemoryErrorAt = 0;
+let _lastCircuitLogAt = 0;
+const _lastScopeLogAt = new Map<string, number>();
 
-function tripCircuit() {
+function isMemoryPressureMessage(msg: string): boolean {
+  return (
+    msg.includes("Database memory full") ||
+    msg.includes("memory full") ||
+    msg.includes("out of shared memory") ||
+    msg.includes("shared memory") ||
+    msg.includes("schema cache") ||
+    msg.includes("PGRST002")
+  );
+}
+
+function tripCircuit(reason = "storage pressure") {
   _circuitTrips++;
+  _lastMemoryErrorAt = Date.now();
   _circuitOpenUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
-  if (_circuitTrips <= 3) {
-    console.warn(`[KV-CIRCUIT] Database memory exhausted — circuit breaker OPEN. All writes paused for ${CIRCUIT_COOLDOWN_MS / 1000}s (trip #${_circuitTrips})`);
+  if (Date.now() - _lastCircuitLogAt > DEGRADED_LOG_SAMPLE_MS) {
+    _lastCircuitLogAt = Date.now();
+    console.warn(`[KV-CIRCUIT] Storage degraded (${reason}) — circuit breaker OPEN. Write-heavy jobs paused for ${CIRCUIT_COOLDOWN_MS / 1000}s (trip #${_circuitTrips})`);
   }
 }
 
-function isCircuitOpen(): boolean {
+export function isCircuitOpen(): boolean {
   if (_circuitOpenUntil === 0) return false;
   if (Date.now() >= _circuitOpenUntil) {
     if (_circuitTrips > 0) {
@@ -53,6 +71,42 @@ export function resetCircuit() {
   _circuitOpenUntil = 0;
   _circuitTrips = 0;
   console.log('[KV-CIRCUIT] Circuit breaker manually reset.');
+}
+
+export function getStorageHealth() {
+  const circuitBreakerOpen = isCircuitOpen();
+  const retryAfterSeconds = circuitBreakerOpen
+    ? Math.max(1, Math.ceil((_circuitOpenUntil - Date.now()) / 1000))
+    : 0;
+  return {
+    status: circuitBreakerOpen ? 'degraded' : 'healthy',
+    circuitBreakerOpen,
+    lastMemoryErrorAt: _lastMemoryErrorAt ? new Date(_lastMemoryErrorAt).toISOString() : null,
+    circuitOpenUntil: _circuitOpenUntil ? new Date(_circuitOpenUntil).toISOString() : null,
+    retryAfterSeconds,
+  };
+}
+
+export function isStorageDegraded(): boolean {
+  return getStorageHealth().status === 'degraded';
+}
+
+export function shouldSkipWriteHeavyTask(scope = 'write-heavy-task') {
+  const health = getStorageHealth();
+  if (health.status === 'degraded' || health.circuitBreakerOpen) {
+    logStorageDegradedOnce(scope);
+    return { ok: false, skipped: true, reason: 'storage_degraded', ...health };
+  }
+  return { ok: true, skipped: false, reason: null, ...health };
+}
+
+export function logStorageDegradedOnce(scope: string) {
+  const now = Date.now();
+  const last = _lastScopeLogAt.get(scope) || 0;
+  if (now - last < DEGRADED_LOG_SAMPLE_MS) return;
+  _lastScopeLogAt.set(scope, now);
+  const health = getStorageHealth();
+  console.warn(`[KV-CIRCUIT] Skipping ${scope}; storage is degraded (retry in ${health.retryAfterSeconds || 30}s)`);
 }
 
 /** Add random jitter (±30%) to avoid thundering herd */
@@ -78,7 +132,11 @@ function isRetryable(msg: string): boolean {
     msg.includes("57014") ||                   // PostgreSQL statement_timeout code
     msg.includes("Query timeout after") ||      // our own wrapper timeout
     msg.includes("out of shared memory") ||
-    msg.includes("shared memory")
+    msg.includes("shared memory") ||
+    msg.includes("Database memory full") ||
+    msg.includes("memory full") ||
+    msg.includes("schema cache") ||
+    msg.includes("PGRST002")
   ) {
     return false;
   }
@@ -111,9 +169,11 @@ async function withRetry<T>(
   fn: () => Promise<T>,
   label: string,
   timeoutMs = QUERY_TIMEOUT_MS,
+  options: { write?: boolean } = {},
 ): Promise<T> {
   let lastErr: unknown;
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+  const maxAttempts = options.write ? WRITE_RETRIES : READ_RETRIES;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const result = await Promise.race([
         fn(),
@@ -126,14 +186,14 @@ async function withRetry<T>(
       lastErr = err;
       const msg = err?.message ?? String(err);
 
-      // "Out of shared memory" — trip circuit and bail immediately (no retry)
-      if (msg.includes("out of shared memory") || msg.includes("shared memory")) {
-        tripCircuit();
+      // Memory/schema-cache pressure — trip circuit and bail immediately (no retry)
+      if (isMemoryPressureMessage(msg)) {
+        tripCircuit(msg.slice(0, 120));
         throw new Error("Database memory full - operation failed");
       }
 
       // Statement / wrapper timeouts — fail fast, do not retry
-      if (!isRetryable(msg) || attempt >= MAX_RETRIES - 1) {
+      if (!isRetryable(msg) || attempt >= maxAttempts - 1) {
         throw err;
       }
 
@@ -141,7 +201,7 @@ async function withRetry<T>(
       const isSchemaCacheError = msg.includes("schema cache") || msg.includes("PGRST002");
       const schemaDelay = isSchemaCacheError ? 2500 : 0;
       const delay = jitter(BASE_DELAY_MS * Math.pow(2, attempt)) + schemaDelay;
-      console.log(`[KV-RETRY] ${label} attempt ${attempt + 1}/${MAX_RETRIES} failed (${msg.slice(0, 120)}), retrying in ${delay}ms...`);
+      console.log(`[KV-RETRY] ${label} attempt ${attempt + 1}/${maxAttempts} failed (${msg.slice(0, 120)}), retrying in ${delay}ms...`);
       await new Promise((r) => setTimeout(r, delay));
     }
   }
@@ -152,27 +212,27 @@ export const set = (key: string, value: any): Promise<void> => {
   if (isCircuitOpen()) {
     return Promise.reject(new Error("Database memory full - writes paused by circuit breaker"));
   }
-  return withRetry(() => kvRaw.set(key, value), `set(${key})`);
+  return withRetry(() => kvRaw.set(key, value), `set(${key})`, QUERY_TIMEOUT_MS, { write: true });
 };
 
 export const get = (key: string): Promise<any> =>
   withRetry(() => kvRaw.get(key), `get(${key})`);
 
 export const del = (key: string): Promise<void> =>
-  withRetry(() => kvRaw.del(key), `del(${key})`);
+  withRetry(() => kvRaw.del(key), `del(${key})`, QUERY_TIMEOUT_MS, { write: true });
 
 export const mset = (keys: string[], values: any[]): Promise<void> => {
   if (isCircuitOpen()) {
     return Promise.reject(new Error("Database memory full - writes paused by circuit breaker"));
   }
-  return withRetry(() => kvRaw.mset(keys, values), `mset(${keys.length} keys)`, BULK_WRITE_TIMEOUT_MS);
+  return withRetry(() => kvRaw.mset(keys, values), `mset(${keys.length} keys)`, BULK_WRITE_TIMEOUT_MS, { write: true });
 };
 
 export const mget = (keys: string[]): Promise<any[]> =>
   withRetry(() => kvRaw.mget(keys), `mget(${keys.length} keys)`);
 
 export const mdel = (keys: string[]): Promise<void> =>
-  withRetry(() => kvRaw.mdel(keys), `mdel(${keys.length} keys)`, BULK_WRITE_TIMEOUT_MS);
+  withRetry(() => kvRaw.mdel(keys), `mdel(${keys.length} keys)`, BULK_WRITE_TIMEOUT_MS, { write: true });
 
 export const getByPrefix = (prefix: string): Promise<any[]> =>
   withRetry(() => kvRaw.getByPrefix(prefix), `getByPrefix(${prefix})`, PREFIX_TIMEOUT_MS);
