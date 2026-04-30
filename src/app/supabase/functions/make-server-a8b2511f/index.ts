@@ -3229,6 +3229,7 @@ async function runKvGarbageCollection(): Promise<{
   admin_events_deleted: number;
   click_track_deleted: number;
   email_track_deleted: number;
+  live_event_deleted: number;
   misc_deleted: number;
   errors: string[];
 }> {
@@ -3240,6 +3241,7 @@ async function runKvGarbageCollection(): Promise<{
     admin_events_deleted: 0,
     click_track_deleted: 0,
     email_track_deleted: 0,
+    live_event_deleted: 0,
     misc_deleted: 0,
     errors: [] as string[],
   };
@@ -3295,7 +3297,13 @@ async function runKvGarbageCollection(): Promise<{
   result.email_track_deleted = await deleteByPrefix('email_track:');
   console.log(`[KV-GC] Deleted ${result.email_track_deleted} email_track: keys`);
 
-  // 6. Delete misc caches
+  // 6. Delete old live broadcast events. New builds use bounded live_events:
+  // lists, but clearing both frees memory from old one-row-per-event writes.
+  result.live_event_deleted = await deleteByPrefix('live_event:');
+  result.live_event_deleted += await deleteByPrefix('live_events:');
+  console.log(`[KV-GC] Deleted ${result.live_event_deleted} live event keys`);
+
+  // 7. Delete misc caches
   let miscCount = 0;
   for (const prefix of ['scraper_cache:', 'brandfetch:', 'company_cache:', 'domain_cache:', 'enrichment_cache:']) {
     miscCount += await deleteByPrefix(prefix);
@@ -3307,7 +3315,7 @@ async function runKvGarbageCollection(): Promise<{
   try { await supabase.from(TABLE).delete().eq('key', 'dp_meta'); } catch {}
 
   const total = result.dpx_deleted + result.dp_deleted + result.admin_events_deleted
-    + result.click_track_deleted + result.email_track_deleted + result.misc_deleted;
+    + result.click_track_deleted + result.email_track_deleted + result.live_event_deleted + result.misc_deleted;
   console.log(`[KV-GC] GC complete. Total deleted: ${total} keys. Errors: ${result.errors.length}`);
 
   // Reset the circuit breaker now that we've freed memory
@@ -3329,7 +3337,7 @@ app.post("/make-server-a8b2511f/admin/kv-gc", async (c) => {
 
     const gcResult = await runKvGarbageCollection();
     const total = gcResult.dpx_deleted + gcResult.dp_deleted + gcResult.admin_events_deleted
-      + gcResult.click_track_deleted + gcResult.email_track_deleted + gcResult.misc_deleted;
+      + gcResult.click_track_deleted + gcResult.email_track_deleted + gcResult.live_event_deleted + gcResult.misc_deleted;
 
     console.log(`[ADMIN] KV GC completed: ${total} keys freed`);
     return c.json({ success: true, total_deleted: total, ...gcResult });
@@ -20159,7 +20167,7 @@ function isClientDisconnect(err: unknown): boolean {
         try {
           const gcResult = await runKvGarbageCollection();
           const total = gcResult.dpx_deleted + gcResult.dp_deleted + gcResult.admin_events_deleted
-            + gcResult.click_track_deleted + gcResult.email_track_deleted + gcResult.misc_deleted;
+            + gcResult.click_track_deleted + gcResult.email_track_deleted + gcResult.live_event_deleted + gcResult.misc_deleted;
           console.log(`[STARTUP-GC] Automatic GC freed ${total} keys. Retrying migration...`);
           // Retry the migration check after GC
           try {
