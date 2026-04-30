@@ -996,7 +996,7 @@ function LiveTrafficDashboard() {
       return;
     }
     loadRecentVisits();
-    const interval = setInterval(loadRecentVisits, 30000); // Poll every 30 seconds (reduced from 15s to prevent CPU exhaustion)
+    const interval = setInterval(loadRecentVisits, 5000);
     return () => clearInterval(interval);
   }, [isDemoMode]);
 

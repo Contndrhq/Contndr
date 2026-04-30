@@ -425,7 +425,7 @@ export function RealTimeMap({
 
     if (!propVisits) {
       fetchVisits();
-      const interval = setInterval(fetchVisits, 30000); // Reduced from 15s to prevent CPU exhaustion
+      const interval = setInterval(fetchVisits, 5000);
       return () => clearInterval(interval);
     } else {
       // When using propVisits (e.g., landing page), ensure we're not stuck in loading state

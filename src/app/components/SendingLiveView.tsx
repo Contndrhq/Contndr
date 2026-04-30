@@ -21,6 +21,7 @@ interface SendingLiveViewProps {
   successCount: number;
   errorCount: number;
   bounceCount?: number;
+  statusText?: string;
   /** When true, hides internal top bar, progress bar, and bottom bar (parent provides those) */
   embedded?: boolean;
 }
@@ -267,6 +268,7 @@ export function SendingLiveView({
   successCount,
   errorCount,
   bounceCount,
+  statusText,
   embedded,
 }: SendingLiveViewProps) {
   const logScrollRef = useRef<HTMLDivElement>(null);
@@ -277,6 +279,7 @@ export function SendingLiveView({
   const bounceCountComputed = bounceCount ?? completedEntries.filter(e => e.status === 'bounced').length;
   const progressPct = total > 0 ? (progress / total) * 100 : 0;
   const isDone = progress >= total && total > 0 && !currentEntry;
+  const hasServerProgress = progress > 0 || successCount > 0 || errorCount > 0 || bounceCountComputed > 0;
 
   useEffect(() => {
     if (logScrollRef.current) {
@@ -384,10 +387,24 @@ export function SendingLiveView({
         {/* Empty state */}
         {!currentEntry && completedEntries.length === 0 && (
           <div className="flex-1 flex items-center justify-center">
-            <div className="flex items-center gap-3">
-              <Loader2 className="w-4 h-4 text-zinc-400 dark:text-zinc-500 animate-spin" />
-              <span className="text-sm text-zinc-400 dark:text-zinc-500">Preparing messages...</span>
-            </div>
+            {hasServerProgress || isDone ? (
+              <div className="flex flex-col items-center justify-center gap-2 px-6 text-center">
+                <CheckCircle className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
+                <div className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                  {isDone ? 'Campaign sent' : 'Sending in background'}
+                </div>
+                <div className="text-xs text-zinc-400 dark:text-zinc-500">
+                  {successCount > 0
+                    ? `${successCount} delivered${total > successCount ? ` of ${total}` : ''}`
+                    : statusText || 'Waiting for delivery updates...'}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <Loader2 className="w-4 h-4 text-zinc-400 dark:text-zinc-500 animate-spin" />
+                <span className="text-sm text-zinc-400 dark:text-zinc-500">{statusText || 'Preparing messages...'}</span>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -110,6 +110,39 @@ async function fetchCampaignStats(campaignId: string): Promise<{ sentCount: numb
   }
 }
 
+async function fetchCampaignEmailLog(campaignId: string, campaignName: string): Promise<SendingLogEntry[]> {
+  try {
+    const response = await authenticatedFetch(
+      `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/emails/recent?campaign_id=${encodeURIComponent(campaignId)}&limit=100`,
+      { signal: AbortSignal.timeout(8_000) }
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    const rows = Array.isArray(data.emails) ? data.emails : [];
+
+    return rows
+      .slice()
+      .reverse()
+      .map((email: any, index: number): SendingLogEntry => {
+        const status = String(email.status || '').toLowerCase();
+        const isFailed = status === 'failed' || status === 'error';
+        const isBounced = status === 'bounced';
+        return {
+          id: email.id || `${campaignId}-${index}`,
+          recipientName: email.lead_name || email.to_email || `Message ${index + 1}`,
+          recipientEmail: email.to_email || '',
+          subject: email.subject || campaignName,
+          body: email.text_body || email.body || '',
+          fromEmail: email.from_email || '',
+          status: isBounced ? 'bounced' : isFailed ? 'failed' : 'delivered',
+          timestamp: new Date(email.sent_at || email.created_at || Date.now()).getTime(),
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
 // ── Provider ──
 
 export function BroadcastProvider({ children }: { children: ReactNode }) {
@@ -149,7 +182,10 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       const cId = activeCampaignIdRef.current;
       if (!cId || !runningRef.current) return;
 
-      const stats = await fetchCampaignStats(cId);
+      const [stats, emailLog] = await Promise.all([
+        fetchCampaignStats(cId),
+        fetchCampaignEmailLog(cId, state.campaignName),
+      ]);
       if (!stats) return;
 
       setState(prev => {
@@ -159,6 +195,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         const newTotal = stats.totalLeads > 0 ? stats.totalLeads : prev.total;
         return {
           ...prev,
+          log: emailLog.length > prev.log.length ? emailLog : prev.log,
           progress: newProgress,
           successCount: newSuccess,
           total: Math.max(prev.total, newTotal),
@@ -226,12 +263,16 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           throw new Error(error.error || 'Unable to launch campaign');
         }
 
-        const initialStats = await fetchCampaignStats(campaignId);
+        const [initialStats, initialEmailLog] = await Promise.all([
+          fetchCampaignStats(campaignId),
+          fetchCampaignEmailLog(campaignId, campaignName),
+        ]);
         if (initialStats) {
           const initialTotal = initialStats.totalLeads > 0 ? initialStats.totalLeads : total;
           const initialComplete = initialStats.status === 'completed' || (initialTotal > 0 && initialStats.sentCount >= initialTotal);
           setState(prev => ({
             ...prev,
+            log: initialEmailLog.length > prev.log.length ? initialEmailLog : prev.log,
             progress: Math.max(prev.progress, initialStats.sentCount),
             successCount: Math.max(prev.successCount, initialStats.sentCount),
             total: Math.max(prev.total, initialTotal),
@@ -263,13 +304,17 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         const maxWatchMs = 30 * 60 * 1000;
 
         while (!abortRef.current && Date.now() - startedAt < maxWatchMs) {
-          const stats = await fetchCampaignStats(campaignId);
+          const [stats, emailLog] = await Promise.all([
+            fetchCampaignStats(campaignId),
+            fetchCampaignEmailLog(campaignId, campaignName),
+          ]);
           if (stats) {
             finalSent = Math.max(finalSent, stats.sentCount);
             finalTotal = Math.max(finalTotal, stats.totalLeads);
             completed = stats.status === 'completed' || (stats.totalLeads > 0 && stats.sentCount >= stats.totalLeads);
             setState(prev => ({
               ...prev,
+              log: emailLog.length > prev.log.length ? emailLog : prev.log,
               progress: Math.max(prev.progress, finalSent),
               successCount: Math.max(prev.successCount, finalSent),
               total: Math.max(prev.total, finalTotal),
@@ -280,8 +325,10 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           await new Promise(r => setTimeout(r, 3000));
         }
 
+        const finalEmailLog = await fetchCampaignEmailLog(campaignId, campaignName);
         setState(prev => ({
           ...prev,
+          log: finalEmailLog.length > prev.log.length ? finalEmailLog : prev.log,
           currentEntry: null,
           done: completed,
           successCount: Math.max(prev.successCount, finalSent),

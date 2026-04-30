@@ -7517,7 +7517,7 @@ app.get("/make-server-a8b2511f/live-traffic", async (c) => {
   try {
     const { user, supabase } = await getAuthenticatedUser(c); // Require auth to see visits
     
-    // Check cache first (30 second TTL - reduced DB pressure + prevents CPU spikes)
+    // Check cache first (5 second TTL keeps the live map responsive without hammering KV)
     const cacheKey = `live:${user.id}`;
     const cached = getCached(cacheKey);
     if (cached) {
@@ -7782,8 +7782,7 @@ app.get("/make-server-a8b2511f/live-traffic", async (c) => {
       
     const result = { visits: enrichedVisits };
     
-    // Cache with 30s TTL — reduced from 15s to halve DB pressure + prevent CPU spikes
-    setCache(cacheKey, result, 30000);
+    setCache(cacheKey, result, 5000);
     
     return c.json(result);
   } catch (error: any) {
@@ -15081,25 +15080,33 @@ app.get("/make-server-a8b2511f/analytics/overview", async (c) => {
 });
 
 // GET /emails/recent - Return recent sent emails + summary stats for diagnostics / health checks
-// Query params: limit (default 50, max 200)
+// Query params: limit (default 50, max 200), campaign_id (optional)
 app.get("/make-server-a8b2511f/emails/recent", async (c) => {
   try {
     const { user, supabase } = await getAuthenticatedUser(c);
     const rawLimit = parseInt(c.req.query('limit') ?? '50', 10);
     const limit = Math.min(isNaN(rawLimit) ? 50 : rawLimit, 200);
+    const campaignId = c.req.query('campaign_id') || '';
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
     // Fetch recent emails — wrapped in withDbRetry to survive PostgREST cold-start
     const { data: emails, error } = await withDbRetry(
-      () =>
-        supabase
+      () => {
+        let emailQuery = supabase
           .from('emails')
-          .select('id, resend_id, status, created_at, subject, to_email, from_email, opened_at, clicked_at, campaign_id')
+          .select('id, resend_id, status, created_at, sent_at, subject, body, text_body, html_body, to_email, from_email, opened_at, clicked_at, campaign_id, lead_id')
           .eq('user_id', user.id)
-          .gt('created_at', thirtyDaysAgo)
+          .gt('created_at', thirtyDaysAgo);
+
+        if (campaignId) {
+          emailQuery = emailQuery.eq('campaign_id', campaignId);
+        }
+
+        return emailQuery
           .order('created_at', { ascending: false })
-          .limit(limit),
+          .limit(limit);
+      },
       'GET /emails/recent'
     );
 
@@ -15109,6 +15116,22 @@ app.get("/make-server-a8b2511f/emails/recent", async (c) => {
     }
 
     const rows = emails ?? [];
+    const leadIds = Array.from(new Set(rows.map((e: any) => e.lead_id).filter(Boolean))) as string[];
+    let leadNames = new Map<string, string>();
+    if (leadIds.length > 0) {
+      const { data: leads } = await supabase
+        .from('leads')
+        .select('id, contact_name, business_name, email')
+        .in('id', leadIds);
+      leadNames = new Map((leads || []).map((lead: any) => [
+        lead.id,
+        lead.contact_name || lead.business_name || lead.email || 'Lead',
+      ]));
+    }
+    const hydratedRows = rows.map((email: any) => ({
+      ...email,
+      lead_name: email.lead_id ? leadNames.get(email.lead_id) || null : null,
+    }));
 
     // Build summary stats
     const total        = rows.length;
@@ -15121,7 +15144,7 @@ app.get("/make-server-a8b2511f/emails/recent", async (c) => {
 
     return c.json({
       success: true,
-      emails: rows,
+      emails: hydratedRows,
       summary: { total, withResendId, opened, clicked, bounced, delivered, sent },
     });
   } catch (error: any) {
@@ -16103,6 +16126,86 @@ async function retrySupabaseOp<T>(
   return { data: null, error: lastError };
 }
 
+const TRACKING_CITY_COORDS: Record<string, { latitude: number; longitude: number; city: string; region?: string; country?: string; countryCode?: string }> = {
+  miami: { latitude: 25.7617, longitude: -80.1918, city: 'Miami', region: 'Florida', country: 'United States', countryCode: 'US' },
+  newyork: { latitude: 40.7128, longitude: -74.0060, city: 'New York', region: 'New York', country: 'United States', countryCode: 'US' },
+  losangeles: { latitude: 34.0522, longitude: -118.2437, city: 'Los Angeles', region: 'California', country: 'United States', countryCode: 'US' },
+  chicago: { latitude: 41.8781, longitude: -87.6298, city: 'Chicago', region: 'Illinois', country: 'United States', countryCode: 'US' },
+  houston: { latitude: 29.7604, longitude: -95.3698, city: 'Houston', region: 'Texas', country: 'United States', countryCode: 'US' },
+  phoenix: { latitude: 33.4484, longitude: -112.0740, city: 'Phoenix', region: 'Arizona', country: 'United States', countryCode: 'US' },
+  philadelphia: { latitude: 39.9526, longitude: -75.1652, city: 'Philadelphia', region: 'Pennsylvania', country: 'United States', countryCode: 'US' },
+  sanantonio: { latitude: 29.4241, longitude: -98.4936, city: 'San Antonio', region: 'Texas', country: 'United States', countryCode: 'US' },
+  sandiego: { latitude: 32.7157, longitude: -117.1611, city: 'San Diego', region: 'California', country: 'United States', countryCode: 'US' },
+  dallas: { latitude: 32.7767, longitude: -96.7970, city: 'Dallas', region: 'Texas', country: 'United States', countryCode: 'US' },
+  austin: { latitude: 30.2672, longitude: -97.7431, city: 'Austin', region: 'Texas', country: 'United States', countryCode: 'US' },
+  jacksonville: { latitude: 30.3322, longitude: -81.6557, city: 'Jacksonville', region: 'Florida', country: 'United States', countryCode: 'US' },
+  tampa: { latitude: 27.9506, longitude: -82.4572, city: 'Tampa', region: 'Florida', country: 'United States', countryCode: 'US' },
+  orlando: { latitude: 28.5383, longitude: -81.3792, city: 'Orlando', region: 'Florida', country: 'United States', countryCode: 'US' },
+  atlanta: { latitude: 33.7490, longitude: -84.3880, city: 'Atlanta', region: 'Georgia', country: 'United States', countryCode: 'US' },
+  boston: { latitude: 42.3601, longitude: -71.0589, city: 'Boston', region: 'Massachusetts', country: 'United States', countryCode: 'US' },
+  seattle: { latitude: 47.6062, longitude: -122.3321, city: 'Seattle', region: 'Washington', country: 'United States', countryCode: 'US' },
+  denver: { latitude: 39.7392, longitude: -104.9903, city: 'Denver', region: 'Colorado', country: 'United States', countryCode: 'US' },
+  sanfrancisco: { latitude: 37.7749, longitude: -122.4194, city: 'San Francisco', region: 'California', country: 'United States', countryCode: 'US' },
+};
+
+function trackingCityKey(value?: string | null): string {
+  return (value || '').toLowerCase().replace(/[^a-z]/g, '');
+}
+
+async function resolveTrackingGeo(c: any, lead?: any) {
+  const cfLat = c.req.header('cf-iplatitude');
+  const cfLon = c.req.header('cf-iplongitude');
+  let latitude = cfLat ? parseFloat(cfLat) : null;
+  let longitude = cfLon ? parseFloat(cfLon) : null;
+  let city = c.req.header('cf-ipcity') || '';
+  let region = c.req.header('cf-region-code') || c.req.header('cf-region') || '';
+  let countryCode = c.req.header('cf-ipcountry') || '';
+  let country = countryCode || '';
+
+  if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) {
+    const rawIp = c.req.header('cf-connecting-ip') || c.req.header('x-real-ip') || c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
+    if (rawIp && !rawIp.startsWith('127.') && rawIp !== '::1') {
+      try {
+        const geoResp = await fetch(`https://ipwho.is/${encodeURIComponent(rawIp)}`, { signal: AbortSignal.timeout(1500) });
+        if (geoResp.ok) {
+          const geo = await geoResp.json();
+          if (geo?.success !== false && typeof geo?.latitude === 'number' && typeof geo?.longitude === 'number') {
+            latitude = geo.latitude;
+            longitude = geo.longitude;
+            city = city || geo.city || '';
+            region = region || geo.region || '';
+            country = country || geo.country || '';
+            countryCode = countryCode || geo.country_code || '';
+          }
+        }
+      } catch (_) {
+        // Non-fatal: fall back to campaign lead city below.
+      }
+    }
+  }
+
+  if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) {
+    const fallback = TRACKING_CITY_COORDS[trackingCityKey(city)] || TRACKING_CITY_COORDS[trackingCityKey(lead?.city)];
+    if (fallback) {
+      latitude = fallback.latitude;
+      longitude = fallback.longitude;
+      city = city || fallback.city;
+      region = region || lead?.state || fallback.region || '';
+      country = country || lead?.country || fallback.country || '';
+      countryCode = countryCode || fallback.countryCode || '';
+    }
+  }
+
+  return {
+    latitude,
+    longitude,
+    city: city || lead?.city || '',
+    region: region || lead?.state || '',
+    country: country || lead?.country || '',
+    countryCode,
+  };
+}
+
 // GET /track/open/:id - Open tracking pixel endpoint (provider-agnostic)
 // Returns a 1x1 transparent GIF and records the open event.
 app.get("/make-server-a8b2511f/track/open/:id", async (c) => {
@@ -16394,6 +16497,7 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
     const clickUA = c.req.header('user-agent') || '';
     const clickUAClass = classifyUserAgent(clickUA);
     console.log(`[CLICK TRACK] Click detected - Email: ${email_id}, Lead: ${lead_id}, URL: ${url} (UA: ${clickUAClass.label})`);
+    let resolvedLeadForRedirect = lead_id;
 
     // Capture user-agent for bot/human analytics (fire-and-forget)
     storeTrackingUserAgent(email_id, 'clicked', clickUA, user_id).catch(() => {});
@@ -16403,6 +16507,16 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
     
     try {
       const now = new Date().toISOString();
+      const { data: clickEmailLookup } = await supabase
+        .from('emails')
+        .select('campaign_id, user_id, lead_id')
+        .eq('id', email_id)
+        .maybeSingle();
+      const resolvedUserId = user_id || clickEmailLookup?.user_id || '';
+      const resolvedLeadId = lead_id || clickEmailLookup?.lead_id || null;
+      const resolvedCampaignId = clickEmailLookup?.campaign_id || null;
+      resolvedLeadForRedirect = resolvedLeadId;
+
       // Step 1: Update status (guaranteed column) — this MUST succeed
       const { data: statusResult, error: statusError } = await supabase
         .from('emails')
@@ -16431,64 +16545,106 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
       }
       
       // Also update lead status if needed
-      if (lead_id) {
+      if (resolvedLeadId) {
         await supabase
           .from('leads')
           .update({ status: 'engaged' })
-          .eq('id', lead_id);
+          .eq('id', resolvedLeadId);
       }
       
       // Record click event
       await supabase
         .from('email_events')
         .insert({
-          user_id,
+          user_id: resolvedUserId,
           email_id,
           event_type: 'clicked',
           created_at: now,
         });
         
       // Write live event to KV for real-time frontend polling (fire-and-forget)
-      try {
-        const { data: clickEmail } = await supabase
-          .from('emails')
-          .select('campaign_id')
-          .eq('id', email_id)
-          .single();
-        if (clickEmail?.campaign_id) {
+      if (resolvedCampaignId) {
+        try {
           const ts = Date.now();
           const liveEvent = {
             type: 'clicked',
             email_id,
-            lead_id,
-            campaign_id: clickEmail.campaign_id,
-            user_id,
+            lead_id: resolvedLeadId,
+            campaign_id: resolvedCampaignId,
+            user_id: resolvedUserId,
             timestamp: ts,
           };
-          appendLiveCampaignEvent(clickEmail.campaign_id, liveEvent).then((ok) => {
-            if (ok) console.log(`[CLICK TRACK] ✅ Wrote bounded live event for campaign ${clickEmail.campaign_id}`);
+          appendLiveCampaignEvent(resolvedCampaignId, liveEvent).then((ok) => {
+            if (ok) console.log(`[CLICK TRACK] ✅ Wrote bounded live event for campaign ${resolvedCampaignId}`);
           });
-        } else {
-          console.log(`[CLICK TRACK] ℹ️ Not writing live event (no campaign_id found for email ${email_id})`);
+        } catch (e) {
+          console.warn('[CLICK TRACK] Failed to write live event (non-fatal):', e?.message || e);
         }
-      } catch (e) {
-        console.warn('[CLICK TRACK] Failed to query campaign_id for live event (non-fatal):', e?.message || e);
+      } else {
+        console.log(`[CLICK TRACK] ℹ️ Not writing live event (no campaign_id found for email ${email_id})`);
+      }
+
+      // Create a live map visit directly from the click. Some landing pages do
+      // not run our web tracker, but campaign clicks still need to surface in
+      // Analytics immediately.
+      if (resolvedUserId && resolvedLeadId) {
+        (async () => {
+          try {
+            const { data: fullLead } = await supabase
+              .from('leads')
+              .select('id, business_name, contact_name, email, city, state, country, brand, phone, website')
+              .eq('id', resolvedLeadId)
+              .maybeSingle();
+
+            if (!fullLead) return;
+
+            const geo = await resolveTrackingGeo(c, fullLead);
+            const visitId = crypto.randomUUID();
+            const nowMs = Date.now();
+            const atomicKey = `recent_visit_v2:${resolvedUserId}:${nowMs}:${visitId}`;
+            const visitData: any = {
+              id: visitId,
+              user_id: resolvedUserId,
+              lead_id: resolvedLeadId,
+              brand: fullLead.brand || 'contndr',
+              url,
+              title: `Email Clicked — ${fullLead.business_name || fullLead.contact_name || 'Lead'}`,
+              timestamp: new Date(nowMs).toISOString(),
+              user_agent: clickUA,
+              city: geo.city,
+              country: geo.country,
+              countryCode: geo.countryCode || undefined,
+              region: geo.region,
+              latitude: geo.latitude,
+              longitude: geo.longitude,
+              source: 'email_click',
+              email_id,
+              campaign_id: resolvedCampaignId,
+              kv_key: atomicKey,
+            };
+
+            await kv.set(atomicKey, visitData);
+            console.log(`[CLICK TRACK MAP] ✅ Map visit created for lead ${resolvedLeadId} (${fullLead.business_name || fullLead.contact_name})`);
+          } catch (mapErr: any) {
+            console.warn('[CLICK TRACK MAP] Failed to create map visit (non-fatal):', mapErr?.message || mapErr);
+          }
+        })();
       }
 
       console.log(`[CLICK TRACK] Successfully recorded click for email ${email_id}`);
 
       // Record intent signals for email click (fire-and-forget)
-      if (lead_id && user_id) {
+      if (resolvedLeadId && resolvedUserId) {
         (async () => {
           try {
-            const { data: lead } = await supabase.from('leads').select('id, business_name, contact_name, email').eq('id', lead_id).maybeSingle();
+            const { data: lead } = await supabase.from('leads').select('id, business_name, contact_name, email').eq('id', resolvedLeadId).maybeSingle();
             if (lead) {
               const intentCompanyId = lead.business_name ? `lead_${lead.id}` : undefined;
               const intentCompanyName = lead.business_name || lead.contact_name || 'Unknown';
 
               // 1. Email engagement signal (email_clicked)
               await recordIntentSignal({
-                userId: user_id,
+                userId: resolvedUserId,
                 companyId: intentCompanyId,
                 companyName: intentCompanyName,
                 personId: lead.id,
@@ -16502,12 +16658,12 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
               // 2. Website visit signal (they're visiting the site via the link)
               if (intentCompanyId) {
                 const today = new Date().toISOString().split('T')[0];
-                const webDedupKey = `intent:web_dedup:${user_id}:${intentCompanyId}:email_click_visit:${today}`;
+                const webDedupKey = `intent:web_dedup:${resolvedUserId}:${intentCompanyId}:email_click_visit:${today}`;
                 const alreadyFiredWeb = await kv.get(webDedupKey);
                 if (!alreadyFiredWeb) {
                   await kv.set(webDedupKey, { fired: true });
                   await recordIntentSignal({
-                    userId: user_id,
+                    userId: resolvedUserId,
                     companyId: intentCompanyId,
                     companyName: intentCompanyName,
                     personId: lead.id,
@@ -16540,13 +16696,13 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
     // Redirect to the actual URL
     // Append lid (Lead ID) so the landing page tracking script can identify the visitor
     let redirectUrl = url;
-    if (lead_id) {
+    if (resolvedLeadForRedirect) {
       // Use string manipulation to preserve hash if present (params should come before hash)
       // but simplistic appending usually works for standard campaign URLs
       if (url.includes('?')) {
-        redirectUrl += `&lid=${lead_id}`;
+        redirectUrl += `&lid=${resolvedLeadForRedirect}`;
       } else {
-        redirectUrl += `?lid=${lead_id}`;
+        redirectUrl += `?lid=${resolvedLeadForRedirect}`;
       }
     }
     
