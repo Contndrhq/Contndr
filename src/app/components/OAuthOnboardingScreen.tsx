@@ -71,10 +71,10 @@ export function OAuthOnboardingScreen({ user, onComplete, onLogout }: OAuthOnboa
 
   const inputClass = "w-full bg-[#0A0A0A] border border-white/[0.08] rounded-xl px-4 py-3.5 text-[15px] !text-white placeholder:text-gray-500 focus:outline-none focus:border-[#1ED4A7]/40 focus:ring-1 focus:ring-[#1ED4A7]/30 transition-all duration-200";
   const selectClass = `${inputClass} appearance-none`;
-  const labelClass = "text-[11px] font-bold text-zinc-500 uppercase tracking-[0.12em] ml-1 font-['Red_Hat_Display']";
+  const labelClass = "text-[11px] font-bold text-zinc-500 uppercase tracking-[0.12em] ml-1 font-sans";
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white font-['Red_Hat_Display'] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-[#050505] text-white font-sans flex flex-col items-center justify-center p-4 relative overflow-hidden">
       {/* Background glows */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/3 w-[800px] h-[600px] bg-[#1ED4A7]/[0.04] rounded-full blur-[150px] pointer-events-none" />
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-[600px] h-[400px] bg-[#1ED4A7]/[0.02] rounded-full blur-[120px] pointer-events-none" />

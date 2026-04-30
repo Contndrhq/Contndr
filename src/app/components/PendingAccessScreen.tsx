@@ -91,7 +91,7 @@ export function PendingAccessScreen({ onLogout }: PendingAccessScreenProps) {
   }, []);
 
   return (
-    <div className="h-screen bg-[#050505] text-white font-[Red_Hat_Display] overflow-hidden relative">
+    <div className="h-screen bg-[#050505] text-white font-sans overflow-hidden relative">
 
       {/* =========== FULL APP REPLICA (decorative preview) =========== */}
       <div className="flex h-full">

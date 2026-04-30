@@ -1,9 +1,7 @@
 /* mapbox-gl CSS is loaded via <link> tag in index.html — do NOT @import here
    because bare module specifiers break Tailwind v4's CSS processor */
 
-/* PP Neue Montreal — self-hosted fonts removed (Supabase storage returning 400).
-   App falls back to system font stack: SF Pro on iOS/macOS, system-ui elsewhere.
-   This eliminates 4 × 400 error console entries and saves ~200KB of network. */
+/* Typography is loaded in index.html via Google Fonts with display=swap. */
 
 @tailwind base;
 @tailwind components;
@@ -104,6 +102,15 @@ select:focus-visible {
 @media (min-width: 1024px) {
   .mobile-header-offset {
     padding-top: 0;
+  }
+}
+
+/* Native/PWA webviews have a fixed bottom nav. Give the main scrollport enough
+   real scroll padding so the last card/action is not hidden behind it. */
+@media (max-width: 1023px) {
+  body.is-native-app .app-main-scroll {
+    padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+    scroll-padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -303,9 +310,9 @@ a, button, [role="button"], [tabindex] {
 :root {
   /* Typography */
   --font-size: 16px;
-  --font-family-base: 'PP Neue Montreal', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
-  --font-family-logo: 'PP Neue Montreal', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-family-heading: 'PP Neue Montreal', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-family-base: 'Red Hat Display', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+  --font-family-logo: 'Red Hat Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-family-heading: 'Red Hat Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   
   /* Core Colors */
   --color-teal-glow: #1ED4A7;
@@ -466,7 +473,7 @@ a, button, [role="button"], [tabindex] {
 
   body {
     font-family: var(--font-family-base);
-    font-weight: 300; /* Setting to light (300) so you can see it. If you want regular, change to 400 */
+    font-weight: 400;
     background-color: var(--background);
     color: var(--foreground);
     /* Default body font size = 14px (text-sm) with readable line-height */
@@ -492,6 +499,16 @@ a, button, [role="button"], [tabindex] {
     min-height: 100vh;
     min-height: 100dvh;
     width: 100%;
+  }
+
+  body,
+  button,
+  input,
+  textarea,
+  select,
+  optgroup,
+  option {
+    font-family: var(--font-family-base);
   }
 
   /* Standardized Typography Scale - Sendlr Dark Theme */

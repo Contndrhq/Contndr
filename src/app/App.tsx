@@ -2322,7 +2322,7 @@ function AppContent() {
 
           {/* Main content — pt accounts for safe-area-aware mobile header; demo banner adds 40px offset */}
           <main className={`overflow-hidden bg-transparent mobile-header-offset relative transition-all duration-200 ${sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-72'}`} style={{ height: isDemoMode ? 'calc(100% - 40px)' : '100%', marginTop: isDemoMode ? '40px' : undefined }}>
-            <div className="h-full flex flex-col overflow-y-auto relative mobile-scroll">
+            <div className="h-full flex flex-col overflow-y-auto relative mobile-scroll app-main-scroll">
               <LazyLoadErrorBoundary componentName={currentView}>
                 <Suspense fallback={viewSkeletonMap[currentView] || <GenericSkeleton />}>
               {currentView === 'dashboard' && (

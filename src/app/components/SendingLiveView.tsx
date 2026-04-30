@@ -175,7 +175,7 @@ function LiveEmailComposer({ entry }: { entry: SendingLogEntry }) {
             </div>
           </div>
         ) : subjectDone ? (
-          <div className="text-[13px] sm:text-sm text-zinc-700 dark:text-zinc-300 leading-[1.75] whitespace-pre-wrap break-words font-[system-ui]">
+          <div className="text-[13px] sm:text-sm text-zinc-700 dark:text-zinc-300 leading-[1.75] whitespace-pre-wrap break-words">
             {bodyText}
             {!bodyDone && <Cursor />}
           </div>
