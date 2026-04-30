@@ -54,7 +54,7 @@ import { useTranslation } from 'react-i18next';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { MobileNav } from './components/MobileNav';
 import { supabase } from './lib/supabase';
-import { Home, Users, Mail, BarChart3, TrendingUp, Settings as SettingsIcon, Phone, Plus, LogOut, Zap, DollarSign, Inbox, Send, X, Search, PlayCircle, Trophy, GitBranch, Youtube, PanelLeftClose, PanelLeftOpen, ChevronsRight, ArrowRight, Share2, Lock, Globe } from 'lucide-react';
+import { Home, Users, Mail, BarChart3, TrendingUp, Settings as SettingsIcon, Phone, Plus, LogOut, Zap, DollarSign, Inbox, Send, X, Search, PlayCircle, Trophy, GitBranch, PanelLeftClose, PanelLeftOpen, ChevronsRight, ArrowRight, Share2, Lock, Globe } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LazyLoadErrorBoundary } from './components/LazyLoadErrorBoundary';
 import { AuthScreen } from './components/AuthScreen';
@@ -235,7 +235,6 @@ const OnboardingWalkthrough = lazy(() => lazyRetry(() => import('./components/On
 
 // Lazy-loaded lead finder (medium-heavy component)
 const LeadFinder = lazy(() => lazyRetry(() => import('./components/LeadFinder'), 'LeadFinder'));
-const CreatorFinder = lazy(() => lazyRetry(() => import('./components/CreatorFinder'), 'CreatorFinder'));
 
 // Lazy-loaded public pages
 // LandingPage removed — app.contndr.com starts from auth screen; landing page lives on contndr.com separately
@@ -369,7 +368,6 @@ const viewPreloadMap: Record<string, () => void> = {
     }, { staleTime: 30_000, cacheTime: 120_000 });
   },
   'lead-finder': () => {},
-  'creator-finder': () => {},
   campaigns: () => {
     // Prefetch campaigns data alongside the JS chunk
     apiCache.prefetch('campaigns:list', async () => {
@@ -605,7 +603,6 @@ function prefetchAdjacentViews(current: string) {
     pipeline: ['crm', 'campaigns', 'intent', 'revenue'],
     intent: ['pipeline', 'crm', 'analytics'],
     'lead-finder': ['crm', 'campaigns'],
-    'creator-finder': ['crm', 'social'],
     social: ['dashboard', 'analytics', 'campaigns'],
     'ai-calls': ['campaigns', 'crm'],
     revenue: ['dashboard', 'analytics', 'pipeline'],
@@ -624,7 +621,6 @@ const viewSkeletonMap: Record<string, React.ReactNode> = {
   dashboard: <DashboardSkeleton />,
   crm: <CRMSkeleton />,
   'lead-finder': <LeadFinderSkeleton />,
-  'creator-finder': <LeadFinderSkeleton />,
   campaigns: <CampaignsSkeleton />,
   inbox: <InboxSkeleton />,
   analytics: <AnalyticsSkeleton />,
@@ -727,9 +723,9 @@ try {
   // sessionStorage or URL API not available — ignore
 }
 
-type View = 'dashboard' | 'crm' | 'lead-finder' | 'creator-finder' | 'campaigns' | 'inbox' | 'revenue' | 'analytics' | 'ai-calls' | 'automations' | 'settings' | 'admin' | 'team' | 'pipeline' | 'intent' | 'social' | 'emails' | 'meetings' | 'follow-ups';
+type View = 'dashboard' | 'crm' | 'lead-finder' | 'campaigns' | 'inbox' | 'revenue' | 'analytics' | 'ai-calls' | 'automations' | 'settings' | 'admin' | 'team' | 'pipeline' | 'intent' | 'social' | 'emails' | 'meetings' | 'follow-ups';
 
-const VALID_VIEWS: View[] = ['dashboard', 'crm', 'lead-finder', 'creator-finder', 'campaigns', 'inbox', 'revenue', 'analytics', 'ai-calls', 'automations', 'settings', 'admin', 'team', 'pipeline', 'intent', 'social', 'emails', 'meetings', 'follow-ups'];
+const VALID_VIEWS: View[] = ['dashboard', 'crm', 'lead-finder', 'campaigns', 'inbox', 'revenue', 'analytics', 'ai-calls', 'automations', 'settings', 'admin', 'team', 'pipeline', 'intent', 'social', 'emails', 'meetings', 'follow-ups'];
 
 // ─── Helper route components ───────────────────────────────────────
 
@@ -864,13 +860,9 @@ function AppContent() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const [leadFinderVisited, setLeadFinderVisited] = useState(false);
-  const [creatorFinderVisited, setCreatorFinderVisited] = useState(false);
   // Track when finders have been visited so we keep them mounted (preserving search results)
   if (currentView === 'lead-finder' && !leadFinderVisited) {
     setLeadFinderVisited(true);
-  }
-  if (currentView === 'creator-finder' && !creatorFinderVisited) {
-    setCreatorFinderVisited(true);
   }
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -1959,18 +1951,6 @@ function AppContent() {
                     data-onboarding-id="nav-lead-finder"
                   />
                   <NavButton
-                    icon={Youtube}
-                    label={t('sidebar.creatorFinder')}
-                    active={currentView === 'creator-finder'}
-                    collapsed={isCollapsed}
-                    onClick={() => {
-                      setCurrentView('creator-finder');
-                      setShowMobileMenu(false);
-                    }}
-                    preloadKey="creator-finder"
-                    beta
-                  />
-                  <NavButton
                     icon={Mail}
                     label={t('sidebar.inbox')}
                     active={currentView === 'inbox'}
@@ -2360,15 +2340,6 @@ function AppContent() {
                 <div className={`h-full min-h-0 ${currentView === 'lead-finder' ? 'view-enter' : 'hidden'}`} key="v-lf">
                   <ErrorBoundary>
                     <LeadFinder onUpgrade={() => setShowUpgradeModal(true)} />
-                  </ErrorBoundary>
-                </div>
-              )}
-              {(currentView === 'creator-finder' || creatorFinderVisited) && (
-                <div className={`h-full min-h-0 ${currentView === 'creator-finder' ? 'view-enter' : 'hidden'}`} key="v-cf">
-                  <ErrorBoundary>
-                    <Suspense fallback={<LoadingSpinner />}>
-                      <CreatorFinder onUpgrade={() => setShowUpgradeModal(true)} />
-                    </Suspense>
                   </ErrorBoundary>
                 </div>
               )}
