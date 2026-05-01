@@ -54,7 +54,7 @@ import { useTranslation } from 'react-i18next';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { MobileNav } from './components/MobileNav';
 import { supabase } from './lib/supabase';
-import { Home, Users, Mail, BarChart3, TrendingUp, Settings as SettingsIcon, Phone, Plus, LogOut, Zap, DollarSign, Inbox, Send, X, Search, PlayCircle, Trophy, GitBranch, PanelLeftClose, PanelLeftOpen, ChevronsRight, ArrowRight, Share2, Lock, Globe } from 'lucide-react';
+import { Home, Users, Mail, BarChart3, TrendingUp, Settings as SettingsIcon, Phone, Plus, LogOut, Zap, DollarSign, Inbox, Send, X, Search, PlayCircle, Trophy, GitBranch, PanelLeftClose, PanelLeftOpen, ChevronsRight, ArrowRight, Lock, Globe } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LazyLoadErrorBoundary } from './components/LazyLoadErrorBoundary';
 import { AuthScreen } from './components/AuthScreen';
@@ -96,7 +96,6 @@ import {
   RevenueSkeleton,
   PipelineSkeleton,
   IntentSkeleton,
-  SocialSkeleton,
   TeamSkeleton,
   AutomationsSkeleton,
   LeadFinderSkeleton,
@@ -222,7 +221,6 @@ const AutomationManager = lazy(() => lazyRetry(() => import('./components/Automa
 const TeamLeaderboard = lazy(() => lazyRetry(() => import('./components/TeamLeaderboard'), 'TeamLeaderboard'));
 const Pipeline = lazy(() => lazyRetry(() => import('./components/Pipeline'), 'Pipeline'));
 const BuyingIntent = lazy(() => lazyRetry(() => import('./components/BuyingIntent'), 'BuyingIntent'));
-const SocialSyncer = lazy(() => lazyRetry(() => import('./components/SocialSyncer'), 'SocialSyncer'));
 const EmailsView = lazy(() => lazyRetry(() => import('./components/EmailsView'), 'EmailsView'));
 const ScheduledMeetings = lazy(() => lazyRetry(() => import('./components/ScheduledMeetings'), 'ScheduledMeetings'));
 const FollowUpManager = lazy(() => lazyRetry(() => import('./components/FollowUpManager'), 'FollowUpManager'));
@@ -570,17 +568,6 @@ const viewPreloadMap: Record<string, () => void> = {
       return res.json();
     }, { staleTime: 30_000, cacheTime: 120_000 });
   },
-  social: () => {
-    apiCache.prefetch('social:tracked', async () => {
-      await ensureServerWarm();
-      const res = await authenticatedFetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/social-tracker/tracked`,
-        { signal: AbortSignal.timeout(20000) }
-      );
-      if (!res.ok) throw new Error('Prefetch failed');
-      return res.json();
-    }, { staleTime: 60_000, cacheTime: 300_000 });
-  },
 };
 
 /** Preload a view's JS chunk on hover/focus */
@@ -603,7 +590,6 @@ function prefetchAdjacentViews(current: string) {
     pipeline: ['crm', 'campaigns', 'intent', 'revenue'],
     intent: ['pipeline', 'crm', 'analytics'],
     'lead-finder': ['crm', 'campaigns'],
-    social: ['dashboard', 'analytics', 'campaigns'],
     'ai-calls': ['campaigns', 'crm'],
     revenue: ['dashboard', 'analytics', 'pipeline'],
     team: ['dashboard', 'analytics'],
@@ -632,7 +618,6 @@ const viewSkeletonMap: Record<string, React.ReactNode> = {
   team: <TeamSkeleton />,
   pipeline: <PipelineSkeleton />,
   intent: <IntentSkeleton />,
-  social: <SocialSkeleton />,
   emails: <InboxSkeleton />,
   meetings: <GenericSkeleton />,
   'follow-ups': <AutomationsSkeleton />,
@@ -723,9 +708,9 @@ try {
   // sessionStorage or URL API not available — ignore
 }
 
-type View = 'dashboard' | 'crm' | 'lead-finder' | 'campaigns' | 'inbox' | 'revenue' | 'analytics' | 'ai-calls' | 'automations' | 'settings' | 'admin' | 'team' | 'pipeline' | 'intent' | 'social' | 'emails' | 'meetings' | 'follow-ups';
+type View = 'dashboard' | 'crm' | 'lead-finder' | 'campaigns' | 'inbox' | 'revenue' | 'analytics' | 'ai-calls' | 'automations' | 'settings' | 'admin' | 'team' | 'pipeline' | 'intent' | 'emails' | 'meetings' | 'follow-ups';
 
-const VALID_VIEWS: View[] = ['dashboard', 'crm', 'lead-finder', 'campaigns', 'inbox', 'revenue', 'analytics', 'ai-calls', 'automations', 'settings', 'admin', 'team', 'pipeline', 'intent', 'social', 'emails', 'meetings', 'follow-ups'];
+const VALID_VIEWS: View[] = ['dashboard', 'crm', 'lead-finder', 'campaigns', 'inbox', 'revenue', 'analytics', 'ai-calls', 'automations', 'settings', 'admin', 'team', 'pipeline', 'intent', 'emails', 'meetings', 'follow-ups'];
 
 // ─── Helper route components ───────────────────────────────────────
 
@@ -1086,16 +1071,6 @@ function AppContent() {
     window.addEventListener('navigate-to', handleNavigateTo);
     return () => window.removeEventListener('navigate-to', handleNavigateTo);
   }, [setCurrentView]);
-
-  // ── Social OAuth account-selection redirect — ensure user lands on social view ──
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const needsLinkedIn = params.get('linkedin_select_account');
-    if (needsLinkedIn && currentView !== 'social') {
-      const prefix = isDemoMode ? '/demo' : '/app';
-      navigate(`${prefix}/social?linkedin_select_account=true`, { replace: true });
-    }
-  }, [currentView, isDemoMode, navigate]);
 
   // Expose debug function to browser console for admins
   useEffect(() => {
@@ -2050,18 +2025,6 @@ function AppContent() {
                     }}
                     preloadKey="automations"
                   />
-                  <NavButton
-                    icon={Share2}
-                    label={t('sidebar.socialHub', 'Social Hub')}
-                    active={currentView === 'social'}
-                    collapsed={isCollapsed}
-                    onClick={() => {
-                      setCurrentView('social');
-                      setShowMobileMenu(false);
-                    }}
-                    preloadKey="social"
-                    beta
-                  />
                 </div>
               </div>
 
@@ -2480,13 +2443,6 @@ function AppContent() {
                 <ErrorBoundary>
                   <div className="view-enter h-full min-h-0" key="v-intent">
                   <BuyingIntent />
-                  </div>
-                </ErrorBoundary>
-              )}
-              {currentView === 'social' && (
-                <ErrorBoundary>
-                  <div className="view-enter h-full min-h-0" key="v-social">
-                  <SocialSyncer />
                   </div>
                 </ErrorBoundary>
               )}
