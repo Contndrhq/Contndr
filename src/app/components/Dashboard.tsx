@@ -18,7 +18,6 @@ import { syncEmailStatuses } from '../utils/syncEmailStatuses';
 import { useAppEventRefresh } from '../lib/app-events';
 import { useDemoMode, DEMO_DASHBOARD_STATS, DEMO_REVENUE_SNAP, DEMO_RECENT_CAMPAIGNS, DEMO_FOLLOW_UPS } from './DemoContext';
 import { useScrollHeader } from '../hooks/useScrollHeader';
-import { DashboardAgentMode } from './DashboardAgentMode';
 import { getLeadLimitForPlan } from '../lib/plan-entitlements';
 
 // ─── localStorage snapshot for instant hydration ──────────────────────
@@ -663,7 +662,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
           </div>
 
           {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 xl:flex-1 xl:min-h-0 xl:grid-rows-[320px_minmax(260px,1fr)]">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 xl:flex-1 xl:min-h-0 xl:grid-rows-[320px_minmax(260px,1fr)]">
             
             <div className="h-[320px]">
                <DashboardPipelineSnapshot onNavigate={onNavigate} />
@@ -673,15 +672,11 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
                <DashboardTeamSnapshot onNavigate={onNavigate} stats={stats} />
             </div>
 
-            <div className="h-[320px] lg:col-span-2 xl:col-span-1">
-               <DashboardAgentMode onNavigate={onNavigate} />
-            </div>
-
             <div className="min-h-[260px] xl:h-full xl:min-h-0">
                <DashboardTodayFocus onNavigate={onNavigate} />
             </div>
 
-            <div className="min-h-[260px] lg:col-span-1 xl:col-span-2 xl:h-full xl:min-h-0">
+            <div className="min-h-[260px] xl:h-full xl:min-h-0">
                <RecentActivityFeed onNavigate={onNavigate} />
             </div>
           </div>
