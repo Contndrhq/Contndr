@@ -1,17 +1,15 @@
 // Rebuilt: 2026-03-03T15:00 — full rewrite to clear stale Vite module cache
 import React, { useState } from 'react';
-import { Building2, Users, MapPin } from 'lucide-react';
+import { Building2, Users } from 'lucide-react';
 import { ApolloProSearch } from './ApolloProSearch';
 import { CompanySearch } from './CompanySearch';
-import { BuildingSearch } from './BuildingSearch';
 import { useTranslation } from 'react-i18next';
 
 // Lead Finder — triple-mode prospecting engine.
 // "People" = Smart Discovery (find decision makers with verified emails).
 // "Companies" = Company Search (find businesses, then drill into decision makers inline).
-// "Buildings" = Building Search (find decision makers at any building/address).
 
-type FinderMode = 'people' | 'companies' | 'buildings';
+type FinderMode = 'people' | 'companies';
 
 interface LeadFinderProps {
   onSaveProspects?: (prospects: any[]) => void;
@@ -26,7 +24,6 @@ export function LeadFinder({ onSaveProspects, embedded = false, onUpgrade }: Lea
   const tabs: { key: FinderMode; label: string; icon: typeof Users }[] = [
     { key: 'people', label: t('leadFinder.people', 'People'), icon: Users },
     { key: 'companies', label: t('leadFinder.companies', 'Companies'), icon: Building2 },
-    { key: 'buildings', label: t('leadFinder.buildings', 'Buildings'), icon: MapPin },
   ];
 
   return (
@@ -79,12 +76,7 @@ export function LeadFinder({ onSaveProspects, embedded = false, onUpgrade }: Lea
           <CompanySearch
             onUpgrade={onUpgrade}
           />
-        ) : (
-          <BuildingSearch
-            onSaveProspects={onSaveProspects}
-            onUpgrade={onUpgrade}
-          />
-        )}
+        ) : null}
       </div>
     </div>
   );

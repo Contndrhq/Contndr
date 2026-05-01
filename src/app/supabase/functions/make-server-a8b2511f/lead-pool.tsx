@@ -20,6 +20,7 @@
 
 import * as kv from "./kv-retry.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { verifyMailboxDeliverability } from "./email-verify.tsx";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -191,6 +192,23 @@ export async function saveToPool(leads: PoolLead[]): Promise<{ saved: number; sk
       promises.push(
         (async () => {
           try {
+            const mailbox = await verifyMailboxDeliverability(emailKey);
+            if (!mailbox.safe_to_send) {
+              console.log(`[LEAD POOL] Skipped unsafe mailbox ${emailKey}: ${mailbox.deliverability} (${mailbox.reason})`);
+              skipped++;
+              return;
+            }
+            lead.email = mailbox.email;
+            lead.email_status = "verified";
+            lead.email_verification = {
+              ...(lead.email_verification || {}),
+              deliverable: true,
+              status: mailbox.provider_status || mailbox.deliverability,
+              provider: mailbox.provider,
+              score: mailbox.score,
+              reason: mailbox.reason,
+            };
+
             // Check if already exists (skip if so — don't overwrite with potentially less data)
             const existing = parseKvObject(await kv.get(`dp:${emailKey}`));
             if (existing && existing.email) {

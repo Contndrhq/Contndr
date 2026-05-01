@@ -13,7 +13,7 @@ import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
 import { getTeamMemberIds } from "./team.tsx";
-import { guessEmails, verifyEmailBatch } from "./email-verify.tsx";
+import { guessEmails, verifyEmailBatch, verifyMailboxDeliverability } from "./email-verify.tsx";
 import { searchPool, saveToPool, getPoolStats, hydrateLeadsFromExistingContacts, type PoolLead, type SearchCriteria } from "./lead-pool.tsx";
 // Note: isValidPersonName & getRoleTier exist in enrichment_agent.tsx but are unused here.
 // This file uses its own local isCleanPersonName() and inferSeniority() instead.
@@ -765,6 +765,52 @@ function filterEmailQualifiedPeople<T extends DeepLead>(people: T[], context: st
   const dropped = people.length - filtered.length;
   if (dropped > 0) {
     console.log(`[DEEP PROSPECT] ${context}: dropped ${dropped} leads without usable person email`);
+  }
+  return filtered;
+}
+
+async function filterMailboxSafePeople<T extends DeepLead>(
+  people: T[],
+  context: string,
+  options: { keepCallablePhoneFallback?: boolean; limit?: number } = {},
+): Promise<T[]> {
+  const filtered: T[] = [];
+  let dropped = 0;
+
+  for (const lead of people) {
+    const email = (lead.email || "").trim().toLowerCase();
+    if (!email) {
+      if (options.keepCallablePhoneFallback && hasCallablePhone(lead)) filtered.push(lead);
+      continue;
+    }
+
+    const mailbox = await verifyMailboxDeliverability(email);
+    lead.email_verification = {
+      ...(lead.email_verification || {}),
+      deliverable: mailbox.safe_to_send,
+      status: mailbox.provider_status || mailbox.deliverability,
+      provider: mailbox.provider,
+      score: mailbox.score,
+      reason: mailbox.reason,
+    } as any;
+
+    if (mailbox.safe_to_send) {
+      lead.email = mailbox.email;
+      lead.email_status = "verified";
+      filtered.push(lead);
+    } else {
+      dropped++;
+      console.log(`[DEEP PROSPECT] ${context}: blocked unsafe mailbox ${email} (${mailbox.deliverability}: ${mailbox.reason})`);
+      lead.email = "";
+      lead.email_status = mailbox.deliverability === "undeliverable" ? "invalid" : "risky";
+      if (options.keepCallablePhoneFallback && hasCallablePhone(lead)) filtered.push(lead);
+    }
+
+    if (options.limit && filtered.length >= options.limit) break;
+  }
+
+  if (dropped > 0) {
+    console.log(`[DEEP PROSPECT] ${context}: dropped ${dropped} unsafe/risky emails after mailbox verification`);
   }
   return filtered;
 }
@@ -1707,6 +1753,7 @@ app.post("/search-stream", async (c) => {
                 console.log(`[DEEP PROSPECT] Cache location filter: ${preLocCount} → ${qualityPeople.length} leads`);
               }
               qualityPeople = filterEmailQualifiedPeople(qualityPeople, "cache");
+              qualityPeople = await filterMailboxSafePeople(qualityPeople, "cache", { limit: max_results });
               const withEmail = qualityPeople.filter(l => l.email).length;
               const withPhone = qualityPeople.filter(l => l.phone_numbers?.length > 0 || l.organization?.phone).length;
               console.log(`[DEEP PROSPECT] Cache quality gate: ${data.people.length} → ${qualityPeople.length} leads (${withEmail} with email, ${withPhone} with phone)`);
@@ -3015,13 +3062,20 @@ app.post("/search-stream", async (c) => {
             }
           }
 
+          const mailboxSafePeople = await filterMailboxSafePeople(finalPeople, "final output", {
+            keepCallablePhoneFallback: isLocalBusinessSearch,
+            limit: max_results,
+          });
+          finalPeople.length = 0;
+          finalPeople.push(...mailboxSafePeople);
+
           const withIndustry = finalPeople.filter(l => l.organization?.industry).length;
           const previewLeads = finalPeople.filter(l => (l as any)._preview).length;
           console.log(`[DEEP PROSPECT] Final output: ${finalPeople.length} leads (${finalPeople.filter(l => l.email).length} with email, ${finalPeople.filter(l => l.phone_numbers?.length > 0 || l.organization?.phone).length} with phone, ${previewLeads} preview, ${withIndustry} with industry)`);
 
           // Save to pool
           send("phase", { phase: 9, name: "Saving to database", status: "processing" });
-          const poolSaved = await saveToPool(filterEmailQualifiedPeople(leads, "pool save") as any as PoolLead[]).catch(() => ({ saved: 0, skipped: 0 }));
+          const poolSaved = await saveToPool(filterEmailQualifiedPeople(finalPeople, "pool save") as any as PoolLead[]).catch(() => ({ saved: 0, skipped: 0 }));
           send("phase", { phase: 9, name: "Saving to database", status: "complete", saved: poolSaved.saved });
 
           // Cache results

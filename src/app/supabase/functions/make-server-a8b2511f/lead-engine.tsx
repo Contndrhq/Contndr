@@ -1,13 +1,13 @@
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { enrichLeadWithFindymail, EnrichmentInput, verifyEmailExport, quickDiscoverContacts, getRoleTier, isValidPersonName } from "./enrichment_agent.tsx";
+import { enrichLeadWithFindymail, EnrichmentInput, quickDiscoverContacts, getRoleTier, isValidPersonName } from "./enrichment_agent.tsx";
 import * as kv from "./kv-retry.tsx";
 import { getTeamMemberIds, getTeamId } from "./team.tsx";
 import { toTitleCase } from "./apollo-native.tsx";
 import { getUserSubscriptionStatus } from "./contndr-billing.tsx";
 import { saveToPool, type PoolLead } from "./lead-pool.tsx";
-import { checkMxRecords } from "./email-verify.tsx";
+import { checkMxRecords, verifyMailboxDeliverability } from "./email-verify.tsx";
 import { getLeadLimitForPlan } from "./plan-entitlements.ts";
 
 async function checkLeadLimitEngine(user: any, supabase: any, additionalCount: number) {
@@ -1504,7 +1504,7 @@ app.post("/save", async (c) => {
         let savedAnyForCompany = false;
 
         for (const dm of allContacts) {
-          const emailLower = (dm.email || '').toLowerCase();
+          let emailLower = (dm.email || '').toLowerCase().trim();
 
           // Dedup by email only (not by domain — multiple contacts per company is valid)
           if (emailLower && existingEmails.has(emailLower)) {
@@ -1524,11 +1524,28 @@ app.post("/save", async (c) => {
             }
           }
 
+          let mailboxNote = "";
+          if (emailLower) {
+            const mailbox = await verifyMailboxDeliverability(emailLower);
+            mailboxNote = [
+              `Mailbox Verification: ${mailbox.deliverability}`,
+              `Mailbox Provider: ${mailbox.provider}`,
+              `Mailbox Status: ${mailbox.provider_status || 'N/A'}`,
+              `Mailbox Reason: ${mailbox.reason}`,
+            ].join('\n');
+            if (!mailbox.safe_to_send) {
+              console.log(`[LEAD ENGINE] Blocked unsafe mailbox: ${dm.email} — ${mailbox.reason}`);
+              results.skipped++;
+              continue;
+            }
+            emailLower = mailbox.email;
+          }
+
           const { error } = await supabase.from('leads').insert({
             user_id: user.id,
             business_name: lead.company.name,
             contact_name: dm.full_name,
-            email: dm.email,
+            email: emailLower,
             phone: dm.phone || lead.company.phone,
             website: lead.company.website,
             address: lead.company.address,
@@ -1544,7 +1561,7 @@ app.post("/save", async (c) => {
             linkedin: dm.linkedin_url,
             employees: lead.company.enrichedData?.employee_count,
             annual_revenue: parseRevenue(lead.company.enrichedData?.estimated_revenue),
-            notes: `Imported via Lead Finder.\nRole: ${dm.title || 'N/A'}\nSeniority: ${dm.role_tier === 1 ? 'Owner' : dm.role_tier === 2 ? 'C-Suite' : dm.role_tier === 3 ? 'Director' : dm.role_tier === 4 ? 'Manager' : 'N/A'}\nSource: ${dm.source || 'N/A'}\nConfidence: ${dm.confidence_score || 'N/A'}\nLinkedIn: ${dm.linkedin_url || 'N/A'}\nCompany LinkedIn: ${lead.company.enrichedData?.company_linkedin || 'N/A'}\nRevenue: ${lead.company.enrichedData?.estimated_revenue || 'N/A'}\nEmployees: ${lead.company.enrichedData?.employee_count || 'N/A'}`,
+            notes: `Imported via Lead Finder.\nRole: ${dm.title || 'N/A'}\nSeniority: ${dm.role_tier === 1 ? 'Owner' : dm.role_tier === 2 ? 'C-Suite' : dm.role_tier === 3 ? 'Director' : dm.role_tier === 4 ? 'Manager' : 'N/A'}\nSource: ${dm.source || 'N/A'}\nConfidence: ${dm.confidence_score || 'N/A'}\n${mailboxNote ? mailboxNote + '\n' : ''}LinkedIn: ${dm.linkedin_url || 'N/A'}\nCompany LinkedIn: ${lead.company.enrichedData?.company_linkedin || 'N/A'}\nRevenue: ${lead.company.enrichedData?.estimated_revenue || 'N/A'}\nEmployees: ${lead.company.enrichedData?.employee_count || 'N/A'}`,
             status: 'Cold',
             created_at: new Date().toISOString()
           });
@@ -1589,13 +1606,16 @@ app.post("/verify-email", async (c) => {
     }
 
     console.log(`[LEAD ENGINE] On-demand email verification: ${email}`);
-    const result = await verifyEmailExport(email);
+    const mailbox = await verifyMailboxDeliverability(email);
 
     return c.json({
       success: true,
-      email: result.email,
-      status: result.status,
-      deliverable: result.deliverable
+      email: mailbox.email,
+      status: mailbox.deliverability,
+      deliverable: mailbox.safe_to_send,
+      provider: mailbox.provider,
+      provider_status: mailbox.provider_status,
+      reason: mailbox.reason,
     });
 
   } catch (error) {
@@ -1624,8 +1644,15 @@ app.post("/verify-batch", async (c) => {
         results.push({ email, status: 'invalid', deliverable: false });
         continue;
       }
-      const result = await verifyEmailExport(email);
-      results.push(result);
+      const mailbox = await verifyMailboxDeliverability(email);
+      results.push({
+        email: mailbox.email,
+        status: mailbox.deliverability,
+        deliverable: mailbox.safe_to_send,
+        provider: mailbox.provider,
+        provider_status: mailbox.provider_status,
+        reason: mailbox.reason,
+      });
     }
 
     const verified = results.filter(r => r.deliverable).length;
