@@ -2835,6 +2835,8 @@ app.post("/search-stream", async (c) => {
           const mergedNames = new Set<string>();
           const tier1People: DeepLead[] = []; // With email
           const tier2People: DeepLead[] = []; // Phone-only email-qualified leads.
+          const tier3PhonePeople: DeepLead[] = []; // Local-business fallback: verified phone, no person email.
+          const phoneCandidateNames = new Set<string>();
 
           // Helper: check if lead has basic data (name + company + title) but no email
           // More lenient for leads with LinkedIn URL — still actionable for outreach
@@ -2868,6 +2870,10 @@ app.post("/search-stream", async (c) => {
             return true;
           };
 
+          const hasCallablePhone = (lead: DeepLead): boolean => {
+            return !!(lead.phone_numbers?.some((phone) => (phone.raw_number || "").trim()) || lead.organization?.phone);
+          };
+
           // When force_external, prioritize external leads (industry-targeted by SerpAPI)
           // over pool leads (generic fallback). Otherwise, pool leads first (cheaper, pre-enriched).
           const primarySource = force_external ? leads : poolLeads.map(pl => pl as any as DeepLead);
@@ -2889,7 +2895,7 @@ app.post("/search-stream", async (c) => {
           // snippet locations (e.g. "Dallas, TX") didn't contain "United States".
           const externalLeadIds = new Set(leads.map(l => l.id));
 
-          let mergeStats = { industryRejected: 0, locationRejected: 0, qualityRejected: 0, partialRejected: 0 };
+          let mergeStats = { industryRejected: 0, locationRejected: 0, qualityRejected: 0, partialRejected: 0, phoneFallback: 0 };
 
           for (const el of primarySource) {
             const dlead = el as DeepLead;
@@ -2912,6 +2918,11 @@ app.post("/search-stream", async (c) => {
               mergedNames.add(nameKey);
               if (!dlead.email) dlead.email_status = "unavailable";
               tier2People.push(dlead);
+            } else if (isLocalBusinessSearch && hasCallablePhone(dlead) && isPartialQualityLead(dlead) && !phoneCandidateNames.has(nameKey)) {
+              phoneCandidateNames.add(nameKey);
+              dlead.email_status = dlead.email_status || "unavailable";
+              tier3PhonePeople.push(dlead);
+              mergeStats.phoneFallback++;
             } else {
               if (email) mergeStats.qualityRejected++;
               else mergeStats.partialRejected++;
@@ -2940,13 +2951,18 @@ app.post("/search-stream", async (c) => {
               mergedNames.add(nameKey);
               if (!dlead.email) dlead.email_status = "unavailable";
               tier2People.push(dlead);
+            } else if (isLocalBusinessSearch && hasCallablePhone(dlead) && isPartialQualityLead(dlead) && !phoneCandidateNames.has(nameKey)) {
+              phoneCandidateNames.add(nameKey);
+              dlead.email_status = dlead.email_status || "unavailable";
+              tier3PhonePeople.push(dlead);
+              mergeStats.phoneFallback++;
             } else {
               if (email) mergeStats.qualityRejected++;
               else mergeStats.partialRejected++;
             }
           }
 
-          console.log(`[DEEP PROSPECT] Merge filter stats: ${JSON.stringify(mergeStats)} (industryRejected=${mergeStats.industryRejected}, locationRejected=${mergeStats.locationRejected}, qualityRejected=${mergeStats.qualityRejected}, partialRejected=${mergeStats.partialRejected})`);
+          console.log(`[DEEP PROSPECT] Merge filter stats: ${JSON.stringify(mergeStats)} (industryRejected=${mergeStats.industryRejected}, locationRejected=${mergeStats.locationRejected}, qualityRejected=${mergeStats.qualityRejected}, partialRejected=${mergeStats.partialRejected}, phoneFallback=${mergeStats.phoneFallback})`);
 
           if (force_external) {
             console.log(`[DEEP PROSPECT] Merge priority: external leads first (${leads.length}), then pool leads (${poolLeads.length})`);
@@ -2956,7 +2972,7 @@ app.post("/search-stream", async (c) => {
           if (organization_industries?.length) {
             console.log(`[DEEP PROSPECT] Industry filter active: [${organization_industries.join(', ')}]`);
           }
-          console.log(`[DEEP PROSPECT] Two-tier merge: ${tier1People.length} primary contacts, ${tier2People.length} email-qualified contacts, from ${preQualityCount} total candidates`);
+          console.log(`[DEEP PROSPECT] Three-tier merge: ${tier1People.length} primary email contacts, ${tier2People.length} secondary email contacts, ${tier3PhonePeople.length} local phone contacts, from ${preQualityCount} total candidates`);
 
           // Sort within each tier: leads WITH industry first, then without
           const sortByIndustry = (a: DeepLead, b: DeepLead) => {
@@ -2966,23 +2982,42 @@ app.post("/search-stream", async (c) => {
           };
           tier1People.sort(sortByIndustry);
           tier2People.sort(sortByIndustry);
+          tier3PhonePeople.sort(sortByIndustry);
 
-          // Fill email-qualified leads first. Tier 2 is leads with usable emails that missed full email quality.
+          // Fill real person emails first. For local-business searches, fill the
+          // remaining requested count with callable phone contacts instead of
+          // returning a misleading one-row result.
           const finalPeople: DeepLead[] = [];
+          const finalNameKeys = new Set<string>();
+          const addFinal = (lead: DeepLead) => {
+            if (finalPeople.length >= max_results) return;
+            const nameKey = (lead.name || "").toLowerCase();
+            const emailKey = (lead.email || "").toLowerCase();
+            if (nameKey && finalNameKeys.has(nameKey)) return;
+            if (emailKey && finalPeople.some((p) => (p.email || "").toLowerCase() === emailKey)) return;
+            finalPeople.push(lead);
+            if (nameKey) finalNameKeys.add(nameKey);
+          };
           for (const p of tier1People) {
             if (finalPeople.length >= max_results) break;
-            finalPeople.push(p);
+            addFinal(p);
           }
           if (finalPeople.length < max_results) {
             for (const p of tier2People) {
               if (finalPeople.length >= max_results) break;
-              finalPeople.push(p);
+              addFinal(p);
+            }
+          }
+          if (isLocalBusinessSearch && finalPeople.length < max_results) {
+            for (const p of tier3PhonePeople) {
+              if (finalPeople.length >= max_results) break;
+              addFinal(p);
             }
           }
 
           const withIndustry = finalPeople.filter(l => l.organization?.industry).length;
           const previewLeads = finalPeople.filter(l => (l as any)._preview).length;
-          console.log(`[DEEP PROSPECT] Final output: ${finalPeople.length} email-qualified leads (${finalPeople.filter(l => l.email).length} with email, ${finalPeople.filter(l => l.phone_numbers?.length > 0 || l.organization?.phone).length} with phone, ${previewLeads} preview, ${withIndustry} with industry)`);
+          console.log(`[DEEP PROSPECT] Final output: ${finalPeople.length} leads (${finalPeople.filter(l => l.email).length} with email, ${finalPeople.filter(l => l.phone_numbers?.length > 0 || l.organization?.phone).length} with phone, ${previewLeads} preview, ${withIndustry} with industry)`);
 
           // Save to pool
           send("phase", { phase: 9, name: "Saving to database", status: "processing" });
