@@ -11,6 +11,7 @@ import * as kv from "./kv-retry.tsx";
 import { getTeamMemberIds } from "./team.tsx";
 import { secEdgarLookup, openCorporatesLookup, enhancedWebsiteScrape, detectTechStack } from "./gov-enrichment.tsx";
 import { generateAI } from "./ai-provider.tsx";
+import { generateEmailCandidates, verifyEmail } from "./email-verify.tsx";
 
 const app = new Hono();
 app.use("*", cors());
@@ -3250,6 +3251,108 @@ function splitName(fullName: string): { first_name: string; last_name: string } 
   return { first_name: parts[0], last_name: parts.slice(1).join(" ") };
 }
 
+function cleanNameToken(value: string): string {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
+}
+
+function isLikelyPersonForEmail(name: string): boolean {
+  const tokens = (name || "")
+    .split(/\s+/)
+    .map(cleanNameToken)
+    .filter(Boolean);
+  if (tokens.length < 2) return false;
+
+  const nonPersonTokens = new Set([
+    "restaurant", "restaurants", "cafe", "bar", "grill", "kitchen", "group", "team",
+    "info", "contact", "admin", "support", "reservations", "events", "careers",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "january", "february", "march", "april", "june", "july", "august", "september",
+    "october", "november", "december",
+  ]);
+  if (tokens.some(t => nonPersonTokens.has(t))) return false;
+  return tokens.every(t => t.length >= 2);
+}
+
+function extractEmailsFromText(text: string, domain: string): string[] {
+  const cleanDomain = domain.toLowerCase();
+  const emails = new Set<string>();
+  const decoded = (text || "")
+    .replace(/&#64;|&commat;/gi, "@")
+    .replace(/\s+\[at\]\s+|\s+\(at\)\s+|\s+at\s+/gi, "@")
+    .replace(/\s+\[dot\]\s+|\s+\(dot\)\s+|\s+dot\s+/gi, ".");
+  const matches = decoded.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+  for (const raw of matches) {
+    const email = raw.toLowerCase().replace(/[),.;:'">]+$/g, "");
+    if (!email.endsWith(`@${cleanDomain}`)) continue;
+    const local = email.split("@")[0] || "";
+    if (!/^[a-z0-9._%+-]{2,}$/.test(local)) continue;
+    if (/\.(png|jpe?g|gif|svg|webp|css|js)$/i.test(email)) continue;
+    emails.add(email);
+  }
+  return [...emails];
+}
+
+async function scrapeWebsiteEmails(domain: string): Promise<string[]> {
+  const cleanDomain = domain.toLowerCase().replace(/^www\./, "");
+  const paths = ["", "/contact", "/about", "/team", "/staff"];
+  const urls = paths.flatMap(path => [
+    `https://${cleanDomain}${path}`,
+    path === "" ? `https://www.${cleanDomain}` : "",
+  ]).filter(Boolean).slice(0, 6);
+
+  const results = await Promise.allSettled(urls.map(async (url) => {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 ContndrBot/1.0" },
+      signal: AbortSignal.timeout(3500),
+    });
+    if (!res.ok) return [];
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType && !contentType.includes("text") && !contentType.includes("html")) return [];
+    const text = await res.text();
+    return extractEmailsFromText(text, cleanDomain);
+  }));
+
+  const emails = new Set<string>();
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      for (const email of result.value) emails.add(email);
+    }
+  }
+  return [...emails];
+}
+
+function emailMatchesPerson(email: string, firstName: string, lastName: string): boolean {
+  const local = email.split("@")[0]?.toLowerCase() || "";
+  const first = cleanNameToken(firstName);
+  const last = cleanNameToken(lastName);
+  if (!first || !last) return false;
+  const variants = new Set([
+    `${first}.${last}`,
+    `${first}_${last}`,
+    `${first}-${last}`,
+    `${first}${last}`,
+    `${first[0]}${last}`,
+    `${first}.${last[0]}`,
+    `${first}${last[0]}`,
+    `${last}.${first}`,
+    `${last}${first}`,
+  ]);
+  return variants.has(local);
+}
+
+async function verifyGeneratedEmail(email: string): Promise<boolean> {
+  try {
+    const verification = await verifyEmail(email);
+    return verification.mx_valid && verification.status !== "invalid" && !verification.is_disposable;
+  } catch {
+    return /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email);
+  }
+}
+
 app.post("/enrich-people-email", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
@@ -3289,7 +3392,8 @@ app.post("/enrich-people-email", async (c) => {
         const cached = await kv.get(legacyCacheKey);
         if (cached) {
           const parsed = typeof cached === "string" ? JSON.parse(cached) : cached;
-          if (parsed._ts && Date.now() - parsed._ts < 3600000) {
+          const cachedCount = Object.keys(parsed.results || {}).length;
+          if (parsed._ts && Date.now() - parsed._ts < 3600000 && cachedCount > 0) {
             console.log(`[EMAIL ENRICH] Legacy cache hit for domain "${cleanDomain}"`);
             return c.json({ results: parsed.results, source: "cache" });
           }
@@ -3302,7 +3406,7 @@ app.post("/enrich-people-email", async (c) => {
     const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
     const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
     if (!HUNTER_API_KEY && !FINDYMAIL_API_KEY) {
-      return c.json({ error: "No email enrichment provider configured" }, 500);
+      console.log("[EMAIL ENRICH] No external providers configured — using Contndr fallback enrichment only");
     }
 
     console.log(`[EMAIL ENRICH] Starting for ${people.length} people at "${cleanDomain}"`);
@@ -3446,8 +3550,32 @@ app.post("/enrich-people-email", async (c) => {
       console.log(`[EMAIL ENRICH] Findymail found ${findymailFound} additional emails`);
     }
 
-    // Phase 3: Pattern-based email generation as last resort
-    // Use common email patterns based on domain naming conventions from Hunter domain-search
+    // Phase 3a: First-party website scrape. This catches obvious personal emails
+    // from contact/about/team pages before we generate low-confidence guesses.
+    if (pending.size > 0 && cleanDomain) {
+      try {
+        console.log(`[EMAIL ENRICH] Phase 3a: Contndr website email scrape for ${pending.size} remaining`);
+        const websiteEmails = await scrapeWebsiteEmails(cleanDomain);
+        let websiteFound = 0;
+        if (websiteEmails.length > 0) {
+          for (const [id, { first_name, last_name }] of [...pending.entries()]) {
+            const email = websiteEmails.find(e => emailMatchesPerson(e, first_name, last_name));
+            if (!email) continue;
+            results[id] = { email, source: "contndr_website", confidence: "medium" };
+            poolStoreEmail(first_name, last_name, cleanDomain, email, "contndr_website", "medium");
+            pending.delete(id);
+            websiteFound++;
+          }
+        }
+        console.log(`[EMAIL ENRICH] Website scrape found ${websiteEmails.length} domain emails, matched ${websiteFound} people`);
+      } catch (websiteErr: any) {
+        console.log(`[EMAIL ENRICH] Website email scrape failed (non-fatal): ${websiteErr.message}`);
+      }
+    }
+
+    // Phase 3b: Pattern-based email generation as last resort.
+    // Hunter can provide a domain pattern when available, but if Hunter is rate
+    // limited we fall back to our own candidate generator and MX validation.
     if (pending.size > 0 && cleanDomain) {
       try {
         // Check pool for cached pattern first (saves a Hunter API call)
@@ -3460,19 +3588,19 @@ app.post("/enrich-people-email", async (c) => {
             await poolStoreEmailPattern(cleanDomain, pattern);
           }
         }
+        let patternFound = 0;
         if (pattern) {
           const entries = [...pending.entries()];
-          let patternFound = 0;
           for (const [id, { first_name, last_name }] of entries) {
-            if (!first_name) continue;
+            if (!first_name || !last_name || !isLikelyPersonForEmail(`${first_name} ${last_name}`)) continue;
             let email = pattern
-              .replace("{first}", first_name.toLowerCase())
-              .replace("{last}", (last_name || "").toLowerCase())
-              .replace("{f}", (first_name[0] || "").toLowerCase())
-              .replace("{l}", ((last_name || "")[0] || "").toLowerCase());
+              .replace("{first}", cleanNameToken(first_name))
+              .replace("{last}", cleanNameToken(last_name || ""))
+              .replace("{f}", cleanNameToken(first_name)[0] || "")
+              .replace("{l}", cleanNameToken(last_name || "")[0] || "");
             email = `${email}@${cleanDomain}`;
             // Basic validation
-            if (/^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email)) {
+            if (/^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email) && await verifyGeneratedEmail(email)) {
               results[id] = { email, source: "pattern", confidence: "low" };
               // Store pattern-generated emails in pool too (low confidence but still useful)
               poolStoreEmail(first_name, last_name, cleanDomain, email, "pattern", "low");
@@ -3480,9 +3608,31 @@ app.post("/enrich-people-email", async (c) => {
               patternFound++;
             }
           }
-          if (patternFound > 0) {
-            console.log(`[EMAIL ENRICH] Pattern-based generation added ${patternFound} guessed emails (pattern: ${pattern})`);
+        }
+
+        if (!pattern && pending.size > 0) {
+          const entries = [...pending.entries()];
+          console.log(`[EMAIL ENRICH] Phase 3b: Contndr pattern fallback for ${entries.length} remaining`);
+          for (const [id, { first_name, last_name }] of entries) {
+            if (!first_name || !last_name || !isLikelyPersonForEmail(`${first_name} ${last_name}`)) continue;
+            const candidates = generateEmailCandidates(
+              cleanNameToken(first_name),
+              cleanNameToken(last_name),
+              cleanDomain,
+            ).slice(0, 4);
+            for (const candidate of candidates) {
+              if (!await verifyGeneratedEmail(candidate.email)) continue;
+              const confidence = candidate.confidence >= 25 ? "medium" : "low";
+              results[id] = { email: candidate.email, source: "contndr_pattern", confidence };
+              poolStoreEmail(first_name, last_name, cleanDomain, candidate.email, "contndr_pattern", confidence);
+              pending.delete(id);
+              patternFound++;
+              break;
+            }
           }
+        }
+        if (patternFound > 0) {
+          console.log(`[EMAIL ENRICH] Pattern fallback added ${patternFound} MX-valid guessed emails${pattern ? ` (pattern: ${pattern})` : ""}`);
         }
       } catch (patternErr: any) {
         console.log(`[EMAIL ENRICH] Pattern generation failed (non-fatal): ${patternErr.message}`);
@@ -3494,10 +3644,14 @@ app.post("/enrich-people-email", async (c) => {
     console.log(`[EMAIL ENRICH] DONE: ${totalFound}/${people.length} emails for "${cleanDomain}" (${poolHits} from pool, ${totalFound - poolHits} freshly enriched)`);
 
     // Store domain-level cache (stable key, not session-dependent)
-    try { await kv.set(domainCacheKey, JSON.stringify({ results, _ts: Date.now() })); } catch {}
+    if (totalFound > 0) {
+      try { await kv.set(domainCacheKey, JSON.stringify({ results, _ts: Date.now() })); } catch {}
+    }
     // Also store legacy session-based cache for backward compatibility
     const legacyCacheKey2 = `email-enrich:${cleanDomain}:${people.map((p) => p.id).sort().join(",")}`;
-    try { await kv.set(legacyCacheKey2, JSON.stringify({ results, _ts: Date.now() })); } catch {}
+    if (totalFound > 0) {
+      try { await kv.set(legacyCacheKey2, JSON.stringify({ results, _ts: Date.now() })); } catch {}
+    }
 
     return c.json({ results, source: "enriched", total_found: totalFound, total_people: people.length, pool_hits: poolHits });
   } catch (error: any) {
