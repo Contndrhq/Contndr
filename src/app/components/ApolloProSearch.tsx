@@ -75,6 +75,13 @@ function hasUsableEmail(lead: Pick<ApolloLead, 'email' | 'email_verification'>):
   return true;
 }
 
+function hasCallablePhone(lead: Pick<ApolloLead, 'phone_numbers' | '_has_phone'>): boolean {
+  return Boolean(
+    lead._has_phone ||
+    lead.phone_numbers?.some(phone => phone.raw_number?.replace(/\D/g, '').length >= 7)
+  );
+}
+
 // ── Strip emoji and unicode decorators ──
 function stripDisplayEmoji(str: string): string {
   if (!str) return '';
@@ -2558,10 +2565,11 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
 
   // ── Filtering & Sorting ──
   const filteredResults = useMemo(() => {
-    // QUALITY GATE: main results must be usable contacts, not rows without email.
-    // A lead needs a real person, company, and a usable non-generic email.
+    // QUALITY GATE: main results must be usable contacts.
+    // Local-business discovery can return callable owner/manager leads when a
+    // personal email is unavailable, so allow a real phone number as contact.
     const initialCount = results.length;
-    const filterReasons = { genericEmail: 0, roleBasedEmail: 0, noName: 0, noCompany: 0, noEmail: 0 };
+    const filterReasons = { genericEmail: 0, roleBasedEmail: 0, noName: 0, noCompany: 0, noContact: 0 };
     let filtered = results.filter(l => {
       // Block generic/role-based emails (info@, sales@, etc.) — not decision makers
       if (l.email?.trim() && isGenericEmail(l.email)) { filterReasons.genericEmail++; return false; }
@@ -2572,7 +2580,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
       const companyName = (l.organization?.name || '').trim();
       const hasCompany = companyName.length >= 2 && companyName !== '—' && companyName !== '-';
       if (!hasCompany) { filterReasons.noCompany++; return false; }
-      if (!hasUsableEmail(l)) { filterReasons.noEmail++; return false; }
+      if (!hasUsableEmail(l) && !hasCallablePhone(l)) { filterReasons.noContact++; return false; }
       // DEDUPLICATE against CRM — never show leads the user already has (by email)
       if (l.email && existingEmails.has(l.email.toLowerCase())) return false;
       return true;
@@ -2582,7 +2590,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
     const qualityGateFiltered = initialCount - filtered.length;
     if (qualityGateFiltered > 0) {
       console.log(`[LEAD FINDER] Quality gate: ${initialCount} → ${filtered.length} leads (filtered ${qualityGateFiltered})`);
-      console.log(`[LEAD FINDER] Filter reasons: genericEmail=${filterReasons.genericEmail}, roleBasedEmail=${filterReasons.roleBasedEmail}, noName=${filterReasons.noName}, noCompany=${filterReasons.noCompany}, noEmail=${filterReasons.noEmail}`);
+      console.log(`[LEAD FINDER] Filter reasons: genericEmail=${filterReasons.genericEmail}, roleBasedEmail=${filterReasons.roleBasedEmail}, noName=${filterReasons.noName}, noCompany=${filterReasons.noCompany}, noContact=${filterReasons.noContact}`);
     }
 
     // Text search
