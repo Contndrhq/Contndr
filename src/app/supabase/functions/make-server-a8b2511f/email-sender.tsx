@@ -11,6 +11,7 @@ import {
   getEmailSettingsFromKV,
 } from "./oauth-email.tsx";
 import { validateEmailFast } from "./email-verifier.tsx";
+import { verifyMailboxDeliverability } from "./email-verify.tsx";
 
 // Lazy singleton — avoids creating a duplicate Supabase client at module scope.
 // Shares the same connection pool pattern as index.tsx's getSupabaseAdmin().
@@ -430,6 +431,29 @@ export async function sendEmail(
       }));
     } catch (_) { /* non-fatal */ }
     return { success: false, error: `Email validation failed: ${validation.reason}` };
+  }
+
+  // ── Real mailbox verification gate ──
+  const mailbox = await verifyMailboxDeliverability(options.to.trim());
+  if (!mailbox.safe_to_send) {
+    console.warn(`[EMAIL-SENDER] ✋ Mailbox verification blocked ${options.to}: ${mailbox.deliverability} (${mailbox.reason})`);
+    if (mailbox.deliverability === "undeliverable") {
+      try {
+        await kv.set(`suppressed:${options.to.toLowerCase().trim()}`, JSON.stringify({
+          reason: mailbox.reason,
+          provider: mailbox.provider,
+          provider_status: mailbox.provider_status,
+          added_at: new Date().toISOString(),
+          source: 'mailbox_verification',
+        }));
+      } catch (_) { /* non-fatal */ }
+    }
+    return {
+      success: false,
+      error: mailbox.provider_configured
+        ? `Mailbox verification failed: ${mailbox.deliverability} (${mailbox.reason})`
+        : "Mailbox verification provider is not configured. Set ZEROBOUNCE_API_KEY before sending email.",
+    };
   }
 
   // ── Bounce suppression check ──

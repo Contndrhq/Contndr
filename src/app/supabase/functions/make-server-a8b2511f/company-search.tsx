@@ -11,6 +11,7 @@ import * as kv from "./kv-retry.tsx";
 import { getTeamMemberIds } from "./team.tsx";
 import { secEdgarLookup, openCorporatesLookup, enhancedWebsiteScrape, detectTechStack } from "./gov-enrichment.tsx";
 import { generateAI } from "./ai-provider.tsx";
+import { verifyMailboxDeliverability } from "./email-verify.tsx";
 
 const app = new Hono();
 app.use("*", cors());
@@ -2740,6 +2741,24 @@ function trustedEmailResults(results: Record<string, { email: string; source: st
   ) as Record<string, { email: string; source: string; confidence: string }>;
 }
 
+async function deliverableEmailResults(results: Record<string, { email: string; source: string; confidence: string }>) {
+  const deliverable: Record<string, { email: string; source: string; confidence: string; mailbox_status?: string; mailbox_provider?: string }> = {};
+  for (const [id, value] of Object.entries(results || {})) {
+    if (!value.email) continue;
+    const mailbox = await verifyMailboxDeliverability(value.email);
+    if (!mailbox.safe_to_send) {
+      console.log(`[EMAIL ENRICH] Dropped ${value.email}: ${mailbox.deliverability} (${mailbox.reason})`);
+      continue;
+    }
+    deliverable[id] = {
+      ...value,
+      mailbox_status: mailbox.deliverability,
+      mailbox_provider: mailbox.provider,
+    };
+  }
+  return deliverable;
+}
+
 function parseLinkedInResult(result: any, companyName: string): PersonResult | null {
   try {
     const link: string = result.link || "";
@@ -3594,7 +3613,7 @@ app.post("/enrich-people-email", async (c) => {
       console.log(`[EMAIL ENRICH] ${pending.size} people remain without trusted emails — skipping guessed email generation`);
     }
 
-    const filteredResults = trustedEmailResults(results);
+    const filteredResults = await deliverableEmailResults(trustedEmailResults(results));
     const droppedGuesses = Object.keys(results).length - Object.keys(filteredResults).length;
     if (droppedGuesses > 0) {
       console.log(`[EMAIL ENRICH] Dropped ${droppedGuesses} guessed/untrusted emails from response`);
@@ -3697,7 +3716,7 @@ app.post("/save-people-to-crm", async (c) => {
       try {
         if (person.id.startsWith("crm-")) { results.skipped++; continue; }
 
-        const emailLower = (person.email || "").toLowerCase().trim();
+        let emailLower = (person.email || "").toLowerCase().trim();
         if (emailLower && existingEmails.has(emailLower)) {
           results.skipped++; continue;
         }
@@ -3705,6 +3724,28 @@ app.post("/save-people-to-crm", async (c) => {
         const contactName = (person.name || "").trim();
         const jobTitle = (person.title || "").trim();
         if (!contactName) { results.skipped++; continue; }
+
+        let mailboxNote = "";
+        if (emailLower) {
+          const mailbox = await verifyMailboxDeliverability(emailLower);
+          mailboxNote = [
+            `Mailbox Verification: ${mailbox.deliverability}`,
+            `Mailbox Provider: ${mailbox.provider}`,
+            `Mailbox Status: ${mailbox.provider_status || "N/A"}`,
+            `Mailbox Reason: ${mailbox.reason}`,
+          ].join("\n");
+          if (!mailbox.safe_to_send) {
+            console.warn(`[COMPANY SEARCH] Dropping unsafe email for ${contactName}: ${emailLower} (${mailbox.reason})`);
+            emailLower = "";
+          }
+        }
+
+        const phoneForLead = normalizePhone(person.phone) || normalizePhone(company.phone) || "";
+        if (!emailLower && !phoneForLead) {
+          results.skipped++;
+          results.errors.push(`${contactName}: skipped because no deliverable email or usable phone was available`);
+          continue;
+        }
 
         let annualRevenue: number | null = null;
         const revStr = company.annual_revenue_printed || "";
@@ -3723,8 +3764,8 @@ app.post("/save-people-to-crm", async (c) => {
           user_id: user.id,
           business_name: company.name,
           contact_name: contactName,
-          email: person.email || "",
-          phone: normalizePhone(person.phone) || normalizePhone(company.phone) || "",
+          email: emailLower,
+          phone: phoneForLead,
           website: company.website_url || "",
           address: company.address || "",
           city: toTitleCase(company.city || ""),
@@ -3745,8 +3786,9 @@ app.post("/save-people-to-crm", async (c) => {
             `Role: ${jobTitle || "N/A"}`,
             `Email Source: ${person.email_source || "N/A"}`,
             `Email Confidence: ${person.email_confidence || "N/A"}`,
+            mailboxNote,
             `LinkedIn: ${person.linkedin_url || "N/A"}`,
-          ].join("\n"),
+          ].filter(Boolean).join("\n"),
           status: "Cold",
           created_at: new Date().toISOString(),
         });

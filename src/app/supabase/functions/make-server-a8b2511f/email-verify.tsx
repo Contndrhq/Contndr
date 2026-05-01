@@ -17,9 +17,44 @@ export interface EmailVerification {
   suggestion?: string; // Typo correction suggestion
 }
 
+export type MailboxDeliverability = "deliverable" | "risky" | "undeliverable" | "unknown";
+
+export interface MailboxVerification {
+  email: string;
+  deliverability: MailboxDeliverability;
+  provider: "zerobounce" | "local";
+  provider_status?: string;
+  provider_sub_status?: string;
+  score: number;
+  safe_to_send: boolean;
+  provider_configured: boolean;
+  reason: string;
+  raw?: Record<string, unknown>;
+}
+
 // ── MX Record Cache (in-memory per invocation) ──
 const mxCache = new Map<string, { valid: boolean; records: string[]; ts: number }>();
 const MX_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const mailboxCache = new Map<string, { result: MailboxVerification; ts: number }>();
+const MAILBOX_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+function mapZeroBounceStatus(status?: string): { deliverability: MailboxDeliverability; score: number; safe: boolean; reason: string } {
+  const s = (status || "").toLowerCase();
+  switch (s) {
+    case "valid":
+      return { deliverability: "deliverable", score: 95, safe: true, reason: "Mailbox verified deliverable by ZeroBounce" };
+    case "invalid":
+    case "spamtrap":
+    case "abuse":
+    case "do_not_mail":
+      return { deliverability: "undeliverable", score: 5, safe: false, reason: `ZeroBounce marked email as ${s}` };
+    case "catch-all":
+    case "unknown":
+      return { deliverability: "risky", score: 45, safe: false, reason: `ZeroBounce marked email as ${s}; not safe for automated outreach` };
+    default:
+      return { deliverability: "unknown", score: 25, safe: false, reason: "ZeroBounce returned no trusted deliverability status" };
+  }
+}
 
 // ── DNS-over-HTTPS MX Lookup (Google Public DNS — free, no API key) ──
 export async function checkMxRecords(domain: string): Promise<{ valid: boolean; records: string[] }> {
@@ -521,6 +556,66 @@ export async function verifyEmail(email: string): Promise<EmailVerification> {
     result.status = "risky";
   }
   
+  return result;
+}
+
+export async function verifyMailboxDeliverability(email: string): Promise<MailboxVerification> {
+  const normalized = (email || "").toLowerCase().trim();
+  const cached = mailboxCache.get(normalized);
+  if (cached && Date.now() - cached.ts < MAILBOX_CACHE_TTL) return cached.result;
+
+  const zeroBounceKey = Deno.env.get("ZEROBOUNCE_API_KEY") || Deno.env.get("ZB_API_KEY");
+  if (zeroBounceKey && normalized) {
+    try {
+      const params = new URLSearchParams({ api_key: zeroBounceKey, email: normalized });
+      const response = await fetch(`https://api.zerobounce.net/v2/validate?${params}`, {
+        signal: AbortSignal.timeout(12000),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const mapped = mapZeroBounceStatus(data.status);
+        const result: MailboxVerification = {
+          email: normalized,
+          deliverability: mapped.deliverability,
+          provider: "zerobounce",
+          provider_status: data.status,
+          provider_sub_status: data.sub_status,
+          score: mapped.score,
+          safe_to_send: mapped.safe,
+          provider_configured: true,
+          reason: mapped.reason,
+          raw: {
+            status: data.status,
+            sub_status: data.sub_status,
+            free_email: data.free_email,
+            did_you_mean: data.did_you_mean,
+            domain: data.domain,
+          },
+        };
+        mailboxCache.set(normalized, { result, ts: Date.now() });
+        return result;
+      }
+      console.warn(`[MAILBOX VERIFY] ZeroBounce HTTP ${response.status} for ${normalized}`);
+    } catch (error: any) {
+      console.warn(`[MAILBOX VERIFY] ZeroBounce failed for ${normalized}: ${error.message}`);
+    }
+  }
+
+  const local = await verifyEmail(normalized);
+  const result: MailboxVerification = {
+    email: normalized,
+    deliverability: local.status === "invalid" ? "undeliverable" : "risky",
+    provider: "local",
+    provider_status: local.status,
+    score: Math.min(local.score, 50),
+    safe_to_send: false,
+    provider_configured: Boolean(zeroBounceKey),
+    reason: zeroBounceKey
+      ? "Provider verification failed; local checks are not enough to confirm a mailbox"
+      : "Real mailbox verification provider not configured; local MX checks are not enough to confirm a mailbox",
+    raw: { flags: local.flags, mx_valid: local.mx_valid },
+  };
+  mailboxCache.set(normalized, { result, ts: Date.now() });
   return result;
 }
 
