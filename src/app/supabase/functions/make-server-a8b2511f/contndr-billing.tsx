@@ -375,8 +375,9 @@ export async function getUserSubscriptionStatus(user: any) {
   }
 
   // 4. Check if user is on waitlist - this determines if they see waitlist or paywall
+  let waitlistId: string | null = null;
   try {
-    const waitlistId = await kv.get(`waitlist:email:${userEmail}`);
+    waitlistId = await kv.get(`waitlist:email:${userEmail}`);
     if (waitlistId) {
       const entry = await kv.get(`waitlist:${waitlistId}`);
       console.log('[BILLING] Waitlist entry found:', JSON.stringify(entry));

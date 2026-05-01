@@ -810,6 +810,81 @@ function isAdminEmail(email: string | undefined | null, uid?: string | undefined
   return ADMIN_EMAILS.includes(e);
 }
 
+function normalizeWaitlistStatus(status: string | undefined | null): string {
+  const value = (status || '').toLowerCase().trim();
+  return value || 'pending_signup';
+}
+
+function isApprovedWaitlistStatus(status: string | undefined | null): boolean {
+  return ['approved', 'invited', 'signed_up'].includes(normalizeWaitlistStatus(status));
+}
+
+async function getWaitlistEntryByEmail(email: string): Promise<{ id: string | null; entry: any | null }> {
+  const normalizedEmail = email.toLowerCase().trim();
+  const id = await kv.get(`waitlist:email:${normalizedEmail}`);
+  if (!id) return { id: null, entry: null };
+  const entry = await kv.get(`waitlist:${id}`);
+  return { id, entry: entry || null };
+}
+
+async function upsertWaitlistSignupEntry(params: {
+  email: string;
+  userId: string;
+  name?: string;
+  company?: string;
+  phone?: string;
+  businessType?: string;
+  monthlyLeadVolume?: string;
+  teamSize?: string;
+  annualRevenue?: string;
+  approved: boolean;
+  source: string;
+  existingId?: string | null;
+  existingEntry?: any | null;
+}) {
+  const now = new Date().toISOString();
+  const normalizedEmail = params.email.toLowerCase().trim();
+  const status = params.approved ? 'signed_up' : 'pending_signup';
+  let entryId = params.existingId || null;
+  let entry = params.existingEntry || null;
+
+  if (!entryId) {
+    entryId = crypto.randomUUID();
+  }
+
+  entry = {
+    ...(entry || {}),
+    id: entryId,
+    name: params.name || entry?.name || 'User',
+    company: params.company || entry?.company || '',
+    email: normalizedEmail,
+    phone: params.phone || entry?.phone || '',
+    businessType: params.businessType || entry?.businessType || 'Unknown',
+    monthlyLeadVolume: params.monthlyLeadVolume || entry?.monthlyLeadVolume || 'Unknown',
+    teamSize: params.teamSize || entry?.teamSize || 'Unknown',
+    annualRevenue: params.annualRevenue || entry?.annualRevenue || 'Unknown',
+    status,
+    userId: params.userId,
+    source: entry?.source || params.source,
+    created_at: entry?.created_at || now,
+    updated_at: now,
+  };
+
+  await kv.set(`waitlist:${entryId}`, entry);
+  await kv.set(`waitlist:email:${normalizedEmail}`, entryId);
+
+  const listKey = 'waitlist_entries_list';
+  const existingList = (await kv.get(listKey)) || [];
+  if (!existingList.includes(entryId)) {
+    await kv.set(listKey, [entryId, ...existingList].slice(0, 5000));
+    const countKey = 'waitlist_count';
+    const currentCount = (await kv.get(countKey)) || 127;
+    await kv.set(countKey, currentCount + 1);
+  }
+
+  return entry;
+}
+
 // ─── Affiliate Auto-Enrollment Helper ────────────────────────────────
 async function ensureAffiliateSlug(user: any): Promise<string> {
   if (isAdminEmail(user.email, user.id)) return '';
@@ -1097,24 +1172,47 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
     // Admin bypass
     const isAdmin = isAdminEmail(normalizedEmail);
 
-    // Enforce Waitlist / Invite-Only Access (Soft Gate)
-    // Logic: Allow signup, but set status to 'pending' if not approved.
-    
     let isApproved = false;
     let subscriptionStatus = 'pending';
     let subscriptionPlan = 'waitlist';
+    let existingWaitlistId: string | null = null;
+    let existingWaitlistEntry: any | null = null;
+    let isWhitelisted = false;
+
+    if (!isAdmin) {
+      const storageGuard = kv.shouldSkipWriteHeavyTask('auth-signup-v2');
+      if (!storageGuard.ok) {
+        console.warn('[AUTH] Signup paused because storage is degraded:', storageGuard.reason);
+        return c.json({
+          error: 'Access applications are temporarily delayed. Please try again shortly.',
+          reason: 'storage_degraded',
+        }, 503);
+      }
+
+      try {
+        const waitlistResult = await getWaitlistEntryByEmail(normalizedEmail);
+        existingWaitlistId = waitlistResult.id;
+        existingWaitlistEntry = waitlistResult.entry;
+        isWhitelisted = !!(await kv.get(`whitelist:${normalizedEmail}`));
+      } catch (waitlistReadErr: any) {
+        console.error('[AUTH] Could not check waitlist before signup:', waitlistReadErr?.message || waitlistReadErr);
+        return c.json({
+          error: 'Access applications are temporarily delayed. Please try again shortly.',
+          reason: 'waitlist_unavailable',
+        }, 503);
+      }
+    }
 
     // Admin bypass - ONLY admins get automatic active access
     if (isAdmin) {
         isApproved = true;
         subscriptionStatus = 'active';
         subscriptionPlan = 'growth'; // Admins get full access
+    } else if (isWhitelisted || isApprovedWaitlistStatus(existingWaitlistEntry?.status)) {
+        isApproved = true;
+        subscriptionStatus = 'unpaid';
+        subscriptionPlan = 'none';
     }
-    // Note: For non-admin users, we don't set approval status during signup
-    // The billing service will check waitlist approval status on each login
-    
-    // We proceed to create the user regardless of approval status.
-    // If not approved, they get 'pending' status and will see the 'Pending' screen.
 
     const supabase = getSupabaseAdmin();
 
@@ -1148,67 +1246,49 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
     if (data.user) {
         console.log('[AUTH] User created successfully:', data.user.id);
         
-        // Log admin event for new signup
+        try {
+          await kv.set(`contndr_sub:${data.user.id}`, {
+            status: subscriptionStatus,
+            plan: subscriptionPlan,
+            created_at: new Date().toISOString(),
+            signup_method: 'email',
+        });
+
+          if (!isAdmin) {
+            await upsertWaitlistSignupEntry({
+              email: normalizedEmail,
+              userId: data.user.id,
+              name,
+              company,
+              phone,
+              businessType,
+              monthlyLeadVolume,
+              teamSize,
+              annualRevenue,
+              approved: isApproved,
+              source: existingWaitlistEntry?.source || 'direct_signup',
+              existingId: existingWaitlistId,
+              existingEntry: existingWaitlistEntry,
+            });
+          }
+        } catch (e: any) {
+            console.error('[AUTH] Critical waitlist/subscription write failed, rolling back auth user:', e?.message || e);
+            try {
+              await supabase.auth.admin.deleteUser(data.user.id);
+            } catch (deleteErr: any) {
+              console.error('[AUTH] Failed to rollback partial auth user:', deleteErr?.message || deleteErr);
+            }
+            return c.json({
+              error: 'Could not complete access application. Please try again shortly.',
+              reason: 'waitlist_write_failed',
+            }, 503);
+        }
+
+        // Log admin event for new signup after critical gating records exist.
         logAdminEvent('new_signup', 'New Signup', `${name || 'User'} (${normalizedEmail}) just signed up`, {
           email: normalizedEmail,
           metadata: { name, company, phone, businessType, plan: subscriptionPlan, status: subscriptionStatus }
         }).catch(() => {});
-        await kv.set(`contndr_sub:${data.user.id}`, {
-            status: subscriptionStatus,
-            plan: subscriptionPlan,
-            created_at: new Date().toISOString()
-        });
-        
-        // Waitlist Management
-        try {
-            const waitlistId = await kv.get(`waitlist:email:${normalizedEmail}`);
-            if (waitlistId) {
-                // Update existing waitlist entry
-                const entry = await kv.get(`waitlist:${waitlistId}`);
-                if (entry) {
-                    entry.userId = data.user.id;
-                    entry.phone = phone || entry.phone || '';
-                    // If they are approved, they are fully signed up.
-                    // If pending, they are 'pending_signup' (signed up but waiting)
-                    entry.status = isApproved ? 'signed_up' : 'pending_signup';
-                    await kv.set(`waitlist:${waitlistId}`, entry);
-                }
-            } else if (!isApproved) {
-                 // If NOT on waitlist and NOT approved (direct signup attempt),
-                 // automatically add them to the waitlist.
-                 
-                 const entryId = crypto.randomUUID();
-                 const entry = {
-                   id: entryId,
-                   name: name || 'User',
-                   email: normalizedEmail,
-                   phone: phone || '',
-                   businessType: businessType || 'Unknown',
-                   monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
-                   teamSize: teamSize || 'Unknown',
-                   annualRevenue: annualRevenue || 'Unknown',
-                   status: 'pending_signup', // Distinct status for signed-up-but-waiting
-                   created_at: new Date().toISOString(),
-                   userId: data.user.id,
-                   source: 'direct_signup'
-                 };
-                 
-                 await kv.set(`waitlist:${entryId}`, entry);
-                 await kv.set(`waitlist:email:${normalizedEmail}`, entryId);
-                 
-                 // Add to list
-                 const listKey = 'waitlist_entries_list';
-                 const existingList = (await kv.get(listKey)) || [];
-                 await kv.set(listKey, [entryId, ...existingList].slice(0, 5000));
-                 
-                 // Update global count
-                 const countKey = 'waitlist_count';
-                 const currentCount = (await kv.get(countKey)) || 127;
-                 await kv.set(countKey, currentCount + 1);
-            }
-        } catch (e) {
-            console.error('Error updating waitlist on signup:', e);
-        }
 
         // Affiliate referral tracking
         if (ref && typeof ref === 'string') {
@@ -2561,6 +2641,11 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
     // index alignment.
     const subValues = await Promise.all(users.map(u => kv.get(`contndr_sub:${u.id}`)));
     const teamValues = await Promise.all(users.map(u => kv.get(`user:${u.id}:team`)));
+    const waitlistIds = await Promise.all(users.map(u => {
+      const email = u.email?.toLowerCase().trim();
+      return email ? kv.get(`waitlist:email:${email}`) : Promise.resolve(null);
+    }));
+    const waitlistEntries = await Promise.all(waitlistIds.map(id => id ? kv.get(`waitlist:${id}`) : null));
     
     // Fetch lead counts for ALL users in parallel
     const leadCountValues = await Promise.all(users.map(u => getUserLeadCount(supabase, u.id)));
@@ -2574,6 +2659,68 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
     for (let i = 0; i < users.length; i++) {
       const sub = subValues[i] || { status: 'none' };
       const teamOwnerId = teamValues[i] || null;
+      let waitlistEntry = waitlistEntries[i] || null;
+      const email = users[i].email?.toLowerCase().trim();
+
+      // Self-heal partial Auth users that were created before the waitlist/sub
+      // write completed. This prevents Admin from showing "None" and restores
+      // the intended waitlist gate for production signups.
+      if (
+        email &&
+        !isAdminEmail(email, users[i].id) &&
+        !isInternalEmail(email) &&
+        (!sub.status || sub.status === 'none') &&
+        !waitlistEntry &&
+        !kv.isStorageDegraded()
+      ) {
+        const userName = users[i].user_metadata?.name ||
+          users[i].user_metadata?.full_name ||
+          users[i].user_metadata?.user_name ||
+          email.split('@')[0] ||
+          'User';
+
+        await kv.set(`contndr_sub:${users[i].id}`, {
+          status: 'pending',
+          plan: 'waitlist',
+          created_at: users[i].created_at || new Date().toISOString(),
+          repaired_at: new Date().toISOString(),
+          signup_method: users[i].app_metadata?.provider || 'unknown',
+        });
+
+        waitlistEntry = await upsertWaitlistSignupEntry({
+          email,
+          userId: users[i].id,
+          name: userName,
+          company: users[i].user_metadata?.brand || users[i].user_metadata?.company || '',
+          phone: users[i].user_metadata?.phone || '',
+          businessType: users[i].user_metadata?.businessType || 'Unknown',
+          monthlyLeadVolume: users[i].user_metadata?.monthlyLeadVolume || 'Unknown',
+          teamSize: users[i].user_metadata?.teamSize || 'Unknown',
+          annualRevenue: users[i].user_metadata?.annualRevenue || 'Unknown',
+          approved: false,
+          source: 'admin_users_self_heal',
+          existingId: null,
+          existingEntry: null,
+        });
+
+        sub.status = 'pending';
+        sub.plan = 'waitlist';
+        sub.repaired_at = new Date().toISOString();
+      }
+
+      // If a user has no subscription record but is on the waitlist, surface that
+      // state in Admin instead of showing "None". This also makes old partial
+      // signups visible as waitlisted after repair.
+      if (
+        waitlistEntry &&
+        (!sub.plan || sub.plan === 'none') &&
+        (!sub.status || sub.status === 'none')
+      ) {
+        sub.status = isApprovedWaitlistStatus(waitlistEntry.status) ? 'unpaid' : 'pending';
+        sub.plan = isApprovedWaitlistStatus(waitlistEntry.status) ? 'none' : 'waitlist';
+        sub.waitlist_status = waitlistEntry.status || 'pending_signup';
+        sub.waitlist_id = waitlistIds[i];
+      }
       
       // If user is a team member, enrich their subscription with team info
       // so the admin dashboard can see they inherit from a team owner
@@ -2638,6 +2785,103 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
     return c.json({ users: usersWithSubs, totalLeads });
   } catch (error) {
     console.error('[ADMIN] Error fetching users:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/waitlist/repair-users - Backfill partial Auth users into waitlist/sub records
+app.post("/make-server-a8b2511f/admin/waitlist/repair-users", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Unauthorized: Admin access required' }, 403);
+    }
+
+    const storageGuard = kv.shouldSkipWriteHeavyTask('admin-waitlist-repair-users');
+    if (!storageGuard.ok) {
+      return c.json({
+        success: false,
+        skipped: true,
+        reason: storageGuard.reason || 'storage_degraded',
+      }, 503);
+    }
+
+    const repaired: any[] = [];
+    const skipped: any[] = [];
+    let page = 1;
+    const perPage = 100;
+
+    while (page <= 20) {
+      const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
+      if (error) throw error;
+      const users = data?.users || [];
+      if (!users.length) break;
+
+      for (const authUser of users) {
+        const email = authUser.email?.toLowerCase().trim();
+        if (!email) continue;
+        if (isAdminEmail(email, authUser.id) || isInternalEmail(email)) {
+          skipped.push({ email, reason: 'internal_or_admin' });
+          continue;
+        }
+
+        const sub = await kv.get(`contndr_sub:${authUser.id}`);
+        const waitlist = await getWaitlistEntryByEmail(email);
+        const hasUsableSub = sub && sub.status && sub.status !== 'none';
+
+        if (hasUsableSub && waitlist.entry) {
+          skipped.push({ email, reason: 'already_wired' });
+          continue;
+        }
+
+        const userName = authUser.user_metadata?.name ||
+          authUser.user_metadata?.full_name ||
+          authUser.user_metadata?.user_name ||
+          email.split('@')[0] ||
+          'User';
+
+        if (!hasUsableSub) {
+          await kv.set(`contndr_sub:${authUser.id}`, {
+            status: 'pending',
+            plan: 'waitlist',
+            created_at: authUser.created_at || new Date().toISOString(),
+            repaired_at: new Date().toISOString(),
+            signup_method: authUser.app_metadata?.provider || 'unknown',
+          });
+        }
+
+        await upsertWaitlistSignupEntry({
+          email,
+          userId: authUser.id,
+          name: userName,
+          company: authUser.user_metadata?.brand || authUser.user_metadata?.company || '',
+          phone: authUser.user_metadata?.phone || '',
+          businessType: authUser.user_metadata?.businessType || 'Unknown',
+          monthlyLeadVolume: authUser.user_metadata?.monthlyLeadVolume || 'Unknown',
+          teamSize: authUser.user_metadata?.teamSize || 'Unknown',
+          annualRevenue: authUser.user_metadata?.annualRevenue || 'Unknown',
+          approved: isApprovedWaitlistStatus(waitlist.entry?.status),
+          source: waitlist.entry?.source || 'admin_repair',
+          existingId: waitlist.id,
+          existingEntry: waitlist.entry,
+        });
+
+        repaired.push({ email, userId: authUser.id, createdSubscription: !hasUsableSub, createdWaitlist: !waitlist.entry });
+      }
+
+      if (users.length < perPage) break;
+      page++;
+    }
+
+    return c.json({
+      success: true,
+      repairedCount: repaired.length,
+      skippedCount: skipped.length,
+      repaired,
+      skipped: skipped.slice(0, 50),
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] Error repairing waitlist users:', error);
     return c.json({ error: error.message }, 500);
   }
 });
