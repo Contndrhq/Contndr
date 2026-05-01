@@ -11,7 +11,6 @@ import * as kv from "./kv-retry.tsx";
 import { getTeamMemberIds } from "./team.tsx";
 import { secEdgarLookup, openCorporatesLookup, enhancedWebsiteScrape, detectTechStack } from "./gov-enrichment.tsx";
 import { generateAI } from "./ai-provider.tsx";
-import { generateEmailCandidates, verifyEmail } from "./email-verify.tsx";
 
 const app = new Hono();
 app.use("*", cors());
@@ -1190,6 +1189,7 @@ async function poolLookupEmail(firstName: string, lastName: string, domain: stri
     if (!cached) return null;
     const parsed = typeof cached === "string" ? JSON.parse(cached) : cached;
     if (parsed._ts && Date.now() - parsed._ts < POOL_EMAIL_TTL) {
+      if (!isTrustedEmailSource(parsed.source, parsed.confidence)) return null;
       return { email: parsed.email, source: parsed.source, confidence: parsed.confidence };
     }
   } catch {}
@@ -1211,6 +1211,10 @@ async function poolBatchLookupEmails(
         try {
           const parsed = typeof val === "string" ? JSON.parse(val) : val;
           if (parsed._ts && Date.now() - parsed._ts < POOL_EMAIL_TTL && parsed.email) {
+            if (!isTrustedEmailSource(parsed.source, parsed.confidence)) {
+              pending.push(people[i]);
+              continue;
+            }
             found[people[i].id] = { email: parsed.email, source: `pool:${parsed.source}`, confidence: parsed.confidence };
             continue;
           }
@@ -2704,6 +2708,38 @@ function isDecisionMakerTitle(title: string): boolean {
   return isDecisionMaker && !isExcluded;
 }
 
+function isLikelyHumanName(name: string): boolean {
+  const raw = (name || "").trim();
+  if (!raw || raw.length < 4 || raw.length > 60) return false;
+  if (/^\d/.test(raw)) return false;
+  if (/@|https?:|www\.|\.com\b/i.test(raw)) return false;
+
+  const normalized = raw.toLowerCase();
+  const titleOrContentPhrase = /\b(chief|officer|executive|insights?|yesterday|today|tomorrow|restaurant|restaurants|group|company|llc|inc|corp|department|transformation|hospitality|management|marketing|operations|finance|sales|careers|privacy|terms)\b/i;
+  if (titleOrContentPhrase.test(normalized)) return false;
+
+  const tokens = raw
+    .split(/\s+/)
+    .map(t => t.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ'-]/g, ""))
+    .filter(Boolean);
+  if (tokens.length < 2 || tokens.length > 4) return false;
+  return tokens.every(token => /^[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'-]{1,}$/.test(token));
+}
+
+function isTrustedEmailSource(source?: string, confidence?: string): boolean {
+  const cleanSource = (source || "").replace(/^pool:/, "").toLowerCase();
+  if (!cleanSource) return false;
+  if (cleanSource.includes("pattern") || cleanSource.includes("guess")) return false;
+  if (cleanSource === "contndr_website") return confidence !== "low";
+  return ["crm", "crm_verified", "hunter", "findymail", "website", "domain", "manual"].some(s => cleanSource.includes(s));
+}
+
+function trustedEmailResults(results: Record<string, { email: string; source: string; confidence: string }>) {
+  return Object.fromEntries(
+    Object.entries(results || {}).filter(([, value]) => isTrustedEmailSource(value.source, value.confidence))
+  ) as Record<string, { email: string; source: string; confidence: string }>;
+}
+
 function parseLinkedInResult(result: any, companyName: string): PersonResult | null {
   try {
     const link: string = result.link || "";
@@ -2742,7 +2778,7 @@ function parseLinkedInResult(result: any, companyName: string): PersonResult | n
     }
 
     // Skip if name looks like a company page or generic
-    if (!name || name.length < 2 || name.length > 60) return null;
+    if (!name || name.length < 2 || name.length > 60 || !isLikelyHumanName(name)) return null;
     if (/^\d+\s+/.test(name)) return null; // starts with numbers
     if (name.toLowerCase().includes("linkedin")) return null;
 
@@ -2845,6 +2881,7 @@ app.post("/find-people", async (c) => {
       // Re-validate cached pool results with the same employer filter so stale bad data is discarded
       const poolPeople = poolResult.people.filter((p: PersonResult) => {
         if (seenNames.has(p.name.toLowerCase())) return false;
+        if (!isLikelyHumanName(p.name)) return false;
         // Hunter/CRM/registry people don't need the LinkedIn snippet check
         if (p.id.startsWith("hunter-") || p.id.startsWith("crm-") || p.id.startsWith("officer-") || p.id.startsWith("team-")) return true;
         // LinkedIn/profile people: re-apply employer validation against the snippet we stored
@@ -2852,7 +2889,7 @@ app.post("/find-people", async (c) => {
         if (!isCurrentEmployer(p.snippet, p.title, company_name)) return false;
         return true;
       });
-      const mergedEmails = { ...crmEmailMap, ...poolResult.hunterEmails };
+      const mergedEmails = { ...crmEmailMap, ...trustedEmailResults(poolResult.hunterEmails || {}) };
       // Sort by location relevance
       const sortLoc = search_location || location || "";
       let allPoolPeople = [...crmPeople, ...poolPeople];
@@ -2886,12 +2923,13 @@ app.post("/find-people", async (c) => {
           const seenNames = new Set(crmPeople.map(p => p.name.toLowerCase()));
           const cachedPeople = (parsed.people || []).filter((p: PersonResult) => {
             if (seenNames.has(p.name.toLowerCase())) return false;
+            if (!isLikelyHumanName(p.name)) return false;
             if (p.id.startsWith("hunter-") || p.id.startsWith("crm-") || p.id.startsWith("officer-") || p.id.startsWith("team-")) return true;
             if (hasClearlyDifferentEmployer(p.title, p.snippet, company_name)) return false;
             if (!isCurrentEmployer(p.snippet, p.title, company_name)) return false;
             return true;
           });
-          const mergedEmails = { ...crmEmailMap, ...(parsed.hunterEmails || {}) };
+          const mergedEmails = { ...crmEmailMap, ...trustedEmailResults(parsed.hunterEmails || {}) };
           const cacheSortLoc = search_location || location || "";
           let cachedAllPeople = [...crmPeople, ...cachedPeople];
           if (cacheSortLoc) {
@@ -3026,6 +3064,7 @@ app.post("/find-people", async (c) => {
           const isDecisionMaker = seniorityLower === "senior" || seniorityLower === "executive" || seniorityLower === "c_level" ||
             /ceo|cto|coo|cfo|vp|vice president|director|founder|owner|president|partner|managing|head of|general manager|chief/i.test(titleLower);
           if (!isDecisionMaker && title) continue;
+          if (!isLikelyHumanName(fullName)) continue;
 
           const personId = `hunter-${(entry.value || fullName).replace(/[^a-zA-Z0-9]/g, "").slice(0, 32)}`;
           hunterPeople.push({
@@ -3079,7 +3118,7 @@ app.post("/find-people", async (c) => {
             let match;
             while ((match = pattern.exec(snippet)) !== null) {
               const personName = match[1]?.trim();
-              if (!personName || personName.length < 4 || personName.length > 50) continue;
+              if (!personName || personName.length < 4 || personName.length > 50 || !isLikelyHumanName(personName)) continue;
               // Extract title context
               const titleContext = snippet.match(new RegExp(`${personName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[,\\s]*(?:is\\s+)?(?:the\\s+)?((?:CEO|CTO|COO|CFO|Founder|Co-Founder|President|Owner|VP|Director|Managing Director|Chief\\s+\\w+\\s+Officer)[^,.]*)`, 'i'));
               const titleStr = titleContext?.[1]?.trim() || "Executive";
@@ -3118,6 +3157,7 @@ app.post("/find-people", async (c) => {
         if (webResult.status === "fulfilled" && webResult.value?.team_members?.length) {
           for (const member of webResult.value.team_members) {
             if (!member.name || member.name.length < 3) continue;
+            if (!isLikelyHumanName(member.name)) continue;
             const personId = `team-${member.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 32)}`;
             results.push({
               id: personId,
@@ -3137,6 +3177,7 @@ app.post("/find-people", async (c) => {
             if (!officer.name || officer.name.length < 3) continue;
             // Skip if it looks like a company name rather than a person
             if (/\b(LLC|Inc|Corp|Ltd|Limited|LLP|LP|PLC|Group|Holdings|Trust|Bank|Fund)\b/i.test(officer.name)) continue;
+            if (!isLikelyHumanName(officer.name)) continue;
             const personId = `officer-${officer.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 32)}`;
             results.push({
               id: personId,
@@ -3259,24 +3300,6 @@ function cleanNameToken(value: string): string {
     .replace(/[^a-z]/g, "");
 }
 
-function isLikelyPersonForEmail(name: string): boolean {
-  const tokens = (name || "")
-    .split(/\s+/)
-    .map(cleanNameToken)
-    .filter(Boolean);
-  if (tokens.length < 2) return false;
-
-  const nonPersonTokens = new Set([
-    "restaurant", "restaurants", "cafe", "bar", "grill", "kitchen", "group", "team",
-    "info", "contact", "admin", "support", "reservations", "events", "careers",
-    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-    "january", "february", "march", "april", "june", "july", "august", "september",
-    "october", "november", "december",
-  ]);
-  if (tokens.some(t => nonPersonTokens.has(t))) return false;
-  return tokens.every(t => t.length >= 2);
-}
-
 function extractEmailsFromText(text: string, domain: string): string[] {
   const cleanDomain = domain.toLowerCase();
   const emails = new Set<string>();
@@ -3344,15 +3367,6 @@ function emailMatchesPerson(email: string, firstName: string, lastName: string):
   return variants.has(local);
 }
 
-async function verifyGeneratedEmail(email: string): Promise<boolean> {
-  try {
-    const verification = await verifyEmail(email);
-    return verification.mx_valid && verification.status !== "invalid" && !verification.is_disposable;
-  } catch {
-    return /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email);
-  }
-}
-
 app.post("/enrich-people-email", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
@@ -3392,10 +3406,11 @@ app.post("/enrich-people-email", async (c) => {
         const cached = await kv.get(legacyCacheKey);
         if (cached) {
           const parsed = typeof cached === "string" ? JSON.parse(cached) : cached;
-          const cachedCount = Object.keys(parsed.results || {}).length;
+          const trustedCached = trustedEmailResults(parsed.results || {});
+          const cachedCount = Object.keys(trustedCached).length;
           if (parsed._ts && Date.now() - parsed._ts < 3600000 && cachedCount > 0) {
             console.log(`[EMAIL ENRICH] Legacy cache hit for domain "${cleanDomain}"`);
-            return c.json({ results: parsed.results, source: "cache" });
+            return c.json({ results: trustedCached, source: "cache" });
           }
         }
       } catch {}
@@ -3573,87 +3588,32 @@ app.post("/enrich-people-email", async (c) => {
       }
     }
 
-    // Phase 3b: Pattern-based email generation as last resort.
-    // Hunter can provide a domain pattern when available, but if Hunter is rate
-    // limited we fall back to our own candidate generator and MX validation.
+    // Phase 3b: Explicitly do NOT invent first.last style emails. MX-valid only
+    // proves the domain can receive mail, not that this person's mailbox exists.
     if (pending.size > 0 && cleanDomain) {
-      try {
-        // Check pool for cached pattern first (saves a Hunter API call)
-        let pattern = await poolLookupEmailPattern(cleanDomain);
-        if (!pattern && HUNTER_API_KEY) {
-          const hData = await hunterDomainSearch(cleanDomain, HUNTER_API_KEY, 5);
-          if (hData?.data?.pattern) {
-            pattern = hData.data.pattern;
-            // Store pattern in pool for future users (7-day TTL)
-            await poolStoreEmailPattern(cleanDomain, pattern);
-          }
-        }
-        let patternFound = 0;
-        if (pattern) {
-          const entries = [...pending.entries()];
-          for (const [id, { first_name, last_name }] of entries) {
-            if (!first_name || !last_name || !isLikelyPersonForEmail(`${first_name} ${last_name}`)) continue;
-            let email = pattern
-              .replace("{first}", cleanNameToken(first_name))
-              .replace("{last}", cleanNameToken(last_name || ""))
-              .replace("{f}", cleanNameToken(first_name)[0] || "")
-              .replace("{l}", cleanNameToken(last_name || "")[0] || "");
-            email = `${email}@${cleanDomain}`;
-            // Basic validation
-            if (/^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email) && await verifyGeneratedEmail(email)) {
-              results[id] = { email, source: "pattern", confidence: "low" };
-              // Store pattern-generated emails in pool too (low confidence but still useful)
-              poolStoreEmail(first_name, last_name, cleanDomain, email, "pattern", "low");
-              pending.delete(id);
-              patternFound++;
-            }
-          }
-        }
-
-        if (!pattern && pending.size > 0) {
-          const entries = [...pending.entries()];
-          console.log(`[EMAIL ENRICH] Phase 3b: Contndr pattern fallback for ${entries.length} remaining`);
-          for (const [id, { first_name, last_name }] of entries) {
-            if (!first_name || !last_name || !isLikelyPersonForEmail(`${first_name} ${last_name}`)) continue;
-            const candidates = generateEmailCandidates(
-              cleanNameToken(first_name),
-              cleanNameToken(last_name),
-              cleanDomain,
-            ).slice(0, 4);
-            for (const candidate of candidates) {
-              if (!await verifyGeneratedEmail(candidate.email)) continue;
-              const confidence = candidate.confidence >= 25 ? "medium" : "low";
-              results[id] = { email: candidate.email, source: "contndr_pattern", confidence };
-              poolStoreEmail(first_name, last_name, cleanDomain, candidate.email, "contndr_pattern", confidence);
-              pending.delete(id);
-              patternFound++;
-              break;
-            }
-          }
-        }
-        if (patternFound > 0) {
-          console.log(`[EMAIL ENRICH] Pattern fallback added ${patternFound} MX-valid guessed emails${pattern ? ` (pattern: ${pattern})` : ""}`);
-        }
-      } catch (patternErr: any) {
-        console.log(`[EMAIL ENRICH] Pattern generation failed (non-fatal): ${patternErr.message}`);
-      }
+      console.log(`[EMAIL ENRICH] ${pending.size} people remain without trusted emails — skipping guessed email generation`);
     }
 
-    const totalFound = Object.keys(results).length;
-    const poolHits = Object.values(results).filter(r => r.source.startsWith("pool:")).length;
+    const filteredResults = trustedEmailResults(results);
+    const droppedGuesses = Object.keys(results).length - Object.keys(filteredResults).length;
+    if (droppedGuesses > 0) {
+      console.log(`[EMAIL ENRICH] Dropped ${droppedGuesses} guessed/untrusted emails from response`);
+    }
+    const totalFound = Object.keys(filteredResults).length;
+    const poolHits = Object.values(filteredResults).filter(r => r.source.startsWith("pool:")).length;
     console.log(`[EMAIL ENRICH] DONE: ${totalFound}/${people.length} emails for "${cleanDomain}" (${poolHits} from pool, ${totalFound - poolHits} freshly enriched)`);
 
     // Store domain-level cache (stable key, not session-dependent)
     if (totalFound > 0) {
-      try { await kv.set(domainCacheKey, JSON.stringify({ results, _ts: Date.now() })); } catch {}
+      try { await kv.set(domainCacheKey, JSON.stringify({ results: filteredResults, _ts: Date.now() })); } catch {}
     }
     // Also store legacy session-based cache for backward compatibility
     const legacyCacheKey2 = `email-enrich:${cleanDomain}:${people.map((p) => p.id).sort().join(",")}`;
     if (totalFound > 0) {
-      try { await kv.set(legacyCacheKey2, JSON.stringify({ results, _ts: Date.now() })); } catch {}
+      try { await kv.set(legacyCacheKey2, JSON.stringify({ results: filteredResults, _ts: Date.now() })); } catch {}
     }
 
-    return c.json({ results, source: "enriched", total_found: totalFound, total_people: people.length, pool_hits: poolHits });
+    return c.json({ results: filteredResults, source: "enriched", total_found: totalFound, total_people: people.length, pool_hits: poolHits });
   } catch (error: any) {
     console.error("[EMAIL ENRICH] Error:", error);
     return c.json({ error: error.message }, 500);
