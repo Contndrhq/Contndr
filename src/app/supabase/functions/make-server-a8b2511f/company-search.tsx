@@ -21,9 +21,9 @@ const HUNTER_CACHE_TTL = 600_000; // 10 min in-memory
 let _hunterRateLimited = false; // shared flag — skip Hunter after first 429 in a batch cycle
 let _hunterRateLimitedAt = 0;
 
-async function hunterFetchWithRetry(url: string, maxRetries = 1): Promise<Response | null> {
+async function hunterFetchWithRetry(url: string, maxRetries = 0): Promise<Response | null> {
   // If Hunter was rate-limited recently, skip immediately to save time
-  if (_hunterRateLimited && Date.now() - _hunterRateLimitedAt < 30_000) {
+  if (_hunterRateLimited && Date.now() - _hunterRateLimitedAt < 5 * 60_000) {
     return null;
   }
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -34,13 +34,12 @@ async function hunterFetchWithRetry(url: string, maxRetries = 1): Promise<Respon
         _hunterRateLimited = true;
         _hunterRateLimitedAt = Date.now();
         const retryAfter = parseInt(res.headers.get("retry-after") || "", 10);
-        const delay = Math.max((retryAfter || 2) * 1000, 1500 * (attempt + 1));
-        console.log(`[HUNTER] 429 rate limited — waiting ${delay}ms before retry ${attempt + 1}/${maxRetries}`);
+        const delay = Math.max((retryAfter || 300) * 1000, 5 * 60_000);
+        console.warn(`[HUNTER] 429 rate limited — skipping Hunter for ${Math.round(delay / 1000)}s`);
         if (attempt < maxRetries) {
-          await new Promise(r => setTimeout(r, delay));
+          await new Promise(r => setTimeout(r, Math.min(delay, 5000)));
           continue;
         }
-        console.warn("[HUNTER] 429 after all retries — skipping");
         return null;
       }
       // Success — clear rate limit flag
@@ -2510,6 +2509,19 @@ interface PersonResult {
   snippet: string;
   company_match: string;
   location?: string; // Parsed from LinkedIn snippet (e.g. "Denver, Colorado")
+  phone?: string; // Company line fallback for phone-first local-business outreach
+}
+
+function normalizePhone(raw?: string): string {
+  const value = (raw || "").trim();
+  if (!value) return "";
+  return value.replace(/\D/g, "").length >= 7 ? value : "";
+}
+
+function attachCompanyPhone<T extends PersonResult>(people: T[], phone?: string): T[] {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return people;
+  return people.map(person => person.phone ? person : { ...person, phone: normalized });
 }
 
 /** Extract location from a LinkedIn Google snippet — they typically contain "City, State" or "City, State Area" */
@@ -2779,7 +2791,7 @@ app.post("/find-people", async (c) => {
     const { user, supabase } = await getAuthenticatedUser(c);
 
     const body = await c.req.json();
-    const { company_name, domain, location, search_location } = body;
+    const { company_name, domain, location, search_location, phone } = body;
     // search_location = the user's original search location context (e.g. "Colorado", "Denver, CO")
 
     if (!company_name) {
@@ -2853,7 +2865,7 @@ app.post("/find-people", async (c) => {
         allPoolPeople = [...inA, ...unk, ...outA];
       }
       return c.json({ 
-        people: allPoolPeople, 
+        people: attachCompanyPhone(allPoolPeople, phone), 
         crm_emails: mergedEmails, 
         source: "pool",
         pool_hit: true,
@@ -2890,7 +2902,7 @@ app.post("/find-people", async (c) => {
             }
             cachedAllPeople = [...inA, ...unk, ...outA];
           }
-          return c.json({ people: cachedAllPeople, crm_emails: mergedEmails, source: "cache", search_location: cacheSortLoc || undefined });
+          return c.json({ people: attachCompanyPhone(cachedAllPeople, phone), crm_emails: mergedEmails, source: "cache", search_location: cacheSortLoc || undefined });
         }
       }
     } catch {}
@@ -3213,7 +3225,7 @@ app.post("/find-people", async (c) => {
       }
     }
 
-    return c.json({ people: allPeople, crm_emails: mergedEmailMap, source: "multi", search_location: sortLocation || undefined });
+    return c.json({ people: attachCompanyPhone(allPeople, phone), crm_emails: mergedEmailMap, source: "multi", search_location: sortLocation || undefined });
   } catch (error: any) {
     console.error("[FIND PEOPLE] Error:", error);
     return c.json({ error: error.message }, 500);
@@ -3367,7 +3379,7 @@ app.post("/enrich-people-email", async (c) => {
           batch.map(async ([id, { first_name, last_name }]) => {
             try {
               const url = `https://api.hunter.io/v2/email-finder?first_name=${encodeURIComponent(first_name)}&last_name=${encodeURIComponent(last_name)}&domain=${encodeURIComponent(cleanDomain)}&api_key=${HUNTER_API_KEY}`;
-              const r = await hunterFetchWithRetry(url, 1);
+              const r = await hunterFetchWithRetry(url, 0);
               if (!r) return null;
               const d = await r.json();
               if (d.data?.email) {
@@ -3508,6 +3520,7 @@ app.post("/save-people-to-crm", async (c) => {
         email?: string;
         email_source?: string;
         email_confidence?: string;
+        phone?: string;
       }[];
       company: {
         name: string;
@@ -3597,7 +3610,7 @@ app.post("/save-people-to-crm", async (c) => {
           business_name: company.name,
           contact_name: contactName,
           email: person.email || "",
-          phone: company.phone || "",
+          phone: normalizePhone(person.phone) || normalizePhone(company.phone) || "",
           website: company.website_url || "",
           address: company.address || "",
           city: toTitleCase(company.city || ""),

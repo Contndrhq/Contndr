@@ -66,6 +66,7 @@ interface Person {
   snippet: string;
   company_match: string;
   location?: string;
+  phone?: string;
 }
 
 interface CrmContact {
@@ -1227,6 +1228,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                 domain: domain || undefined,
                 location: companyLoc || undefined,
                 search_location: [locationValue.cities?.[0], locationValue.state].filter(Boolean).join(', ') || undefined,
+                phone: company.phone || undefined,
               }),
             }
           );
@@ -1279,7 +1281,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
               );
               if (emailRes.ok) {
                 const emailData = await emailRes.json();
-                emailMap = emailData.results || {};
+                emailMap = { ...emailMap, ...(emailData.results || {}) };
                 const enrichedEmails = Object.keys(emailData.results || {}).length;
                 const poolHits = emailData.pool_hits || 0;
                 totalEmailsFound += enrichedEmails;
@@ -2965,11 +2967,12 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
 
   const handleSavePeopleToCrm = async (peopleToSave?: Person[]) => {
     const candidates = (peopleToSave || people).filter(p => !p.id.startsWith('crm-') && !savedToCrm.has(p.id));
-    // Only save people who have an email — outreach requires it
-    const toSave = candidates.filter(p => emailMap[p.id]?.email);
+    // Save people with either a direct email or a callable company/person line.
+    // Local-business outreach often starts with calls before direct emails exist.
+    const toSave = candidates.filter(p => emailMap[p.id]?.email || p.phone || company.phone);
     const skippedNoEmail = candidates.length - toSave.length;
     if (toSave.length === 0 && skippedNoEmail > 0) {
-      toast.error(`${skippedNoEmail} contact${skippedNoEmail !== 1 ? 's' : ''} skipped — email required for outreach`);
+      toast.error(`${skippedNoEmail} contact${skippedNoEmail !== 1 ? 's' : ''} skipped — email or phone required for outreach`);
       return;
     }
     if (toSave.length === 0) {
@@ -2977,7 +2980,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
       return;
     }
     if (skippedNoEmail > 0) {
-      toast.info(`${skippedNoEmail} contact${skippedNoEmail !== 1 ? 's' : ''} without email skipped`);
+      toast.info(`${skippedNoEmail} contact${skippedNoEmail !== 1 ? 's' : ''} without email or phone skipped`);
     }
     setIsSavingToCrm(true);
     try {
@@ -2991,6 +2994,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
           email: emailMap[p.id]?.email || '',
           email_source: emailMap[p.id]?.source || '',
           email_confidence: emailMap[p.id]?.confidence || '',
+          phone: p.phone || company.phone || '',
         })),
         company: {
           name: company.name,
@@ -3065,6 +3069,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
             domain: domain || undefined,
             location: companyLoc || undefined,
             search_location: searchLocation || undefined,
+            phone: company.phone || undefined,
           }),
         }
       );
@@ -3613,16 +3618,16 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                       </button>
                     );
                   })()}
-                  {/* Save All to CRM button — only people with emails can be saved for outreach */}
+                  {/* Save All to CRM button — email or callable phone qualifies for outreach */}
                   {people.length > 0 && findPeopleStage !== 'emails' && (() => {
-                    const saveable = people.filter(p => !p.id.startsWith('crm-') && !savedToCrm.has(p.id) && emailMap[p.id]?.email);
+                    const saveable = people.filter(p => !p.id.startsWith('crm-') && !savedToCrm.has(p.id) && (emailMap[p.id]?.email || p.phone || company.phone));
                     const allSaved = saveable.length === 0 && people.some(p => savedToCrm.has(p.id));
-                    const noEmailCount = people.filter(p => !p.id.startsWith('crm-') && !savedToCrm.has(p.id) && !emailMap[p.id]?.email).length;
+                    const noDirectEmailCount = saveable.filter(p => !emailMap[p.id]?.email).length;
                     return (
                       <div className="ml-auto flex items-center gap-2">
-                        {noEmailCount > 0 && findPeopleStage === 'done' && (
-                          <span className="text-[9px] text-zinc-400 dark:text-zinc-500 font-medium flex items-center gap-1" title={t('companySearch.emailRequiredTitle')}>
-                            <Mail className="w-2.5 h-2.5" /> {t('companySearch.withoutEmailCount', { count: noEmailCount })}
+                        {noDirectEmailCount > 0 && findPeopleStage === 'done' && (
+                          <span className="text-[9px] text-zinc-400 dark:text-zinc-500 font-medium flex items-center gap-1" title="Will save with the company phone for calling">
+                            <Phone className="w-2.5 h-2.5" /> {noDirectEmailCount} callable
                           </span>
                         )}
                         <button
@@ -3672,6 +3677,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                       const isCrmPerson = person.id.startsWith('crm-');
                       const inArea = searchLocationContext ? isPersonInArea(person.location, searchLocationContext) : false;
                       const outOfArea = searchLocationContext && person.location && !inArea;
+                      const personPhone = person.phone || company.phone || '';
                       return (
                         <div
                           key={person.id}
@@ -3747,6 +3753,23 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                                 )}
                               </button>
                             )}
+                            {personPhone && (
+                              <div className="flex items-center gap-1 mt-1">
+                                <SmartPhoneButton
+                                  phone={personPhone}
+                                  leadName={person.name}
+                                  businessName={company.name}
+                                  leadId={person.id}
+                                  showNumber
+                                  displayNumber={formatPhoneNumber(personPhone)}
+                                  iconClassName="w-2.5 h-2.5"
+                                  numberClassName="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 truncate"
+                                />
+                                {!personEmail && (
+                                  <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700/50 text-zinc-500 dark:text-zinc-400 flex-shrink-0">CALL</span>
+                                )}
+                              </div>
+                            )}
                             {findPeopleStage === 'done' && !personEmail && !isCrmPerson && (
                               <div className="mt-1 space-y-1">
                                 {manualEmailEditId === person.id ? (
@@ -3801,20 +3824,21 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                           {/* Individual Save to CRM button — requires email for outreach */}
                           {!isCrmPerson && (() => {
                             const hasEmail = !!emailMap[person.id]?.email;
+                            const hasPhone = !!(person.phone || company.phone);
                             const isSaved = savedToCrm.has(person.id);
-                            const isDisabled = isSavingToCrm || isSaved || !hasEmail;
+                            const isDisabled = isSavingToCrm || isSaved || (!hasEmail && !hasPhone);
                             return (
                               <button
-                                onClick={(e) => { e.stopPropagation(); if (hasEmail) handleSavePeopleToCrm([person]); }}
+                                onClick={(e) => { e.stopPropagation(); if (hasEmail || hasPhone) handleSavePeopleToCrm([person]); }}
                                 disabled={isDisabled}
                                 className={`flex-shrink-0 p-1.5 rounded-md transition-all ${
                                   isSaved
                                     ? 'text-[#1ED4A7] bg-[#1ED4A7]/10 cursor-default'
-                                    : !hasEmail
+                                    : (!hasEmail && !hasPhone)
                                       ? 'text-zinc-300 dark:text-zinc-700 cursor-not-allowed'
                                       : 'text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-40'
                                 }`}
-                                title={isSaved ? t('companySearch.savedToCRMTitle') : !hasEmail ? t('companySearch.emailRequiredTitle') : t('companySearch.saveSingleToCRM')}
+                                title={isSaved ? t('companySearch.savedToCRMTitle') : (!hasEmail && !hasPhone) ? 'Email or phone required' : t('companySearch.saveSingleToCRM')}
                               >
                                 {isSaved ? <Check className="w-3.5 h-3.5" /> : <UserPlus className="w-3.5 h-3.5" />}
                               </button>
@@ -4010,6 +4034,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                 ).map(person => {
                   const personEmail = emailMap[person.id];
                   const inArea = searchLocationContext ? isPersonInArea(person.location, searchLocationContext) : false;
+                  const personPhone = person.phone || company.phone || '';
                   return (
                     <div
                       key={person.id}
@@ -4033,6 +4058,20 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                             <Mail className="w-2.5 h-2.5 text-[#1ED4A7]" />
                             <span className="text-[9px] font-medium text-[#1ED4A7] truncate">{personEmail.email}</span>
                           </button>
+                        )}
+                        {personPhone && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <SmartPhoneButton
+                              phone={personPhone}
+                              leadName={person.name}
+                              businessName={company.name}
+                              leadId={person.id}
+                              showNumber
+                              displayNumber={formatPhoneNumber(personPhone)}
+                              iconClassName="w-2.5 h-2.5"
+                              numberClassName="text-[9px] font-medium text-zinc-500 dark:text-zinc-400 truncate"
+                            />
+                          </div>
                         )}
                       </div>
                       <Linkedin className="w-3 h-3 text-zinc-300 dark:text-zinc-600 flex-shrink-0" />
