@@ -97,6 +97,35 @@ function stripEmoji(str: string): string {
 
 // ── SerpAPI Helper Functions ──
 
+function compactLocationTerms(locations: string[]): string[] {
+  const terms = new Set<string>();
+  for (const raw of locations) {
+    const location = (raw || "").trim();
+    if (!location) continue;
+    terms.add(location);
+    const parts = location.split(",").map((part) => part.trim()).filter(Boolean);
+    if (parts[0]) terms.add(parts[0]);
+    if (parts.length >= 2) terms.add(`${parts[0]}, ${parts[1]}`);
+  }
+  return [...terms].slice(0, 4);
+}
+
+function isLocalBusinessIndustry(industry?: string): boolean {
+  const value = (industry || "").toLowerCase();
+  return /\b(restaurant|restaurants|food|beverage|hospitality|bar|bars|cafe|coffee|bakery|catering|retail|salon|spa|clinic|dental|fitness|gym|local service)\b/.test(value);
+}
+
+function expandedIndustryTerms(industry: string): string[] {
+  const value = (industry || "").toLowerCase();
+  if (/\brestaurants?\b/.test(value)) {
+    return ["restaurant", "restaurants", "restaurant owner", "restaurateur", "hospitality", "food & beverage", "chef owner"];
+  }
+  if (/\b(food|beverage|hospitality)\b/.test(value)) {
+    return ["hospitality", "food & beverage", "restaurant", "owner"];
+  }
+  return [industry].filter(Boolean);
+}
+
 // Build search queries for SerpAPI from user filters
 function buildSerpQueries(params: {
   person_titles?: string[];
@@ -113,12 +142,31 @@ function buildSerpQueries(params: {
   const titles = person_titles?.length ? person_titles : ["CEO", "VP", "Director", "Manager"];
   const locations = organization_locations?.length ? organization_locations : ["United States"];
   const industries = organization_industries?.length ? organization_industries.slice(0, 3) : [];
+  const localBusinessSearch = industries.some(isLocalBusinessIndustry);
+  const locationTerms = compactLocationTerms(locations);
+  const industryTerms = industries.flatMap(expandedIndustryTerms);
+
+  // Local businesses rarely expose founder emails from broad LinkedIn queries.
+  // Start with owner/restaurateur patterns that map to real operators.
+  if (localBusinessSearch) {
+    const ownerTitles = ["Owner", "Founder", "CEO", "President", "Managing Partner"];
+    for (const location of locationTerms.slice(0, 3)) {
+      for (const term of industryTerms.slice(0, 5)) {
+        queries.push(`site:linkedin.com/in \"${term}\" \"${location}\"`);
+      }
+      for (const title of ownerTitles) {
+        queries.push(`site:linkedin.com/in \"${title}\" \"restaurant\" \"${location}\"`);
+      }
+      queries.push(`site:linkedin.com/in \"Restaurant Owner\" \"${location}\"`);
+      queries.push(`site:linkedin.com/in \"Restaurateur\" \"${location}\"`);
+    }
+  }
 
   // Strategy 1: LinkedIn profiles with specific titles + locations + industries
   for (const title of titles.slice(0, 4)) {
-    for (const location of locations.slice(0, 2)) {
+    for (const location of locationTerms.slice(0, 2)) {
       if (industries.length > 0) {
-        for (const industry of industries) {
+        for (const industry of (localBusinessSearch ? industryTerms.slice(0, 4) : industries)) {
           queries.push(`site:linkedin.com/in \"${title}\" \"${location}\" \"${industry}\"`);
         }
       } else {
@@ -131,7 +179,7 @@ function buildSerpQueries(params: {
   // Catches profiles whose Google snippets don't mention their city/state
   if (industries.length > 0) {
     for (const title of titles.slice(0, 2)) {
-      for (const industry of industries.slice(0, 2)) {
+      for (const industry of (localBusinessSearch ? industryTerms.slice(0, 4) : industries.slice(0, 2))) {
         queries.push(`site:linkedin.com/in \"${title}\" \"${industry}\" email`);
       }
     }
@@ -174,7 +222,7 @@ function buildSerpQueries(params: {
     }
   }
 
-  return queries.slice(0, 18); // Cap at 18 queries for better coverage
+  return queries.slice(0, localBusinessSearch ? 26 : 18);
 }
 
 // Perform SerpAPI search
@@ -1820,6 +1868,7 @@ app.post("/search-stream", async (c) => {
           const serpIndustryHints = organization_industries?.length
             ? organization_industries
             : (preferred_industries?.length ? preferred_industries : undefined);
+          const isLocalBusinessSearch = !!serpIndustryHints?.some(isLocalBusinessIndustry);
           if (serpIndustryHints && !organization_industries?.length) {
             console.log(`[DEEP PROSPECT] Using preferred_industries as SerpAPI hints: [${serpIndustryHints.join(', ')}]`);
           }
@@ -1861,10 +1910,13 @@ app.post("/search-stream", async (c) => {
 
           // Execute searches in parallel batches for speed
           const PARALLEL_CAP = 8; // Run 8 searches at once
-          const maxQueries = Math.min(serpQueries.length, 18); // Cap total queries (increased for better coverage)
+          const maxQueries = Math.min(serpQueries.length, isLocalBusinessSearch ? 26 : 18);
+          const candidateTarget = isLocalBusinessSearch
+            ? Math.max(externalNeeded * 5, max_results * 4, 40)
+            : externalNeeded * 2;
 
           for (let batch = 0; batch < maxQueries; batch += PARALLEL_CAP) {
-            if (isCancelled || allParsed.length >= externalNeeded * 2) break;
+            if (isCancelled || allParsed.length >= candidateTarget) break;
             
             const batchQueries = serpQueries.slice(batch, batch + PARALLEL_CAP);
             console.log(`[DEEP PROSPECT] Executing SerpAPI batch ${Math.floor(batch / PARALLEL_CAP) + 1}: ${batchQueries.length} queries`);
@@ -1886,7 +1938,7 @@ app.post("/search-stream", async (c) => {
             send("progress", { fetched: allParsed.length, total: externalNeeded, phase: "crawl" });
 
             // Rate limiting between batches
-            if (batch + PARALLEL_CAP < maxQueries && !isCancelled && allParsed.length < externalNeeded * 2) {
+            if (batch + PARALLEL_CAP < maxQueries && !isCancelled && allParsed.length < candidateTarget) {
               await sleep(300); // 300ms between batches to respect API limits but keep it fast
             }
           }
@@ -1906,7 +1958,10 @@ app.post("/search-stream", async (c) => {
           // Trim to what we need — enrich ALL parsed candidates to maximize email yield.
           // The enrichment APIs (Hunter, Findymail) are the bottleneck, not parsing.
           // For small requests, enrich everything we found; for large, cap reasonably.
-          const enrichmentCap = Math.min(allParsed.length, Math.max(externalNeeded * 3, 100));
+          const enrichmentCap = Math.min(
+            allParsed.length,
+            isLocalBusinessSearch ? Math.max(max_results * 5, 50) : Math.max(externalNeeded * 3, 100),
+          );
           const trimmed = allParsed.slice(0, enrichmentCap);
           console.log(`[DEEP PROSPECT] Phase 1 complete: ${allParsed.length} unique people parsed, enriching top ${trimmed.length}`);
 
@@ -2189,6 +2244,11 @@ app.post("/search-stream", async (c) => {
           });
 
           // Sanitize all leads — strip leftover emoji/unicode from all fields
+          if (serpIndustryHints?.length) {
+            leads.forEach((lead) => {
+              (lead as any)._search_context_industry = serpIndustryHints[0];
+            });
+          }
           leads.forEach(sanitizeDeepLead);
 
           console.log(`[DEEP PROSPECT] Created ${leads.length} DeepLead objects`);
@@ -2462,6 +2522,7 @@ app.post("/search-stream", async (c) => {
           // Enriches: industry, employee count, revenue, location, phones
           // ══════════════════════════════════════════════════════════════
           let phoneEnrichFound = 0;
+          let domainEmailFound = 0;
           const leadsWithWebsite = leads.filter(l => l.organization.website_url);
 
           if (HUNTER_KEY && leadsWithWebsite.length > 0 && !isCancelled) {
@@ -2491,7 +2552,7 @@ app.post("/search-stream", async (c) => {
                     const org = d.data?.organization || {};
                     return {
                       domain,
-                      people: (d.data?.emails || []).filter((e: any) => e.phone_number),
+                      people: d.data?.emails || [],
                       orgPhone: org.phone_number || "",
                       orgIndustry: org.industry || "",
                       orgEmployees: org.headcount || 0,
@@ -2508,11 +2569,14 @@ app.post("/search-stream", async (c) => {
                 if (r.status !== "fulfilled" || !r.value) continue;
                 const { domain, people: domainPeople, orgPhone, orgIndustry, orgEmployees, orgRevenue, orgCity, orgState, orgCountry } = r.value;
                 const domainLeads = domainLeadMap.get(domain) || [];
+                const primaryDomainLead = domainLeads[0];
 
                 for (const lead of domainLeads) {
                   // Enrich org data from Hunter domain-search (more reliable than snippet)
                   // Standardize to search term if industry filter is active
-                  if (orgIndustry && !lead.organization.industry) {
+                  if ((lead as any)._search_context_industry) {
+                    lead.organization.industry = (lead as any)._search_context_industry;
+                  } else if (orgIndustry && !lead.organization.industry) {
                     lead.organization.industry = standardizeIndustry(orgIndustry);
                   }
                   if (orgEmployees && !lead.organization.estimated_num_employees) {
@@ -2545,6 +2609,79 @@ app.post("/search-stream", async (c) => {
                     phoneEnrichFound++;
                   }
                 }
+
+                // Hunter domain-search can return exact person emails for a business
+                // even when LinkedIn profile scraping only gave us names. Promote
+                // those contacts into leads so local-business searches don't end
+                // with "46 candidates found, 0 email-qualified".
+                if (primaryDomainLead && Array.isArray(domainPeople)) {
+                  const requestedSeniorities = new Set(person_seniorities || []);
+                  const fallbackTitle =
+                    (isLocalBusinessSearch && requestedSeniorities.has("owner")) ? "Owner" :
+                    (person_titles?.[0] || (isLocalBusinessSearch ? "Owner" : ""));
+                  const domainContacts = domainPeople
+                    .filter((person: any) => {
+                      const email = (person.value || person.email || "").trim();
+                      const first = (person.first_name || "").trim();
+                      const last = (person.last_name || "").trim();
+                      const title = (person.position || fallbackTitle || "").trim();
+                      if (!email || isGenericEmail(email)) return false;
+                      if (!first || !last || !isCleanPersonName(first, last)) return false;
+                      if (!title) return false;
+                      const seniority = inferSeniority(title);
+                      if (requestedSeniorities.size > 0 && seniority && !requestedSeniorities.has(seniority)) return false;
+                      if (requestedSeniorities.size > 0 && !seniority && !isLocalBusinessSearch) return false;
+                      return true;
+                    })
+                    .slice(0, isLocalBusinessSearch ? 3 : 1);
+
+                  for (const person of domainContacts) {
+                    const email = (person.value || person.email || "").trim().toLowerCase();
+                    if (leads.some((lead) => (lead.email || "").toLowerCase() === email)) continue;
+
+                    const firstName = toTitleCase((person.first_name || "").trim());
+                    const lastName = toTitleCase((person.last_name || "").trim());
+                    const rawTitle = (person.position || fallbackTitle || "").trim();
+                    const title = standardizeJobTitle(cleanJobTitle(rawTitle));
+                    const phoneNumber = person.phone_number || "";
+                    const inferredSeniority = inferSeniority(title) || primaryDomainLead.seniority || "";
+                    const clonedOrg = { ...primaryDomainLead.organization };
+                    if ((primaryDomainLead as any)._search_context_industry) {
+                      clonedOrg.industry = (primaryDomainLead as any)._search_context_industry;
+                    } else if (!clonedOrg.industry && orgIndustry) {
+                      clonedOrg.industry = standardizeIndustry(orgIndustry);
+                    }
+                    if (!clonedOrg.phone && orgPhone) clonedOrg.phone = orgPhone;
+
+                    const promotedLead: DeepLead = {
+                      id: `hunter_domain_${Date.now()}_${domainEmailFound}`,
+                      first_name: firstName,
+                      last_name: lastName,
+                      name: `${firstName} ${lastName}`.trim(),
+                      title,
+                      email,
+                      email_status: "verified",
+                      linkedin_url: person.linkedin || "",
+                      phone_numbers: phoneNumber
+                        ? [{ raw_number: phoneNumber, type: "direct" }]
+                        : (orgPhone ? [{ raw_number: orgPhone, type: "company" }] : []),
+                      city: primaryDomainLead.city || orgCity || "",
+                      state: primaryDomainLead.state || orgState || "",
+                      country: primaryDomainLead.country || orgCountry || "",
+                      seniority: inferredSeniority,
+                      departments: [],
+                      organization: clonedOrg,
+                    };
+                    if ((primaryDomainLead as any)._search_context_industry) {
+                      (promotedLead as any)._search_context_industry = (primaryDomainLead as any)._search_context_industry;
+                    }
+                    sanitizeDeepLead(promotedLead);
+                    leads.push(promotedLead);
+                    domainEmailFound++;
+                    if (phoneNumber || orgPhone) phoneEnrichFound++;
+                    send("activity", { message: `Located domain contact: ${promotedLead.name}`, type: "success" });
+                  }
+                }
               }
               
               const enrichedSoFar = leads.filter(l => l.email);
@@ -2556,7 +2693,7 @@ app.post("/search-stream", async (c) => {
             }
 
             send("phase", { phase: 7, name: "Enriching company data & phones", status: "complete" });
-            console.log(`[DEEP PROSPECT] Domain-search enrichment: ${phoneEnrichFound} phones, org data for ${domains.length} domains`);
+            console.log(`[DEEP PROSPECT] Domain-search enrichment: ${domainEmailFound} emails, ${phoneEnrichFound} phones, org data for ${domains.length} domains`);
           }
 
           // ══════════════════════════════════════════════════════════════
