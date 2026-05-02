@@ -6,6 +6,7 @@ import { projectId } from '../utils/supabase/info';
 import { apiCache } from '../lib/api-cache';
 import { supabase } from '../lib/supabase';
 import { useDemoMode } from './DemoContext';
+import { useRealtimeRefresh } from './RealtimeProvider';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f`;
 
@@ -17,11 +18,12 @@ interface PipelineStage {
 }
 
 const STAGE_ORDER: { key: string; label: string }[] = [
-  { key: 'discovery', label: 'Discovery' },
-  { key: 'demo', label: 'Demo' },
-  { key: 'proposal', label: 'Proposal' },
+  { key: 'prospect_identified', label: 'Prospect Identified' },
+  { key: 'contacted', label: 'Contacted' },
+  { key: 'engaged', label: 'Engaged' },
+  { key: 'meeting_booked', label: 'Meeting Booked' },
+  { key: 'proposal_sent', label: 'Proposal Sent' },
   { key: 'negotiation', label: 'Negotiation' },
-  { key: 'closing', label: 'Closing' },
 ];
 
 // Demo data
@@ -42,6 +44,7 @@ function fmtCurrency(v: number) {
 export function DashboardPipelineSnapshot({ onNavigate }: { onNavigate: (view: string) => void }) {
   const isDemoMode = useDemoMode();
   const { t } = useTranslation();
+  const refreshKey = useRealtimeRefresh(['pipeline:deal_created', 'pipeline:deal_moved']);
   const [stages, setStages] = useState<PipelineStage[]>(isDemoMode ? DEMO_STAGES : []);
   const [totalValue, setTotalValue] = useState(isDemoMode ? DEMO_STAGES.reduce((s, st) => s + st.value, 0) : 0);
   const [totalDeals, setTotalDeals] = useState(isDemoMode ? DEMO_STAGES.reduce((s, st) => s + st.count, 0) : 0);
@@ -50,31 +53,52 @@ export function DashboardPipelineSnapshot({ onNavigate }: { onNavigate: (view: s
   useEffect(() => {
     if (isDemoMode) return;
     loadPipeline();
-  }, [isDemoMode]);
+  }, [isDemoMode, refreshKey]);
 
   async function loadPipeline() {
     try {
       // Check demo
       let isDemo = false;
+      let userId: string | null = null;
       try {
         const { data: { session } } = await supabase.auth.getSession();
         isDemo = session?.user?.email === 'demo@contndr.com';
+        userId = session?.user?.id || null;
       } catch (_) {}
 
-      const pipelineData = await apiCache.fetch('dashboard:pipeline-snapshot', async () => {
+      const cacheKey = `dashboard:pipeline-snapshot:${userId || 'anonymous'}:v3`;
+      const pipelineData = await apiCache.fetch(cacheKey, async () => {
         const headers = await getAuthHeaders();
-        const res = await fetch(`${API_BASE}/pipeline/deals`, { headers });
-        if (!res.ok) return null;
-        return res.json();
-      }, { staleTime: 120_000, cacheTime: 300_000 }).catch(() => null);
+        const [metricsRes, dealsRes] = await Promise.all([
+          fetch(`${API_BASE}/pipeline/metrics`, { headers }),
+          fetch(`${API_BASE}/pipeline/deals`, { headers }),
+        ]);
+        const [metricsData, dealsData] = await Promise.all([
+          metricsRes.ok ? metricsRes.json() : Promise.resolve(null),
+          dealsRes.ok ? dealsRes.json() : Promise.resolve(null),
+        ]);
+        return { metrics: metricsData, deals: dealsData?.deals || [] };
+      }, { staleTime: 15_000, cacheTime: 90_000 }).catch(() => null);
 
       const deals: any[] = pipelineData?.deals || [];
       const activeDeals = deals.filter((d: any) => d.stage !== 'closed_won' && d.stage !== 'closed_lost');
+      const metrics = pipelineData?.metrics;
 
       if (isDemo && activeDeals.length === 0) {
         setStages(DEMO_STAGES);
         setTotalValue(DEMO_STAGES.reduce((s, st) => s + st.value, 0));
         setTotalDeals(DEMO_STAGES.reduce((s, st) => s + st.count, 0));
+      } else if (metrics?.stageCounts && metrics?.stageValues) {
+        const result: PipelineStage[] = STAGE_ORDER.map(s => ({
+          key: s.key,
+          label: s.label,
+          count: metrics.stageCounts[s.key] || 0,
+          value: metrics.stageValues[s.key] || 0,
+        }));
+
+        setStages(result);
+        setTotalValue(metrics.totalPipelineValue || 0);
+        setTotalDeals(metrics.activeDeals || activeDeals.length);
       } else {
         // Group by stage
         const stageMap = new Map<string, { count: number; value: number }>();
@@ -135,7 +159,7 @@ export function DashboardPipelineSnapshot({ onNavigate }: { onNavigate: (view: s
             {STAGE_ORDER.map((stage) => (
               <div key={stage.key} className="group">
                 <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-[12px] font-medium text-zinc-400 dark:text-zinc-600">{t(`common.${stage.key}`, stage.label)}</span>
+                  <span className="text-[12px] font-medium text-zinc-400 dark:text-zinc-600">{t(`pipeline.stages.${stage.key}`, stage.label)}</span>
                   <span className="text-[11px] text-zinc-300 dark:text-zinc-700 tabular-nums">0 {t('dashboard.deals')}</span>
                 </div>
                 <div className="h-1.5 bg-zinc-100 dark:bg-white/[0.04] rounded-full overflow-hidden" />
@@ -161,7 +185,9 @@ export function DashboardPipelineSnapshot({ onNavigate }: { onNavigate: (view: s
               <span className="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">{fmtCurrency(totalValue)}</span>
               <span className="text-xs text-zinc-400 dark:text-zinc-500 font-medium">{t('dashboard.openDeals')}</span>
             </div>
-            <p className="text-[11px] text-zinc-400 dark:text-zinc-600 mt-0.5">{totalDeals} {t('dashboard.activeDeals').toLowerCase()} — {stages.filter(s => s.count > 0).length} {t('pipeline.stages.lead', 'stages')}</p>
+            <p className="text-[11px] text-zinc-400 dark:text-zinc-600 mt-0.5">
+              {totalDeals} {t('dashboard.activeDeals').toLowerCase()} — {stages.filter(s => s.count > 0).length} {t('dashboard.pipelineStages', 'stages')}
+            </p>
           </div>
 
           {/* Stages */}
@@ -169,7 +195,7 @@ export function DashboardPipelineSnapshot({ onNavigate }: { onNavigate: (view: s
             {stages.map((stage) => (
               <div key={stage.key} className="group">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[12px] font-medium text-zinc-600 dark:text-zinc-400">{t(`common.${stage.key}`, stage.label)}</span>
+                  <span className="text-[12px] font-medium text-zinc-600 dark:text-zinc-400">{t(`pipeline.stages.${stage.key}`, stage.label)}</span>
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] text-zinc-400 dark:text-zinc-600 tabular-nums">{fmtCurrency(stage.value)}</span>
                     <span className="text-[12px] font-bold text-zinc-900 dark:text-white tabular-nums min-w-[20px] text-right">{stage.count}</span>

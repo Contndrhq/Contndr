@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Zap, ArrowUpRight, Loader2, Eye, MousePointerClick, Reply, Globe, Sparkles, Mail, UserRound } from 'lucide-react';
 import { authenticatedFetch } from '../lib/auth';
@@ -6,6 +6,7 @@ import { projectId } from '../utils/supabase/info';
 import { apiCache } from '../lib/api-cache';
 import { supabase } from '../lib/supabase';
 import { useDemoMode } from './DemoContext';
+import { useRealtimeRefresh } from './RealtimeProvider';
 import i18n from '../lib/i18n';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f`;
@@ -67,13 +68,15 @@ function ScoreBadge({ score }: { score: number }) {
 export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: string) => void }) {
   const isDemoMode = useDemoMode();
   const { t } = useTranslation();
+  const refreshKey = useRealtimeRefresh(['email:opened', 'email:clicked', 'email:replied', 'lead:created', 'lead:bulk_action']);
   const [signals, setSignals] = useState<BuyingSignal[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const authRetryRef = useRef(0);
 
   useEffect(() => {
     loadSignals();
-  }, [isDemoMode]);
+  }, [isDemoMode, refreshKey]);
 
   async function loadSignals() {
     // In sandbox demo mode, use demo data immediately — no API calls
@@ -84,6 +87,7 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
     }
 
     try {
+      setLoading(true);
       let isDemo = false;
       let userId: string | null = null;
       try {
@@ -92,7 +96,17 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
         userId = session?.user?.id || null;
       } catch (_) {}
 
-      const signalData = await apiCache.fetch('dashboard:buying-signals:v2', async () => {
+      if (!userId) {
+        setSignals([]);
+        if (authRetryRef.current < 4) {
+          authRetryRef.current += 1;
+          setTimeout(() => loadSignals(), 600);
+        }
+        return;
+      }
+      authRetryRef.current = 0;
+
+      const signalData = await apiCache.fetch(`dashboard:buying-signals:${userId}:v3`, async () => {
         try {
           // Fetch intent signals and campaign leads in parallel
           const [intentRes, leadsResult] = await Promise.all([
@@ -190,7 +204,7 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
             timeAgo: formatTimeAgo(lead.updated_at),
           }));
         } catch { return []; }
-      }, { staleTime: 60_000, cacheTime: 180_000 }).catch(() => []);
+      }, { staleTime: 15_000, cacheTime: 60_000 }).catch(() => []);
 
       if (isDemo && (signalData as BuyingSignal[]).length === 0) {
         setSignals(DEMO_SIGNALS);
