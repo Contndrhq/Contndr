@@ -143,6 +143,39 @@ async function fetchCampaignEmailLog(campaignId: string, campaignName: string): 
   }
 }
 
+function wait(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function typingDelayFor(body: string) {
+  return Math.min(Math.max((body || '').length * 4, 1800), 5200);
+}
+
+function emailInfoToEntry(campaignId: string, index: number, emailInfo: any): SendingLogEntry {
+  return {
+    id: emailInfo.emailId || emailInfo.email_id || emailInfo.id || `broadcast-${campaignId}-${index}`,
+    recipientName: emailInfo.leadName || emailInfo.lead_name || emailInfo.recipientName || emailInfo.leadEmail || 'Unknown',
+    recipientEmail: emailInfo.leadEmail || emailInfo.to_email || emailInfo.recipientEmail || '',
+    subject: emailInfo.subject || '(no subject)',
+    body: emailInfo.body || emailInfo.text_body || '',
+    fromEmail: emailInfo.fromEmail || emailInfo.from_email || '',
+    status: 'writing',
+    timestamp: Date.now(),
+  };
+}
+
+async function launchBackgroundFallback(campaignId: string) {
+  await authenticatedFetch(
+    `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${campaignId}/launch`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ batchSize: 5 }),
+      signal: AbortSignal.timeout(15_000),
+    }
+  );
+}
+
 // ── Provider ──
 
 export function BroadcastProvider({ children }: { children: ReactNode }) {
@@ -151,6 +184,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   const runningRef = useRef(false);
   // Track current campaignId for the status poller
   const activeCampaignIdRef = useRef<string>('');
+  const foregroundLiveRef = useRef(false);
   const replayedEmailIdsRef = useRef<Set<string>>(new Set());
   const replayQueueRef = useRef<SendingLogEntry[]>([]);
   const replayingRef = useRef(false);
@@ -264,6 +298,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     if (state.campaignId) releaseSendLock(state.campaignId);
     runningRef.current = false;
     activeCampaignIdRef.current = '';
+    foregroundLiveRef.current = false;
     resetLiveReplay();
     setState(initialState);
   }, [resetLiveReplay, state.campaignId]);
@@ -295,7 +330,9 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         fetchCampaignEmailLog(cId, state.campaignName),
       ]);
       if (!stats) return;
-      queueLiveReplay(emailLog);
+      if (!foregroundLiveRef.current) {
+        queueLiveReplay(emailLog);
+      }
 
       setState(prev => {
         // Only bump forward — never move progress backward
@@ -335,6 +372,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     abortRef.current = false;
     runningRef.current = true;
     activeCampaignIdRef.current = campaignId;
+    foregroundLiveRef.current = true;
     resetLiveReplay();
 
     setState({
@@ -353,105 +391,207 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       statusText: 'Preparing messages...',
     });
 
-    // Launch the server-side worker and only observe progress from the UI.
+    // Send one at a time from the foreground so the overlay can show the real
+    // generated subject/body while each message is being written and delivered.
+    // The background worker is kept as a fallback only, otherwise it races the
+    // live UI and the user only sees the final "campaign sent" state.
     (async () => {
+      let totalSent = 0;
+      let totalFailed = 0;
+      let totalBounced = 0;
+      let emailIndex = 0;
+      let hasMore = true;
+      let consecutiveErrors = 0;
+      let continuedInBackground = false;
+      let finalTotal = total;
+      const maxConsecutiveErrors = 5;
+
       try {
-        setState(prev => ({ ...prev, statusText: 'Launching background worker...' }));
-        const launchResponse = await authenticatedFetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${campaignId}/launch`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ batchSize: 5 }),
-            signal: AbortSignal.timeout(15_000),
+        setState(prev => ({ ...prev, statusText: 'Preparing live broadcast...' }));
+
+        try {
+          await authenticatedFetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/enqueue/${campaignId}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ batchSize: 1 }),
+              signal: AbortSignal.timeout(10_000),
+            }
+          );
+        } catch (enqueueError) {
+          console.warn('[BROADCAST] Enqueue failed; continuing live send:', enqueueError);
+        }
+
+        while (!abortRef.current && hasMore) {
+          const response = await authenticatedFetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${campaignId}/send-batch?limit=1`,
+            { method: 'POST', signal: AbortSignal.timeout(60_000) }
+          );
+
+          if (!response.ok) {
+            if (response.status === 409) {
+              setState(prev => ({ ...prev, statusText: 'Another sender is finishing a message...' }));
+              await wait(3000);
+              continue;
+            }
+
+            const error = await response.json().catch(() => ({ error: 'Unable to send next message' }));
+            console.error('[BROADCAST] Live batch failed:', error);
+            consecutiveErrors++;
+            if (consecutiveErrors >= maxConsecutiveErrors) {
+              continuedInBackground = true;
+              setState(prev => ({
+                ...prev,
+                currentEntry: null,
+                statusText: 'Live view paused. Continuing safely in the background...',
+              }));
+              await launchBackgroundFallback(campaignId).catch((fallbackError) => {
+                console.warn('[BROADCAST] Background fallback launch failed:', fallbackError);
+              });
+              break;
+            }
+            setState(prev => ({ ...prev, statusText: 'Retrying the next message...' }));
+            await wait(2000 * consecutiveErrors);
+            continue;
           }
+
+          consecutiveErrors = 0;
+          const data = await response.json();
+          const batchSent = Number(data.sent || 0);
+          const remaining = Number(data.remaining || 0);
+          const emailsSent: any[] = Array.isArray(data.emails_sent) ? data.emails_sent : [];
+
+          finalTotal = Math.max(finalTotal, totalSent + totalFailed + totalBounced + remaining + emailsSent.length);
+
+          for (const emailInfo of emailsSent) {
+            emailIndex++;
+            const entry = emailInfoToEntry(campaignId, emailIndex, emailInfo);
+            replayedEmailIdsRef.current.add(entry.id);
+
+            if (emailInfo.success) {
+              const writingEntry: SendingLogEntry = { ...entry, status: 'writing', timestamp: Date.now() };
+              setState(prev => ({
+                ...prev,
+                currentEntry: writingEntry,
+                total: Math.max(prev.total, finalTotal),
+                statusText: `Writing to ${writingEntry.recipientName || writingEntry.recipientEmail}...`,
+              }));
+
+              await wait(typingDelayFor(writingEntry.body));
+              if (abortRef.current) break;
+
+              setState(prev => ({
+                ...prev,
+                currentEntry: { ...writingEntry, status: 'sending' },
+                statusText: 'Delivering message...',
+              }));
+
+              await wait(650);
+              if (abortRef.current) break;
+
+              const deliveredEntry: SendingLogEntry = {
+                ...writingEntry,
+                status: 'delivered',
+                timestamp: Date.now(),
+              };
+
+              totalSent++;
+              setState(prev => ({
+                ...prev,
+                currentEntry: deliveredEntry,
+                progress: Math.max(prev.progress, totalSent + totalFailed + totalBounced),
+                successCount: totalSent,
+                statusText: 'Message delivered',
+              }));
+
+              await wait(850);
+              if (abortRef.current) break;
+
+              setState(prev => ({
+                ...prev,
+                currentEntry: null,
+                log: prev.log.some(item => item.id === deliveredEntry.id) ? prev.log : [...prev.log, deliveredEntry],
+                progress: Math.max(prev.progress, totalSent + totalFailed + totalBounced),
+                successCount: totalSent,
+                statusText: remaining > 0 ? `Preparing next message (${totalSent}/${Math.max(finalTotal, 1)})...` : 'Finalizing broadcast...',
+              }));
+            } else {
+              const isBounced = Boolean(emailInfo.bounced) || String(emailInfo.error || '').toLowerCase().includes('bounce');
+              const failedEntry: SendingLogEntry = {
+                ...entry,
+                status: isBounced ? 'bounced' : 'failed',
+                timestamp: Date.now(),
+              };
+
+              if (isBounced) totalBounced++;
+              else totalFailed++;
+
+              setState(prev => ({
+                ...prev,
+                currentEntry: null,
+                log: prev.log.some(item => item.id === failedEntry.id) ? prev.log : [...prev.log, failedEntry],
+                progress: Math.max(prev.progress, totalSent + totalFailed + totalBounced),
+                errorCount: totalFailed,
+                bounceCount: totalBounced,
+                total: Math.max(prev.total, finalTotal),
+                statusText: 'Skipping a failed message...',
+              }));
+            }
+          }
+
+          if (abortRef.current) break;
+
+          if (data.campaign_complete || (emailsSent.length === 0 && batchSent === 0 && remaining <= 0)) {
+            hasMore = false;
+          } else if (batchSent === 0 && remaining > 0) {
+            consecutiveErrors++;
+            if (consecutiveErrors >= maxConsecutiveErrors) {
+              continuedInBackground = true;
+              setState(prev => ({
+                ...prev,
+                currentEntry: null,
+                statusText: 'No live messages returned. Continuing safely in the background...',
+              }));
+              await launchBackgroundFallback(campaignId).catch((fallbackError) => {
+                console.warn('[BROADCAST] Background fallback launch failed:', fallbackError);
+              });
+              break;
+            }
+            await wait(2000);
+          } else {
+            await wait(350);
+          }
+        }
+
+        foregroundLiveRef.current = false;
+
+        const finalStats = await fetchCampaignStats(campaignId);
+        if (continuedInBackground) {
+          const finalEmailLog = await fetchCampaignEmailLog(campaignId, campaignName);
+          queueLiveReplay(finalEmailLog);
+          await waitForReplayIdle();
+        }
+
+        const reconciledSent = Math.max(totalSent, finalStats?.sentCount || 0);
+        const reconciledTotal = Math.max(finalTotal, finalStats?.totalLeads || 0, total);
+        const completed = !continuedInBackground && (
+          finalStats?.status === 'completed' ||
+          (reconciledTotal > 0 && reconciledSent + totalFailed + totalBounced >= reconciledTotal)
         );
 
-        if (!launchResponse.ok) {
-          const error = await launchResponse.json().catch(() => ({ error: 'Unable to launch campaign' }));
-          throw new Error(error.error || 'Unable to launch campaign');
-        }
-
-        const [initialStats, initialEmailLog] = await Promise.all([
-          fetchCampaignStats(campaignId),
-          fetchCampaignEmailLog(campaignId, campaignName),
-        ]);
-        if (initialStats) {
-          queueLiveReplay(initialEmailLog);
-          const initialTotal = initialStats.totalLeads > 0 ? initialStats.totalLeads : total;
-          const initialComplete = initialStats.status === 'completed' || (initialTotal > 0 && initialStats.sentCount >= initialTotal);
-          setState(prev => ({
-            ...prev,
-            progress: Math.max(prev.progress, initialStats.sentCount),
-            successCount: Math.max(prev.successCount, initialStats.sentCount),
-            total: Math.max(prev.total, initialTotal),
-            statusText: initialComplete ? 'Finalizing live broadcast...' : `Broadcasting live (${initialStats.sentCount}/${Math.max(initialTotal, 1)})...`,
-          }));
-          if (initialComplete) {
-            await waitForReplayIdle();
-            setState(prev => ({
-              ...prev,
-              currentEntry: null,
-              done: true,
-              statusText: '',
-            }));
-            runningRef.current = false;
-            activeCampaignIdRef.current = '';
-            releaseSendLock(campaignId);
-            realtimeManager.emit('campaign:completed', { campaignName, sent: initialStats.sentCount, bounced: 0, failed: 0 });
-            if (initialStats.sentCount > 0) realtimeManager.emit('email:sent', { campaignName, count: initialStats.sentCount });
-            dispatchAppEvent({ type: 'campaigns:changed', meta: { action: 'broadcast_complete', sent: initialStats.sentCount } });
-            dispatchAppEvent({ type: 'leads:changed', meta: { action: 'emails_sent' } });
-            toast.success('Campaign sent', {
-              description: `${initialStats.sentCount} email${initialStats.sentCount !== 1 ? 's' : ''} delivered`,
-              duration: 5000,
-            });
-            return;
-          }
-        } else {
-          setState(prev => ({ ...prev, statusText: 'Broadcasting live...' }));
-        }
-
-        let finalSent = 0;
-        let finalTotal = total;
-        let completed = false;
-        const startedAt = Date.now();
-        const maxWatchMs = 30 * 60 * 1000;
-
-        while (!abortRef.current && Date.now() - startedAt < maxWatchMs) {
-          const [stats, emailLog] = await Promise.all([
-            fetchCampaignStats(campaignId),
-            fetchCampaignEmailLog(campaignId, campaignName),
-          ]);
-          if (stats) {
-            queueLiveReplay(emailLog);
-            finalSent = Math.max(finalSent, stats.sentCount);
-            finalTotal = Math.max(finalTotal, stats.totalLeads);
-            completed = stats.status === 'completed' || (stats.totalLeads > 0 && stats.sentCount >= stats.totalLeads);
-            setState(prev => ({
-              ...prev,
-              progress: Math.max(prev.progress, finalSent),
-              successCount: Math.max(prev.successCount, finalSent),
-              total: Math.max(prev.total, finalTotal),
-              statusText: completed ? 'Finalizing live broadcast...' : `Broadcasting live (${finalSent}/${Math.max(finalTotal, 1)})...`,
-            }));
-            if (completed) break;
-          }
-          await new Promise(r => setTimeout(r, 3000));
-        }
-
-        const finalEmailLog = await fetchCampaignEmailLog(campaignId, campaignName);
-        queueLiveReplay(finalEmailLog);
-        await waitForReplayIdle();
         setState(prev => ({
           ...prev,
           currentEntry: null,
-          done: completed,
-          successCount: Math.max(prev.successCount, finalSent),
-          progress: Math.max(prev.progress, finalSent),
-          total: Math.max(prev.total, finalTotal),
-          statusText: completed ? '' : 'Continuing safely in the background. You can close this panel.',
+          done: completed || !continuedInBackground,
+          progress: Math.max(prev.progress, reconciledSent + totalFailed + totalBounced),
+          successCount: Math.max(prev.successCount, reconciledSent),
+          errorCount: Math.max(prev.errorCount, totalFailed),
+          bounceCount: Math.max(prev.bounceCount, totalBounced),
+          total: Math.max(prev.total, reconciledTotal),
+          statusText: continuedInBackground ? 'Continuing safely in the background. You can close this panel.' : '',
         }));
+
         runningRef.current = false;
         activeCampaignIdRef.current = '';
         releaseSendLock(campaignId);
@@ -461,16 +601,20 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         apiCache.invalidate('dashboard:*');
         apiCache.invalidate('analytics:*');
 
-        if (completed) realtimeManager.emit('campaign:completed', { campaignName, sent: finalSent, bounced: 0, failed: 0 });
-        if (finalSent > 0) realtimeManager.emit('email:sent', { campaignName, count: finalSent });
-        dispatchAppEvent({ type: 'campaigns:changed', meta: { action: completed ? 'broadcast_complete' : 'broadcast_background', sent: finalSent } });
+        if (!continuedInBackground) {
+          realtimeManager.emit('campaign:completed', { campaignName, sent: reconciledSent, bounced: totalBounced, failed: totalFailed });
+        }
+        if (reconciledSent > 0) {
+          realtimeManager.emit('email:sent', { campaignName, count: reconciledSent });
+        }
+        dispatchAppEvent({ type: 'campaigns:changed', meta: { action: continuedInBackground ? 'broadcast_background' : 'broadcast_complete', sent: reconciledSent } });
         dispatchAppEvent({ type: 'leads:changed', meta: { action: 'emails_sent' } });
 
         if (!abortRef.current) {
-          toast.success(completed ? 'Campaign sent' : 'Campaign is sending', {
-            description: completed
-              ? `${finalSent} email${finalSent !== 1 ? 's' : ''} delivered`
-              : 'Contndr will keep sending safely in the background.',
+          toast.success(continuedInBackground ? 'Campaign is sending' : 'Campaign sent', {
+            description: continuedInBackground
+              ? 'Contndr will keep sending safely in the background.'
+              : `${reconciledSent} email${reconciledSent !== 1 ? 's' : ''} delivered`,
             duration: 5000,
           });
 
@@ -479,12 +623,28 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           }, 3000);
         }
       } catch (error: any) {
-        console.error('[BROADCAST] Launch failed:', error);
+        console.error('[BROADCAST] Live send failed:', error);
+        try {
+          foregroundLiveRef.current = false;
+          await launchBackgroundFallback(campaignId);
+          setState(prev => ({
+            ...prev,
+            currentEntry: null,
+            done: true,
+            statusText: 'Continuing safely in the background. You can close this panel.',
+          }));
+          toast.success('Campaign is sending', {
+            description: 'Live view paused, but background sending is active.',
+            duration: 6000,
+          });
+        } catch (fallbackError: any) {
+          console.error('[BROADCAST] Background fallback failed:', fallbackError);
+          setState(prev => ({ ...prev, currentEntry: null, done: true, statusText: 'Launch failed' }));
+          toast.error('Could not launch campaign', { description: error?.message || 'Please try again.' });
+        }
         releaseSendLock(campaignId);
         runningRef.current = false;
         activeCampaignIdRef.current = '';
-        setState(prev => ({ ...prev, done: true, statusText: 'Launch failed' }));
-        toast.error('Could not launch campaign', { description: error?.message || 'Please try again.' });
       }
     })();
   }, [queueLiveReplay, resetLiveReplay, waitForReplayIdle]);
