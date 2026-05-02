@@ -280,6 +280,69 @@ const TEAM_SIZE_LABELS: Record<string, string> = {
 const REVENUE_LABELS: Record<string, string> = {
   '0_500k': '<$500k', '500k_1m': '$500k–1m', '1m_5m': '$1m–5m', '5m_plus': '$5m+'
 };
+const BUSINESS_TYPE_LABELS: Record<string, string> = {
+  agency: 'Agency / Consulting',
+  saas: 'SaaS / Tech',
+  ecommerce: 'Ecommerce',
+  real_estate: 'Real Estate',
+  financial: 'Financial Services',
+  healthcare: 'Healthcare',
+  construction: 'Construction',
+  professional: 'Professional Services',
+  other: 'Other',
+};
+const LEAD_VOLUME_LABELS: Record<string, string> = {
+  under_100: 'Under 100',
+  '100_500': '100–500',
+  '500_1000': '500–1,000',
+  '1000_5000': '1,000–5,000',
+  '5000_plus': '5,000+',
+  '20000_plus': '20,000+',
+};
+
+function isMissingValue(value?: string | null) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return !normalized || ['unknown', 'n/a', 'na', 'none', 'null', 'undefined'].includes(normalized);
+}
+
+function formatBusinessType(value?: string | null) {
+  if (isMissingValue(value)) return null;
+  return BUSINESS_TYPE_LABELS[String(value).trim()] || String(value).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function formatLeadVolume(value?: string | null) {
+  if (isMissingValue(value)) return null;
+  return LEAD_VOLUME_LABELS[String(value).trim()] || String(value).replace(/_/g, ' - ');
+}
+
+function normalizeWaitlistEntries(entries: WaitlistEntry[]) {
+  const byEmail = new Map<string, WaitlistEntry>();
+  for (const entry of entries) {
+    const email = (entry.email || '').trim().toLowerCase();
+    if (!email) continue;
+    const existing = byEmail.get(email);
+    const entryTime = new Date(entry.created_at || 0).getTime();
+    const existingTime = new Date(existing?.created_at || 0).getTime();
+    const entryScore =
+      (isMissingValue(entry.businessType) ? 0 : 2) +
+      (isMissingValue(entry.monthlyLeadVolume) ? 0 : 2) +
+      (isMissingValue(entry.teamSize) ? 0 : 1) +
+      (isMissingValue(entry.annualRevenue) ? 0 : 1) +
+      (entry.phone ? 1 : 0);
+    const existingScore = existing
+      ? (isMissingValue(existing.businessType) ? 0 : 2) +
+        (isMissingValue(existing.monthlyLeadVolume) ? 0 : 2) +
+        (isMissingValue(existing.teamSize) ? 0 : 1) +
+        (isMissingValue(existing.annualRevenue) ? 0 : 1) +
+        (existing.phone ? 1 : 0)
+      : -1;
+
+    if (!existing || entryScore > existingScore || (entryScore === existingScore && entryTime > existingTime)) {
+      byEmail.set(email, entry);
+    }
+  }
+  return Array.from(byEmail.values()).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
 
 interface User {
   id: string;
@@ -1188,7 +1251,7 @@ export function AdminDashboard() {
       );
       if (response.ok) {
         const data = await response.json();
-        setWaitlistEntries(data.entries || []);
+        setWaitlistEntries(normalizeWaitlistEntries(data.entries || []));
       } else {
         const errData = await response.json().catch(() => ({}));
         console.error('[ADMIN] fetchWaitlist failed:', response.status, errData);
@@ -1887,17 +1950,21 @@ export function AdminDashboard() {
                       </div>
                       <div className="mt-2 flex items-center gap-2 flex-wrap">
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
-                          {entry.businessType || 'Unknown'}
+                          {formatBusinessType(entry.businessType) || 'Profile pending'}
                         </span>
-                        <span className="text-xs text-zinc-400">
-                          {entry.monthlyLeadVolume?.replace('_', ' - ') || 'N/A'} leads/mo
-                        </span>
-                        {entry.teamSize && entry.teamSize !== 'Unknown' && (
+                        {formatLeadVolume(entry.monthlyLeadVolume) ? (
+                          <span className="text-xs text-zinc-400">
+                            {formatLeadVolume(entry.monthlyLeadVolume)} leads/mo
+                          </span>
+                        ) : (
+                          <span className="text-xs text-zinc-500 dark:text-zinc-600">Lead volume pending</span>
+                        )}
+                        {!isMissingValue(entry.teamSize) && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
                             {TEAM_SIZE_LABELS[entry.teamSize] || entry.teamSize} ppl
                           </span>
                         )}
-                        {entry.annualRevenue && entry.annualRevenue !== 'Unknown' && (
+                        {!isMissingValue(entry.annualRevenue) && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
                             {REVENUE_LABELS[entry.annualRevenue] || entry.annualRevenue}
                           </span>
@@ -2052,20 +2119,24 @@ export function AdminDashboard() {
                         <td className="px-6 py-4">
                           <div className="flex flex-col gap-1">
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 w-fit">
-                              {entry.businessType || 'Unknown'}
+                              {formatBusinessType(entry.businessType) || 'Profile pending'}
                             </span>
-                            <span className="text-xs text-zinc-400">
-                              {entry.monthlyLeadVolume?.replace('_', ' - ') || 'N/A'} leads/mo
-                            </span>
+                            {formatLeadVolume(entry.monthlyLeadVolume) ? (
+                              <span className="text-xs text-zinc-400">
+                                {formatLeadVolume(entry.monthlyLeadVolume)} leads/mo
+                              </span>
+                            ) : (
+                              <span className="text-xs text-zinc-500 dark:text-zinc-600">Lead volume pending</span>
+                            )}
                           </div>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex flex-col gap-1">
                             <span className="text-xs text-zinc-300">
-                              {entry.teamSize && entry.teamSize !== 'Unknown' ? `${TEAM_SIZE_LABELS[entry.teamSize] || entry.teamSize} employees` : '—'}
+                              {!isMissingValue(entry.teamSize) ? `${TEAM_SIZE_LABELS[entry.teamSize] || entry.teamSize} employees` : 'Not provided'}
                             </span>
                             <span className="text-xs text-zinc-400">
-                              {entry.annualRevenue && entry.annualRevenue !== 'Unknown' ? (REVENUE_LABELS[entry.annualRevenue] || entry.annualRevenue) + ' /yr' : '—'}
+                              {!isMissingValue(entry.annualRevenue) ? (REVENUE_LABELS[entry.annualRevenue] || entry.annualRevenue) + ' /yr' : 'Not provided'}
                             </span>
                             {entry.recommended_plan && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20 w-fit mt-0.5" title={entry.recommendation_reasons?.join(', ')}>

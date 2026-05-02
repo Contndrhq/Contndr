@@ -2519,19 +2519,98 @@ app.get("/make-server-a8b2511f/admin/waitlist", async (c) => {
       return c.json({ error: 'Unauthorized: Admin access required' }, 403);
     }
     
-    // Fetch all waitlist entries
-    // getByPrefix('waitlist:') returns values for keys starting with prefix
     const allValues = await kv.getByPrefix('waitlist:');
-    
-    // Filter out index entries (which are simple strings) and keep full entry objects
-    const entries = allValues.filter(v => 
+
+    const isMissingWaitlistValue = (value: any) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      return !normalized || ['unknown', 'n/a', 'na', 'none', 'null', 'undefined'].includes(normalized);
+    };
+
+    const authUsersByEmail = new Map<string, any>();
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      for (const authUser of data?.users || []) {
+        const email = authUser.email?.toLowerCase().trim();
+        if (email) authUsersByEmail.set(email, authUser);
+      }
+    } catch (userErr: any) {
+      console.warn('[ADMIN] Could not enrich waitlist from auth users:', userErr?.message || userErr);
+    }
+
+    const rawEntries = allValues.filter(v =>
       typeof v === 'object' && 
       v !== null && 
       v.email && 
       v.id && 
       v.status
-    ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    
+    );
+
+    const enrichedEntries = rawEntries.map((entry: any) => {
+      const email = String(entry.email || '').toLowerCase().trim();
+      const authUser = authUsersByEmail.get(email);
+      const meta = authUser?.user_metadata || {};
+      return {
+        ...entry,
+        email,
+        userId: entry.userId || authUser?.id,
+        name: !isMissingWaitlistValue(entry.name) && !['User', 'OAuth User', 'Approved User'].includes(String(entry.name).trim())
+          ? entry.name
+          : (meta.full_name || meta.name || meta.user_name || entry.name || email),
+        phone: entry.phone || meta.phone || '',
+        company: entry.company || meta.brand || meta.company || meta.organization || '',
+        businessType: !isMissingWaitlistValue(entry.businessType) ? entry.businessType : (meta.businessType || ''),
+        monthlyLeadVolume: !isMissingWaitlistValue(entry.monthlyLeadVolume) ? entry.monthlyLeadVolume : (meta.monthlyLeadVolume || ''),
+        teamSize: !isMissingWaitlistValue(entry.teamSize) ? entry.teamSize : (meta.teamSize || ''),
+        annualRevenue: !isMissingWaitlistValue(entry.annualRevenue) ? entry.annualRevenue : (meta.annualRevenue || ''),
+        created_at: entry.created_at || authUser?.created_at || new Date().toISOString(),
+      };
+    });
+
+    const statusRank = (status: string) => {
+      if (['approved', 'signed_up'].includes(status)) return 4;
+      if (status === 'pending_signup') return 3;
+      if (status === 'pending') return 2;
+      if (['rejected', 'declined'].includes(status)) return 1;
+      return 0;
+    };
+    const entryScore = (entry: any) =>
+      statusRank(entry.status) +
+      (isMissingWaitlistValue(entry.businessType) ? 0 : 3) +
+      (isMissingWaitlistValue(entry.monthlyLeadVolume) ? 0 : 3) +
+      (isMissingWaitlistValue(entry.teamSize) ? 0 : 1) +
+      (isMissingWaitlistValue(entry.annualRevenue) ? 0 : 1) +
+      (entry.phone ? 1 : 0);
+
+    const byEmail = new Map<string, any>();
+    for (const entry of enrichedEntries) {
+      const existing = byEmail.get(entry.email);
+      const entryTime = new Date(entry.created_at || 0).getTime();
+      const existingTime = new Date(existing?.created_at || 0).getTime();
+      const score = entryScore(entry);
+      const existingScore = existing ? entryScore(existing) : -1;
+      if (!existing || score > existingScore || (score === existingScore && entryTime > existingTime)) {
+        byEmail.set(entry.email, entry);
+      }
+    }
+
+    const entries = Array.from(byEmail.values())
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    await Promise.allSettled(entries.map((entry: any) => kv.set(`waitlist:email:${entry.email}`, entry.id)));
+    try {
+      const listKey = 'waitlist_entries_list';
+      const existingList = (await kv.get(listKey)) || [];
+      const canonicalIds = new Set(entries.map((entry: any) => entry.id));
+      const cleanedList = [
+        ...entries.map((entry: any) => entry.id),
+        ...existingList.filter((id: string) => canonicalIds.has(id)),
+      ];
+      await kv.set(listKey, [...new Set(cleanedList)].slice(0, 5000));
+    } catch (listErr: any) {
+      console.warn('[ADMIN] Waitlist list cleanup failed:', listErr?.message || listErr);
+    }
+
     return c.json({ entries });
   } catch (error) {
     console.error('[ADMIN] Error fetching waitlist:', error);
