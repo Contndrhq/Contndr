@@ -1339,17 +1339,24 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
       return c.json({ error: `Failed to update profile: ${updateError.message}` }, 500);
     }
     
-    // 2. Create/update subscription record as pending/waitlist
+    // 2. Create/update subscription record. Approved OAuth users can subscribe,
+    // but cannot enter the product until Stripe/admin billing is active.
+    const existingWaitlistId = await kv.get(`waitlist:email:${userEmail}`);
+    const existingWaitlistEntry = existingWaitlistId ? await kv.get(`waitlist:${existingWaitlistId}`) : null;
+    const oauthIsApproved = isApprovedWaitlistStatus(existingWaitlistEntry?.status);
+    const nextSubscriptionStatus = oauthIsApproved ? 'unpaid' : 'pending';
+    const nextSubscriptionPlan = oauthIsApproved ? 'none' : 'waitlist';
+
     await kv.set(`contndr_sub:${user.id}`, {
-      status: 'pending',
-      plan: 'waitlist',
+      status: nextSubscriptionStatus,
+      plan: nextSubscriptionPlan,
       created_at: new Date().toISOString(),
       signup_method: provider,
       oauth_onboarding_completed: true,
     });
     
     // 3. Create/update waitlist entry with business info
-    let waitlistId = await kv.get(`waitlist:email:${userEmail}`);
+    let waitlistId = existingWaitlistId;
     if (!waitlistId) {
       waitlistId = `wl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       await kv.set(`waitlist:email:${userEmail}`, waitlistId);
@@ -1365,16 +1372,17 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
       monthlyLeadVolume,
       teamSize,
       annualRevenue,
-      status: 'pending',
-      created_at: new Date().toISOString(),
-      source: `oauth_${provider}`,
+      status: oauthIsApproved ? 'signed_up' : 'pending',
+      created_at: existingWaitlistEntry?.created_at || new Date().toISOString(),
+      approved_at: existingWaitlistEntry?.approved_at,
+      source: existingWaitlistEntry?.source || `oauth_${provider}`,
       userId: user.id,
     });
     
     // 4. Log admin event for new OAuth signup
     logAdminEvent('new_signup', 'New OAuth Signup', `${userName} (${userEmail}) signed up via ${provider}`, {
       email: userEmail,
-      metadata: { name: userName, company, phone, businessType, plan: 'waitlist', status: 'pending', provider }
+      metadata: { name: userName, company, phone, businessType, plan: nextSubscriptionPlan, status: nextSubscriptionStatus, provider }
     }).catch(() => {});
     
     console.log(`[AUTH] OAuth profile completed for ${userEmail} — waitlist entry: ${waitlistId}`);
@@ -2431,8 +2439,11 @@ app.post("/make-server-a8b2511f/admin/waitlist/approve", async (c) => {
        console.log(`[ADMIN] Created new approved waitlist entry ${newEntryId}`);
     }
     
-    // Whitelist the email for signup
-    await kv.set(`whitelist:${email.toLowerCase()}`, true);
+    // Approval unlocks the subscription screen, not product access. Clear legacy
+    // approval whitelist keys so approved users cannot bypass billing.
+    await kv.del(`whitelist:${email.toLowerCase()}`).catch((legacyErr: any) => {
+      console.warn('[ADMIN] Could not clear legacy waitlist whitelist key:', legacyErr?.message || legacyErr);
+    });
 
     // Log admin event
     logAdminEvent('waitlist_approved', 'User Approved', `${entry?.name || email} was approved and invited`, {

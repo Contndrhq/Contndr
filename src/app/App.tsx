@@ -1779,8 +1779,23 @@ function AppContent() {
             
             return <PendingAccessScreen onLogout={handleSignOut} />;
           }
-          // Approved but unpaid — fall through to render dashboard with forced UpgradeModal overlay
-          console.log('[ACCESS CONTROL] Dashboard will render with forced UpgradeModal overlay');
+          if (status === 'unpaid') {
+            console.log('[ACCESS CONTROL] Approved user requires subscription before product access');
+            return (
+              <ApprovedAccessScreen
+                onLogout={handleSignOut}
+                onCheckSubscription={checkSubscription}
+              />
+            );
+          }
+
+          console.log('[ACCESS CONTROL] Non-active access status detected - showing subscription gate');
+          return (
+            <ApprovedAccessScreen
+              onLogout={handleSignOut}
+              onCheckSubscription={checkSubscription}
+            />
+          );
         }
       }
     }
