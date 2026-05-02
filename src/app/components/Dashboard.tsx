@@ -774,23 +774,33 @@ function MiniTrendChart({ data, type, className = '' }: { data: number[]; type: 
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = Math.max(max - min, 1);
-  const points = values.map((value, index) => {
-    const x = values.length === 1 ? 50 : (index / (values.length - 1)) * 100;
-    const y = 34 - ((value - min) / range) * 26;
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
-  }).join(' ');
+  const points = values.map((value, index) => ({
+    x: values.length === 1 ? 50 : 4 + (index / (values.length - 1)) * 92,
+    y: 32 - ((value - min) / range) * 22,
+  }));
+  const linePath = points.reduce((path, point, index) => {
+    if (index === 0) return `M ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+    const previous = points[index - 1];
+    const midX = (previous.x + point.x) / 2;
+    return `${path} C ${midX.toFixed(2)} ${previous.y.toFixed(2)}, ${midX.toFixed(2)} ${point.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+  }, '');
+  const areaPath = `${linePath} L 96 36 L 4 36 Z`;
+  const lastPoint = points[points.length - 1];
 
   if (type === 'bar') {
     return (
-      <div className={`h-9 flex items-end gap-1 ${className}`} aria-hidden="true">
+      <div className={`h-10 rounded-xl border border-zinc-200/70 dark:border-white/[0.06] bg-zinc-50/70 dark:bg-white/[0.025] px-2.5 py-2 flex items-end gap-1.5 ${className}`} aria-hidden="true">
         {values.map((value, index) => {
-          const height = 18 + ((value - min) / range) * 18;
+          const normalized = (value - min) / range;
+          const height = 8 + normalized * 24;
+          const opacity = 0.35 + normalized * 0.65;
           return (
-            <div
-              key={`${value}-${index}`}
-              className="flex-1 rounded-sm bg-zinc-300/50 dark:bg-white/10 group-hover:bg-[#1ED4A7]/50 transition-colors"
-              style={{ height }}
-            />
+            <div key={`${value}-${index}`} className="flex-1 h-full flex items-end rounded-full bg-zinc-200/50 dark:bg-white/[0.045] overflow-hidden">
+              <div
+                className="w-full rounded-full bg-gradient-to-t from-[#168F75] via-[#1ED4A7] to-[#70F3D1] shadow-[0_0_10px_rgba(30,212,167,0.18)] transition-all duration-300"
+                style={{ height, opacity }}
+              />
+            </div>
           );
         })}
       </div>
@@ -798,9 +808,23 @@ function MiniTrendChart({ data, type, className = '' }: { data: number[]; type: 
   }
 
   return (
-    <svg className={`h-9 w-full overflow-visible ${className}`} viewBox="0 0 100 38" preserveAspectRatio="none" aria-hidden="true">
-      <polyline points={points} fill="none" stroke="rgba(30,212,167,0.22)" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-      <polyline points={points} fill="none" stroke="#1ED4A7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+    <svg className={`h-10 w-full overflow-visible ${className}`} viewBox="0 0 100 38" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="dashboardSparkArea" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="#1ED4A7" stopOpacity="0.28" />
+          <stop offset="100%" stopColor="#1ED4A7" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="dashboardSparkLine" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor="#168F75" />
+          <stop offset="55%" stopColor="#1ED4A7" />
+          <stop offset="100%" stopColor="#70F3D1" />
+        </linearGradient>
+      </defs>
+      <path d="M 4 32 L 96 32" fill="none" stroke="currentColor" className="text-zinc-200 dark:text-white/[0.05]" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+      <path d={areaPath} fill="url(#dashboardSparkArea)" />
+      <path d={linePath} fill="none" stroke="rgba(30,212,167,0.18)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <path d={linePath} fill="none" stroke="url(#dashboardSparkLine)" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <circle cx={lastPoint.x} cy={lastPoint.y} r="2.2" fill="#1ED4A7" stroke="rgba(0,0,0,0.55)" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }

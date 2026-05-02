@@ -117,17 +117,17 @@ export function DashboardEngagementHeatmap({ brandFilter = 'all' }: DashboardEng
   }, [opens, isDemoMode]);
 
   const intensityClass = (value: number) => {
-    if (value <= 0) return 'bg-zinc-100 dark:bg-white/[0.04] border-zinc-200/60 dark:border-white/[0.04]';
+    if (value <= 0) return 'bg-zinc-100/80 dark:bg-white/[0.035] border-zinc-200/50 dark:border-white/[0.035]';
     const intensity = value / max;
-    if (intensity < 0.25) return 'bg-[#1ED4A7]/15 border-[#1ED4A7]/10';
-    if (intensity < 0.5) return 'bg-[#1ED4A7]/35 border-[#1ED4A7]/20';
-    if (intensity < 0.75) return 'bg-[#1ED4A7]/60 border-[#1ED4A7]/30';
-    return 'bg-[#1ED4A7] border-[#1ED4A7] shadow-[0_0_14px_rgba(30,212,167,0.28)]';
+    if (intensity < 0.25) return 'bg-[#1ED4A7]/14 border-[#1ED4A7]/10';
+    if (intensity < 0.5) return 'bg-[#1ED4A7]/30 border-[#1ED4A7]/15';
+    if (intensity < 0.75) return 'bg-[#1ED4A7]/55 border-[#1ED4A7]/25';
+    return 'bg-[#1ED4A7] border-[#1ED4A7]/80 shadow-[0_0_12px_rgba(30,212,167,0.24)]';
   };
 
   return (
     <div className="glass-card p-5 h-full min-h-full flex flex-col overflow-hidden">
-      <div className="flex items-start justify-between gap-4 mb-4 flex-shrink-0">
+      <div className="flex items-start justify-between gap-4 mb-3 flex-shrink-0">
         <div>
           <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider">
             {t('dashboard.engagementHeatmap', 'Engagement Heatmap')}
@@ -152,8 +152,9 @@ export function DashboardEngagementHeatmap({ brandFilter = 'all' }: DashboardEng
           <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
         </div>
       ) : (
-        <div className="flex-1 min-h-0 flex flex-col">
-          <div className="grid grid-cols-[34px_repeat(12,minmax(0,1fr))] gap-1.5 mb-2 px-0.5">
+        <div className="flex-1 min-h-0 flex flex-col justify-center">
+          <div className="rounded-2xl border border-zinc-200/70 dark:border-white/[0.06] bg-zinc-50/60 dark:bg-white/[0.02] p-3 sm:p-4">
+          <div className="grid grid-cols-[32px_repeat(12,minmax(0,1fr))] gap-1 sm:gap-1.5 mb-2 px-0.5">
             <div />
             {HOURS.map((hour) => (
               <div key={hour} className="text-[9px] font-medium text-zinc-500 text-center tabular-nums">
@@ -162,30 +163,31 @@ export function DashboardEngagementHeatmap({ brandFilter = 'all' }: DashboardEng
             ))}
           </div>
 
-          <div className="flex-1 grid grid-rows-7 gap-1.5 min-h-0">
+          <div className="grid grid-rows-7 gap-1 sm:gap-1.5">
             {grid.map((row, dayIndex) => (
-              <div key={days[dayIndex]} className="grid grid-cols-[34px_repeat(12,minmax(0,1fr))] gap-1.5 items-center">
+              <div key={days[dayIndex]} className="grid grid-cols-[32px_repeat(12,minmax(0,1fr))] gap-1 sm:gap-1.5 items-center">
                 <div className="text-[10px] font-medium text-zinc-500 text-right pr-1">{days[dayIndex]}</div>
                 {row.map((value, hourIndex) => (
                   <div
                     key={`${dayIndex}-${hourIndex}`}
                     title={`${days[dayIndex]} ${HOURS[hourIndex]}: ${value} opens`}
-                    className={`h-full min-h-[18px] rounded-md border transition-colors ${intensityClass(value)}`}
+                    className={`h-3.5 sm:h-4 rounded-[5px] border transition-colors ${intensityClass(value)}`}
                   />
                 ))}
               </div>
             ))}
           </div>
 
-          <div className="mt-4 flex items-center justify-end gap-2 text-[10px] font-medium text-zinc-500">
+          <div className="mt-3 flex items-center justify-end gap-2 text-[10px] font-medium text-zinc-500">
             <span>{t('dashboard.heatmapLess', 'Less')}</span>
             <div className="flex gap-1">
-              <div className="w-3 h-3 rounded-sm bg-white/[0.04] border border-white/[0.04]" />
-              <div className="w-3 h-3 rounded-sm bg-[#1ED4A7]/20 border border-[#1ED4A7]/10" />
-              <div className="w-3 h-3 rounded-sm bg-[#1ED4A7]/50 border border-[#1ED4A7]/20" />
-              <div className="w-3 h-3 rounded-sm bg-[#1ED4A7] border border-[#1ED4A7]" />
+              <div className="w-2.5 h-2.5 rounded-[4px] bg-white/[0.04] border border-white/[0.04]" />
+              <div className="w-2.5 h-2.5 rounded-[4px] bg-[#1ED4A7]/20 border border-[#1ED4A7]/10" />
+              <div className="w-2.5 h-2.5 rounded-[4px] bg-[#1ED4A7]/50 border border-[#1ED4A7]/20" />
+              <div className="w-2.5 h-2.5 rounded-[4px] bg-[#1ED4A7] border border-[#1ED4A7]" />
             </div>
             <span>{t('dashboard.heatmapMore', 'More')}</span>
+          </div>
           </div>
         </div>
       )}
