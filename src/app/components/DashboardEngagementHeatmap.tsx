@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Clock3, CalendarClock, MapPin, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useDemoMode } from './DemoContext';
 
@@ -133,17 +133,6 @@ export function DashboardEngagementHeatmap({ brandFilter = 'all' }: DashboardEng
             {t('dashboard.engagementHeatmap', 'Engagement Heatmap')}
           </h3>
           <p className="text-[11px] text-zinc-500 mt-1">{t('dashboard.whenWhereActive', 'When your leads are most active')}</p>
-        </div>
-        <div className="hidden sm:flex items-center gap-1 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-100/80 dark:bg-white/[0.03] p-1">
-          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white dark:bg-white/10 text-[10px] font-semibold text-zinc-800 dark:text-white">
-            <Clock3 className="w-3 h-3" /> {t('common.time', 'Time')}
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold text-zinc-500">
-            <MapPin className="w-3 h-3" /> {t('dashboard.location', 'Location')}
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold text-zinc-500">
-            <CalendarClock className="w-3 h-3" /> {t('common.day', 'Day')}
-          </span>
         </div>
       </div>
 

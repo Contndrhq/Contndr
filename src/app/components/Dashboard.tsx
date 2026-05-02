@@ -1,7 +1,7 @@
 // Rebuild: 2026-03-17T12:00 — force recompile after chunk loading failure fix
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { TrendingUp, Mail, MailOpen, Users, DollarSign, CircleDollarSign, Trophy, Target, CalendarDays } from 'lucide-react';
+import { TrendingUp, Mail, MailOpen, Users, DollarSign, CircleDollarSign, Trophy, Target } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { getAuthHeaders, authenticatedFetch } from '../lib/auth';
@@ -75,7 +75,6 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
   const isDemoMode = useDemoMode();
   const leadLimit = getLeadLimitForPlan(subscriptionStatus?.plan);
   const isUnlimitedLeads = leadLimit < 0;
-  const dateRangeLabel = getDateRangeLabel();
 
   // Real-time sync: auto-refresh when events come in from other tabs/users
   const dashboardRefreshKey = useRealtimeRefresh([
@@ -553,10 +552,6 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{t('dashboard.overview', 'Overview')}</h1>
 
           <div className="flex items-center justify-center sm:justify-end gap-4 w-full sm:w-auto">
-             <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50/80 dark:bg-white/[0.03] text-xs font-medium text-zinc-600 dark:text-zinc-300 shadow-sm">
-               <span className="tabular-nums">{dateRangeLabel}</span>
-               <CalendarDays className="w-3.5 h-3.5 text-zinc-500" />
-             </div>
              {/* Plan Status Widget - Hidden as per request */}
              {/* Minimal Brand Filter - Only visible to Admins */}
              {availableBrands.length > 0 && (userEmail === 'admin@contndr.com' || userEmail === 'or@roadr.com') && (
@@ -741,19 +736,6 @@ function StatCard({ title, value, icon: Icon, onClick, teal, trend, trendUp, cha
       )}
     </div>
   );
-}
-
-function getDateRangeLabel() {
-  const end = new Date();
-  const start = new Date(end);
-  start.setDate(end.getDate() - 7);
-  const month = new Intl.DateTimeFormat(undefined, { month: 'short' });
-  const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
-  const startLabel = sameMonth
-    ? `${month.format(start)} ${start.getDate()}`
-    : `${month.format(start)} ${start.getDate()}`;
-  const endLabel = sameMonth ? `${end.getDate()}` : `${month.format(end)} ${end.getDate()}`;
-  return `${startLabel} - ${endLabel}`;
 }
 
 function buildFallbackSeries(value: number, mode: 'steady' | 'bars' | 'dip') {
