@@ -662,7 +662,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
           </div>
 
           {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 xl:flex-1 xl:min-h-0 xl:grid-rows-[320px_minmax(260px,1fr)]">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 xl:grid-rows-[320px_340px] xl:auto-rows-auto">
             
             <div className="h-[320px]">
                <DashboardPipelineSnapshot onNavigate={onNavigate} />
@@ -672,11 +672,11 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
                <DashboardTeamSnapshot onNavigate={onNavigate} stats={stats} />
             </div>
 
-            <div className="min-h-[260px] xl:h-full xl:min-h-0">
+            <div className="h-[300px] xl:h-[340px]">
                <DashboardTodayFocus onNavigate={onNavigate} />
             </div>
 
-            <div className="min-h-[260px] xl:h-full xl:min-h-0">
+            <div className="h-[300px] xl:h-[340px]">
                <RecentActivityFeed onNavigate={onNavigate} />
             </div>
           </div>
