@@ -7940,6 +7940,8 @@ app.get("/make-server-a8b2511f/live-traffic", async (c) => {
         // whose lead belongs to another brand (roadr, covera, sourcr).
         // Only or@roadr.com (the multi-brand owner / admin) sees cross-brand data.
         if (isAdminEmail(user.email)) return true; // admins see everything
+        if (v.user_id === user.id) return true; // users must always see their own campaign/link traffic
+        if (!v.shared_from_contndr) return true;
         const leadBrand = (v.lead?.brand || '').toLowerCase();
         const visitBrand = (v.brand || '').toLowerCase();
         const NON_CONTNDR_BRANDS = ['roadr', 'covera', 'sourcr'];
@@ -16754,16 +16756,14 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
       }
 
       if (resolvedUserId && resolvedLeadId) {
-        (async () => {
-          try {
-            const { data: fullLead } = await supabase
-              .from('leads')
-              .select('id, business_name, contact_name, email, city, state, country, brand, phone, website')
-              .eq('id', resolvedLeadId)
-              .maybeSingle();
+        try {
+          const { data: fullLead } = await supabase
+            .from('leads')
+            .select('id, business_name, contact_name, email, city, state, country, brand, phone, website')
+            .eq('id', resolvedLeadId)
+            .maybeSingle();
 
-            if (!fullLead) return;
-
+          if (fullLead) {
             const geo = await resolveTrackingGeo(c, fullLead);
             const visitId = crypto.randomUUID();
             const nowMs = Date.now();
@@ -16791,10 +16791,10 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
 
             await kv.set(atomicKey, visitData);
             console.log(`[CLICK TRACK MAP] ✅ Map visit created for lead ${resolvedLeadId} (${fullLead.business_name || fullLead.contact_name})`);
-          } catch (mapErr: any) {
-            console.warn('[CLICK TRACK MAP] Failed to create map visit (non-fatal):', mapErr?.message || mapErr);
           }
-        })();
+        } catch (mapErr: any) {
+          console.warn('[CLICK TRACK MAP] Failed to create map visit (non-fatal):', mapErr?.message || mapErr);
+        }
       }
 
       console.log(`[CLICK TRACK] Successfully recorded click for email ${email_id}`);
