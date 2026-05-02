@@ -576,7 +576,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
       </div>
 
       {/* Scrollable Content */}
-      <div className="px-4 py-3 sm:px-6 sm:py-6 bg-transparent pb-[calc(env(safe-area-inset-bottom,20px)+20px)] sm:pb-6 flex-1 min-h-0 flex flex-col gap-3 sm:gap-8">
+      <div className="px-4 py-3 sm:px-6 sm:py-6 bg-transparent pb-[calc(env(safe-area-inset-bottom,20px)+20px)] sm:pb-6 flex-1 min-h-0 flex flex-col gap-3 sm:gap-6">
         {/* Key Metrics Grid — Revenue + Campaign combined */}
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-4 flex-shrink-0">
             {/* Total Leads — kept with usage bar */}
@@ -662,21 +662,21 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
           </div>
 
           {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 xl:grid-rows-[320px_340px] xl:auto-rows-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-[680px] xl:min-h-0 xl:grid-rows-[minmax(320px,0.95fr)_minmax(320px,1fr)] xl:auto-rows-auto">
             
-            <div className="h-[320px]">
+            <div className="h-[320px] xl:h-full">
                <DashboardPipelineSnapshot onNavigate={onNavigate} />
             </div>
 
-            <div className="h-[320px]">
+            <div className="h-[320px] xl:h-full">
                <DashboardTeamSnapshot onNavigate={onNavigate} stats={stats} />
             </div>
 
-            <div className="h-[300px] xl:h-[340px]">
+            <div className="h-[300px] xl:h-full">
                <DashboardTodayFocus onNavigate={onNavigate} />
             </div>
 
-            <div className="h-[300px] xl:h-[340px]">
+            <div className="h-[300px] xl:h-full">
                <RecentActivityFeed onNavigate={onNavigate} />
             </div>
           </div>
