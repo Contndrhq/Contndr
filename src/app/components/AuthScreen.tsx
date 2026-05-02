@@ -254,6 +254,23 @@ export function AuthScreen({ onAuthSuccess, onBack, initialMode = 'signin', redi
     setError('');
     setSuccessMessage('');
 
+    const requiredAccessFields = [
+      name,
+      email,
+      password,
+      companyName,
+      phone,
+      businessType,
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
+    ];
+    if (requiredAccessFields.some(value => !value.trim())) {
+      setError('Complete every access application field so we can tailor the right plan.');
+      setLoading(false);
+      return;
+    }
+
     try {
       // Resolve affiliate ref: URL param takes priority, then sessionStorage
       const urlRef = new URLSearchParams(window.location.search).get('ref');

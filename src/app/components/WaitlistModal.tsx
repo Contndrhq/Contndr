@@ -20,8 +20,11 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
     name: '',
     email: '',
     phone: '',
+    company: '',
     businessType: '',
     monthlyLeadVolume: '',
+    teamSize: '',
+    annualRevenue: '',
   });
 
   // Live counter state -- starts from a base and increments periodically for FOMO
@@ -61,7 +64,20 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!formData.email || !formData.name || !formData.phone) return;
+    const requiredFields = [
+      formData.name,
+      formData.email,
+      formData.phone,
+      formData.company,
+      formData.businessType,
+      formData.monthlyLeadVolume,
+      formData.teamSize,
+      formData.annualRevenue,
+    ];
+    if (requiredFields.some(value => !value.trim())) {
+      toast.error('Complete all access questions before joining.');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -110,7 +126,7 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-        className="relative w-full max-w-lg bg-[#080808] border border-white/10 rounded-3xl shadow-2xl overflow-hidden"
+        className="relative w-full max-w-lg max-h-[calc(100dvh-2rem)] bg-[#080808] border border-white/10 rounded-3xl shadow-2xl overflow-y-auto"
       >
         {/* Close Button */}
         <button
@@ -222,6 +238,17 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
                         className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder:text-gray-600 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/40 transition-all text-sm"
                       />
                     </div>
+                    <div className="space-y-1.5 col-span-2">
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Company</label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.company}
+                        onChange={e => setFormData({ ...formData, company: e.target.value })}
+                        placeholder="Company name"
+                        className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder:text-gray-600 focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/40 transition-all text-sm"
+                      />
+                    </div>
                   </div>
 
                   <div className="space-y-1.5">
@@ -229,10 +256,11 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
                     <select
                       value={formData.businessType}
                       onChange={e => setFormData({ ...formData, businessType: e.target.value })}
+                      required
                       className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/40 transition-all text-sm appearance-none"
                       style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center' }}
                     >
-                      <option value="" className="bg-[#050505] text-gray-500">{t('waitlist.selectIndustry')}</option>
+                      <option value="" disabled className="bg-[#050505] text-gray-500">{t('waitlist.selectIndustry')}</option>
                       <option value="agency" className="bg-[#050505]">{t('waitlist.agencyConsulting')}</option>
                       <option value="saas" className="bg-[#050505]">{t('waitlist.saasTech')}</option>
                       <option value="ecommerce" className="bg-[#050505]">{t('waitlist.ecommerce')}</option>
@@ -250,16 +278,52 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
                     <select
                       value={formData.monthlyLeadVolume}
                       onChange={e => setFormData({ ...formData, monthlyLeadVolume: e.target.value })}
+                      required
                       className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/40 transition-all text-sm appearance-none"
                       style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center' }}
                     >
-                      <option value="" className="bg-[#050505] text-gray-500">{t('waitlist.howManyLeads')}</option>
+                      <option value="" disabled className="bg-[#050505] text-gray-500">{t('waitlist.howManyLeads')}</option>
                       <option value="under_100" className="bg-[#050505]">{t('waitlist.under100')}</option>
                       <option value="100_500" className="bg-[#050505]">100 - 500</option>
                       <option value="500_1000" className="bg-[#050505]">500 - 1,000</option>
                       <option value="1000_5000" className="bg-[#050505]">1,000 - 5,000</option>
                       <option value="5000_plus" className="bg-[#050505]">5,000+</option>
                     </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Team Size</label>
+                      <select
+                        value={formData.teamSize}
+                        onChange={e => setFormData({ ...formData, teamSize: e.target.value })}
+                        required
+                        className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/40 transition-all text-sm appearance-none"
+                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center' }}
+                      >
+                        <option value="" disabled className="bg-[#050505] text-gray-500">Select size</option>
+                        <option value="1_5" className="bg-[#050505]">1 - 5</option>
+                        <option value="6_20" className="bg-[#050505]">6 - 20</option>
+                        <option value="21_50" className="bg-[#050505]">21 - 50</option>
+                        <option value="51_plus" className="bg-[#050505]">51+</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Annual Revenue</label>
+                      <select
+                        value={formData.annualRevenue}
+                        onChange={e => setFormData({ ...formData, annualRevenue: e.target.value })}
+                        required
+                        className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white/40 focus:ring-1 focus:ring-white/40 transition-all text-sm appearance-none"
+                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center' }}
+                      >
+                        <option value="" disabled className="bg-[#050505] text-gray-500">Select revenue</option>
+                        <option value="0_500k" className="bg-[#050505]">$0 - $500k</option>
+                        <option value="500k_1m" className="bg-[#050505]">$500k - $1m</option>
+                        <option value="1m_5m" className="bg-[#050505]">$1m - $5m</option>
+                        <option value="5m_plus" className="bg-[#050505]">$5m+</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
 

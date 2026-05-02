@@ -1746,7 +1746,15 @@ function AppContent() {
             // user_metadata.oauth_onboarding_completed is set by /auth/complete-oauth-profile endpoint.
             const provider = user?.app_metadata?.provider;
             const isOAuthUser = provider && provider !== 'email';
-            const hasCompletedOnboarding = user?.user_metadata?.oauth_onboarding_completed === true || !!user?.user_metadata?.businessType;
+            const accessMeta = user?.user_metadata || {};
+            const hasCompletedOnboarding =
+              accessMeta.oauth_onboarding_completed === true &&
+              !!accessMeta.brand &&
+              !!accessMeta.phone &&
+              !!accessMeta.businessType &&
+              !!accessMeta.monthlyLeadVolume &&
+              !!accessMeta.teamSize &&
+              !!accessMeta.annualRevenue;
             
             if (isOAuthUser && !hasCompletedOnboarding) {
               return (

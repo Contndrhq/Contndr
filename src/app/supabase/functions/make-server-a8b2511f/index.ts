@@ -819,6 +819,28 @@ function isApprovedWaitlistStatus(status: string | undefined | null): boolean {
   return ['approved', 'invited', 'signed_up'].includes(normalizeWaitlistStatus(status));
 }
 
+function isMissingAccessField(value: any): boolean {
+  const normalized = String(value || '').trim().toLowerCase();
+  return !normalized || ['unknown', 'n/a', 'na', 'none', 'null', 'undefined'].includes(normalized);
+}
+
+function validateAccessApplicationFields(fields: Record<string, any>) {
+  const requiredFields = [
+    ['name', 'Full name'],
+    ['email', 'Email'],
+    ['phone', 'Phone number'],
+    ['company', 'Company'],
+    ['businessType', 'Business type'],
+    ['monthlyLeadVolume', 'Monthly lead volume'],
+    ['teamSize', 'Team size'],
+    ['annualRevenue', 'Annual revenue'],
+  ] as const;
+  const missing = requiredFields
+    .filter(([key]) => isMissingAccessField(fields[key]))
+    .map(([, label]) => label);
+  return missing;
+}
+
 async function getWaitlistEntryByEmail(email: string): Promise<{ id: string | null; entry: any | null }> {
   const normalizedEmail = email.toLowerCase().trim();
   const id = await kv.get(`waitlist:email:${normalizedEmail}`);
@@ -859,10 +881,10 @@ async function upsertWaitlistSignupEntry(params: {
     company: params.company || entry?.company || '',
     email: normalizedEmail,
     phone: params.phone || entry?.phone || '',
-    businessType: params.businessType || entry?.businessType || 'Unknown',
-    monthlyLeadVolume: params.monthlyLeadVolume || entry?.monthlyLeadVolume || 'Unknown',
-    teamSize: params.teamSize || entry?.teamSize || 'Unknown',
-    annualRevenue: params.annualRevenue || entry?.annualRevenue || 'Unknown',
+    businessType: params.businessType || entry?.businessType || '',
+    monthlyLeadVolume: params.monthlyLeadVolume || entry?.monthlyLeadVolume || '',
+    teamSize: params.teamSize || entry?.teamSize || '',
+    annualRevenue: params.annualRevenue || entry?.annualRevenue || '',
     status,
     userId: params.userId,
     source: entry?.source || params.source,
@@ -1163,8 +1185,21 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
     
     console.log('[AUTH] Signup V2 request for:', email, ref ? `(referred by: ${ref})` : '');
     
-    if (!email || !password || !phone) {
-      return c.json({ error: "Email, password, and phone number are required" }, 400);
+    const missingFields = validateAccessApplicationFields({
+      name,
+      email,
+      phone,
+      company,
+      businessType,
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
+    });
+    if (!password || missingFields.length > 0) {
+      return c.json({
+        error: `Complete your access application before continuing. Missing: ${[...(!password ? ['Password'] : []), ...missingFields].join(', ')}`,
+        missingFields: [...(!password ? ['password'] : []), ...missingFields],
+      }, 400);
     }
     
     const normalizedEmail = email.toLowerCase().trim();
@@ -1224,10 +1259,10 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
         name: name || 'User',
         brand: company || name || 'My Brand',
         phone: phone || '',
-        businessType: businessType || 'Unknown',
-        monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
-        teamSize: teamSize || 'Unknown',
-        annualRevenue: annualRevenue || 'Unknown'
+        businessType,
+        monthlyLeadVolume,
+        teamSize,
+        annualRevenue
       },
       email_confirm: true
     });
@@ -1342,8 +1377,21 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
     
     console.log(`[AUTH] Complete OAuth profile for: ${userEmail} (${provider})`);
     
-    if (!company || !phone || !businessType) {
-      return c.json({ error: 'Company, phone number, and business type are required' }, 400);
+    const missingFields = validateAccessApplicationFields({
+      name: userName,
+      email: userEmail,
+      company,
+      phone,
+      businessType,
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
+    });
+    if (missingFields.length > 0) {
+      return c.json({
+        error: `Complete your access application before continuing. Missing: ${missingFields.join(', ')}`,
+        missingFields,
+      }, 400);
     }
     
     const supabase = getSupabaseAdmin();
@@ -1353,11 +1401,11 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
       user_metadata: {
         ...user.user_metadata,
         brand: company,
-        phone: phone || '',
-        businessType: businessType || 'Unknown',
-        monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
-        teamSize: teamSize || 'Unknown',
-        annualRevenue: annualRevenue || 'Unknown',
+        phone,
+        businessType,
+        monthlyLeadVolume,
+        teamSize,
+        annualRevenue,
         oauth_onboarding_completed: true,
       },
     });
@@ -1388,11 +1436,11 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
       email: userEmail,
       name: userName,
       company: company,
-      phone: phone || '',
+      phone,
       businessType: businessType,
-      monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
-      teamSize: teamSize || 'Unknown',
-      annualRevenue: annualRevenue || 'Unknown',
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
       status: 'pending',
       created_at: new Date().toISOString(),
       source: `oauth_${provider}`,
@@ -2333,10 +2381,23 @@ app.post("/make-server-a8b2511f/contact", async (c) => {
 app.post("/make-server-a8b2511f/waitlist", async (c) => {
   try {
     const body = await c.req.json();
-    const { name, email, phone, businessType, monthlyLeadVolume } = body;
+    const { name, email, phone, company, businessType, monthlyLeadVolume, teamSize, annualRevenue } = body;
 
-    if (!name || !email || !phone) {
-      return c.json({ error: "Name, email, and phone number are required" }, 400);
+    const missingFields = validateAccessApplicationFields({
+      name,
+      email,
+      phone,
+      company,
+      businessType,
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
+    });
+    if (missingFields.length > 0) {
+      return c.json({
+        error: `Complete your access application before continuing. Missing: ${missingFields.join(', ')}`,
+        missingFields,
+      }, 400);
     }
 
     // Check for duplicate email
@@ -2351,8 +2412,11 @@ app.post("/make-server-a8b2511f/waitlist", async (c) => {
       name,
       email: email.toLowerCase(),
       phone,
-      businessType: businessType || '',
-      monthlyLeadVolume: monthlyLeadVolume || '',
+      company,
+      businessType,
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
       created_at: new Date().toISOString(),
       status: 'pending',
     };
@@ -2377,7 +2441,7 @@ app.post("/make-server-a8b2511f/waitlist", async (c) => {
     // Log admin event
     logAdminEvent('waitlist_join', 'New Waitlist Entry', `${name} (${email}) joined the waitlist — ${businessType || 'Unknown business'}`, {
       email: email.toLowerCase(),
-      metadata: { name, phone, businessType, monthlyLeadVolume, position: currentCount + 1 }
+      metadata: { name, phone, company, businessType, monthlyLeadVolume, teamSize, annualRevenue, position: currentCount + 1 }
     }).catch(() => {});
 
     // Send confirmation email

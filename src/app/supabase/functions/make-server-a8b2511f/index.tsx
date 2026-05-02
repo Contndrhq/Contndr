@@ -809,6 +809,27 @@ function isAdminEmail(email: string | undefined | null, uid?: string | undefined
   return ADMIN_EMAILS.includes(e);
 }
 
+function isMissingAccessField(value: any): boolean {
+  const normalized = String(value || '').trim().toLowerCase();
+  return !normalized || ['unknown', 'n/a', 'na', 'none', 'null', 'undefined'].includes(normalized);
+}
+
+function validateAccessApplicationFields(fields: Record<string, any>) {
+  const requiredFields = [
+    ['name', 'Full name'],
+    ['email', 'Email'],
+    ['phone', 'Phone number'],
+    ['company', 'Company'],
+    ['businessType', 'Business type'],
+    ['monthlyLeadVolume', 'Monthly lead volume'],
+    ['teamSize', 'Team size'],
+    ['annualRevenue', 'Annual revenue'],
+  ] as const;
+  return requiredFields
+    .filter(([key]) => isMissingAccessField(fields[key]))
+    .map(([, label]) => label);
+}
+
 // ─── Affiliate Auto-Enrollment Helper ────────────────────────────────
 async function ensureAffiliateSlug(user: any): Promise<string> {
   if (isAdminEmail(user.email, user.id)) return '';
@@ -1087,8 +1108,21 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
     
     console.log('[AUTH] Signup V2 request for:', email, ref ? `(referred by: ${ref})` : '');
     
-    if (!email || !password || !phone) {
-      return c.json({ error: "Email, password, and phone number are required" }, 400);
+    const missingFields = validateAccessApplicationFields({
+      name,
+      email,
+      phone,
+      company,
+      businessType,
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
+    });
+    if (!password || missingFields.length > 0) {
+      return c.json({
+        error: `Complete your access application before continuing. Missing: ${[...(!password ? ['Password'] : []), ...missingFields].join(', ')}`,
+        missingFields: [...(!password ? ['password'] : []), ...missingFields],
+      }, 400);
     }
     
     const normalizedEmail = email.toLowerCase().trim();
@@ -1124,11 +1158,11 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
       user_metadata: { 
         name: name || 'User',
         brand: company || name || 'My Brand',
-        phone: phone || '',
-        businessType: businessType || 'Unknown',
-        monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
-        teamSize: teamSize || 'Unknown',
-        annualRevenue: annualRevenue || 'Unknown'
+        phone,
+        businessType,
+        monthlyLeadVolume,
+        teamSize,
+        annualRevenue
       },
       email_confirm: true
     });
@@ -1167,11 +1201,11 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
                 if (entry) {
                     entry.userId = data.user.id;
                     entry.name = entry.name && entry.name !== 'User' && entry.name !== 'OAuth User' ? entry.name : (name || entry.name || 'User');
-                    entry.phone = phone || entry.phone || '';
-                    entry.businessType = businessType || entry.businessType || 'Unknown';
-                    entry.monthlyLeadVolume = monthlyLeadVolume || entry.monthlyLeadVolume || 'Unknown';
-                    entry.teamSize = teamSize || entry.teamSize || 'Unknown';
-                    entry.annualRevenue = annualRevenue || entry.annualRevenue || 'Unknown';
+                    entry.phone = phone;
+                    entry.businessType = businessType;
+                    entry.monthlyLeadVolume = monthlyLeadVolume;
+                    entry.teamSize = teamSize;
+                    entry.annualRevenue = annualRevenue;
                     // If they are approved, they are fully signed up.
                     // If pending, they are 'pending_signup' (signed up but waiting)
                     entry.status = isApproved ? 'signed_up' : 'pending_signup';
@@ -1187,11 +1221,11 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
                    id: entryId,
                    name: name || 'User',
                    email: normalizedEmail,
-                   phone: phone || '',
-                   businessType: businessType || 'Unknown',
-                   monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
-                   teamSize: teamSize || 'Unknown',
-                   annualRevenue: annualRevenue || 'Unknown',
+                   phone,
+                   businessType,
+                   monthlyLeadVolume,
+                   teamSize,
+                   annualRevenue,
                    status: 'pending_signup', // Distinct status for signed-up-but-waiting
                    created_at: new Date().toISOString(),
                    userId: data.user.id,
@@ -1267,8 +1301,21 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
     
     console.log(`[AUTH] Complete OAuth profile for: ${userEmail} (${provider})`);
     
-    if (!company || !phone || !businessType) {
-      return c.json({ error: 'Company, phone number, and business type are required' }, 400);
+    const missingFields = validateAccessApplicationFields({
+      name: userName,
+      email: userEmail,
+      company,
+      phone,
+      businessType,
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
+    });
+    if (missingFields.length > 0) {
+      return c.json({
+        error: `Complete your access application before continuing. Missing: ${missingFields.join(', ')}`,
+        missingFields,
+      }, 400);
     }
     
     const supabase = getSupabaseAdmin();
@@ -1278,11 +1325,11 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
       user_metadata: {
         ...user.user_metadata,
         brand: company,
-        phone: phone || '',
-        businessType: businessType || 'Unknown',
-        monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
-        teamSize: teamSize || 'Unknown',
-        annualRevenue: annualRevenue || 'Unknown',
+        phone,
+        businessType,
+        monthlyLeadVolume,
+        teamSize,
+        annualRevenue,
         oauth_onboarding_completed: true,
       },
     });
@@ -1313,11 +1360,11 @@ app.post("/make-server-a8b2511f/auth/complete-oauth-profile", async (c) => {
       email: userEmail,
       name: userName,
       company: company,
-      phone: phone || '',
+      phone,
       businessType: businessType,
-      monthlyLeadVolume: monthlyLeadVolume || 'Unknown',
-      teamSize: teamSize || 'Unknown',
-      annualRevenue: annualRevenue || 'Unknown',
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
       status: 'pending',
       created_at: new Date().toISOString(),
       source: `oauth_${provider}`,
@@ -2258,10 +2305,23 @@ app.post("/make-server-a8b2511f/contact", async (c) => {
 app.post("/make-server-a8b2511f/waitlist", async (c) => {
   try {
     const body = await c.req.json();
-    const { name, email, phone, businessType, monthlyLeadVolume } = body;
+    const { name, email, phone, company, businessType, monthlyLeadVolume, teamSize, annualRevenue } = body;
 
-    if (!name || !email || !phone) {
-      return c.json({ error: "Name, email, and phone number are required" }, 400);
+    const missingFields = validateAccessApplicationFields({
+      name,
+      email,
+      phone,
+      company,
+      businessType,
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
+    });
+    if (missingFields.length > 0) {
+      return c.json({
+        error: `Complete your access application before continuing. Missing: ${missingFields.join(', ')}`,
+        missingFields,
+      }, 400);
     }
 
     // Check for duplicate email
@@ -2276,8 +2336,11 @@ app.post("/make-server-a8b2511f/waitlist", async (c) => {
       name,
       email: email.toLowerCase(),
       phone,
-      businessType: businessType || '',
-      monthlyLeadVolume: monthlyLeadVolume || '',
+      company,
+      businessType,
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
       created_at: new Date().toISOString(),
       status: 'pending',
     };
@@ -2302,7 +2365,7 @@ app.post("/make-server-a8b2511f/waitlist", async (c) => {
     // Log admin event
     logAdminEvent('waitlist_join', 'New Waitlist Entry', `${name} (${email}) joined the waitlist — ${businessType || 'Unknown business'}`, {
       email: email.toLowerCase(),
-      metadata: { name, phone, businessType, monthlyLeadVolume, position: currentCount + 1 }
+      metadata: { name, phone, company, businessType, monthlyLeadVolume, teamSize, annualRevenue, position: currentCount + 1 }
     }).catch(() => {});
 
     // Send confirmation email

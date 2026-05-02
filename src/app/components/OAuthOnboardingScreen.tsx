@@ -32,6 +32,20 @@ export function OAuthOnboardingScreen({ user, onComplete, onLogout }: OAuthOnboa
     setLoading(true);
     setError('');
 
+    const requiredAccessFields = [
+      companyName,
+      phone,
+      businessType,
+      monthlyLeadVolume,
+      teamSize,
+      annualRevenue,
+    ];
+    if (requiredAccessFields.some(value => !value.trim())) {
+      setError('Complete every access application field so we can tailor the right plan.');
+      setLoading(false);
+      return;
+    }
+
     try {
       const headers = await getAuthHeaders();
       
