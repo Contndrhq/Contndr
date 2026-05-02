@@ -1,7 +1,7 @@
 // Rebuild: 2026-03-17T12:00 — force recompile after chunk loading failure fix
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { TrendingUp, Mail, MailOpen, Users, DollarSign, CircleDollarSign, Trophy, Target, CalendarDays, ChevronDown } from 'lucide-react';
+import { TrendingUp, Mail, MailOpen, Users, DollarSign, Target, CalendarDays, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { getAuthHeaders, authenticatedFetch } from '../lib/auth';
@@ -75,7 +75,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
   const isDemoMode = useDemoMode();
   const leadLimit = getLeadLimitForPlan(subscriptionStatus?.plan);
   const isUnlimitedLeads = leadLimit < 0;
-  const [dateRange, setDateRange] = useState(() => getDefaultDashboardDateRange());
+  const [dateRange, setDateRange] = useState<DashboardDateRange>(() => getDefaultDashboardDateRange());
 
   // Real-time sync: auto-refresh when events come in from other tabs/users
   const dashboardRefreshKey = useRealtimeRefresh([
@@ -84,7 +84,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
     'pipeline:deal_created', 'pipeline:deal_moved', 'import:completed',
   ]);
   // Hydrate from localStorage snapshot for instant paint
-  const snapshot = isDemoMode ? null : readSnapshot();
+  const snapshot = isDemoMode || !isAllTimeRange(dateRange) ? null : readSnapshot();
 
   const [stats, setStats] = useState<DashboardStats>(
     isDemoMode ? DEMO_DASHBOARD_STATS : (snapshot?.stats ?? {
@@ -377,7 +377,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
         cacheKey,
         async () => {
           // Single server call replaces 7+ individual Supabase count queries
-          const dateParams = `&date_start=${encodeURIComponent(dateRange.start)}&date_end=${encodeURIComponent(dateRange.end)}`;
+          const dateParams = isAllTimeRange(dateRange) ? '' : `&date_start=${encodeURIComponent(dateRange.start)}&date_end=${encodeURIComponent(dateRange.end)}`;
           const res = await authenticatedFetch(
             `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/dashboard/stats?brand=${selectedBrand}${dateParams}${forceParam}`,
             { signal: AbortSignal.timeout(25000) }
@@ -404,8 +404,11 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
         setSelectedBrand('all');
       }
 
-      // Write snapshot to localStorage for instant hydration
-      writeSnapshot(dashData);
+      // Snapshot only all-time data. Date-filtered snapshots made the dashboard
+      // appear stale or incorrect after switching ranges.
+      if (isAllTimeRange(dateRange)) {
+        writeSnapshot(dashData);
+      }
 
       // Load revenue snapshot in parallel (reuses DashboardRevenuePipeline cache keys)
       loadRevenueSnapshot();
@@ -603,19 +606,14 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
                   </span>
                 )}
               </div>
-              {!isUnlimitedLeads && (
-                <div className="progress-bar-track">
-                  <div 
-                    className="progress-bar-fill" 
-                    style={{ width: `${Math.min(100, (stats.totalLeads / leadLimit) * 100)}%` }}
-                  />
-                </div>
+              {!isUnlimitedLeads ? (
+                <MetricMeter
+                  value={Math.min(100, (stats.totalLeads / Math.max(leadLimit, 1)) * 100)}
+                  label={`${Math.min(100, (stats.totalLeads / Math.max(leadLimit, 1)) * 100).toFixed(0)}% of plan`}
+                />
+              ) : (
+                <p className="mt-auto pt-3 text-[10px] font-semibold text-[#1ED4A7]">Unlimited lead capacity</p>
               )}
-              <MiniTrendChart
-                data={stats.leadsHistory?.length ? stats.leadsHistory : buildFallbackSeries(stats.totalLeads, 'steady')}
-                type="line"
-                className="mt-3"
-              />
             </div>
 
             {/* Emails Sent */}
@@ -626,8 +624,8 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
               onClick={() => onNavigate('emails')}
               trend={stats.emailsReplied > 0 ? `${stats.emailsReplied} ${t('dashboard.replies', 'replies')}` : undefined}
               trendUp={stats.emailsReplied > 0 ? true : undefined}
-              chartData={stats.emailsHistory?.length ? stats.emailsHistory : buildFallbackSeries(stats.emailsSent, 'bars')}
-              chartType="bar"
+              meterValue={stats.emailsSent > 0 ? Math.min(100, (stats.emailsDelivered / stats.emailsSent) * 100) : 0}
+              meterLabel={`${stats.emailsDelivered.toLocaleString()} delivered`}
             />
 
             {/* Open Rate */}
@@ -638,8 +636,8 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
               teal={stats.openRate > 25}
               trend={stats.openRate > 0 ? (stats.openRate > 50 ? t('dashboard.aboveAvg') : stats.openRate > 25 ? t('dashboard.industryAvg') : t('dashboard.belowAvg')) : undefined}
               trendUp={stats.openRate > 50 ? true : stats.openRate > 25 ? undefined : stats.openRate > 0 ? false : undefined}
-              chartData={stats.opensHistory?.length ? stats.opensHistory : buildFallbackSeries(stats.openRate, 'dip')}
-              chartType="line"
+              meterValue={stats.openRate}
+              meterLabel={`${stats.emailsOpened.toLocaleString()} opens`}
             />
 
             {/* Close Rate */}
@@ -650,8 +648,8 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
               teal={revenueSnap.closeRate > 30}
               trend={revenueSnap.closeRate > 0 ? (revenueSnap.closeRate > 40 ? t('dashboard.strong') : revenueSnap.closeRate > 20 ? t('dashboard.avg') : t('dashboard.needsWork')) : undefined}
               trendUp={revenueSnap.closeRate > 40 ? true : revenueSnap.closeRate > 20 ? undefined : revenueSnap.closeRate > 0 ? false : undefined}
-              chartData={buildFallbackSeries(revenueSnap.closeRate, 'dip')}
-              chartType="line"
+              meterValue={revenueSnap.closeRate}
+              meterLabel={`${revenueSnap.wonDeals} won deals`}
             />
 
             {/* Pipeline */}
@@ -661,8 +659,6 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
               icon={TrendingUp}
               onClick={() => onNavigate('pipeline')}
               trend={revenueSnap.activeDeals > 0 ? `${revenueSnap.activeDeals} ${t('dashboard.activeDeals', 'active deals').toLowerCase()}` : undefined}
-              chartData={buildFallbackSeries(revenueSnap.pipelineValue, 'bars')}
-              chartType="bar"
             />
 
             {/* MRR */}
@@ -674,8 +670,6 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
               onClick={() => onNavigate('revenue')}
               trend={revenueSnap.mrr > 0 || revenueSnap.wonDeals > 0 ? `${revenueSnap.wonDeals} ${t('dashboard.wonDeals', 'won deals')}` : undefined}
               trendUp={revenueSnap.mrr > 0 || revenueSnap.wonDeals > 0 ? true : undefined}
-              chartData={buildFallbackSeries(revenueSnap.mrr, 'steady')}
-              chartType="line"
             />
           </div>
 
@@ -713,10 +707,7 @@ function getLocalDateString(date: Date) {
 }
 
 function getDefaultDashboardDateRange(): DashboardDateRange {
-  const end = new Date();
-  const start = new Date(end);
-  start.setDate(end.getDate() - 7);
-  return { start: getLocalDateString(start), end: getLocalDateString(end) };
+  return { start: '', end: '' };
 }
 
 function getPresetDateRange(days: number): DashboardDateRange {
@@ -727,6 +718,7 @@ function getPresetDateRange(days: number): DashboardDateRange {
 }
 
 function formatDashboardDateRange(range: DashboardDateRange) {
+  if (isAllTimeRange(range)) return 'All time';
   const start = new Date(`${range.start}T12:00:00`);
   const end = new Date(`${range.end}T12:00:00`);
   const month = new Intl.DateTimeFormat(undefined, { month: 'short' });
@@ -737,6 +729,10 @@ function formatDashboardDateRange(range: DashboardDateRange) {
   return `${startLabel} - ${endLabel}`;
 }
 
+function isAllTimeRange(range: DashboardDateRange) {
+  return !range.start && !range.end;
+}
+
 function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRange; onChange: (range: DashboardDateRange) => void }) {
   const [draft, setDraft] = useState(value);
 
@@ -744,12 +740,22 @@ function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRan
     setDraft(value);
   }, [value.start, value.end]);
 
-  const applyRange = (next: DashboardDateRange) => {
+  const applyRange = (next: DashboardDateRange, event?: MouseEvent<HTMLElement>) => {
+    if (!next.start && !next.end) {
+      onChange({ start: '', end: '' });
+      event?.currentTarget.closest('details')?.removeAttribute('open');
+      return;
+    }
     if (!next.start || !next.end) return;
     const start = next.start <= next.end ? next.start : next.end;
     const end = next.start <= next.end ? next.end : next.start;
     onChange({ start, end });
+    event?.currentTarget.closest('details')?.removeAttribute('open');
   };
+
+  const isActivePreset = (range: DashboardDateRange) => (
+    value.start === range.start && value.end === range.end
+  );
 
   return (
     <details className="relative hidden sm:block group">
@@ -759,21 +765,29 @@ function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRan
         <ChevronDown className="w-3.5 h-3.5 text-zinc-500 transition-transform group-open:rotate-180" />
       </summary>
       <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-72 rounded-2xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-950 shadow-xl p-3">
-        <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="grid grid-cols-4 gap-2 mb-3">
           {[
+            { label: 'All', range: getDefaultDashboardDateRange() },
             { label: '7D', range: getPresetDateRange(7) },
             { label: '30D', range: getPresetDateRange(30) },
             { label: '90D', range: getPresetDateRange(90) },
-          ].map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              onClick={() => applyRange(preset.range)}
-              className="h-8 rounded-lg border border-zinc-200 dark:border-white/10 text-xs font-semibold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/[0.06] transition-colors"
-            >
-              {preset.label}
-            </button>
-          ))}
+          ].map((preset) => {
+            const active = isActivePreset(preset.range);
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={(event) => applyRange(preset.range, event)}
+                className={`h-8 rounded-lg border text-xs font-semibold transition-colors ${
+                  active
+                    ? 'border-[#1ED4A7]/50 bg-[#1ED4A7]/12 text-[#1ED4A7]'
+                    : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/[0.06]'
+                }`}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
         </div>
         <div className="grid grid-cols-2 gap-2">
           <label className="space-y-1">
@@ -797,7 +811,7 @@ function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRan
         </div>
         <button
           type="button"
-          onClick={() => applyRange(draft)}
+          onClick={(event) => applyRange(draft, event)}
           className="mt-3 w-full h-9 rounded-lg bg-[#1ED4A7] text-black text-xs font-bold hover:bg-[#24e4b6] transition-colors"
         >
           Apply range
@@ -816,11 +830,11 @@ interface StatCardProps {
   teal?: boolean;
   trend?: string;       // e.g. "↑ 8%" or "above avg"
   trendUp?: boolean;    // true = positive/green, false = negative/red, undefined = neutral
-  chartData?: number[];
-  chartType?: 'line' | 'bar';
+  meterValue?: number;
+  meterLabel?: string;
 }
 
-function StatCard({ title, value, icon: Icon, onClick, teal, trend, trendUp, chartData, chartType = 'line' }: StatCardProps) {
+function StatCard({ title, value, icon: Icon, onClick, teal, trend, trendUp, meterValue, meterLabel }: StatCardProps) {
   return (
     <div 
       className={`glass-card p-4 sm:p-5 transition-all group flex flex-col min-h-[136px] ${onClick ? 'cursor-pointer hover:border-zinc-300 dark:hover:border-zinc-700 hover:-translate-y-1' : ''}`}
@@ -838,83 +852,30 @@ function StatCard({ title, value, icon: Icon, onClick, teal, trend, trendUp, cha
           {trend}
         </p>
       )}
-      {chartData && chartData.length > 1 && (
-        <MiniTrendChart data={chartData} type={chartType} className="mt-auto pt-3" />
+      {typeof meterValue === 'number' && (
+        <MetricMeter value={meterValue} label={meterLabel} />
       )}
     </div>
   );
 }
 
-function buildFallbackSeries(value: number, mode: 'steady' | 'bars' | 'dip') {
-  const base = Math.max(Number.isFinite(value) ? value : 0, 1);
-  const multipliers =
-    mode === 'bars'
-      ? [0.55, 0.78, 0.62, 0.92, 0.7, 0.84, 1, 0.68, 0.76, 0.9]
-      : mode === 'dip'
-        ? [0.9, 0.86, 0.68, 0.74, 0.81, 0.8, 0.66, 0.88, 0.98, 1]
-        : [0.64, 0.72, 0.71, 0.8, 0.84, 0.86, 0.82, 0.78, 0.9, 1];
-  return multipliers.map((m) => Math.max(0, Number((base * m).toFixed(2))));
-}
-
-function MiniTrendChart({ data, type, className = '' }: { data: number[]; type: 'line' | 'bar'; className?: string }) {
-  const values = data.filter((v) => Number.isFinite(v));
-  if (values.length < 2) return null;
-
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = Math.max(max - min, 1);
-  const points = values.map((value, index) => ({
-    x: values.length === 1 ? 50 : 4 + (index / (values.length - 1)) * 92,
-    y: 32 - ((value - min) / range) * 22,
-  }));
-  const linePath = points.reduce((path, point, index) => {
-    if (index === 0) return `M ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-    const previous = points[index - 1];
-    const midX = (previous.x + point.x) / 2;
-    return `${path} C ${midX.toFixed(2)} ${previous.y.toFixed(2)}, ${midX.toFixed(2)} ${point.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-  }, '');
-  const areaPath = `${linePath} L 96 36 L 4 36 Z`;
-  const lastPoint = points[points.length - 1];
-
-  if (type === 'bar') {
-    return (
-      <div className={`h-10 rounded-xl border border-zinc-200/70 dark:border-white/[0.06] bg-zinc-50/70 dark:bg-white/[0.025] px-2.5 py-2 flex items-end gap-1.5 ${className}`} aria-hidden="true">
-        {values.map((value, index) => {
-          const normalized = (value - min) / range;
-          const height = 8 + normalized * 24;
-          const opacity = 0.35 + normalized * 0.65;
-          return (
-            <div key={`${value}-${index}`} className="flex-1 h-full flex items-end rounded-full bg-zinc-200/50 dark:bg-white/[0.045] overflow-hidden">
-              <div
-                className="w-full rounded-full bg-gradient-to-t from-[#168F75] via-[#1ED4A7] to-[#70F3D1] shadow-[0_0_10px_rgba(30,212,167,0.18)] transition-all duration-300"
-                style={{ height, opacity }}
-              />
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-
+function MetricMeter({ value, label }: { value: number; label?: string }) {
+  const bounded = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
   return (
-    <svg className={`h-10 w-full overflow-visible ${className}`} viewBox="0 0 100 38" preserveAspectRatio="none" aria-hidden="true">
-      <defs>
-        <linearGradient id="dashboardSparkArea" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="#1ED4A7" stopOpacity="0.28" />
-          <stop offset="100%" stopColor="#1ED4A7" stopOpacity="0" />
-        </linearGradient>
-        <linearGradient id="dashboardSparkLine" x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0%" stopColor="#168F75" />
-          <stop offset="55%" stopColor="#1ED4A7" />
-          <stop offset="100%" stopColor="#70F3D1" />
-        </linearGradient>
-      </defs>
-      <path d="M 4 32 L 96 32" fill="none" stroke="currentColor" className="text-zinc-200 dark:text-white/[0.05]" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-      <path d={areaPath} fill="url(#dashboardSparkArea)" />
-      <path d={linePath} fill="none" stroke="rgba(30,212,167,0.18)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-      <path d={linePath} fill="none" stroke="url(#dashboardSparkLine)" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-      <circle cx={lastPoint.x} cy={lastPoint.y} r="2.2" fill="#1ED4A7" stroke="rgba(0,0,0,0.55)" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
-    </svg>
+    <div className="mt-auto pt-3">
+      <div className="h-1.5 rounded-full bg-zinc-200/70 dark:bg-white/[0.06] overflow-hidden">
+        <div
+          className="h-full rounded-full bg-[#1ED4A7] shadow-[0_0_12px_rgba(30,212,167,0.22)] transition-[width] duration-500"
+          style={{ width: `${bounded}%` }}
+        />
+      </div>
+      {label && (
+        <div className="mt-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-zinc-500 dark:text-zinc-500">
+          <span className="truncate">{label}</span>
+          <span className="tabular-nums text-zinc-600 dark:text-zinc-400">{bounded.toFixed(0)}%</span>
+        </div>
+      )}
+    </div>
   );
 }
 
