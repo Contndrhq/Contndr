@@ -1,15 +1,15 @@
-import { useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Zap, ArrowUpRight, Loader2, Eye, MousePointerClick, Reply, Globe, Sparkles, Mail, UserRound } from 'lucide-react';
 import { authenticatedFetch } from '../lib/auth';
 import { projectId } from '../utils/supabase/info';
 import { apiCache } from '../lib/api-cache';
 import { supabase } from '../lib/supabase';
-import { LeadDetailModal } from './LeadDetailModal';
 import { useDemoMode } from './DemoContext';
 import i18n from '../lib/i18n';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f`;
+const LeadDetailModal = lazy(() => import('./LeadDetailModal').then((module) => ({ default: module.LeadDetailModal })));
 
 interface BuyingSignal {
   id: string;
@@ -287,10 +287,12 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
 
       {/* Lead Detail Modal — same as CRM */}
       {selectedLeadId && (
-        <LeadDetailModal
-          leadId={selectedLeadId}
-          onClose={() => setSelectedLeadId(null)}
-        />
+        <Suspense fallback={null}>
+          <LeadDetailModal
+            leadId={selectedLeadId}
+            onClose={() => setSelectedLeadId(null)}
+          />
+        </Suspense>
       )}
     </div>
   );

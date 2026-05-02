@@ -9,7 +9,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { notifyEmailClicked, notifyEmailOpened, notifyHighEngagement } from '../lib/notifications';
 import { DashboardTeamSnapshot } from './DashboardTeamSnapshot';
 import { DashboardPipelineSnapshot } from './DashboardPipelineSnapshot';
-import { DashboardTodayFocus } from './DashboardTodayFocus';
+import { DashboardCampaignSignals } from './DashboardCampaignSignals';
 import { DashboardEngagementHeatmap } from './DashboardEngagementHeatmap';
 import { useRealtimeRefresh } from './RealtimeProvider';
 import { apiCache } from '../lib/api-cache';
@@ -691,7 +691,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
             </div>
 
             <div className="h-[300px] xl:h-full">
-               <DashboardTodayFocus onNavigate={onNavigate} />
+               <DashboardCampaignSignals onNavigate={onNavigate} />
             </div>
 
             <div className="h-[300px] xl:h-full">
