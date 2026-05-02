@@ -5178,10 +5178,17 @@ app.get("/make-server-a8b2511f/dashboard/stats", async (c) => {
     const { user, supabase } = await getAuthenticatedUser(c);
     const t0 = Date.now();
     const brand = c.req.query('brand') || 'all';
+    const dateStartParam = c.req.query('date_start') || c.req.query('start') || '';
+    const dateEndParam = c.req.query('date_end') || c.req.query('end') || '';
+    const parsedStart = dateStartParam ? new Date(`${dateStartParam}T00:00:00.000Z`) : null;
+    const parsedEnd = dateEndParam ? new Date(`${dateEndParam}T23:59:59.999Z`) : null;
+    const dateStart = parsedStart && !Number.isNaN(parsedStart.getTime()) ? parsedStart.toISOString() : '';
+    const dateEnd = parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd.toISOString() : '';
 
     // ── L1: In-memory cache (per-isolate, instant) ────────────────────
     const forceRefresh = c.req.query('force') === '1';
-    const cacheKey = `dashboard:stats:${user.id}:${brand}`;
+    const rangeKey = `${dateStart || 'all'}:${dateEnd || 'all'}`;
+    const cacheKey = `dashboard:stats:${user.id}:${brand}:${rangeKey}`;
     if (!forceRefresh) {
       const memCached = getCached(cacheKey);
       if (memCached !== null) {
@@ -5195,7 +5202,7 @@ app.get("/make-server-a8b2511f/dashboard/stats", async (c) => {
     // Isolate A writes result to KV after computing; isolate B reads KV
     // immediately without hitting the database again.
     // force=1 skips KV so real-time refreshes always get truly fresh counts.
-    const kvCacheKey = `dashboard:stats:kv:${user.id}:${brand}`;
+    const kvCacheKey = `dashboard:stats:kv:${user.id}:${brand}:${rangeKey}`;
     if (!forceRefresh) {
       try {
         const kvCached = await kv.get(kvCacheKey);
@@ -5212,7 +5219,7 @@ app.get("/make-server-a8b2511f/dashboard/stats", async (c) => {
     // ── Stampede guard ────────────────────────────────────────────────
     // If another isolate is already computing stats for this user, wait
     // briefly and serve from KV rather than both hammering the DB.
-    const lockKey = `dashboard:stats:lock:${user.id}:${brand}`;
+    const lockKey = `dashboard:stats:lock:${user.id}:${brand}:${rangeKey}`;
     let lockAcquired = false;
     try {
       const existingLock = await kv.get(lockKey);
@@ -5278,30 +5285,38 @@ app.get("/make-server-a8b2511f/dashboard/stats", async (c) => {
     // Previous approach fetched all email rows and counted in JS — this transferred
     // 50k–200k rows per request under concurrent load and caused isolate timeouts.
     // Each HEAD count query returns only a number (~10–40ms each, run in parallel).
-    const leadsCountP = supabase
+    let leadsCountQ = supabase
       .from('leads')
       .select('id', { count: 'estimated', head: true })
       .in('user_id', targetUserIds);
+    if (dateStart) leadsCountQ = leadsCountQ.gte('created_at', dateStart);
+    if (dateEnd) leadsCountQ = leadsCountQ.lte('created_at', dateEnd);
+    const leadsCountP = leadsCountQ;
 
     let emailCountsP: Promise<{ sent: number; opened: number; clicked: number; delivered: number; replied: number }>;
     if (campaignIds.length > 0) {
       const campSlice = campaignIds.slice(0, 300);
+      const applyEmailDateRange = (q: any) => {
+        if (dateStart) q = q.gte('created_at', dateStart);
+        if (dateEnd) q = q.lte('created_at', dateEnd);
+        return q;
+      };
       const [sentR, openedR, clickedR, deliveredR, repliedR] = await Promise.all([
-        supabase.from('emails').select('id', { count: 'estimated', head: true })
+        applyEmailDateRange(supabase.from('emails').select('id', { count: 'estimated', head: true })
           .in('campaign_id', campSlice)
-          .in('status', ['sent','delivered','opened','clicked','bounced','complained']),
-        supabase.from('emails').select('id', { count: 'estimated', head: true })
+          .in('status', ['sent','delivered','opened','clicked','bounced','complained'])),
+        applyEmailDateRange(supabase.from('emails').select('id', { count: 'estimated', head: true })
           .in('campaign_id', campSlice)
-          .in('status', ['opened','clicked']),
-        supabase.from('emails').select('id', { count: 'estimated', head: true })
+          .in('status', ['opened','clicked'])),
+        applyEmailDateRange(supabase.from('emails').select('id', { count: 'estimated', head: true })
           .in('campaign_id', campSlice)
-          .eq('status', 'clicked'),
-        supabase.from('emails').select('id', { count: 'estimated', head: true })
+          .eq('status', 'clicked')),
+        applyEmailDateRange(supabase.from('emails').select('id', { count: 'estimated', head: true })
           .in('campaign_id', campSlice)
-          .in('status', ['delivered','opened','clicked']),
-        supabase.from('emails').select('id', { count: 'estimated', head: true })
+          .in('status', ['delivered','opened','clicked'])),
+        applyEmailDateRange(supabase.from('emails').select('id', { count: 'estimated', head: true })
           .in('campaign_id', campSlice)
-          .eq('status', 'replied'),
+          .eq('status', 'replied')),
       ]);
       emailCountsP = Promise.resolve({
         sent:      sentR.count      ?? 0,

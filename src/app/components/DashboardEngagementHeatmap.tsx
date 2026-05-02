@@ -6,6 +6,10 @@ import { useDemoMode } from './DemoContext';
 
 interface DashboardEngagementHeatmapProps {
   brandFilter?: string;
+  dateRange?: {
+    start: string;
+    end: string;
+  };
 }
 
 interface EmailOpen {
@@ -24,7 +28,7 @@ const DEMO_POINTS = [
   [0, 0, 0, 0, 0, 2, 3, 6, 0, 5, 4, 0],
 ];
 
-export function DashboardEngagementHeatmap({ brandFilter = 'all' }: DashboardEngagementHeatmapProps) {
+export function DashboardEngagementHeatmap({ brandFilter = 'all', dateRange }: DashboardEngagementHeatmapProps) {
   const { t } = useTranslation();
   const isDemoMode = useDemoMode();
   const [opens, setOpens] = useState<EmailOpen[]>([]);
@@ -36,7 +40,7 @@ export function DashboardEngagementHeatmap({ brandFilter = 'all' }: DashboardEng
       return;
     }
     loadOpenData();
-  }, [brandFilter, isDemoMode]);
+  }, [brandFilter, isDemoMode, dateRange?.start, dateRange?.end]);
 
   async function loadOpenData() {
     setLoading(true);
@@ -73,6 +77,12 @@ export function DashboardEngagementHeatmap({ brandFilter = 'all' }: DashboardEng
 
       if (campaignIds) {
         query = query.in('campaign_id', campaignIds);
+      }
+      if (dateRange?.start) {
+        query = query.gte('opened_at', `${dateRange.start}T00:00:00.000Z`);
+      }
+      if (dateRange?.end) {
+        query = query.lte('opened_at', `${dateRange.end}T23:59:59.999Z`);
       }
 
       const { data, error } = await query;

@@ -1,7 +1,7 @@
 // Rebuild: 2026-03-17T12:00 — force recompile after chunk loading failure fix
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { TrendingUp, Mail, MailOpen, Users, DollarSign, CircleDollarSign, Trophy, Target } from 'lucide-react';
+import { TrendingUp, Mail, MailOpen, Users, DollarSign, CircleDollarSign, Trophy, Target, CalendarDays, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { getAuthHeaders, authenticatedFetch } from '../lib/auth';
@@ -75,6 +75,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
   const isDemoMode = useDemoMode();
   const leadLimit = getLeadLimitForPlan(subscriptionStatus?.plan);
   const isUnlimitedLeads = leadLimit < 0;
+  const [dateRange, setDateRange] = useState(() => getDefaultDashboardDateRange());
 
   // Real-time sync: auto-refresh when events come in from other tabs/users
   const dashboardRefreshKey = useRealtimeRefresh([
@@ -170,7 +171,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
     realtimeDebounceRef.current = setTimeout(() => {
       // Invalidate dashboard cache before reloading so real-time updates come through
       if (userId) {
-        apiCache.invalidate(`dashboard:data:${userId}:${selectedBrand}`);
+        apiCache.invalidate(`dashboard:data:${userId}:${selectedBrand}:${dateRange.start}:${dateRange.end}`);
       }
       loadDashboardData(true);
     }, 1500); // 1.5s debounce (increased from 1s to reduce DB pressure)
@@ -289,7 +290,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
         clearTimeout(realtimeDebounceRef.current);
       }
     };
-  }, [selectedBrand, isAuthReady]); // Re-load when brand changes or auth becomes ready (no timer in deps!)
+  }, [selectedBrand, isAuthReady, dateRange.start, dateRange.end]); // Re-load when brand/date changes or auth becomes ready (no timer in deps!)
 
   // Auto-seed demo data when demo@contndr.com has empty dashboard (skip in sandbox demo mode)
   useEffect(() => {
@@ -348,10 +349,10 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
     if (isDemoMode) return;
     if (appEventKey > 0 && isAuthReady && userId) {
       console.log('[DASHBOARD] App-event refresh triggered');
-      apiCache.invalidate(`dashboard:data:${userId}:${selectedBrand}`);
+      apiCache.invalidate(`dashboard:data:${userId}:${selectedBrand}:${dateRange.start}:${dateRange.end}`);
       loadDashboardData(true);
     }
-  }, [appEventKey, isAuthReady, isDemoMode]);
+  }, [appEventKey, isAuthReady, isDemoMode, dateRange.start, dateRange.end]);
 
   async function loadDashboardData(silentRefresh?: boolean) {
     if (!silentRefresh) {
@@ -366,7 +367,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
     }
 
     try {
-      const cacheKey = `dashboard:data:${userId}:${selectedBrand}`;
+      const cacheKey = `dashboard:data:${userId}:${selectedBrand}:${dateRange.start}:${dateRange.end}`;
 
       // silentRefresh = triggered by real-time event → bypass server KV cache for fresh counts
       // Initial load / brand switch → allow server KV cache (fast path for cold isolates)
@@ -376,8 +377,9 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
         cacheKey,
         async () => {
           // Single server call replaces 7+ individual Supabase count queries
+          const dateParams = `&date_start=${encodeURIComponent(dateRange.start)}&date_end=${encodeURIComponent(dateRange.end)}`;
           const res = await authenticatedFetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/dashboard/stats?brand=${selectedBrand}${forceParam}`,
+            `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/dashboard/stats?brand=${selectedBrand}${dateParams}${forceParam}`,
             { signal: AbortSignal.timeout(25000) }
           );
           if (!res.ok) {
@@ -502,7 +504,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
       if (result.success) {
         // Invalidate cache and reload dashboard data after successful sync
         if (userId) {
-          apiCache.invalidate(`dashboard:data:${userId}:${selectedBrand}`);
+          apiCache.invalidate(`dashboard:data:${userId}:${selectedBrand}:${dateRange.start}:${dateRange.end}`);
         }
         await loadDashboardData();
       } else {
@@ -552,6 +554,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{t('dashboard.overview', 'Overview')}</h1>
 
           <div className="flex items-center justify-center sm:justify-end gap-4 w-full sm:w-auto">
+             <DashboardDateRangePicker value={dateRange} onChange={setDateRange} />
              {/* Plan Status Widget - Hidden as per request */}
              {/* Minimal Brand Filter - Only visible to Admins */}
              {availableBrands.length > 0 && (userEmail === 'admin@contndr.com' || userEmail === 'or@roadr.com') && (
@@ -692,11 +695,115 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
             </div>
 
             <div className="h-[300px] xl:h-full">
-               <DashboardEngagementHeatmap brandFilter={selectedBrand} />
+               <DashboardEngagementHeatmap brandFilter={selectedBrand} dateRange={dateRange} />
             </div>
           </div>
         </div>
     </div>
+  );
+}
+
+type DashboardDateRange = { start: string; end: string };
+
+function getLocalDateString(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getDefaultDashboardDateRange(): DashboardDateRange {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(end.getDate() - 7);
+  return { start: getLocalDateString(start), end: getLocalDateString(end) };
+}
+
+function getPresetDateRange(days: number): DashboardDateRange {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(end.getDate() - days);
+  return { start: getLocalDateString(start), end: getLocalDateString(end) };
+}
+
+function formatDashboardDateRange(range: DashboardDateRange) {
+  const start = new Date(`${range.start}T12:00:00`);
+  const end = new Date(`${range.end}T12:00:00`);
+  const month = new Intl.DateTimeFormat(undefined, { month: 'short' });
+  const startLabel = `${month.format(start)} ${start.getDate()}`;
+  const endLabel = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()
+    ? `${end.getDate()}`
+    : `${month.format(end)} ${end.getDate()}`;
+  return `${startLabel} - ${endLabel}`;
+}
+
+function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRange; onChange: (range: DashboardDateRange) => void }) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value.start, value.end]);
+
+  const applyRange = (next: DashboardDateRange) => {
+    if (!next.start || !next.end) return;
+    const start = next.start <= next.end ? next.start : next.end;
+    const end = next.start <= next.end ? next.end : next.start;
+    onChange({ start, end });
+  };
+
+  return (
+    <details className="relative hidden sm:block group">
+      <summary className="list-none inline-flex cursor-pointer items-center gap-2 px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50/80 dark:bg-white/[0.03] text-xs font-medium text-zinc-600 dark:text-zinc-300 shadow-sm hover:border-zinc-300 dark:hover:border-white/20 transition-colors">
+        <CalendarDays className="w-3.5 h-3.5 text-zinc-500" />
+        <span className="tabular-nums">{formatDashboardDateRange(value)}</span>
+        <ChevronDown className="w-3.5 h-3.5 text-zinc-500 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-72 rounded-2xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-950 shadow-xl p-3">
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          {[
+            { label: '7D', range: getPresetDateRange(7) },
+            { label: '30D', range: getPresetDateRange(30) },
+            { label: '90D', range: getPresetDateRange(90) },
+          ].map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              onClick={() => applyRange(preset.range)}
+              className="h-8 rounded-lg border border-zinc-200 dark:border-white/10 text-xs font-semibold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/[0.06] transition-colors"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="space-y-1">
+            <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Start</span>
+            <input
+              type="date"
+              value={draft.start}
+              onChange={(event) => setDraft((current) => ({ ...current, start: event.target.value }))}
+              className="w-full h-9 rounded-lg border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-white/[0.04] px-2 text-xs text-zinc-900 dark:text-white outline-none focus:border-[#1ED4A7]/60"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">End</span>
+            <input
+              type="date"
+              value={draft.end}
+              onChange={(event) => setDraft((current) => ({ ...current, end: event.target.value }))}
+              className="w-full h-9 rounded-lg border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-white/[0.04] px-2 text-xs text-zinc-900 dark:text-white outline-none focus:border-[#1ED4A7]/60"
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          onClick={() => applyRange(draft)}
+          className="mt-3 w-full h-9 rounded-lg bg-[#1ED4A7] text-black text-xs font-bold hover:bg-[#24e4b6] transition-colors"
+        >
+          Apply range
+        </button>
+      </div>
+    </details>
   );
 }
 
