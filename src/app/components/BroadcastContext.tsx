@@ -151,14 +151,122 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   const runningRef = useRef(false);
   // Track current campaignId for the status poller
   const activeCampaignIdRef = useRef<string>('');
+  const replayedEmailIdsRef = useRef<Set<string>>(new Set());
+  const replayQueueRef = useRef<SendingLogEntry[]>([]);
+  const replayingRef = useRef(false);
+
+  const resetLiveReplay = useCallback(() => {
+    replayedEmailIdsRef.current = new Set();
+    replayQueueRef.current = [];
+    replayingRef.current = false;
+  }, []);
+
+  const waitForReplayIdle = useCallback(async () => {
+    while (!abortRef.current && (replayingRef.current || replayQueueRef.current.length > 0)) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  }, []);
+
+  const processReplayQueue = useCallback(async () => {
+    if (replayingRef.current) return;
+    replayingRef.current = true;
+
+    try {
+      while (!abortRef.current && replayQueueRef.current.length > 0) {
+        const entry = replayQueueRef.current.shift();
+        if (!entry) continue;
+
+        const finalEntry: SendingLogEntry = {
+          ...entry,
+          status: entry.status === 'failed' || entry.status === 'bounced' ? entry.status : 'delivered',
+          timestamp: Date.now(),
+        };
+
+        if (finalEntry.status === 'delivered' && (finalEntry.subject || finalEntry.body)) {
+          const writingEntry = { ...finalEntry, status: 'writing' as const };
+          setState(prev => ({
+            ...prev,
+            currentEntry: writingEntry,
+            statusText: `Writing to ${finalEntry.recipientName || finalEntry.recipientEmail}...`,
+          }));
+
+          const bodyLen = (finalEntry.body || '').length;
+          const typingWait = Math.min(Math.max(bodyLen * 4, 1800), 5200);
+          await new Promise(resolve => setTimeout(resolve, typingWait));
+          if (abortRef.current) break;
+
+          setState(prev => ({
+            ...prev,
+            currentEntry: { ...writingEntry, status: 'sending' },
+            statusText: 'Delivering message...',
+          }));
+          await new Promise(resolve => setTimeout(resolve, 650));
+          if (abortRef.current) break;
+
+          setState(prev => ({
+            ...prev,
+            currentEntry: { ...writingEntry, status: 'delivered' },
+            statusText: 'Message delivered',
+          }));
+          await new Promise(resolve => setTimeout(resolve, 900));
+          if (abortRef.current) break;
+        }
+
+        setState(prev => {
+          if (prev.log.some(item => item.id === finalEntry.id)) {
+            return { ...prev, currentEntry: null };
+          }
+
+          const nextLog = [...prev.log, finalEntry];
+          const delivered = nextLog.filter(item => item.status === 'delivered').length;
+          const bounced = nextLog.filter(item => item.status === 'bounced').length;
+          const failed = nextLog.filter(item => item.status === 'failed').length;
+          const observed = delivered + bounced + failed;
+
+          return {
+            ...prev,
+            log: nextLog,
+            currentEntry: null,
+            progress: Math.max(prev.progress, observed),
+            successCount: Math.max(prev.successCount, delivered),
+            bounceCount: Math.max(prev.bounceCount, bounced),
+            errorCount: Math.max(prev.errorCount, failed),
+            statusText: 'Watching the live broadcast...',
+          };
+        });
+      }
+    } finally {
+      replayingRef.current = false;
+    }
+  }, []);
+
+  const queueLiveReplay = useCallback((emailLog: SendingLogEntry[]) => {
+    const fresh = emailLog
+      .filter(entry => entry?.id && !replayedEmailIdsRef.current.has(entry.id))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (fresh.length === 0) return;
+
+    for (const entry of fresh) {
+      replayedEmailIdsRef.current.add(entry.id);
+      replayQueueRef.current.push(entry);
+    }
+
+    setState(prev => ({
+      ...prev,
+      statusText: prev.currentEntry ? prev.statusText : 'Preparing live broadcast...',
+    }));
+    void processReplayQueue();
+  }, [processReplayQueue]);
 
   const dismiss = useCallback(() => {
     abortRef.current = true;
     if (state.campaignId) releaseSendLock(state.campaignId);
     runningRef.current = false;
     activeCampaignIdRef.current = '';
+    resetLiveReplay();
     setState(initialState);
-  }, [state.campaignId]);
+  }, [resetLiveReplay, state.campaignId]);
 
   const toggleMinimize = useCallback(() => {
     setState(prev => ({ ...prev, viewMode: prev.viewMode === 'minimized' ? 'default' : 'minimized' }));
@@ -187,6 +295,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         fetchCampaignEmailLog(cId, state.campaignName),
       ]);
       if (!stats) return;
+      queueLiveReplay(emailLog);
 
       setState(prev => {
         // Only bump forward — never move progress backward
@@ -195,7 +304,6 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         const newTotal = stats.totalLeads > 0 ? stats.totalLeads : prev.total;
         return {
           ...prev,
-          log: emailLog.length > prev.log.length ? emailLog : prev.log,
           progress: newProgress,
           successCount: newSuccess,
           total: Math.max(prev.total, newTotal),
@@ -204,7 +312,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     }, 5_000);
 
     return () => clearInterval(intervalId);
-  }, [state.active, state.done]);
+  }, [queueLiveReplay, state.active, state.campaignName, state.done]);
 
   const startBroadcast = useCallback(({ campaignId, campaignName, total }: {
     campaignId: string;
@@ -227,6 +335,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     abortRef.current = false;
     runningRef.current = true;
     activeCampaignIdRef.current = campaignId;
+    resetLiveReplay();
 
     setState({
       active: true,
@@ -268,18 +377,24 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           fetchCampaignEmailLog(campaignId, campaignName),
         ]);
         if (initialStats) {
+          queueLiveReplay(initialEmailLog);
           const initialTotal = initialStats.totalLeads > 0 ? initialStats.totalLeads : total;
           const initialComplete = initialStats.status === 'completed' || (initialTotal > 0 && initialStats.sentCount >= initialTotal);
           setState(prev => ({
             ...prev,
-            log: initialEmailLog.length > prev.log.length ? initialEmailLog : prev.log,
             progress: Math.max(prev.progress, initialStats.sentCount),
             successCount: Math.max(prev.successCount, initialStats.sentCount),
             total: Math.max(prev.total, initialTotal),
-            done: initialComplete,
-            statusText: initialComplete ? '' : `Sending in background (${initialStats.sentCount}/${Math.max(initialTotal, 1)})...`,
+            statusText: initialComplete ? 'Finalizing live broadcast...' : `Broadcasting live (${initialStats.sentCount}/${Math.max(initialTotal, 1)})...`,
           }));
           if (initialComplete) {
+            await waitForReplayIdle();
+            setState(prev => ({
+              ...prev,
+              currentEntry: null,
+              done: true,
+              statusText: '',
+            }));
             runningRef.current = false;
             activeCampaignIdRef.current = '';
             releaseSendLock(campaignId);
@@ -294,7 +409,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
             return;
           }
         } else {
-          setState(prev => ({ ...prev, statusText: 'Sending in background...' }));
+          setState(prev => ({ ...prev, statusText: 'Broadcasting live...' }));
         }
 
         let finalSent = 0;
@@ -309,16 +424,16 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
             fetchCampaignEmailLog(campaignId, campaignName),
           ]);
           if (stats) {
+            queueLiveReplay(emailLog);
             finalSent = Math.max(finalSent, stats.sentCount);
             finalTotal = Math.max(finalTotal, stats.totalLeads);
             completed = stats.status === 'completed' || (stats.totalLeads > 0 && stats.sentCount >= stats.totalLeads);
             setState(prev => ({
               ...prev,
-              log: emailLog.length > prev.log.length ? emailLog : prev.log,
               progress: Math.max(prev.progress, finalSent),
               successCount: Math.max(prev.successCount, finalSent),
               total: Math.max(prev.total, finalTotal),
-              statusText: completed ? 'Finalizing campaign...' : `Sending in background (${finalSent}/${Math.max(finalTotal, 1)})...`,
+              statusText: completed ? 'Finalizing live broadcast...' : `Broadcasting live (${finalSent}/${Math.max(finalTotal, 1)})...`,
             }));
             if (completed) break;
           }
@@ -326,15 +441,16 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         }
 
         const finalEmailLog = await fetchCampaignEmailLog(campaignId, campaignName);
+        queueLiveReplay(finalEmailLog);
+        await waitForReplayIdle();
         setState(prev => ({
           ...prev,
-          log: finalEmailLog.length > prev.log.length ? finalEmailLog : prev.log,
           currentEntry: null,
           done: completed,
           successCount: Math.max(prev.successCount, finalSent),
           progress: Math.max(prev.progress, finalSent),
           total: Math.max(prev.total, finalTotal),
-          statusText: completed ? '' : 'Continuing in background. You can close this panel.',
+          statusText: completed ? '' : 'Continuing safely in the background. You can close this panel.',
         }));
         runningRef.current = false;
         activeCampaignIdRef.current = '';
@@ -354,7 +470,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           toast.success(completed ? 'Campaign sent' : 'Campaign is sending', {
             description: completed
               ? `${finalSent} email${finalSent !== 1 ? 's' : ''} delivered`
-              : 'Contndr will keep sending in the background.',
+              : 'Contndr will keep sending safely in the background.',
             duration: 5000,
           });
 
@@ -371,7 +487,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         toast.error('Could not launch campaign', { description: error?.message || 'Please try again.' });
       }
     })();
-  }, []);
+  }, [queueLiveReplay, resetLiveReplay, waitForReplayIdle]);
 
   return (
     <BroadcastContext.Provider value={{
