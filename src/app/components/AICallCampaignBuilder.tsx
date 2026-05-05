@@ -76,6 +76,7 @@ interface CampaignData {
   voiceProvider: 'telnyx' | 'elevenlabs';
   voiceId: string;
   elevenlabsAgentId?: string;
+  customAgentId?: string;
   speakingSpeed: number;
   emotionLevel: number;
   maxDuration: number;
@@ -94,6 +95,10 @@ interface CampaignData {
   delayBetweenAttempts: number;
   timezoneDetection: boolean;
   intentTrigger: IntentTriggerConfig;
+  instructions?: string;
+  knowledgeBase?: string;
+  transferRules?: any[];
+  maxTurns?: number;
 }
 
 interface LocationSuggestion {
@@ -200,7 +205,14 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
   const [loadingVoices, setLoadingVoices] = useState(true);
   const [voicesError, setVoicesError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [scheduleValue, setScheduleValue] = useState<ScheduleValue>({ mode: 'now' });
+  const [scheduleValue, setScheduleValue] = useState<ScheduleValue>(() => {
+    const scheduledAt = editingCampaign?.scheduled_at || editingCampaign?.scheduled_time || editingCampaign?.schedule?.scheduled_at;
+    if (editingCampaign?.status === 'scheduled' && scheduledAt) {
+      const scheduledDate = new Date(scheduledAt);
+      if (!Number.isNaN(scheduledDate.getTime())) return { mode: 'scheduled', scheduledDate };
+    }
+    return { mode: 'now' };
+  });
   const [availableAgents, setAvailableAgents] = useState<ElevenLabsAgent[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
@@ -225,6 +237,7 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
         voiceProvider: editingCampaign.voice_provider || 'elevenlabs',
         voiceId: editingCampaign.voice_id || '',
         elevenlabsAgentId: editingCampaign.elevenlabs_agent_id || undefined,
+        customAgentId: editingCampaign.custom_agent_id || undefined,
         speakingSpeed: editingCampaign.speaking_speed || 1.0,
         emotionLevel: editingCampaign.emotion_level || 0.5,
         maxDuration: editingCampaign.max_duration || 300,
@@ -245,7 +258,11 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
         maxAttempts: editingCampaign.max_attempts || 3,
         delayBetweenAttempts: editingCampaign.delay_between_attempts || 24,
         timezoneDetection: editingCampaign.timezone_detection !== false,
-        intentTrigger: normalizeIntentTriggerForState(editingCampaign.intent_trigger)
+        intentTrigger: normalizeIntentTriggerForState(editingCampaign.intent_trigger),
+        instructions: editingCampaign.instructions || '',
+        knowledgeBase: editingCampaign.knowledge_base || '',
+        transferRules: editingCampaign.transfer_rules || [],
+        maxTurns: editingCampaign.max_turns || 12,
       };
     }
     return {
@@ -300,6 +317,7 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
         email_campaign_filter: campaignData.emailCampaignFilter, ai_name: campaignData.aiName,
         ai_role: campaignData.aiRole, brand_tone: campaignData.brandTone, voice_provider: campaignData.voiceProvider,
         voice_id: campaignData.voiceId, elevenlabs_agent_id: campaignData.elevenlabsAgentId,
+        custom_agent_id: campaignData.customAgentId,
         speaking_speed: campaignData.speakingSpeed,
         emotion_level: campaignData.emotionLevel, max_duration: campaignData.maxDuration,
         allow_interruptions: campaignData.allowInterruptions, human_transfer: campaignData.humanTransfer,
@@ -309,8 +327,29 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
         close_action: campaignData.closeAction, calling_days: campaignData.callingDays,
         calling_hours: campaignData.callingHours, max_attempts: campaignData.maxAttempts,
         delay_between_attempts: campaignData.delayBetweenAttempts, timezone_detection: campaignData.timezoneDetection,
+        instructions: campaignData.instructions || '',
+        knowledge_base: campaignData.knowledgeBase || '',
+        transfer_rules: campaignData.transferRules || [],
+        max_turns: campaignData.maxTurns || 12,
         intent_trigger: toIntentTriggerPayload(campaignData.intentTrigger),
-        status: 'draft', created_at: new Date().toISOString(),
+        schedule: {
+          mode: scheduleValue.mode,
+          scheduled_at: scheduleValue.mode === 'scheduled' && scheduleValue.scheduledDate
+            ? scheduleValue.scheduledDate.toISOString()
+            : null,
+        },
+        scheduled_at: scheduleValue.mode === 'scheduled' && scheduleValue.scheduledDate
+          ? scheduleValue.scheduledDate.toISOString()
+          : null,
+        scheduled_time: scheduleValue.mode === 'scheduled' && scheduleValue.scheduledDate
+          ? scheduleValue.scheduledDate.toISOString()
+          : null,
+        status: isEditing
+          ? (scheduleValue.mode === 'scheduled'
+              ? 'scheduled'
+              : (editingCampaign?.status === 'scheduled' ? 'draft' : editingCampaign?.status || 'draft'))
+          : (scheduleValue.mode === 'scheduled' ? 'scheduled' : 'draft'),
+        created_at: editingCampaign?.created_at || new Date().toISOString(),
         total_calls: 0, completed_calls: 0, in_progress: 0, booked_meetings: 0
       };
       const url = isEditing
@@ -1008,11 +1047,16 @@ function Step3AIConfiguration({
                 const agent = customAgents.find(a => a.id === e.target.value);
                 if (agent) {
                   update({
+                    customAgentId: agent.id,
                     aiName: agent.name || data.aiName,
                     aiRole: agent.role || data.aiRole,
                     voiceId: agent.voice || data.voiceId,
                     openingLine: agent.greeting || data.openingLine,
                     qualificationQuestions: agent.qualification_questions?.length ? agent.qualification_questions : data.qualificationQuestions,
+                    instructions: agent.instructions || data.instructions,
+                    knowledgeBase: agent.knowledge_base || data.knowledgeBase,
+                    transferRules: agent.transfer_rules || data.transferRules,
+                    maxTurns: agent.max_turns || data.maxTurns,
                   });
                 }
               }}

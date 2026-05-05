@@ -17957,6 +17957,58 @@ function normalizeAICallIntentTrigger(raw: any, canUseTrigger: boolean) {
   };
 }
 
+function normalizeAICallSchedule(raw: any) {
+  const source = raw || {};
+  const scheduledAt = source.scheduled_at || source.scheduledAt || source.scheduled_time || null;
+  const mode = source.mode === 'scheduled' || scheduledAt ? 'scheduled' : 'now';
+  const parsed = scheduledAt ? new Date(scheduledAt) : null;
+  return {
+    mode,
+    scheduled_at: mode === 'scheduled' && parsed && !Number.isNaN(parsed.getTime())
+      ? parsed.toISOString()
+      : null,
+  };
+}
+
+function isDueAICallCampaign(campaign: any) {
+  if (!campaign || campaign.status !== 'scheduled') return false;
+  const schedule = normalizeAICallSchedule(campaign.schedule || {
+    scheduled_at: campaign.scheduled_at || campaign.scheduled_time,
+  });
+  if (!schedule.scheduled_at) return false;
+  return new Date(schedule.scheduled_at).getTime() <= Date.now();
+}
+
+async function startAICallCampaignInBackground(userId: string, campaign: any) {
+  if (!campaign?.id) return campaign;
+  const campaignKey = `ai-call-campaign:${userId}:${campaign.id}`;
+  const updatedCampaign = {
+    ...campaign,
+    status: 'active',
+    started_at: campaign.started_at || new Date().toISOString(),
+    pause_reason: undefined,
+    updated_at: new Date().toISOString(),
+  };
+  await kv.set(campaignKey, updatedCampaign);
+  const work = processAICallCampaign(campaign.id, userId, updatedCampaign).catch((error: any) => {
+    console.error('[AI CAMPAIGNS] Scheduled processor failed:', error);
+  });
+  if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) {
+    EdgeRuntime.waitUntil(work);
+  }
+  return updatedCampaign;
+}
+
+async function activateDueAICallCampaigns(userId: string, campaigns: any[]) {
+  const resolved = [...(campaigns || [])];
+  for (let i = 0; i < resolved.length; i++) {
+    if (!isDueAICallCampaign(resolved[i])) continue;
+    console.log(`[AI CAMPAIGNS] Activating scheduled AI call campaign ${resolved[i].id}`);
+    resolved[i] = await startAICallCampaignInBackground(userId, resolved[i]);
+  }
+  return resolved;
+}
+
 // GET /ai-call-campaigns - List all AI call campaigns
 app.get("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
   try {
@@ -17979,9 +18031,11 @@ app.get("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
       return [];
     });
     
+    const resolvedCampaigns = await activateDueAICallCampaigns(user.id, campaigns || []);
+
     return c.json({
       success: true,
-      campaigns: campaigns || []
+      campaigns: resolvedCampaigns || []
     });
   } catch (error) {
     console.error('[AI CAMPAIGNS] Error listing campaigns:', error);
@@ -18012,13 +18066,19 @@ app.post("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
     
     // Use client-provided ID if available, otherwise generate one
     const campaignId = campaignData.id || `campaign_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const schedule = normalizeAICallSchedule(campaignData.schedule || {
+      scheduled_at: campaignData.scheduled_at || campaignData.scheduled_time,
+    });
     
     // Create campaign object
     const campaign = {
       ...campaignData,
       id: campaignId,
       user_id: user.id,
-      status: campaignData.status || 'draft',
+      status: campaignData.status || (schedule.mode === 'scheduled' ? 'scheduled' : 'draft'),
+      schedule,
+      scheduled_at: schedule.scheduled_at,
+      scheduled_time: schedule.scheduled_at,
       calls_made: campaignData.calls_made || 0,
       total_leads: campaignData.selected_leads?.length || campaignData.total_leads || 0,
       intent_trigger: normalizeAICallIntentTrigger(campaignData.intent_trigger, triggerGate.allowed),
@@ -18070,11 +18130,17 @@ app.put("/make-server-a8b2511f/ai-call-campaigns/:id", async (c) => {
     }
     
     // Merge updates with existing campaign
+    const schedule = normalizeAICallSchedule(campaignData.schedule || existingCampaign.schedule || {
+      scheduled_at: campaignData.scheduled_at || campaignData.scheduled_time || existingCampaign.scheduled_at || existingCampaign.scheduled_time,
+    });
     const updatedCampaign = {
       ...existingCampaign,
       ...campaignData,
       id: campaignId,
       user_id: user.id,
+      schedule,
+      scheduled_at: schedule.scheduled_at,
+      scheduled_time: schedule.scheduled_at,
       total_leads: campaignData.selected_leads?.length || campaignData.total_leads || existingCampaign.total_leads || 0,
       intent_trigger: normalizeAICallIntentTrigger(campaignData.intent_trigger ?? existingCampaign.intent_trigger, triggerGate.allowed),
       updated_at: new Date().toISOString()
