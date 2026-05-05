@@ -13096,7 +13096,8 @@ ABSOLUTE RULES:
         } else {
           // Detect bounce-related errors from the email provider
           const errMsg = emailResult.error || '';
-          const isBounceError = /bounce|rejected|undeliverable|mailbox.*full|user.*unknown|does not exist|recipient.*rejected/i.test(errMsg);
+          const isMailboxVerificationBlock = /mailbox verification|zerobounce|risky|catch-all|undeliverable|unknown/i.test(errMsg);
+          const isBounceError = isMailboxVerificationBlock || /bounce|rejected|undeliverable|mailbox.*full|user.*unknown|does not exist|recipient.*rejected/i.test(errMsg);
           const emailStatus = isBounceError ? 'bounced' : 'failed';
           
           // ── Transient failure detection: queue for retry instead of marking as permanently failed ──
@@ -13871,18 +13872,22 @@ app.get("/make-server-a8b2511f/campaigns/:id/status", async (c) => {
     
     // Fetch real-time email stats from DB (Optimized with COUNT queries)
     const [
+      { count: attempted },
       { count: sent },
       { count: delivered },
       { count: opened },
       { count: clicked },
-      { count: bounced }
+      { count: bounced },
+      { count: failed }
     ] = await Promise.all([
-      // FIX: sequence_number=1 only — follow-up emails (seq≥2) must NOT inflate the "sent leads" counter
+      // sequence_number=1 only — follow-up emails (seq≥2) must NOT inflate campaign lead counters
       supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1),
-      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).in('status', ['delivered', 'opened', 'clicked']),
-      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).in('status', ['opened', 'clicked']),
-      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('status', 'clicked'),
-      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('status', 'bounced')
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).in('status', ['sent', 'delivered', 'opened', 'clicked']),
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).in('status', ['delivered', 'opened', 'clicked']),
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).in('status', ['opened', 'clicked']),
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).eq('status', 'clicked'),
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).in('status', ['bounced', 'complained']),
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).eq('status', 'failed')
     ]);
 
     // Lightweight fallback: cross-reference email_events for opened/clicked
@@ -13917,11 +13922,13 @@ app.get("/make-server-a8b2511f/campaigns/:id/status", async (c) => {
     }
 
     const dbStats = {
+      attempted: attempted || 0,
       sent: sent || 0,
       delivered: delivered || 0,
       opened: Math.max(opened || 0, eventsOpened),
       clicked: Math.max(clicked || 0, eventsClicked),
-      bounced: bounced || 0
+      bounced: (bounced || 0) + (failed || 0),
+      failed: failed || 0
     };
 
     console.log(`[CAMPAIGNS] Stats for ${campaignId}: status-based opened=${opened||0} clicked=${clicked||0}, events-based opened=${eventsOpened} clicked=${eventsClicked}, final opened=${dbStats.opened} clicked=${dbStats.clicked}`);
@@ -13963,11 +13970,11 @@ app.get("/make-server-a8b2511f/campaigns/:id/status", async (c) => {
       }
     }
     
-    const totalLeads = campaign.leads?.length || 0;
-    // Use DB count (seq=1 only) as fallback when KV lags, but NEVER exceed totalLeads
-    // Math.max picks the more-complete source; Math.min caps it so sent can't exceed total
-    const sentCount = Math.min(Math.max(campaign.sent_count || 0, dbStats.sent), totalLeads || Infinity);
-    const pendingCount = Math.max(0, totalLeads - sentCount);
+    const totalLeads = Math.max(campaign.leads?.length || 0, dbStats.attempted);
+    const attemptedCount = Math.min(dbStats.attempted, totalLeads || Infinity);
+    const sentCount = Math.min(dbStats.sent, totalLeads || Infinity);
+    const failedCount = Math.min(dbStats.bounced, totalLeads || Infinity);
+    const pendingCount = Math.max(0, totalLeads - attemptedCount);
     
     return c.json({ 
       status: campaign.status || 'draft',
@@ -13975,7 +13982,7 @@ app.get("/make-server-a8b2511f/campaigns/:id/status", async (c) => {
         total: totalLeads,
         pending: pendingCount,
         sent: sentCount,
-        failed: 0
+        failed: failedCount
       },
       emailStats: {
         sent: sentCount,
