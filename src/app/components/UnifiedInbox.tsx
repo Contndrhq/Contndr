@@ -50,6 +50,10 @@ interface ConversationThread {
   avatarConfidence?: number;
   avatar_confidence?: number;
   leadLinkedinUrl?: string | null;
+  leadLinkedin?: string | null;
+  linkedin_url?: string | null;
+  person_linkedin_url?: string | null;
+  linkedin?: string | null;
   leadPhone?: string;
   leadCompany?: string;
   lastMessageAt: string;
@@ -99,6 +103,21 @@ interface ThreadInsights {
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f`;
+
+function getThreadLinkedinUrl(thread: ConversationThread): string | undefined {
+  return (
+    thread.leadLinkedinUrl ||
+    thread.leadLinkedin ||
+    thread.person_linkedin_url ||
+    thread.linkedin_url ||
+    thread.linkedin ||
+    undefined
+  );
+}
+
+function getThreadAvatarUrl(thread: ConversationThread): string | null | undefined {
+  return thread.avatarUrl || thread.avatar_url;
+}
 
 function formatTimestamp(timestamp: string, t: (key: string, opts?: any) => string): string {
   const date = new Date(timestamp);
@@ -529,7 +548,7 @@ export function UnifiedInbox() {
       return;
     }
 
-    const cacheKey = `inbox:threads:v2:${filter}`;
+    const cacheKey = `inbox:threads:v3:${filter}`;
 
     // ── Serve cached data immediately (zero-spinner on repeat visits) ──
     if (!force) {
@@ -681,7 +700,7 @@ export function UnifiedInbox() {
     if (inboxRefreshKey > 0) {
       console.log('[INBOX] Real-time refresh triggered');
       // Invalidate client cache so real-time events always show fresh data
-      apiCache.invalidate(`inbox:threads:v2:${filter}`);
+      apiCache.invalidate(`inbox:threads:v3:${filter}`);
       apiCache.invalidate('inbox:stats');
       loadThreads(true); // force=true → also bypasses server KV cache
       loadStats(true);
@@ -788,8 +807,8 @@ export function UnifiedInbox() {
     setRefreshing(true);
     try {
       // Invalidate client-side caches so we always get fresh data
-      apiCache.invalidate('inbox:threads:v2:all');
-      apiCache.invalidate(`inbox:threads:v2:${filter}`);
+      apiCache.invalidate('inbox:threads:v3:all');
+      apiCache.invalidate(`inbox:threads:v3:${filter}`);
       apiCache.invalidate('inbox:stats');
 
       // First trigger a background sync to pull new emails from provider
@@ -1449,10 +1468,10 @@ export function UnifiedInbox() {
                       <LeadAvatar
                         name={thread.leadName}
                         email={thread.leadEmail}
-                        linkedinUrl={thread.leadLinkedinUrl || undefined}
-                        avatarUrl={thread.avatarUrl || thread.avatar_url}
+                        linkedinUrl={getThreadLinkedinUrl(thread)}
+                        avatarUrl={getThreadAvatarUrl(thread)}
                         avatarConfidence={thread.avatarConfidence ?? thread.avatar_confidence}
-                        lookup={false}
+                        lookup
                         size={40}
                       />
 
@@ -1573,10 +1592,10 @@ export function UnifiedInbox() {
                 <LeadAvatar
                   name={selectedThread.leadName}
                   email={selectedThread.leadEmail}
-                  linkedinUrl={selectedThread.leadLinkedinUrl || undefined}
-                  avatarUrl={selectedThread.avatarUrl || selectedThread.avatar_url}
+                  linkedinUrl={getThreadLinkedinUrl(selectedThread)}
+                  avatarUrl={getThreadAvatarUrl(selectedThread)}
                   avatarConfidence={selectedThread.avatarConfidence ?? selectedThread.avatar_confidence}
-                  lookup={false}
+                  lookup
                   size={36}
                 />
 

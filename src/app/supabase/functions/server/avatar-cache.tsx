@@ -112,7 +112,9 @@ export async function attachCachedAvatars<T extends Record<string, any>>(
   return rows.map((row) => {
     const email = normalizeEmail(getEmail(row));
     const linkedinUrl = normalizeLinkedInUrl(getLinkedInUrl?.(row));
-    const avatar = (email ? avatars.get(email) : null) || (linkedinUrl ? avatars.get(`linkedin:${linkedinUrl}`) : null);
+    const emailAvatar = email ? avatars.get(email) : null;
+    const linkedinAvatar = linkedinUrl ? avatars.get(`linkedin:${linkedinUrl}`) : null;
+    const avatar = emailAvatar?.avatarUrl ? emailAvatar : linkedinAvatar?.avatarUrl ? linkedinAvatar : emailAvatar || linkedinAvatar;
     return {
       ...row,
       avatarUrl: avatar?.avatarUrl || null,

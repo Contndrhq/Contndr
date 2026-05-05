@@ -52,7 +52,7 @@ const MAX_REPOLLS = 5; // up to 5 re-polls to catch all background results
 const REPOLL_DELAYS = [4000, 6000, 8000, 12000, 20000]; // escalating delays
 
 /** Client-side cache version — bump to invalidate stale null entries from previous strategies */
-const CLIENT_CACHE_VERSION = 6; // Bumped: suppress unsafe name-only avatar matches
+const CLIENT_CACHE_VERSION = 7; // Bumped: inbox avatar lookup/fallback fixes
 const CLIENT_CACHE_VERSION_KEY = '__avatar_cache_v';
 
 // Auto-clear stale cache on module load
@@ -371,7 +371,7 @@ export function useLeadAvatar(
     return () => {
       subscribers.delete(update);
     };
-  }, [normalized, linkedinUrl]);
+  }, [normalized, linkedinUrl, name]);
 
   if (!normalized || !normalized.includes("@")) return null;
   if (avatarCache.has(normalized)) return avatarCache.get(normalized)!;
