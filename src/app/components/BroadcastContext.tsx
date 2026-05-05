@@ -185,6 +185,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   // Track current campaignId for the status poller
   const activeCampaignIdRef = useRef<string>('');
   const foregroundLiveRef = useRef(false);
+  const completedRef = useRef(false);
   const replayedEmailIdsRef = useRef<Set<string>>(new Set());
   const replayQueueRef = useRef<SendingLogEntry[]>([]);
   const replayingRef = useRef(false);
@@ -220,6 +221,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           const writingEntry = { ...finalEntry, status: 'writing' as const };
           setState(prev => ({
             ...prev,
+            done: false,
             currentEntry: writingEntry,
             statusText: `Writing to ${finalEntry.recipientName || finalEntry.recipientEmail}...`,
           }));
@@ -275,6 +277,8 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const queueLiveReplay = useCallback((emailLog: SendingLogEntry[]) => {
+    if (completedRef.current) return;
+
     const fresh = emailLog
       .filter(entry => entry?.id && !replayedEmailIdsRef.current.has(entry.id))
       .sort((a, b) => a.timestamp - b.timestamp);
@@ -299,6 +303,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     runningRef.current = false;
     activeCampaignIdRef.current = '';
     foregroundLiveRef.current = false;
+    completedRef.current = false;
     resetLiveReplay();
     setState(initialState);
   }, [resetLiveReplay, state.campaignId]);
@@ -373,6 +378,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     runningRef.current = true;
     activeCampaignIdRef.current = campaignId;
     foregroundLiveRef.current = true;
+    completedRef.current = false;
     resetLiveReplay();
 
     setState({
@@ -566,12 +572,15 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
 
         foregroundLiveRef.current = false;
 
+        // Before announcing success, drain any email rows that were created by
+        // the server but did not come back in the foreground batch response.
+        // This keeps the sequence honest: live typing first, sent confirmation
+        // last.
+        const finalEmailLog = await fetchCampaignEmailLog(campaignId, campaignName);
+        queueLiveReplay(finalEmailLog);
+        await waitForReplayIdle();
+
         const finalStats = await fetchCampaignStats(campaignId);
-        if (continuedInBackground) {
-          const finalEmailLog = await fetchCampaignEmailLog(campaignId, campaignName);
-          queueLiveReplay(finalEmailLog);
-          await waitForReplayIdle();
-        }
 
         const reconciledSent = Math.max(totalSent, finalStats?.sentCount || 0);
         const reconciledTotal = Math.max(finalTotal, finalStats?.totalLeads || 0, total);
@@ -579,6 +588,8 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           finalStats?.status === 'completed' ||
           (reconciledTotal > 0 && reconciledSent + totalFailed + totalBounced >= reconciledTotal)
         );
+
+        completedRef.current = true;
 
         setState(prev => ({
           ...prev,
@@ -627,6 +638,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         try {
           foregroundLiveRef.current = false;
           await launchBackgroundFallback(campaignId);
+          completedRef.current = true;
           setState(prev => ({
             ...prev,
             currentEntry: null,
