@@ -18,6 +18,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { projectId } from '../utils/supabase/info';
 import { authenticatedFetch } from './auth';
+import { acquireSendLock, isSendLocked, releaseSendLock } from './send-lock';
 
 const AUTO_RESUME_INTERVAL_MS = 30_000;  // 30s when tab is visible
 const HIDDEN_TAB_INTERVAL_MS = 120_000;  // 2min when tab is hidden
@@ -75,6 +76,14 @@ export function useCampaignMonitor(userId: string | null, isDemoMode: boolean) {
 
       // Ask the edge worker to continue the campaign; keep the app thread out of the send loop.
       const target = pending[0];
+      if (!target?.campaignId || isSendLocked(target.campaignId)) {
+        console.log('[CAMPAIGN-MONITOR] Pending campaign is already being sent live — skipping background resume');
+        return;
+      }
+      if (!acquireSendLock(target.campaignId)) {
+        console.log('[CAMPAIGN-MONITOR] Could not acquire send lock — skipping background resume');
+        return;
+      }
       try {
         const launchResp = await authenticatedFetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${target.campaignId}/launch`,
@@ -91,6 +100,8 @@ export function useCampaignMonitor(userId: string | null, isDemoMode: boolean) {
       } catch (launchErr) {
         console.warn('[CAMPAIGN-MONITOR] Campaign launch error:', launchErr);
         state.consecutiveErrors++;
+      } finally {
+        releaseSendLock(target.campaignId);
       }
     } catch (err) {
       // "Not authenticated" is expected during initial load / logout — skip silently

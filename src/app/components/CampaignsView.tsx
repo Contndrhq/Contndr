@@ -43,6 +43,10 @@ interface CampaignsViewProps {
   onCreateCampaign?: () => void;
 }
 
+function isMailboxVerificationBlock(error: unknown) {
+  return /mailbox verification|zerobounce|risky|catch-all|undeliverable|unknown/i.test(String(error || ''));
+}
+
 export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
   const { t } = useTranslation();
   const isDemoMode = useDemoMode();
@@ -164,6 +168,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
         );
         
         if (batchResponse.ok) {
+          const batchResult = await batchResponse.json().catch(() => ({}));
           toast('Campaign resumed', {
             description: 'Emails are sending in the background',
             duration: 3000,
@@ -670,16 +675,6 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
     const MAX_CONSECUTIVE_ERRORS = 5;
 
     try {
-      // Enqueue for auto-resume
-      try {
-        await authenticatedFetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/enqueue/${campaignId}`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ batchSize: 1 }) }
-        );
-      } catch (e) {
-        console.warn('[CAMPAIGNS] Enqueue failed (non-fatal):', e);
-      }
-
       while (hasMore) {
         try {
           // Send one at a time for immersive live view
@@ -702,7 +697,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
             consecutiveErrors++;
             if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
               toast.error('Campaign paused', {
-                description: 'Too many errors. Auto-resume will continue in the background.',
+                description: 'Too many errors. The live sender paused without starting a background worker.',
                 duration: 6000,
               });
               hasMore = false;
@@ -751,15 +746,8 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
               // Move to log
               setBroadcastLog(prev => [...prev, { ...contentEntry, status: 'delivered', timestamp: Date.now() }]);
             } else {
-              const isBounced = emailInfo.bounced || emailInfo.error?.toLowerCase?.()?.includes?.('bounce');
-              if (isBounced) {
-                totalBounced++;
-                setBroadcastBounce(totalBounced);
-              } else {
-                totalFailed++;
-                setBroadcastError(totalFailed);
-              }
-
+              const isBounced = emailInfo.bounced || emailInfo.error?.toLowerCase?.()?.includes?.('bounce') || isMailboxVerificationBlock(emailInfo.error);
+              const hasDraftPreview = Boolean(emailInfo.subject || emailInfo.body);
               const failedEntry: SendingLogEntry = {
                 id: entryId,
                 recipientName: emailInfo.leadName || 'Unknown',
@@ -770,6 +758,24 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                 status: isBounced ? 'bounced' : 'failed',
                 timestamp: Date.now(),
               };
+
+              if (hasDraftPreview) {
+                setBroadcastCurrent({ ...failedEntry, status: 'writing' });
+                const bodyLen = (emailInfo.body || '').length;
+                const typingWait = Math.min(Math.max(bodyLen * 4, 1800), 5000);
+                await new Promise(r => setTimeout(r, typingWait));
+                setBroadcastCurrent(failedEntry);
+                await new Promise(r => setTimeout(r, 900));
+              }
+
+              if (isBounced) {
+                totalBounced++;
+                setBroadcastBounce(totalBounced);
+              } else {
+                totalFailed++;
+                setBroadcastError(totalFailed);
+              }
+
               setBroadcastLog(prev => [...prev, failedEntry]);
             }
 
@@ -791,7 +797,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
             consecutiveErrors++;
             if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
               toast.error('Campaign paused', {
-                description: `Too many consecutive errors. ${data.remaining} leads remaining — auto-resume will continue.`,
+                description: `Too many consecutive errors. ${data.remaining} leads remaining. The live sender paused safely.`,
                 duration: 6000,
               });
               hasMore = false;
@@ -839,7 +845,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
           
           if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
             toast.error('Connection unstable', {
-              description: `Pausing live view. Background auto-resume will continue sending.`,
+              description: 'Pausing live view without starting a background worker.',
               duration: 8000,
             });
             hasMore = false;
@@ -937,15 +943,6 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
     const MAX_CONSECUTIVE_ERRORS = 5;
 
     try {
-      try {
-        await authenticatedFetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/enqueue/${campaignId}`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ batchSize: 1 }) }
-        );
-      } catch (e) {
-        console.warn('[LIST-BROADCAST] Enqueue failed (non-fatal):', e);
-      }
-
       while (hasMore) {
         try {
           const response = await authenticatedFetch(
@@ -962,7 +959,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
             }
             consecutiveErrors++;
             if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-              toast.error('Campaign paused', { description: 'Too many errors. Auto-resume will continue in the background.', duration: 6000 });
+              toast.error('Campaign paused', { description: 'Too many errors. The live sender paused without starting a background worker.', duration: 6000 });
               hasMore = false;
               break;
             }
@@ -1004,15 +1001,8 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
 
               setBroadcastLog(prev => [...prev, { ...contentEntry, status: 'delivered', timestamp: Date.now() }]);
             } else {
-              const isBounced = emailInfo.bounced || emailInfo.error?.toLowerCase?.()?.includes?.('bounce');
-              if (isBounced) {
-                totalBounced++;
-                setBroadcastBounce(totalBounced);
-              } else {
-                totalFailed++;
-                setBroadcastError(totalFailed);
-              }
-
+              const isBounced = emailInfo.bounced || emailInfo.error?.toLowerCase?.()?.includes?.('bounce') || isMailboxVerificationBlock(emailInfo.error);
+              const hasDraftPreview = Boolean(emailInfo.subject || emailInfo.body);
               const failedEntry: SendingLogEntry = {
                 id: entryId,
                 recipientName: emailInfo.leadName || 'Unknown',
@@ -1023,6 +1013,24 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                 status: isBounced ? 'bounced' : 'failed',
                 timestamp: Date.now(),
               };
+
+              if (hasDraftPreview) {
+                setBroadcastCurrent({ ...failedEntry, status: 'writing' });
+                const bodyLen = (emailInfo.body || '').length;
+                const typingWait = Math.min(Math.max(bodyLen * 4, 1800), 5000);
+                await new Promise(r => setTimeout(r, typingWait));
+                setBroadcastCurrent(failedEntry);
+                await new Promise(r => setTimeout(r, 900));
+              }
+
+              if (isBounced) {
+                totalBounced++;
+                setBroadcastBounce(totalBounced);
+              } else {
+                totalFailed++;
+                setBroadcastError(totalFailed);
+              }
+
               setBroadcastLog(prev => [...prev, failedEntry]);
             }
 
@@ -1041,7 +1049,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
             console.log(`[CAMPAIGNS] List broadcast: batch sent 0 but ${data.remaining} remaining — continuing...`);
             consecutiveErrors++;
             if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-              toast.error('Campaign paused', { description: `Too many errors. ${data.remaining} leads remaining.`, duration: 6000 });
+              toast.error('Campaign paused', { description: `Too many errors. ${data.remaining} leads remaining. The live sender paused safely.`, duration: 6000 });
               hasMore = false;
             } else {
               await new Promise(r => setTimeout(r, 2000));
@@ -1082,7 +1090,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
           
           if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
             toast.error('Connection unstable', {
-              description: 'Pausing live view. Background auto-resume will continue sending.',
+              description: 'Pausing live view without starting a background worker.',
               duration: 8000,
             });
             hasMore = false;

@@ -151,6 +151,10 @@ function typingDelayFor(body: string) {
   return Math.min(Math.max((body || '').length * 4, 1800), 5200);
 }
 
+function isMailboxVerificationBlock(error: unknown) {
+  return /mailbox verification|zerobounce|risky|catch-all|undeliverable|unknown/i.test(String(error || ''));
+}
+
 function emailInfoToEntry(campaignId: string, index: number, emailInfo: any): SendingLogEntry {
   return {
     id: emailInfo.emailId || emailInfo.email_id || emailInfo.id || `broadcast-${campaignId}-${index}`,
@@ -162,18 +166,6 @@ function emailInfoToEntry(campaignId: string, index: number, emailInfo: any): Se
     status: 'writing',
     timestamp: Date.now(),
   };
-}
-
-async function launchBackgroundFallback(campaignId: string) {
-  await authenticatedFetch(
-    `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${campaignId}/launch`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ batchSize: 5 }),
-      signal: AbortSignal.timeout(15_000),
-    }
-  );
 }
 
 // ── Provider ──
@@ -399,8 +391,8 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
 
     // Send one at a time from the foreground so the overlay can show the real
     // generated subject/body while each message is being written and delivered.
-    // The background worker is kept as a fallback only, otherwise it races the
-    // live UI and the user only sees the final "campaign sent" state.
+    // Do not enqueue a worker from this path; it races the live UI and the user
+    // only sees the final "campaign sent" state.
     (async () => {
       let totalSent = 0;
       let totalFailed = 0;
@@ -408,26 +400,14 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       let emailIndex = 0;
       let hasMore = true;
       let consecutiveErrors = 0;
-      let continuedInBackground = false;
       let finalTotal = total;
       const maxConsecutiveErrors = 5;
 
       try {
         setState(prev => ({ ...prev, statusText: 'Preparing live broadcast...' }));
 
-        try {
-          await authenticatedFetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/enqueue/${campaignId}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ batchSize: 1 }),
-              signal: AbortSignal.timeout(10_000),
-            }
-          );
-        } catch (enqueueError) {
-          console.warn('[BROADCAST] Enqueue failed; continuing live send:', enqueueError);
-        }
+        // Keep live broadcast truly foreground-owned. Enqueuing here lets the
+        // background worker claim leads before the panel can replay the writing.
 
         while (!abortRef.current && hasMore) {
           const response = await authenticatedFetch(
@@ -446,16 +426,14 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
             console.error('[BROADCAST] Live batch failed:', error);
             consecutiveErrors++;
             if (consecutiveErrors >= maxConsecutiveErrors) {
-              continuedInBackground = true;
               setState(prev => ({
                 ...prev,
                 currentEntry: null,
-                statusText: 'Live view paused. Continuing safely in the background...',
+                statusText: 'Live send is waiting for the next safe message...',
               }));
-              await launchBackgroundFallback(campaignId).catch((fallbackError) => {
-                console.warn('[BROADCAST] Background fallback launch failed:', fallbackError);
-              });
-              break;
+              consecutiveErrors = 0;
+              await wait(5000);
+              continue;
             }
             setState(prev => ({ ...prev, statusText: 'Retrying the next message...' }));
             await wait(2000 * consecutiveErrors);
@@ -523,12 +501,37 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
                 statusText: remaining > 0 ? `Preparing next message (${totalSent}/${Math.max(finalTotal, 1)})...` : 'Finalizing broadcast...',
               }));
             } else {
-              const isBounced = Boolean(emailInfo.bounced) || String(emailInfo.error || '').toLowerCase().includes('bounce');
+              const isBounced = Boolean(emailInfo.bounced) || String(emailInfo.error || '').toLowerCase().includes('bounce') || isMailboxVerificationBlock(emailInfo.error);
+              const hasDraftPreview = Boolean(entry.subject || entry.body);
               const failedEntry: SendingLogEntry = {
                 ...entry,
                 status: isBounced ? 'bounced' : 'failed',
                 timestamp: Date.now(),
               };
+
+              if (hasDraftPreview) {
+                const writingEntry: SendingLogEntry = { ...entry, status: 'writing', timestamp: Date.now() };
+                setState(prev => ({
+                  ...prev,
+                  currentEntry: writingEntry,
+                  total: Math.max(prev.total, finalTotal),
+                  statusText: `Writing to ${writingEntry.recipientName || writingEntry.recipientEmail}...`,
+                }));
+
+                await wait(typingDelayFor(writingEntry.body));
+                if (abortRef.current) break;
+
+                setState(prev => ({
+                  ...prev,
+                  currentEntry: failedEntry,
+                  statusText: isMailboxVerificationBlock(emailInfo.error)
+                    ? 'Mailbox blocked by verification'
+                    : 'Message could not be delivered',
+                }));
+
+                await wait(900);
+                if (abortRef.current) break;
+              }
 
               if (isBounced) totalBounced++;
               else totalFailed++;
@@ -541,7 +544,9 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
                 errorCount: totalFailed,
                 bounceCount: totalBounced,
                 total: Math.max(prev.total, finalTotal),
-                statusText: 'Skipping a failed message...',
+                statusText: isMailboxVerificationBlock(emailInfo.error)
+                  ? 'Skipped unsafe mailbox'
+                  : 'Skipping a failed message...',
               }));
             }
           }
@@ -553,16 +558,14 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           } else if (batchSent === 0 && remaining > 0) {
             consecutiveErrors++;
             if (consecutiveErrors >= maxConsecutiveErrors) {
-              continuedInBackground = true;
               setState(prev => ({
                 ...prev,
                 currentEntry: null,
-                statusText: 'No live messages returned. Continuing safely in the background...',
+                statusText: 'Still waiting for the next live message...',
               }));
-              await launchBackgroundFallback(campaignId).catch((fallbackError) => {
-                console.warn('[BROADCAST] Background fallback launch failed:', fallbackError);
-              });
-              break;
+              consecutiveErrors = 0;
+              await wait(5000);
+              continue;
             }
             await wait(2000);
           } else {
@@ -584,7 +587,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
 
         const reconciledSent = Math.max(totalSent, finalStats?.sentCount || 0);
         const reconciledTotal = Math.max(finalTotal, finalStats?.totalLeads || 0, total);
-        const completed = !continuedInBackground && (
+        const completed = (
           finalStats?.status === 'completed' ||
           (reconciledTotal > 0 && reconciledSent + totalFailed + totalBounced >= reconciledTotal)
         );
@@ -594,13 +597,13 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         setState(prev => ({
           ...prev,
           currentEntry: null,
-          done: completed || !continuedInBackground,
+          done: true,
           progress: Math.max(prev.progress, reconciledSent + totalFailed + totalBounced),
           successCount: Math.max(prev.successCount, reconciledSent),
           errorCount: Math.max(prev.errorCount, totalFailed),
           bounceCount: Math.max(prev.bounceCount, totalBounced),
           total: Math.max(prev.total, reconciledTotal),
-          statusText: continuedInBackground ? 'Continuing safely in the background. You can close this panel.' : '',
+          statusText: completed ? '' : 'Live broadcast stopped before completion',
         }));
 
         runningRef.current = false;
@@ -612,20 +615,20 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         apiCache.invalidate('dashboard:*');
         apiCache.invalidate('analytics:*');
 
-        if (!continuedInBackground) {
+        if (completed) {
           realtimeManager.emit('campaign:completed', { campaignName, sent: reconciledSent, bounced: totalBounced, failed: totalFailed });
         }
         if (reconciledSent > 0) {
           realtimeManager.emit('email:sent', { campaignName, count: reconciledSent });
         }
-        dispatchAppEvent({ type: 'campaigns:changed', meta: { action: continuedInBackground ? 'broadcast_background' : 'broadcast_complete', sent: reconciledSent } });
+        dispatchAppEvent({ type: 'campaigns:changed', meta: { action: completed ? 'broadcast_complete' : 'broadcast_stopped', sent: reconciledSent } });
         dispatchAppEvent({ type: 'leads:changed', meta: { action: 'emails_sent' } });
 
         if (!abortRef.current) {
-          toast.success(continuedInBackground ? 'Campaign is sending' : 'Campaign sent', {
-            description: continuedInBackground
-              ? 'Contndr will keep sending safely in the background.'
-              : `${reconciledSent} email${reconciledSent !== 1 ? 's' : ''} delivered`,
+          toast[completed ? 'success' : 'error'](completed ? 'Campaign sent' : 'Live broadcast stopped', {
+            description: completed
+              ? `${reconciledSent} email${reconciledSent !== 1 ? 's' : ''} delivered`
+              : 'The background worker was not started so the live panel stays accurate.',
             duration: 5000,
           });
 
@@ -635,25 +638,10 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         }
       } catch (error: any) {
         console.error('[BROADCAST] Live send failed:', error);
-        try {
-          foregroundLiveRef.current = false;
-          await launchBackgroundFallback(campaignId);
-          completedRef.current = true;
-          setState(prev => ({
-            ...prev,
-            currentEntry: null,
-            done: true,
-            statusText: 'Continuing safely in the background. You can close this panel.',
-          }));
-          toast.success('Campaign is sending', {
-            description: 'Live view paused, but background sending is active.',
-            duration: 6000,
-          });
-        } catch (fallbackError: any) {
-          console.error('[BROADCAST] Background fallback failed:', fallbackError);
-          setState(prev => ({ ...prev, currentEntry: null, done: true, statusText: 'Launch failed' }));
-          toast.error('Could not launch campaign', { description: error?.message || 'Please try again.' });
-        }
+        foregroundLiveRef.current = false;
+        completedRef.current = true;
+        setState(prev => ({ ...prev, currentEntry: null, done: true, statusText: 'Live broadcast stopped before completion' }));
+        toast.error('Live broadcast stopped', { description: error?.message || 'Please try again.' });
         releaseSendLock(campaignId);
         runningRef.current = false;
         activeCampaignIdRef.current = '';
