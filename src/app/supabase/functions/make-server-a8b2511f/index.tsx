@@ -379,18 +379,18 @@ async function kvSetSafe(key: string, value: any): Promise<boolean> {
 }
 
 // Safe getByPrefix with retry (LIKE queries are prone to 57014 timeouts)
-async function kvGetByPrefixSafe(prefix: string, fallback: any[] = []): Promise<any[]> {
+async function kvGetByPrefixSafe(prefix: string, fallback: any[] = [], limit = 1000, offset = 0): Promise<any[]> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return (await kv.getByPrefix(prefix)) || fallback;
+      return (await kv.getByPrefixLimited(prefix, limit, offset)) || fallback;
     } catch (err: any) {
       if (attempt < 2 && isTransientError(err)) {
         const delay = 400 * (attempt + 1);
-        console.debug(`[KV] getByPrefix("${prefix}") transient error (attempt ${attempt + 1}/3), retrying in ${delay}ms:`, truncateError(err));
+        console.debug(`[KV] getByPrefixLimited("${prefix}") transient error (attempt ${attempt + 1}/3), retrying in ${delay}ms:`, truncateError(err));
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
-      console.error(`[KV] getByPrefix("${prefix}") failed after retries:`, truncateError(err));
+      console.error(`[KV] getByPrefixLimited("${prefix}") failed after retries:`, truncateError(err));
       return fallback;
     }
   }
@@ -630,7 +630,7 @@ async function maybeTriggerAgentHotVisitorCall(args: {
     const config = sanitizeAgentModeConfig(await kvGetSafe(`agent_mode:${targetUserId}:config`), entitlements);
     if (!config.enabled || !config.autoCallHotVisitors || !entitlements.aiCalling || !entitlements.intentAutoCall) return;
 
-    const campaigns = await kv.getByPrefix(`ai-call-campaign:${targetUserId}:`).catch((error: any) => {
+    const campaigns = await kv.getByPrefixLimited(`ai-call-campaign:${targetUserId}:`, 250, 0).catch((error: any) => {
       console.warn('[AGENT HOT CALL] Could not load AI call campaigns:', error?.message || error);
       return [];
     });
@@ -2518,7 +2518,7 @@ app.get("/make-server-a8b2511f/admin/waitlist", async (c) => {
       return c.json({ error: 'Unauthorized: Admin access required' }, 403);
     }
     
-    const allValues = await kv.getByPrefix('waitlist:');
+    const allValues = await kv.getByPrefixLimited('waitlist:', 1000, 0);
 
     const isMissingWaitlistValue = (value: any) => {
       const normalized = String(value || '').trim().toLowerCase();
@@ -5914,7 +5914,7 @@ app.get("/make-server-a8b2511f/leads/shared/my-reveals", async (c) => {
     const { user } = await getAuthenticatedUser(c);
     let revealData = [];
     try {
-      revealData = await kv.getByPrefix(`gl_reveal:${user.id}:`);
+      revealData = await kv.getByPrefixLimited(`gl_reveal:${user.id}:`, 1000, 0);
     } catch (kvError) {
       console.error('[SHARED LEADS] KV store error (non-fatal):', kvError);
       // Return empty array if KV fails
@@ -7239,7 +7239,7 @@ app.get("/make-server-a8b2511f/track/pixel", async (c) => {
           if (siteIdx && siteIdx.length > 0) {
             sites = await loadTrackedSitesByIndex(userId, siteIdx);
           } else {
-            try { sites = (await kv.getByPrefix(`tracked_site:${userId}:`)) || []; } catch { /* ok */ }
+            try { sites = (await kv.getByPrefixLimited(`tracked_site:${userId}:`, 100, 0)) || []; } catch { /* ok */ }
           }
           const matchedSite = sites.find((s: any) => s && s.domain === trackedDomain);
           if (matchedSite) {
@@ -7270,7 +7270,7 @@ app.get("/make-server-a8b2511f/track/pixel", async (c) => {
               if (memberIdx && memberIdx.length > 0) {
                 memberSites = await loadTrackedSitesByIndex(memberId, memberIdx);
               } else {
-                try { memberSites = (await kv.getByPrefix(`tracked_site:${memberId}:`)) || []; } catch { /* ok */ }
+                try { memberSites = (await kv.getByPrefixLimited(`tracked_site:${memberId}:`, 100, 0)) || []; } catch { /* ok */ }
               }
               const ms = memberSites.find((s: any) => s && s.domain === trackedDomain);
               if (ms) {
@@ -7429,7 +7429,7 @@ app.get("/make-server-a8b2511f/tracked-websites", async (c) => {
       const prefix = `tracked_site:${user.id}:`;
       console.log(`[TRACKED-WEBSITES] Falling back to getByPrefix for user ${user.id}`);
       try {
-        sites = (await kv.getByPrefix(prefix)) || [];
+        sites = (await kv.getByPrefixLimited(prefix, 100, 0)) || [];
       } catch (primaryErr: any) {
         console.warn('[TRACKED-WEBSITES] Primary getByPrefix failed:', truncateError(primaryErr));
         sites = await kvGetByPrefixSafe(prefix, []);
@@ -7632,7 +7632,7 @@ app.get("/make-server-a8b2511f/track/js", async (c) => {
             // Double-check via prefix in case index is stale
             const prefix = `tracked_site:${userId}:`;
             let prefixSites: any[] = [];
-            try { prefixSites = (await kv.getByPrefix(prefix)) || []; } catch { /* ok */ }
+            try { prefixSites = (await kv.getByPrefixLimited(prefix, 100, 0)) || []; } catch { /* ok */ }
             alreadyTracked = prefixSites.some((s: any) => s?.domain === domain);
           }
           if (!alreadyTracked) {
@@ -8113,7 +8113,7 @@ app.get("/make-server-a8b2511f/visitor-stats", async (c) => {
 
         // 2. Fill gaps with recent logs (Only if aggregated data is missing to avoid double counting)
         // We fetch the capped lists (max ~550 items total) so this is fast
-        const atomicVisits = (await kv.getByPrefix(`recent_visit_v2:${user.id}:`)) || [];
+        const atomicVisits = (await kv.getByPrefixLimited(`recent_visit_v2:${user.id}:`, 1000, 0)) || [];
         const legacyVisits = []; // DISABLED Legacy
         const recentVisits = [...atomicVisits, ...legacyVisits];
 
@@ -8163,7 +8163,7 @@ app.get("/make-server-a8b2511f/visitor-stats", async (c) => {
         const days = range === '30d' ? 30 : 7;
         
         // Keys are analytics:daily:USER_ID:YYYY-MM-DD
-        const allStats = await kv.getByPrefix(`analytics:daily:${user.id}:`);
+        const allStats = await kv.getByPrefixLimited(`analytics:daily:${user.id}:`, 90, 0);
         
         const statsMap = new Map();
         if (allStats) {
@@ -10418,26 +10418,46 @@ const COMPANY_KEY    = (userId: string, id: string) => `company:${userId}:${id}`
 
 // GET /companies — list user's companies with optional filters + pagination
 app.get("/make-server-a8b2511f/companies", async (c) => {
+  let page = 1;
+  let perPage = 100;
   try {
     const { user } = await getAuthenticatedUser(c);
-    const page     = parseInt(c.req.query("page")     || "1",  10);
-    const perPage  = Math.min(parseInt(c.req.query("per_page") || "100", 10), 500);
+    page = Math.max(parseInt(c.req.query("page") || "1", 10) || 1, 1);
+    perPage = Math.min(Math.max(parseInt(c.req.query("per_page") || "100", 10) || 100, 1), 500);
     const search   = (c.req.query("search") || "").trim().toLowerCase();
     const industry = c.req.query("industry") || "";
     const country  = c.req.query("country")  || "";
     const status   = c.req.query("status")   || "";
+    const hasFilters = Boolean(search || (industry && industry !== "all") || (country && country !== "all") || (status && status !== "all"));
+    const prefix = COMPANY_PREFIX(user.id);
+    const from = (page - 1) * perPage;
 
-    // Load all companies for this user from KV store (with timeout protection)
+    // Fast path: no filters means true DB pagination. Never materialize a whole
+    // tenant's company corpus for a simple list page.
+    if (!hasFilters) {
+      const [companies, total] = await Promise.all([
+        kv.getByPrefixLimited(prefix, perPage, from),
+        kv.countByPrefix(prefix).catch((e: any) => {
+          console.warn("[COMPANIES GET] Prefix count failed, using page estimate:", (e?.message || String(e)).slice(0, 160));
+          return null;
+        }),
+      ]);
+      companies.sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""));
+      return c.json({
+        companies,
+        total: total ?? from + companies.length + (companies.length === perPage ? perPage : 0),
+        page,
+        per_page: perPage,
+        has_more: companies.length === perPage,
+      });
+    }
+
+    // Filtered searches still need app-side filtering because KV values are JSON.
+    // Cap the scan so broad filters/search cannot exhaust DB memory.
+    const scanLimit = Math.min(5000, Math.max(1000, perPage * page * 3));
     let all: any[] = [];
     try {
-      const loadTimeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Database query timeout - too many companies")), 10000)
-      );
-      
-      all = await Promise.race([
-        kv.getByPrefix(COMPANY_PREFIX(user.id)),
-        loadTimeout
-      ]) as any[];
+      all = await kv.getByPrefixLimited(prefix, scanLimit, 0);
     } catch (loadErr: any) {
       // Handle memory/timeout errors gracefully
       const errMsg = loadErr.message || "";
@@ -10448,8 +10468,8 @@ app.get("/make-server-a8b2511f/companies", async (c) => {
           total: 0, 
           page, 
           per_page: perPage,
-          error: "Database memory full - too many companies. Please contact support to migrate to a dedicated database.",
-          warning: "Your company list is too large for the current storage system."
+          error: "Database is under load. Please narrow your search or try again.",
+          warning: "Filtered company search was paused to protect storage."
         });
       }
       throw loadErr;
@@ -10471,10 +10491,16 @@ app.get("/make-server-a8b2511f/companies", async (c) => {
     all.sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""));
 
     const total = all.length;
-    const from  = (page - 1) * perPage;
     const pageCompanies = all.slice(from, from + perPage);
 
-    return c.json({ companies: pageCompanies, total, page, per_page: perPage });
+    return c.json({
+      companies: pageCompanies,
+      total,
+      page,
+      per_page: perPage,
+      has_more: all.length === scanLimit && from + pageCompanies.length < total,
+      warning: all.length === scanLimit ? `Showing the first ${scanLimit.toLocaleString()} matching companies. Refine filters for deeper results.` : undefined,
+    });
   } catch (err: any) {
     console.error("[COMPANIES GET]", err);
     
@@ -10485,7 +10511,7 @@ app.get("/make-server-a8b2511f/companies", async (c) => {
         error: "Database memory full - operation failed",
         companies: [],
         total: 0,
-        page: 1,
+        page,
         per_page: perPage
       }, 503);
     }
@@ -11780,7 +11806,7 @@ app.get("/make-server-a8b2511f/campaigns", async (c) => {
     let campaignsKV = [];
     // Get campaigns from KV store with error handling
     try {
-      campaignsKV = await kv.getByPrefix(`campaign:${user.id}:`) || [];
+      campaignsKV = await kv.getByPrefixLimited(`campaign:${user.id}:`, 500, 0) || [];
     } catch (kvError) {
       console.error('[CAMPAIGNS] KV store error (non-fatal):', kvError);
       // Continue with empty array if KV fails
@@ -11945,7 +11971,7 @@ app.post("/make-server-a8b2511f/campaigns/cleanup-invalid-leads", async (c) => {
     console.log(`[CAMPAIGNS] User has ${validLeadIds.size} valid leads in database`);
     
     // Get all campaigns for this user from KV
-    const campaignKeys = await kv.getByPrefix(`campaign:${user.id}:`);
+    const campaignKeys = await kv.getByPrefixLimited(`campaign:${user.id}:`, 500, 0);
     let totalCleaned = 0;
     let totalRemoved = 0;
     
@@ -16078,7 +16104,7 @@ app.get("/make-server-a8b2511f/analytics/tracking-by-provider", async (c) => {
     // 5. Bot/human breakdown — prefix-scoped to this userId
     const botBreakdown = { human: 0, bot: 0, proxy: 0 };
     try {
-      const uaEntries = await kv.getByPrefix(`tracking_ua:${user.id}:`);
+      const uaEntries = await kv.getByPrefixLimited(`tracking_ua:${user.id}:`, 1000, 0);
       if (Array.isArray(uaEntries)) {
         for (const val of uaEntries) {
           if (!val || typeof val !== 'object') continue;
@@ -16223,7 +16249,7 @@ app.get("/make-server-a8b2511f/admin/tracking-analytics", async (c) => {
     // 5. Bot/human breakdown — scan ALL users' UA keys
     const botBreakdown = { human: 0, bot: 0, proxy: 0 };
     try {
-      const uaEntries = await kv.getByPrefix(`tracking_ua:`);
+      const uaEntries = await kv.getByPrefixLimited(`tracking_ua:`, 1000, 0);
       if (Array.isArray(uaEntries)) {
         for (const val of uaEntries) {
           if (!val || typeof val !== 'object') continue;
@@ -17246,8 +17272,8 @@ app.get("/make-server-a8b2511f/admin/check-subscription/:email", async (c) => {
     console.log(`[ADMIN] Checking subscription for email: ${targetEmail}`);
     
     // Get all users from KV store - check both new and legacy prefixes
-    const contndrSubs = await kv.getByPrefix('contndr_sub:');
-    const legacySubs = await kv.getByPrefix('sendlr_sub:');
+    const contndrSubs = await kv.getByPrefixLimited('contndr_sub:', 1000, 0);
+    const legacySubs = await kv.getByPrefixLimited('sendlr_sub:', 1000, 0);
     const allSubs = [...contndrSubs, ...legacySubs];
     
     console.log(`[ADMIN] Found ${allSubs.length} total subscription records (${contndrSubs.length} contndr + ${legacySubs.length} legacy)`);
@@ -17640,7 +17666,7 @@ app.get("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
     }
 
     // Get all campaigns for this user — fall back to [] on DB statement timeout
-    const campaigns = await kv.getByPrefix(`ai-call-campaign:${user.id}:`).catch((e: any) => {
+    const campaigns = await kv.getByPrefixLimited(`ai-call-campaign:${user.id}:`, 250, 0).catch((e: any) => {
       const msg: string = e?.message ?? String(e);
       if (msg.includes('canceling statement') || msg.includes('timeout') || msg.includes('memory')) {
         console.warn('[AI CAMPAIGNS] getByPrefix timed out — returning empty list:', msg.slice(0, 120));
@@ -18164,7 +18190,7 @@ app.get("/make-server-a8b2511f/ai-agents", async (c) => {
     const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-AGENTS");
     if (authError || !user) return c.json({ error: "Unauthorized" }, 401);
 
-    const agents = await kv.getByPrefix(`ai-agent:${user.id}:`);
+    const agents = await kv.getByPrefixLimited(`ai-agent:${user.id}:`, 100, 0);
     return c.json({ success: true, agents: agents || [] });
   } catch (error) {
     console.error('[AI AGENTS] Error listing agents:', error);
@@ -18228,7 +18254,7 @@ app.post("/make-server-a8b2511f/ai-agents", async (c) => {
     };
 
     if (agent.is_default) {
-      const existingAgents = await kv.getByPrefix(`ai-agent:${user.id}:`);
+      const existingAgents = await kv.getByPrefixLimited(`ai-agent:${user.id}:`, 100, 0);
       for (const existing of existingAgents) {
         if (existing && existing.is_default) {
           await kv.set(`ai-agent:${user.id}:${existing.id}`, { ...existing, is_default: false, updated_at: new Date().toISOString() });
@@ -18261,7 +18287,7 @@ app.put("/make-server-a8b2511f/ai-agents/:id", async (c) => {
     const updated = { ...existing, ...body, id: agentId, user_id: user.id, updated_at: new Date().toISOString() };
 
     if (updated.is_default && !existing.is_default) {
-      const allAgents = await kv.getByPrefix(`ai-agent:${user.id}:`);
+      const allAgents = await kv.getByPrefixLimited(`ai-agent:${user.id}:`, 100, 0);
       for (const a of allAgents) {
         if (a && a.id !== agentId && a.is_default) {
           await kv.set(`ai-agent:${user.id}:${a.id}`, { ...a, is_default: false, updated_at: new Date().toISOString() });
@@ -18380,10 +18406,11 @@ app.get("/make-server-a8b2511f/writing-presets", async (c) => {
     const { user } = await getAuthenticatedUser(c);
     const teamId = await getTeamId(user.id);
     const prefix = `writing_preset:${teamId}:`;
-    const rows = await kv.getByPrefix(prefix);
+    const rows = await kv.getByPrefixLimited(prefix, 250, 0);
     const presets = rows
       .map((r: any) => {
-        try { return typeof r.value === 'string' ? JSON.parse(r.value) : r.value; } catch { return null; }
+        const row = r?.value ?? r;
+        try { return typeof row === 'string' ? JSON.parse(row) : row; } catch { return null; }
       })
       .filter(Boolean)
       .sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || ''));
@@ -18756,7 +18783,7 @@ app.get("/make-server-a8b2511f/admin/affiliates", async (c) => {
     }
 
     // Get all KV entries with "affiliate:" prefix
-    const allAffiliateEntries = await kv.getByPrefix('affiliate:');
+    const allAffiliateEntries = await kv.getByPrefixLimited('affiliate:', 1000, 0);
 
     const PLAN_PRICES: Record<string, number> = {
       starter: 99,
@@ -20412,7 +20439,7 @@ app.get("/make-server-a8b2511f/templates", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
     const prefix = `email_template:${user.id}:`;
-    const raw = await kv.getByPrefix(prefix);
+    const raw = await kv.getByPrefixLimited(prefix, 250, 0);
     const templates = (raw || []).map((r: any) => {
       try { return typeof r === 'string' ? JSON.parse(r) : r; } catch { return null; }
     }).filter(Boolean).sort((a: any, b: any) => (b.updated_at || '').localeCompare(a.updated_at || ''));

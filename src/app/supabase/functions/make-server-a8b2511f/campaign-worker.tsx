@@ -112,12 +112,13 @@ export async function getPendingCampaigns(userId: string): Promise<Array<{
 
   // Also scan for campaigns that are "active" but not in the queue (edge function died mid-send)
   // We do this by checking campaigns that have status 'active' or 'sending'
-  const allCampaignKeys = await kv.getByPrefix(`campaign:${userId}:`);
+  const allCampaignKeys = await kv.getByPrefixLimited(`campaign:${userId}:`, 500, 0);
   const campaignIdsToCheck = new Set(activeQueues);
 
   for (const entry of (allCampaignKeys || [])) {
-    if (entry?.value?.status === 'active' || entry?.value?.status === 'sending') {
-      const id = entry.key?.replace(`campaign:${userId}:`, '');
+    const campaign = entry?.value || entry;
+    if (campaign?.status === 'active' || campaign?.status === 'sending') {
+      const id = campaign.id || entry?.key?.replace(`campaign:${userId}:`, '');
       if (id) campaignIdsToCheck.add(id);
     }
   }

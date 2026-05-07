@@ -236,3 +236,13 @@ export const mdel = (keys: string[]): Promise<void> =>
 
 export const getByPrefix = (prefix: string): Promise<any[]> =>
   withRetry(() => kvRaw.getByPrefix(prefix), `getByPrefix(${prefix})`, PREFIX_TIMEOUT_MS);
+
+export const getByPrefixLimited = (prefix: string, limit = 1000, offset = 0): Promise<any[]> =>
+  withRetry(
+    () => kvRaw.getByPrefixLimited(prefix, limit, offset),
+    `getByPrefixLimited(${prefix}, ${limit}, ${offset})`,
+    PREFIX_TIMEOUT_MS,
+  );
+
+export const countByPrefix = (prefix: string): Promise<number> =>
+  withRetry(() => kvRaw.countByPrefix(prefix), `countByPrefix(${prefix})`, PREFIX_TIMEOUT_MS);

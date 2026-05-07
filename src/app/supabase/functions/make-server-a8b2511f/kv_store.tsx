@@ -85,3 +85,39 @@ export const getByPrefix = async (prefix: string): Promise<any[]> => {
   }
   return data?.map((d) => d.value) ?? [];
 };
+
+// Search for key-value pairs by prefix with a hard page limit.
+// Use this for UI list endpoints so a large tenant cannot force Supabase to
+// materialize every matching KV row in memory.
+export const getByPrefixLimited = async (
+  prefix: string,
+  limit = 1000,
+  offset = 0,
+): Promise<any[]> => {
+  const safeLimit = Math.min(Math.max(Number(limit) || 1000, 1), 5000);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
+  const supabase = client()
+  const { data, error } = await supabase
+    .from("kv_store_a8b2511f")
+    .select("key, value")
+    .like("key", prefix + "%")
+    .order("key", { ascending: false })
+    .range(safeOffset, safeOffset + safeLimit - 1);
+  if (error) {
+    throw new Error(error.message);
+  }
+  return data?.map((d) => d.value) ?? [];
+};
+
+// Lightweight count for paginated prefix-backed lists.
+export const countByPrefix = async (prefix: string): Promise<number> => {
+  const supabase = client()
+  const { count, error } = await supabase
+    .from("kv_store_a8b2511f")
+    .select("key", { count: "estimated", head: true })
+    .like("key", prefix + "%");
+  if (error) {
+    throw new Error(error.message);
+  }
+  return count ?? 0;
+};

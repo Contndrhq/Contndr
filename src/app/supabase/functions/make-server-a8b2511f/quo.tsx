@@ -604,7 +604,7 @@ app.get('/calls/history', async (c) => {
     }
 
     // Get all calls (most recent first)
-    const allCalls = await kv.getByPrefix('quo:call:');
+    const allCalls = await kv.getByPrefixLimited('quo:call:', 1000, 0);
     const sorted = allCalls
       .filter(function(item: any) { return item && typeof item === 'object' && item.started_at; })
       .sort(function(a: any, b: any) { return new Date(b.started_at).getTime() - new Date(a.started_at).getTime(); })
@@ -672,7 +672,7 @@ app.get('/stats', async (c) => {
   await requireInternalUser(c);
 
   try {
-    const allCalls = await kv.getByPrefix('quo:call:');
+    const allCalls = await kv.getByPrefixLimited('quo:call:', 1000, 0);
     const valid = allCalls.filter(function(item: any) { return item && typeof item === 'object'; });
 
     const now = new Date();

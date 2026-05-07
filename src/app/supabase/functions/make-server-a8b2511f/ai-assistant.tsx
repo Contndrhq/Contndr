@@ -256,7 +256,7 @@ async function gatherContext(userId: string, userEmail: string) {
 
     // ── 2) CAMPAIGNS from KV + DB ───────────────────────────────────
     const [campaignsKV, campaignsDB] = await Promise.all([
-      kv.getByPrefix(`campaign:${userId}:`).catch(() => []),
+      kv.getByPrefixLimited(`campaign:${userId}:`, 500, 0).catch(() => []),
       safeData(
         supabase.from("campaigns").select("id, name, status, created_at, user_id, product").in("user_id", targetUserIds)
       ),
@@ -403,7 +403,7 @@ async function gatherContext(userId: string, userEmail: string) {
 
     // ── 5) AI Call campaigns from KV ────────────────────────────────
     try {
-      const aiCallCampaigns = await kv.getByPrefix(`ai-call-campaign:${userId}:`);
+      const aiCallCampaigns = await kv.getByPrefixLimited(`ai-call-campaign:${userId}:`, 250, 0);
       ctx.aiCallCampaigns = (aiCallCampaigns || []).length;
     } catch { ctx.aiCallCampaigns = 0; }
 
@@ -832,7 +832,7 @@ app.get("/make-server-a8b2511f/ai-assistant/sessions", async (c) => {
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const prefix = `ai_session:${user.id}:`;
-    const raw = await kv.getByPrefix(prefix).catch(() => []);
+    const raw = await kv.getByPrefixLimited(prefix, 100, 0).catch(() => []);
 
     // Parse and build lightweight index
     const sessions = (raw || [])
