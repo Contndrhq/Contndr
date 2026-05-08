@@ -1392,8 +1392,11 @@ app.post('/webhooks/call-status', async (c) => {
           const rawSpeech = data.payload?.speech;
           const gatherStatus = data.payload?.status;
           const prospectSaid = (
-            // Object form: { result: "..." }
-            (typeof rawSpeech === 'object' && rawSpeech !== null ? (rawSpeech.result || rawSpeech.transcript || rawSpeech.text) : null)
+            // Telnyx primary format: { results: [{ alternatives: [{ transcript: "..." }] }] }
+            (typeof rawSpeech === 'object' && rawSpeech !== null
+              ? (rawSpeech.results?.[0]?.alternatives?.[0]?.transcript
+                 || rawSpeech.result || rawSpeech.transcript || rawSpeech.text)
+              : null)
             // String form: speech is the transcription directly
             || (typeof rawSpeech === 'string' && rawSpeech.length > 0 ? rawSpeech : null)
             // Alternative Telnyx field names
