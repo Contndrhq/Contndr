@@ -391,6 +391,42 @@ export async function processCampaign(campaignId: string, userId: string, campai
           };
 
           await kv.set(`call:${callId}`, callRecord);
+          // Reverse index for O(1) webhook lookup
+          await kv.set(`call_by_telnyx:${callControlId}`, callId);
+
+          // Pre-generate opening TTS audio before the call is answered
+          // (mirrors the manual call path in telnyx.tsx — zero additional latency at answer time)
+          const preGenVoice = campaign.voice_id || 'rachel';
+          const preGenText = campaign.opening_line || `Hey there! This is ${campaign.ai_name || 'Alex'} from ${campaign.brand || 'Contndr'}. Do you have a quick minute?`;
+          const preGenKey = `call_audio_pre:${callId}`;
+          (async () => {
+            try {
+              const elApiKey = Deno.env.get('ELEVENLABS_API_KEY');
+              if (!elApiKey) return;
+              const voiceId = preGenVoice.length > 15 ? preGenVoice : ({'rachel':'21m00Tcm4TlvDq8ikWAM','bella':'EXAVITQu4vr4xnSDxMaL','josh':'TxGEqnHWrfWFTfGW9XjX','adam':'pNInz6obpgDQGcFmaJgB','sarah':'SAz9YHcvj6GT2YYXdXww','zara':'SAz9YHcvj6GT2YYXdXww'} as Record<string,string>)[preGenVoice.toLowerCase()] || '21m00Tcm4TlvDq8ikWAM';
+              const ttsRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+                method: 'POST',
+                headers: { 'xi-api-key': elApiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+                body: JSON.stringify({ text: preGenText, model_id: 'eleven_turbo_v2_5', voice_settings: { stability: 0.5, similarity_boost: 0.82, style: 0.4, use_speaker_boost: true } }),
+              });
+              if (!ttsRes.ok) { console.warn(`⚠️ Pre-gen TTS failed (${ttsRes.status}) for call ${callId}`); return; }
+              const audioBytes = new Uint8Array(await ttsRes.arrayBuffer());
+              const { createClient } = await import('npm:@supabase/supabase-js@2');
+              const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+              const BUCKET = 'make-a8b2511f-ai-voice';
+              // Ensure bucket exists
+              const { data: buckets } = await sb.storage.listBuckets();
+              if (!buckets?.some((b: any) => b.name === BUCKET)) await sb.storage.createBucket(BUCKET, { public: false });
+              const fileName = `tts_pre_${callId}_${Date.now()}.mp3`;
+              const { error: upErr } = await sb.storage.from(BUCKET).upload(fileName, audioBytes, { contentType: 'audio/mpeg', upsert: false });
+              if (upErr) { console.error('Pre-gen upload error:', upErr); return; }
+              const { data: signed } = await sb.storage.from(BUCKET).createSignedUrl(fileName, 600);
+              if (signed?.signedUrl) {
+                await kv.set(preGenKey, { url: signed.signedUrl, generated_at: new Date().toISOString() });
+                console.log(`⚡ Pre-generated opening audio for call ${callId}`);
+              }
+            } catch (pgErr) { console.error('Pre-gen error (non-fatal):', pgErr); }
+          })();
 
           // Update tracking
           callTracking.attemptedLeads.push(lead.id);

@@ -643,6 +643,8 @@ app.post('/calls/initiate', async (c) => {
     };
 
     await kv.set(`call:${callId}`, callRecord);
+    // Reverse index: O(1) lookup in webhook handler by Telnyx call_control_id
+    await kv.set(`call_by_telnyx:${telnyxCall.call_control_id}`, callId);
 
     return c.json({
       success: true,
@@ -723,7 +725,7 @@ async function elevenLabsTTS(text: string, voiceName?: string): Promise<string |
         },
         body: JSON.stringify({
           text,
-          model_id: 'eleven_multilingual_v2', // Pro plan: highest quality multilingual model
+          model_id: 'eleven_turbo_v2_5', // Low-latency, available on all paid plans
           voice_settings: {
             stability: 0.5,
             similarity_boost: 0.82,
@@ -969,7 +971,7 @@ async function telnyxSpeak(callControlId: string, text: string, voiceName?: stri
     const r = await telnyxRequest(`/calls/${callControlId}/actions/speak`, {
       method: 'POST',
       body: JSON.stringify({
-        payload: text, voice: 'female', language: 'en-US',
+        payload: text, voice: 'ariana', language: 'en-US',
         client_state: btoa(JSON.stringify({ action: 'ai_speak' })),
       }),
     });
@@ -1073,7 +1075,7 @@ async function telnyxGatherUsingSpeak(callControlId: string, text: string, voice
     const r = await telnyxRequest(`/calls/${callControlId}/actions/gather_using_speak`, {
       method: 'POST',
       body: JSON.stringify({
-        payload: text, voice: 'female', language: 'en-US',
+        payload: text, voice: 'ariana', language: 'en-US',
         type: 'speech', speech_language: 'en-US',
         timeout_millis: 15000, end_silence_timeout_millis: 2000,
         minimum_input_length: 1,
@@ -1170,9 +1172,19 @@ app.post('/webhooks/call-status', async (c) => {
       }
     }
 
-    // ── Find matching call record ──
-    const calls = await kv.getByPrefixLimited('call:', 1000, 0);
-    const call = calls.find((c: any) => c.telnyx_call_id === callControlId);
+    // ── Find matching call record — fast O(1) reverse-index lookup ──
+    let call: any = null;
+    if (callControlId) {
+      const directCallId = await kv.get(`call_by_telnyx:${callControlId}`);
+      if (directCallId) {
+        call = await kv.get(`call:${directCallId}`);
+      }
+      if (!call) {
+        // Fallback: linear scan (handles calls created before the reverse index was added)
+        const calls = await kv.getByPrefixLimited('call:', 1000, 0);
+        call = calls.find((c: any) => c.telnyx_call_id === callControlId);
+      }
+    }
 
     if (call) {
       // ── Map event to status ──
