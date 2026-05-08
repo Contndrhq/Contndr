@@ -139,7 +139,7 @@ async function processCampaign(campaignId: string, userId: string, campaign: any
     const campaignKey = `ai-call-campaign:${userId}:${campaignId}`;
     
     // Get all phone numbers for the campaign brand
-    const allNumbers = await kv.getByPrefix('telnyx:number:');
+    const allNumbers = await kv.getByPrefixLimited('telnyx:number:', 250, 0);
     console.log(`📱 All Telnyx numbers:`, JSON.stringify(allNumbers, null, 2));
     
     const availableNumbers = allNumbers.filter(num => 

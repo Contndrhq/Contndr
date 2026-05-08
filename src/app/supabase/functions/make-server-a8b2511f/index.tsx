@@ -617,18 +617,52 @@ async function maybeTriggerAgentHotVisitorCall(args: {
 }) {
   const { targetUserId, lead, visitData, supabase } = args;
   try {
-    if (!targetUserId || !lead?.id || lead.id === 'anonymous' || !lead.phone) return;
-    if (!['page_view', 'visit', undefined, null].includes(visitData?.event_type)) return;
+    if (!targetUserId) {
+      console.log('[AGENT HOT CALL] Skipping visitor: missing target user', { lead_id: lead?.id, url: visitData?.url });
+      return;
+    }
+    if (!lead?.id || lead.id === 'anonymous') {
+      console.log('[AGENT HOT CALL] Skipping visitor: anonymous or unresolved lead', { lead_id: lead?.id, url: visitData?.url });
+      return;
+    }
+    if (!lead.phone) {
+      console.log('[AGENT HOT CALL] Skipping visitor: lead has no phone', { lead_id: lead.id, email: lead.email, url: visitData?.url });
+      return;
+    }
+    if (!['page_view', 'visit', 'email_click', undefined, null].includes(visitData?.event_type)) {
+      console.log('[AGENT HOT CALL] Skipping visitor: unsupported event type', { lead_id: lead.id, event_type: visitData?.event_type });
+      return;
+    }
 
-    const page = normalizeIntentPageFromUrl(visitData?.url);
-    if (!page) return;
+    let page = normalizeIntentPageFromUrl(visitData?.url);
+    const isEmailClickTrigger = visitData?.source === 'email_click' || visitData?.event_type === 'email_click';
+    if (!page && isEmailClickTrigger) page = 'email_click';
+    if (!page) {
+      console.log('[AGENT HOT CALL] Skipping visitor: no intent page matched', {
+        lead_id: lead?.id,
+        url: visitData?.url,
+        event_type: visitData?.event_type,
+        source: visitData?.source,
+      });
+      return;
+    }
 
     const { data: authUserResult } = await supabase.auth.admin.getUserById(targetUserId).catch(() => ({ data: null } as any));
     const accountUser = authUserResult?.user || { id: targetUserId, email: null };
     const subscription = await getUserSubscriptionStatus(accountUser);
     const entitlements = getPlanEntitlements(subscription?.plan || 'none');
     const config = sanitizeAgentModeConfig(await kvGetSafe(`agent_mode:${targetUserId}:config`), entitlements);
-    if (!config.enabled || !config.autoCallHotVisitors || !entitlements.aiCalling || !entitlements.intentAutoCall) return;
+    if (!config.enabled || !config.autoCallHotVisitors || !entitlements.aiCalling || !entitlements.intentAutoCall) {
+      console.log('[AGENT HOT CALL] Skipping visitor: Agent Mode/calling entitlement disabled', {
+        targetUserId,
+        plan: subscription?.plan || 'none',
+        agent_enabled: config.enabled,
+        auto_call_hot_visitors: config.autoCallHotVisitors,
+        ai_calling: entitlements.aiCalling,
+        intent_auto_call: entitlements.intentAutoCall,
+      });
+      return;
+    }
 
     const campaigns = await kv.getByPrefixLimited(`ai-call-campaign:${targetUserId}:`, 250, 0).catch((error: any) => {
       console.warn('[AGENT HOT CALL] Could not load AI call campaigns:', error?.message || error);
@@ -639,10 +673,11 @@ async function maybeTriggerAgentHotVisitorCall(args: {
       const trigger = campaign.intent_trigger || {};
       if (!trigger.enabled || trigger.mode !== 'known_campaign_visitor') return false;
       const pages = Array.isArray(trigger.pages) && trigger.pages.length ? trigger.pages : ['pricing', 'demo', 'contact'];
-      return pages.includes(page);
+      return pages.includes(page) || page === 'email_click';
     });
 
     if (!template) {
+      console.log('[AGENT HOT CALL] Skipping visitor: no active intent AI call template', { targetUserId, lead_id: lead.id, page });
       await kvSetSafe(`agent_hot_call_missing_template:${targetUserId}`, {
         status: 'needs_active_ai_call_campaign',
         lead_id: lead.id,
@@ -657,13 +692,19 @@ async function maybeTriggerAgentHotVisitorCall(args: {
     const cooldownHours = Math.min(168, Math.max(1, Number(trigger.cooldown_hours || 24)));
     const cooldownKey = `agent_hot_call_cooldown:${targetUserId}:${lead.id}:${template.id}`;
     const cooldown = await kvGetSafe<any>(cooldownKey);
-    if (cooldown?.expires_at && new Date(cooldown.expires_at).getTime() > now) return;
+    if (cooldown?.expires_at && new Date(cooldown.expires_at).getTime() > now) {
+      console.log('[AGENT HOT CALL] Skipping visitor: cooldown active', { targetUserId, lead_id: lead.id, template_id: template.id, expires_at: cooldown.expires_at });
+      return;
+    }
 
     const dateKey = new Date().toISOString().split('T')[0];
     const dailyKey = `agent_hot_call_daily:${targetUserId}:${dateKey}`;
     const daily = (await kvGetSafe<any>(dailyKey)) || { date: dateKey, count: 0 };
     const maxDailyCalls = Math.min(250, Math.max(1, Number(trigger.max_daily_calls || config.maxDailyActions || 25)));
-    if ((daily.count || 0) >= maxDailyCalls) return;
+    if ((daily.count || 0) >= maxDailyCalls) {
+      console.log('[AGENT HOT CALL] Skipping visitor: daily cap reached', { targetUserId, date: dateKey, count: daily.count || 0, maxDailyCalls });
+      return;
+    }
 
     daily.count = (daily.count || 0) + 1;
     daily.updated_at = new Date().toISOString();
@@ -717,6 +758,7 @@ async function maybeTriggerAgentHotVisitorCall(args: {
       queued_at: new Date().toISOString(),
       expires_at: new Date(now + cooldownHours * 60 * 60 * 1000).toISOString(),
     });
+    console.log('[AGENT HOT CALL] Queued hot visitor AI call', { targetUserId, lead_id: lead.id, campaign_id: callCampaignId, template_id: template.id, page });
 
     const work = processAICallCampaign(callCampaignId, targetUserId, callCampaign)
       .then(async () => {
@@ -3969,20 +4011,36 @@ app.post("/make-server-a8b2511f/admin/leads/assign-filtered", async (c) => {
 app.get("/make-server-a8b2511f/leads", async (c) => {
   try {
     const { user, supabase } = await getAuthenticatedUser(c);
-    
-    console.log(`[LEADS] Fetching leads for user ${user.email}`);
-    
-    // Simple query - fetch all leads for the user (no limit)
-    // Wrapped in withDbRetry to survive PostgREST cold-start schema-cache errors.
+
+    const search    = c.req.query('search')    || '';
+    const hasPhone  = c.req.query('has_phone') === 'true';
+    const rawLimit  = parseInt(c.req.query('limit') ?? '0', 10);
+    const limit     = rawLimit > 0 ? Math.min(rawLimit, 2000) : 0;
+
+    console.log(`[LEADS] Fetching leads for user ${user.email} search="${search}" has_phone=${hasPhone} limit=${limit}`);
+
+    const idsParam = c.req.query('ids') || '';
+    const ids = idsParam ? idsParam.split(',').filter(Boolean) : [];
+
     const { data: allLeads, error } = await withDbRetry(
-      () => supabase
-        .from('leads')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false }),
+      () => {
+        let q = supabase
+          .from('leads')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+        if (ids.length > 0) {
+          q = q.in('id', ids);
+        } else {
+          if (hasPhone) q = q.not('phone', 'is', null).not('phone', 'eq', '');
+          if (search) q = q.or(`business_name.ilike.%${search}%,contact_name.ilike.%${search}%,phone.ilike.%${search}%`);
+          if (limit > 0) q = q.limit(limit);
+        }
+        return q;
+      },
       'GET /leads'
     );
-    
+
     if (error) {
       console.error('[LEADS] Database error:', error);
       throw error;
@@ -15370,6 +15428,72 @@ app.get("/make-server-a8b2511f/emails/webhook-diagnostics", async (c) => {
   }
 });
 
+// GET /emails/activity-stats — aggregate opened/clicked/replied counts across all user's campaigns
+app.get("/make-server-a8b2511f/emails/activity-stats", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const { data: emails, error } = await supabase
+      .from('emails')
+      .select('status, opened_at, clicked_at')
+      .eq('user_id', user.id);
+    if (error) return c.json({ error: error.message }, 500);
+    const rows = emails ?? [];
+    const opened  = rows.filter((e: any) => e.status === 'opened'  || e.status === 'clicked' || !!e.opened_at || !!e.clicked_at).length;
+    const clicked = rows.filter((e: any) => e.status === 'clicked' || !!e.clicked_at).length;
+    const replied = rows.filter((e: any) => e.status === 'replied').length;
+    return c.json({ opened, clicked, replied });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    if (status !== 401) console.error('[EMAILS/ACTIVITY-STATS] Error:', error);
+    return c.json({ error: error.message }, status);
+  }
+});
+
+// GET /emails/leads-by-activity — leads who opened/clicked/replied on a specific campaign
+app.get("/make-server-a8b2511f/emails/leads-by-activity", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const campaignId = c.req.query('campaignId') || '';
+    const activity  = c.req.query('activity') || 'opened'; // opened | clicked | replied
+
+    let emailQuery = supabase
+      .from('emails')
+      .select('lead_id, status, opened_at, clicked_at')
+      .eq('user_id', user.id)
+      .not('lead_id', 'is', null);
+
+    if (campaignId) emailQuery = emailQuery.eq('campaign_id', campaignId);
+
+    // Filter by activity
+    if (activity === 'clicked') {
+      emailQuery = emailQuery.or('status.eq.clicked,clicked_at.not.is.null');
+    } else if (activity === 'replied') {
+      emailQuery = emailQuery.eq('status', 'replied');
+    } else {
+      // opened = opened or clicked (clicked implies opened)
+      emailQuery = emailQuery.or('status.in.(opened,clicked,replied),opened_at.not.is.null,clicked_at.not.is.null');
+    }
+
+    const { data: emailRows, error: emailError } = await emailQuery;
+    if (emailError) return c.json({ error: emailError.message }, 500);
+
+    const uniqueLeadIds = Array.from(new Set((emailRows ?? []).map((e: any) => e.lead_id).filter(Boolean))) as string[];
+    if (uniqueLeadIds.length === 0) return c.json({ leads: [] });
+
+    const { data: leads, error: leadsError } = await supabase
+      .from('leads')
+      .select('id, contact_name, business_name, phone, email, city, tags')
+      .in('id', uniqueLeadIds);
+
+    if (leadsError) return c.json({ error: leadsError.message }, 500);
+    return c.json({ leads: leads ?? [] });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    if (status !== 401) console.error('[EMAILS/LEADS-BY-ACTIVITY] Error:', error);
+    return c.json({ error: error.message }, status);
+  }
+});
+
 // GET /settings/email-config - Get email configuration
 app.get("/make-server-a8b2511f/settings/email-config", async (c) => {
   try {
@@ -16788,7 +16912,7 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
         console.log(`[CLICK TRACK] ℹ️ Not writing live event (no campaign_id found for email ${email_id})`);
       }
 
-      if (resolvedUserId && resolvedLeadId) {
+      if (resolvedUserId && resolvedLeadId && !clickUAClass.isBot) {
         try {
           const { data: fullLead } = await supabase
             .from('leads')
@@ -16810,6 +16934,7 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
               title: `Email Clicked — ${fullLead.business_name || fullLead.contact_name || 'Lead'}`,
               timestamp: new Date(nowMs).toISOString(),
               user_agent: clickUA,
+              event_type: 'email_click',
               city: geo.city,
               country: geo.country,
               countryCode: geo.countryCode || undefined,
@@ -16823,11 +16948,21 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
             };
 
             await kv.set(atomicKey, visitData);
+            maybeTriggerAgentHotVisitorCall({
+              targetUserId: resolvedUserId,
+              lead: fullLead,
+              visitData,
+              supabase,
+            }).catch((error: any) => {
+              console.warn('[AGENT HOT CALL] Click trigger failed:', error?.message || error);
+            });
             console.log(`[CLICK TRACK MAP] ✅ Map visit created for lead ${resolvedLeadId} (${fullLead.business_name || fullLead.contact_name})`);
           }
         } catch (mapErr: any) {
           console.warn('[CLICK TRACK MAP] Failed to create map visit (non-fatal):', mapErr?.message || mapErr);
         }
+      } else if (clickUAClass.isBot) {
+        console.log(`[CLICK TRACK] Skipping visit/call for bot UA (${clickUAClass.label}) — email ${email_id}`);
       }
 
       console.log(`[CLICK TRACK] Successfully recorded click for email ${email_id}`);
@@ -16892,16 +17027,32 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
       // Continue with redirect even if DB update fails
     }
     
-    // Redirect to the actual URL
-    // Append lid (Lead ID) so the landing page tracking script can identify the visitor
+    // Redirect to the actual URL. Add attribution before any hash fragment so
+    // SPA routes still expose params through window.location.search.
+    const attributionParams: Record<string, string | null | undefined> = {
+      lid: resolvedLeadForRedirect,
+      ct_lead: resolvedLeadForRedirect,
+      ct_campaign: trackingData?.campaign_id || null,
+      ct_email: email_id || null,
+    };
     let redirectUrl = url;
-    if (resolvedLeadForRedirect) {
-      // Use string manipulation to preserve hash if present (params should come before hash)
-      // but simplistic appending usually works for standard campaign URLs
-      if (url.includes('?')) {
-        redirectUrl += `&lid=${resolvedLeadForRedirect}`;
-      } else {
-        redirectUrl += `?lid=${resolvedLeadForRedirect}`;
+    const entries = Object.entries(attributionParams).filter(([, value]) => !!value) as [string, string][];
+    if (entries.length) {
+      try {
+        const parsed = new URL(url);
+        for (const [key, value] of entries) {
+          if (!parsed.searchParams.has(key)) parsed.searchParams.set(key, value);
+        }
+        redirectUrl = parsed.toString();
+      } catch {
+        const hashIndex = url.indexOf('#');
+        const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+        const hash = hashIndex >= 0 ? url.slice(hashIndex) : '';
+        const paramString = entries
+          .filter(([key]) => !new RegExp(`[?&]${key}=`).test(base))
+          .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+          .join('&');
+        redirectUrl = paramString ? `${base}${base.includes('?') ? '&' : '?'}${paramString}${hash}` : url;
       }
     }
     

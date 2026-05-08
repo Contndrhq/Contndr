@@ -299,10 +299,13 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
       if (campaignData.leadSource === 'crm' || campaignData.leadSource === 'email_campaign') {
         try {
           const headers = await getAuthHeaders();
-          const leadsResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/leads`, { headers });
-          if (leadsResponse.ok) {
-            const result = await leadsResponse.json();
-            selectedLeadObjects = (result.leads || []).filter((lead: any) => campaignData.selectedLeads?.includes(lead.id));
+          const ids = (campaignData.selectedLeads || []).join(',');
+          if (ids) {
+            const leadsResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/leads?ids=${ids}`, { headers });
+            if (leadsResponse.ok) {
+              const result = await leadsResponse.json();
+              selectedLeadObjects = result.leads || [];
+            }
           }
         } catch (error) {
           throw new Error('Failed to fetch lead details. Please try again.');
@@ -745,14 +748,23 @@ function Step2LeadSource({ data, update }: { data: Partial<CampaignData>; update
   const [selectedCity, setSelectedCity] = useState('all');
   const [selectedCategory, setSelectedCategory] = useState('all');
 
-  useEffect(() => { if (data.leadSource === 'crm') loadLeadsFromCRM(); }, [data.leadSource]);
+  useEffect(() => { if (data.leadSource === 'crm') loadLeadsFromCRM(''); }, [data.leadSource]);
   useEffect(() => { if (data.leadSource === 'email_campaign') loadCampaignsAndStats(); }, [data.leadSource]);
 
-  async function loadLeadsFromCRM() {
+  // Debounced search: fires backend call 400ms after user stops typing
+  useEffect(() => {
+    if (data.leadSource !== 'crm') return;
+    const timer = setTimeout(() => loadLeadsFromCRM(searchQuery), 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery, data.leadSource]);
+
+  async function loadLeadsFromCRM(search: string) {
     setLoadingLeads(true);
     try {
       const headers = await getAuthHeaders();
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/leads`, { headers });
+      const params = new URLSearchParams({ has_phone: 'true', limit: '300' });
+      if (search) params.set('search', search);
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/leads?${params}`, { headers });
       if (response.ok) {
         const result = await response.json();
         setLeads((result.leads || []).filter((lead: any) => lead.phone));
@@ -790,17 +802,14 @@ function Step2LeadSource({ data, update }: { data: Partial<CampaignData>; update
     finally { setLoadingLeads(false); }
   }
 
-  const uniqueCities = Array.from(new Set(leads.map(l => l.location?.split(',')[0]?.trim()).filter(Boolean))).sort();
-  const uniqueCategories = Array.from(new Set(leads.flatMap(l => l.tags || []).filter(Boolean))).sort();
+  const leadCity = (l: any) => l.city || l.location?.split(',')[0]?.trim() || '';
+  const uniqueCities = Array.from(new Set(leads.map(leadCity).filter(Boolean))).sort();
+  const uniqueCategories = Array.from(new Set(leads.flatMap(l => l.tags || l.category ? [l.category] : []).filter(Boolean))).sort();
 
+  // City and category filters are client-side (backend already handled name/phone search)
   const filteredLeads = leads.filter(lead => {
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      if (!(lead.business_name || '').toLowerCase().includes(q) && !(lead.name || '').toLowerCase().includes(q) &&
-          !(lead.phone || '').toLowerCase().includes(q) && !(lead.location || '').toLowerCase().includes(q)) return false;
-    }
-    if (selectedCity !== 'all' && lead.location?.split(',')[0]?.trim() !== selectedCity) return false;
-    if (selectedCategory !== 'all' && (!lead.tags || !lead.tags.includes(selectedCategory))) return false;
+    if (selectedCity !== 'all' && leadCity(lead) !== selectedCity) return false;
+    if (selectedCategory !== 'all' && (!lead.tags || !lead.tags.includes(selectedCategory)) && lead.category !== selectedCategory) return false;
     return true;
   });
 
@@ -904,8 +913,8 @@ function Step2LeadSource({ data, update }: { data: Partial<CampaignData>; update
                       }}
                       className="w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-[#1ED4A7] focus:ring-[#1ED4A7] bg-white dark:bg-zinc-900 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-zinc-900 dark:text-white truncate">{lead.business_name || lead.name || 'Unknown'}</p>
-                      <p className="text-[10px] text-zinc-500 truncate">{lead.phone}{lead.location ? ` · ${lead.location}` : ''}</p>
+                      <p className="text-xs font-medium text-zinc-900 dark:text-white truncate">{lead.business_name || lead.contact_name || lead.name || 'Unknown'}</p>
+                      <p className="text-[10px] text-zinc-500 truncate">{lead.contact_name && lead.business_name ? `${lead.contact_name} · ` : ''}{lead.phone}{leadCity(lead) ? ` · ${leadCity(lead)}` : ''}</p>
                     </div>
                     {lead.tags?.slice(0, 1).map((tag: string, idx: number) => (
                       <span key={idx} className="hidden sm:inline px-1.5 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded text-[9px] text-zinc-500 dark:text-zinc-400 flex-shrink-0">{tag}</span>
@@ -943,7 +952,13 @@ function Step2LeadSource({ data, update }: { data: Partial<CampaignData>; update
               </div>
             ) : (
               <select value={data.emailCampaignFilter?.campaignId || ''}
-                onChange={(e) => { if (e.target.value && data.emailCampaignFilter?.activity) loadLeadsByEmailActivity(e.target.value, data.emailCampaignFilter.activity); }}
+                onChange={(e) => {
+                  const campaignId = e.target.value;
+                  update({ emailCampaignFilter: { ...(data.emailCampaignFilter || {}), campaignId } });
+                  if (campaignId && data.emailCampaignFilter?.activity) {
+                    loadLeadsByEmailActivity(campaignId, data.emailCampaignFilter.activity as any);
+                  }
+                }}
                 className={INPUT_CLS}>
                 <option value="">Choose a campaign...</option>
                 {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -983,8 +998,8 @@ function Step2LeadSource({ data, update }: { data: Partial<CampaignData>; update
                   <div key={lead.id} className="flex items-center gap-2 px-3 py-2 text-xs">
                     <Check className="w-3 h-3 text-[#1ED4A7] flex-shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-zinc-900 dark:text-white truncate">{lead.business_name || lead.name}</p>
-                      <p className="text-[10px] text-zinc-500">{lead.phone}</p>
+                      <p className="font-medium text-zinc-900 dark:text-white truncate">{lead.business_name || lead.contact_name || lead.name}</p>
+                      <p className="text-[10px] text-zinc-500">{lead.contact_name && lead.business_name ? `${lead.contact_name} · ` : ''}{lead.phone}</p>
                     </div>
                   </div>
                 ))}
@@ -1505,12 +1520,12 @@ function Step6Scheduling({ data, update, scheduleValue, onScheduleChange, canUse
             type="button"
             disabled={!canUseIntentTriggers}
             onClick={() => updateTrigger({ enabled: !trigger.enabled })}
-            className={`relative w-10 h-5 rounded-full flex-shrink-0 transition-colors ${
+            className={`relative w-11 h-6 rounded-full flex-shrink-0 transition-colors overflow-hidden ${
               trigger.enabled && canUseIntentTriggers ? 'bg-[#1ED4A7]' : 'bg-zinc-300 dark:bg-zinc-700'
             } ${!canUseIntentTriggers ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
-              trigger.enabled && canUseIntentTriggers ? 'translate-x-5' : 'translate-x-0.5'
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+              trigger.enabled && canUseIntentTriggers ? 'translate-x-5' : 'translate-x-0'
             }`} />
           </button>
         </div>

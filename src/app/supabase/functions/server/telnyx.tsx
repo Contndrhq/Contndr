@@ -128,7 +128,7 @@ app.get('/config', async (c) => {
         const accountData = await accountRes.json();
         
         // Get phone numbers count
-        const numbersData = await kv.getByPrefix('telnyx:number:');
+        const numbersData = await kv.getByPrefixLimited('telnyx:number:', 250, 0);
         
         return c.json({
           success: true,
@@ -215,7 +215,7 @@ app.delete('/config', async (c) => {
 // GET /telnyx/numbers - Get all phone numbers
 app.get('/numbers', async (c) => {
   try {
-    const numbers = await kv.getByPrefix('telnyx:number:');
+    const numbers = await kv.getByPrefixLimited('telnyx:number:', 250, 0);
     
     console.log('📋 Raw KV results:', JSON.stringify(numbers, null, 2));
     console.log('📋 Number of items from KV:', numbers.length);
@@ -255,7 +255,7 @@ app.post('/numbers/sync', async (c) => {
     console.log('📋 Telnyx numbers data:', JSON.stringify(telnyxNumbers, null, 2));
 
     // Get existing numbers from our KV store
-    const existingNumbers = await kv.getByPrefix('telnyx:number:');
+    const existingNumbers = await kv.getByPrefixLimited('telnyx:number:', 250, 0);
     console.log(`💾 Found ${existingNumbers.length} existing numbers in KV store`);
     
     // getByPrefix returns values directly, not {key, value} objects
@@ -407,7 +407,7 @@ app.post('/numbers/add-existing', async (c) => {
     }
 
     // Check if already exists
-    const existingNumbers = await kv.getByPrefix('telnyx:number:');
+    const existingNumbers = await kv.getByPrefixLimited('telnyx:number:', 250, 0);
     const duplicate = existingNumbers.find((n: any) => n.phone_number === phone_number);
     
     if (duplicate) {
