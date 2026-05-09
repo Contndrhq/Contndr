@@ -324,7 +324,7 @@ export function AICalls({
           </div>
           <div className="divide-y divide-zinc-200/50 dark:divide-zinc-800/50">
             {activeCalls.map(call => (
-              <ActiveCallCard key={call.id} call={call} formatDuration={formatDuration} />
+              <ActiveCallCard key={call.id} call={call} formatDuration={formatDuration} onCallEnded={(id) => setActiveCalls(prev => prev.filter(c => c.id !== id))} />
             ))}
           </div>
         </div>
@@ -496,7 +496,7 @@ function StatCard({ title, value, icon: Icon, color, subtitle, pulse }: { title:
   );
 }
 
-function ActiveCallCard({ call, formatDuration }: { call: ActiveCall; formatDuration: (s: number) => string }) {
+function ActiveCallCard({ call, formatDuration, onCallEnded }: { call: ActiveCall; formatDuration: (s: number) => string; onCallEnded: (id: string) => void }) {
   const { t } = useTranslation();
   const [broadcastState, setBroadcastState] = useState<'off' | 'connecting' | 'live'>('off');
 
@@ -508,8 +508,7 @@ function ActiveCallCard({ call, formatDuration }: { call: ActiveCall; formatDura
         `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/telnyx/calls/${call.id}/hangup`,
         { method: 'POST', headers, body: JSON.stringify({}) }
       );
-      alert(t('aiCalls.callEnded'));
-      window.location.reload();
+      onCallEnded(call.id);
     } catch (error) {
       alert(t('aiCalls.errorEndingCall'));
     }

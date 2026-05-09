@@ -245,14 +245,11 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
         humanTransfer: editingCampaign.human_transfer !== false,
         voicemailAction: editingCampaign.voicemail_action || 'leave',
         notInterestedAction: editingCampaign.not_interested_action || 'tag',
-        openingLine: editingCampaign.opening_line || 'Hi, this is calling from Contndr. We create premium websites and mobile apps that help businesses grow. Do you have a quick minute?',
-        qualificationQuestions: editingCampaign.qualification_questions || ['What stage is your business in?', 'Do you already have a website or mobile app?'],
-        valuePitch: editingCampaign.value_pitch || 'We create high-performance websites and mobile apps with a subscription model starting at $499/month. Our clients see significant increases in conversions and customer engagement.',
-        objectionHandling: editingCampaign.objection_handling || [
-          { objection: 'Not interested', response: 'I understand. Can I ask what your current approach is for your online presence?' },
-          { objection: 'Too expensive', response: 'I hear you. You\'re investing in strategy, custom design, and a scalable platform that grows with your business. This is a complete professional digital system, not a template. Would it help to see examples of what we\'ve built?' }
-        ],
-        closeAction: editingCampaign.close_action || 'Would you have 15 minutes this week to see what we can create for you? I can show you our portfolio and discuss your specific needs.',
+        openingLine: editingCampaign.opening_line || '',
+        qualificationQuestions: editingCampaign.qualification_questions || [],
+        valuePitch: editingCampaign.value_pitch || '',
+        objectionHandling: editingCampaign.objection_handling || [],
+        closeAction: editingCampaign.close_action || '',
         callingDays: editingCampaign.calling_days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
         callingHours: editingCampaign.calling_hours || { start: '09:00', end: '17:00' },
         maxAttempts: editingCampaign.max_attempts || 3,
@@ -272,14 +269,11 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
       voiceProvider: 'elevenlabs', voiceId: '', speakingSpeed: 1.0, emotionLevel: 0.5,
       maxDuration: 300, allowInterruptions: true, humanTransfer: true,
       voicemailAction: 'leave', notInterestedAction: 'tag',
-      openingLine: 'Hi, this is calling from Contndr. We create premium websites and mobile apps that help businesses grow. Do you have a quick minute?',
-      qualificationQuestions: ['What stage is your business in?', 'Do you already have a website or mobile app?'],
-      valuePitch: 'We create high-performance websites and mobile apps with a subscription model starting at $499/month. Our clients see significant increases in conversions and customer engagement.',
-      objectionHandling: [
-        { objection: 'Not interested', response: 'I understand. Can I ask what your current approach is for your online presence?' },
-        { objection: 'Too expensive', response: 'I hear you. You\'re investing in strategy, custom design, and a scalable platform that grows with your business. This is a complete professional digital system, not a template. Would it help to see examples of what we\'ve built?' }
-      ],
-      closeAction: 'Would you have 15 minutes this week to see what we can create for you? I can show you our portfolio and discuss your specific needs.',
+      openingLine: '',
+      qualificationQuestions: [],
+      valuePitch: '',
+      objectionHandling: [],
+      closeAction: '',
       callingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
       callingHours: { start: '09:00', end: '17:00' },
       maxAttempts: 3, delayBetweenAttempts: 24, timezoneDetection: true,
@@ -399,8 +393,25 @@ export function AICallCampaignBuilder({ onClose, preselectedLeadIds, editingCamp
           { headers: await getAuthHeaders() }
         );
         if (response.ok) {
-          const data = await response.json();
-          setCustomAgents(data.agents || []);
+          const agentsData = await response.json();
+          const agents = agentsData.agents || [];
+          setCustomAgents(agents);
+
+          // For new campaigns, auto-apply the default agent (or first agent) as a starting point
+          if (!editingCampaign && agents.length > 0) {
+            const defaultAgent = agents.find((a: any) => a.is_default) || agents[0];
+            updateCampaignData({
+              customAgentId: defaultAgent.id,
+              aiName: defaultAgent.name || 'Alex',
+              aiRole: defaultAgent.role || 'Sales Specialist',
+              openingLine: defaultAgent.greeting || '',
+              qualificationQuestions: defaultAgent.qualification_questions?.length ? defaultAgent.qualification_questions : [],
+              instructions: defaultAgent.instructions || '',
+              knowledgeBase: defaultAgent.knowledge_base || '',
+              transferRules: defaultAgent.transfer_rules || [],
+              maxTurns: defaultAgent.max_turns || 12,
+            });
+          }
         }
       } catch (error) {
         console.warn('Failed to load custom agents', error);

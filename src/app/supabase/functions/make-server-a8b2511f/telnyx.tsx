@@ -28,6 +28,43 @@ const endedCallControlIds = new Set<string>();
 
 // Sentinel return value: the call has ended, do NOT attempt fallback commands.
 const CALL_ENDED = 'ended' as const;
+
+// ── Per-call transcription state (streaming ASR) ──
+// NOTE: aiResponding is NOT stored here — it lives in KV so it's shared across
+// all Edge Function instances (prevents duplicate AI responses from concurrent workers).
+const transcriptionState = new Map<string, {
+  buffer: string;
+  lastPartialAt: number;
+  isSpeaking: boolean;
+  silenceTimer: ReturnType<typeof setTimeout> | null;
+}>();
+
+/** KV-based AI responding lock — shared across all Edge Function instances.
+ *  Returns true if lock was successfully acquired (caller should process).
+ *  Returns false if another instance already holds the lock. */
+async function acquireAILock(callControlId: string): Promise<boolean> {
+  const lockKey = `ai_lock:${callControlId}`;
+  const existing = await kv.get(lockKey);
+  if (existing && (Date.now() - existing) < 30000) {
+    return false; // Another instance holds the lock
+  }
+  await kv.set(lockKey, Date.now());
+  return true;
+}
+
+async function releaseAILock(callControlId: string): Promise<void> {
+  try { await kv.del(`ai_lock:${callControlId}`); } catch {}
+}
+
+/** Returns true if this exact transcript was already processed recently (dedup). */
+async function isTranscriptDuplicate(callControlId: string, transcript: string): Promise<boolean> {
+  const hash = transcript.toLowerCase().trim().substring(0, 60).replace(/\s+/g, '_');
+  const dedupKey = `tx_dedup:${callControlId}:${hash}`;
+  const seen = await kv.get(dedupKey);
+  if (seen) return true;
+  await kv.set(dedupKey, Date.now());
+  return false;
+}
 type TelnyxResult = boolean | typeof CALL_ENDED;
 
 /** Check 90018 / "Call has already ended" in an error response, mark in-memory */
@@ -694,87 +731,27 @@ async function ensureVoiceBucket() {
   }
 }
 
-/** Generate speech audio via ElevenLabs and return a signed URL */
-async function elevenLabsTTS(text: string, voiceName?: string): Promise<string | null> {
+/** Return a streaming ElevenLabs TTS URL — no upload, no signed URL, near-instant playback start.
+ *  Telnyx fetches this URL and streams audio directly from ElevenLabs via our proxy endpoint. */
+function elevenLabsTTS(text: string, voiceName?: string): Promise<string | null> {
   const apiKey = Deno.env.get('ELEVENLABS_API_KEY');
   if (!apiKey) {
     console.error('❌ ELEVENLABS_API_KEY not set');
-    return null;
+    return Promise.resolve(null);
   }
 
-  // Resolve voice ID: accept raw ElevenLabs IDs, named keys, or fallback
-  let voiceId: string;
-  if (voiceName && voiceName.length > 15) {
-    // Looks like a raw ElevenLabs voice ID (e.g. "SAz9YHcvj6GT2YYXdXww")
-    voiceId = voiceName;
-  } else {
-    voiceId = ELEVENLABS_VOICES[(voiceName || DEFAULT_VOICE).toLowerCase()] || ELEVENLABS_VOICES[DEFAULT_VOICE];
-  }
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  if (!supabaseUrl) return Promise.resolve(null);
 
-  try {
-    console.log(`🎙️ ElevenLabs TTS: "${text.substring(0, 80)}..." (voice: ${voiceName || DEFAULT_VOICE}, id: ${voiceId})`);
+  const voice = voiceName || DEFAULT_VOICE;
+  const token = Deno.env.get('TTS_STREAM_TOKEN') || '';
+  const encodedText = encodeURIComponent(text);
+  const encodedVoice = encodeURIComponent(voice);
 
-    const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-      {
-        method: 'POST',
-        headers: {
-          'xi-api-key': apiKey,
-          'Content-Type': 'application/json',
-          'Accept': 'audio/mpeg',
-        },
-        body: JSON.stringify({
-          text,
-          model_id: 'eleven_turbo_v2_5', // Low-latency, available on all paid plans
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.82,
-            style: 0.4,
-            use_speaker_boost: true,
-          },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`❌ ElevenLabs API error (${response.status}):`, errText);
-      return null;
-    }
-
-    const audioBuffer = await response.arrayBuffer();
-    const audioBytes = new Uint8Array(audioBuffer);
-    console.log(`🎙️ ElevenLabs returned ${audioBytes.length} bytes of audio`);
-
-    // Upload to Supabase Storage
-    await ensureVoiceBucket();
-    const fileName = `tts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.mp3`;
-
-    const { error: uploadError } = await supabaseVoice.storage
-      .from(VOICE_BUCKET)
-      .upload(fileName, audioBytes, { contentType: 'audio/mpeg', upsert: false });
-
-    if (uploadError) {
-      console.error('❌ Storage upload error:', uploadError);
-      return null;
-    }
-
-    // Signed URL valid 10 min — more than enough for any single call turn
-    const { data: signedData, error: signError } = await supabaseVoice.storage
-      .from(VOICE_BUCKET)
-      .createSignedUrl(fileName, 600);
-
-    if (signError || !signedData?.signedUrl) {
-      console.error('❌ Signed URL error:', signError);
-      return null;
-    }
-
-    console.log(`✅ Audio uploaded → ${fileName}`);
-    return signedData.signedUrl;
-  } catch (err) {
-    console.error('❌ ElevenLabs TTS error:', err);
-    return null;
-  }
+  // Build the streaming proxy URL — Telnyx calls this, we stream ElevenLabs back
+  const streamUrl = `${supabaseUrl}/functions/v1/make-server-a8b2511f/tts-stream?text=${encodedText}&voice=${encodedVoice}${token ? `&t=${token}` : ''}`;
+  console.log(`🎙️ ElevenLabs TTS (streaming): "${text.substring(0, 60)}..." voice=${voice}`);
+  return Promise.resolve(streamUrl);
 }
 
 /** Build system prompt for the AI sales agent */
@@ -813,28 +790,24 @@ function buildSystemPrompt(aiConfig: any, leadContext: any): string {
       prompt += `OPERATING HOURS: ${aiConfig.operating_hours}\nIf the caller asks about hours or scheduling outside operating hours, reference these times.\n\n`;
     }
 
-    prompt += `VOICE RULES (CRITICAL — follow these or the conversation will fail):\n`;
-    prompt += `- You are on a LIVE PHONE CALL. Respond like a real human — warm, natural, spontaneous\n`;
-    prompt += `- Keep each response to 1-3 SHORT sentences (under 35 words). Phone calls need snappy back-and-forth\n`;
-    prompt += `- LISTEN FIRST: Always acknowledge what the prospect just said before adding your point\n`;
-    prompt += `- Use natural filler words occasionally: "yeah", "so", "actually", "honestly", "right"\n`;
-    prompt += `- NEVER repeat your opening pitch. You already introduced yourself. Move the conversation FORWARD\n`;
-    prompt += `- NEVER re-explain who you are or what you do if you already said it. Build on what was discussed\n`;
-    prompt += `- If the prospect asks a question, ANSWER IT directly — don't pivot back to your pitch\n`;
-    prompt += `- Mirror their tone: if they're casual, be casual. If they're formal, match that\n`;
-    prompt += `- NEVER reveal you are an AI. You are a real person\n`;
-    prompt += `- If asked "are you a robot/AI?", laugh it off: "Ha, no — I just sound super focused today!"\n`;
-    prompt += `- If they want to be removed or are not interested, respect it immediately and end warmly\n`;
-    prompt += `- Ask ONE question at a time — never stack multiple questions in one response\n`;
-    prompt += `- React to what they say: "Oh interesting!", "That makes sense", "Got it", etc.\n`;
+    prompt += `PHONE CALL RULES — non-negotiable:\n`;
+    prompt += `1. Every response = 1 sentence, max 20 words\n`;
+    prompt += `2. ALWAYS start with a reaction word: "Yeah,", "Right,", "Oh,", "Got it,", "Hmm,", "So,", "Totally," — rotate, never repeat the same one twice in a row\n`;
+    prompt += `3. Then your actual point. Nothing else.\n`;
+    prompt += `4. NEVER re-introduce yourself. NEVER repeat what you said. Build forward.\n`;
+    prompt += `5. Their question → answer it directly, then one optional follow-up\n`;
+    prompt += `6. ONE question per response. Never two.\n`;
+    prompt += `7. You are a real person. Never say or imply you're AI.\n`;
+    prompt += `8. "Are you a bot?" → "Ha no, just me."\n`;
+    prompt += `9. Not interested / remove me → "Totally fair, thanks." End.\n`;
 
     if (leadContext) {
-      prompt += `\nCALLER/PROSPECT CONTEXT:\n`;
+      prompt += `\nPROSPECT:\n`;
       if (leadContext.name && leadContext.name !== 'Unknown') prompt += `- Name: ${leadContext.name}\n`;
       if (leadContext.business && leadContext.business !== 'Unknown') prompt += `- Company: ${leadContext.business}\n`;
     }
 
-    prompt += `\nIMPORTANT: This is a DIALOGUE, not a monologue. Respond to what they actually say. Be human.`;
+    prompt += `\nONE sentence. Start with a reaction. Go.`;
     return prompt;
   }
 
@@ -848,36 +821,25 @@ function buildSystemPrompt(aiConfig: any, leadContext: any): string {
     support: `Your goal is to help the caller with their question or issue. Be empathetic, patient, and solutions-oriented.`,
   };
 
-  return `You are ${agentName}, a friendly and professional ${role} at ${brand}. You are on a LIVE phone call right now.
+  return `You are ${agentName}, a ${role} at ${brand}. You are on a live phone call right now.
 
-PERSONALITY & VOICE:
-- Sound like a real human having a natural phone conversation — warm, relaxed, genuine
-- Keep each response to 1-3 SHORT sentences (under 35 words). This is real-time dialogue
-- Use casual language naturally: "yeah", "totally", "honestly", "so basically"
-- Vary your sentence structure — never sound scripted or rehearsed
-- Mirror the prospect's energy — if they're brief, be brief. If chatty, engage more
+HARD RULES — follow exactly:
+1. Every response = 1 sentence, max 20 words
+2. ALWAYS start with a reaction word: "Yeah,", "Right,", "Oh,", "Got it,", "Hmm,", "So,", "Totally," — vary them, never repeat the same one twice in a row
+3. Then your actual point. That's it.
+4. NEVER re-introduce yourself after your first message
+5. NEVER repeat anything you already said — build forward
+6. Direct question from them → answer it first, then (optionally) one follow-up
+7. Exactly ONE question per response. Never stack two
+8. You are a human, not AI. Never break this.
+9. "Are you a bot?" → laugh it off: "Ha, no — just me, I promise."
+10. Not interested / remove me → "Totally fair, thanks for your time." Say nothing else.
 
-CRITICAL CONVERSATION RULES:
-- LISTEN FIRST: Always acknowledge what the prospect just said before making your point
-- NEVER repeat your opening pitch or re-introduce yourself after the first turn
-- NEVER re-explain what ${brand} does if you already said it. Move the conversation FORWARD
-- If the prospect asks a question, ANSWER IT directly before anything else
-- Ask only ONE question per response — never stack questions
-- React naturally: "Oh interesting!", "That makes sense", "Yeah totally", "Got it"
-- If they're busy, ask for a better time: "No worries at all — when would be better to chat?"
-- If "not interested" / "take me off your list" — warmly respect it, thank them, end call
-- If asked "are you a robot/AI?", laugh it off: "Ha, I get that sometimes! No, just me"
-- If asked how you got their number, say they came up as a great fit for what you offer
-- NEVER reveal you are an AI. You are a real person
+GOAL: ${objectiveInstructions[objective] || objectiveInstructions.book_call}
 
-OBJECTIVE:
-${objectiveInstructions[objective] || objectiveInstructions.book_call}
+${leadContext?.name && leadContext.name !== 'Unknown' ? `Prospect: ${leadContext.name}${leadContext.business && leadContext.business !== 'Unknown' ? ` at ${leadContext.business}` : ''}` : ''}
 
-${leadContext ? `PROSPECT CONTEXT:
-- Name: ${leadContext.name || 'Unknown'}
-- Company: ${leadContext.business || 'Unknown'}` : ''}
-
-REMEMBER: This is a DIALOGUE. Respond to what they ACTUALLY said. Be human, be present, don't lecture.`;
+ONE sentence. Start with a reaction. Go.`;
 }
 
 /** Call OpenAI to generate the AI agent's next response */
@@ -891,19 +853,17 @@ async function getAIResponse(
     return "Oh sorry, I spaced out for a second there. What were you saying?";
   }
   try {
-    // Add a turn-awareness nudge so the model doesn't repeat the pitch
     const turnCount = conversationHistory.filter(m => m.role === 'user').length;
+
+    // Inject the turn reminder directly into the system prompt (avoids an extra message round-trip)
+    const turnReminder = turnCount >= 1
+      ? `\n\n[Turn ${turnCount + 1}. You already introduced yourself. DO NOT repeat your pitch. React to what they just said. ONE sentence, 15 words max.]`
+      : `\n\n[Turn 1. Your opening was already spoken. You are now responding to their reaction. Keep it SHORT.]`;
+
     const contextMessages: Array<{ role: string; content: string }> = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: systemPrompt + turnReminder },
       ...conversationHistory,
     ];
-    // After the first exchange, remind the model to not repeat
-    if (turnCount >= 1) {
-      contextMessages.push({
-        role: 'system',
-        content: `This is turn ${turnCount + 1} of the conversation. The prospect has already heard your introduction. DO NOT repeat your pitch or re-introduce yourself. Respond naturally to what they just said. Keep it under 35 words.`
-      });
-    }
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -911,10 +871,10 @@ async function getAIResponse(
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages: contextMessages,
-        max_tokens: 180,
-        temperature: 0.9,
-        frequency_penalty: 0.6,
-        presence_penalty: 0.4,
+        max_tokens: 70,       // ~25-35 words — enough for 1 natural sentence on a phone call
+        temperature: 0.8,
+        frequency_penalty: 0.8,  // Strong penalty prevents repetitive phrasing
+        presence_penalty: 0.3,
       }),
     });
     if (!response.ok) {
@@ -923,8 +883,10 @@ async function getAIResponse(
     }
     const d = await response.json();
     let reply = d.choices?.[0]?.message?.content?.trim() || "Sorry, could you say that again?";
-    // Strip any accidental AI meta-commentary
+    // Strip any accidental AI meta-commentary or stage directions
     reply = reply.replace(/\[.*?\]/g, '').replace(/\(.*?internal.*?\)/gi, '').trim();
+    // If reply ends mid-sentence (cut off by max_tokens), add a natural trailing acknowledgement
+    if (reply && !reply.match(/[.!?]$/)) reply += '.';
     return reply;
   } catch (err) {
     console.error('OpenAI fetch error:', err);
@@ -971,7 +933,7 @@ async function telnyxSpeak(callControlId: string, text: string, voiceName?: stri
     const r = await telnyxRequest(`/calls/${callControlId}/actions/speak`, {
       method: 'POST',
       body: JSON.stringify({
-        payload: text, voice: 'ariana', language: 'en-US',
+        payload: text, voice: 'female', language: 'en-US',
         client_state: btoa(JSON.stringify({ action: 'ai_speak' })),
       }),
     });
@@ -988,7 +950,12 @@ async function telnyxSpeak(callControlId: string, text: string, voiceName?: stri
   } catch (err) { console.error('Telnyx speak fallback error:', err); return false; }
 }
 
-/** Telnyx gather (listen for speech) */
+/** Telnyx gather (listen for speech) via gather_using_speak with a silent prompt.
+ *  The bare `gather` action does not activate ASR on Telnyx connections — only
+ *  gather_using_speak / gather_using_audio have proven speech recognition support.
+ *  We pass a single space as the payload so Telnyx speaks nothing audible, then
+ *  immediately opens the ASR window.  client_state 'ai_listen' prevents the
+ *  call.speak.ended handler from re-triggering another gather. */
 async function telnyxGather(callControlId: string): Promise<TelnyxResult> {
   if (endedCallControlIds.has(callControlId)) {
     console.log(`ℹ️ [telnyxGather] Skipping — call ${callControlId} already ended (in-memory).`);
@@ -996,36 +963,38 @@ async function telnyxGather(callControlId: string): Promise<TelnyxResult> {
   }
   try {
     const gatherConfig = {
+      payload: 'go ahead',
+      voice: 'female',
+      language: 'en-US',
       type: 'speech',
       speech_language: 'en-US',
       timeout_millis: 30000,
       end_silence_timeout_millis: 1500,
       client_state: btoa(JSON.stringify({ action: 'ai_listen' })),
     };
-    console.log(`👂 [telnyxGather] Starting speech gather on ${callControlId}`);
-    console.log(`👂 [DEBUG] Gather config:`, JSON.stringify(gatherConfig));
-    
-    const r = await telnyxRequest(`/calls/${callControlId}/actions/gather`, {
+    console.log(`👂 [telnyxGather] Starting gather_using_speak (ASR) on ${callControlId}`);
+
+    const r = await telnyxRequest(`/calls/${callControlId}/actions/gather_using_speak`, {
       method: 'POST',
       body: JSON.stringify(gatherConfig),
     });
-    
+
     if (!r.ok) {
       const errorText = await r.text();
       if (isCallEndedError(errorText, callControlId)) {
-        console.log(`ℹ️ Call ${callControlId} ended before gather could execute.`);
+        console.log(`ℹ️ Call ${callControlId} ended before gather_using_speak could execute.`);
         return CALL_ENDED;
       }
-      console.error(`❌ [telnyxGather] FAILED for ${callControlId}:`, errorText);
+      console.error(`❌ [telnyxGather] gather_using_speak FAILED for ${callControlId}:`, errorText);
       return false;
     }
-    
+
     const responseData = await r.json();
-    console.log(`✅ [telnyxGather] SUCCESS for ${callControlId}. Response:`, JSON.stringify(responseData));
+    console.log(`✅ [telnyxGather] gather_using_speak SUCCESS for ${callControlId}. Response:`, JSON.stringify(responseData));
     return true;
-  } catch (err) { 
-    console.error(`❌ [telnyxGather] EXCEPTION for ${callControlId}:`, err); 
-    return false; 
+  } catch (err) {
+    console.error(`❌ [telnyxGather] EXCEPTION for ${callControlId}:`, err);
+    return false;
   }
 }
 
@@ -1046,10 +1015,9 @@ async function telnyxGatherUsingSpeak(callControlId: string, text: string, voice
         body: JSON.stringify({
           audio_url: audioUrl,
           type: 'speech',
-          language: 'en-US',
-          timeout_millis: 15000,
-          end_silence_timeout_millis: 2000,
-          minimum_input_length: 1,
+          speech_language: 'en-US',
+          timeout_millis: 30000,
+          end_silence_timeout_millis: 1500,
           client_state: btoa(JSON.stringify({ action: 'ai_speak_and_listen' })),
         }),
       });
@@ -1073,10 +1041,9 @@ async function telnyxGatherUsingSpeak(callControlId: string, text: string, voice
     const r = await telnyxRequest(`/calls/${callControlId}/actions/gather_using_speak`, {
       method: 'POST',
       body: JSON.stringify({
-        payload: text, voice: 'ariana', language: 'en-US',
+        payload: text, voice: 'female', language: 'en-US',
         type: 'speech', speech_language: 'en-US',
-        timeout_millis: 15000, end_silence_timeout_millis: 2000,
-        minimum_input_length: 1,
+        timeout_millis: 30000, end_silence_timeout_millis: 1500,
         client_state: btoa(JSON.stringify({ action: 'ai_speak_and_listen' })),
       }),
     });
@@ -1093,6 +1060,46 @@ async function telnyxGatherUsingSpeak(callControlId: string, text: string, voice
   } catch (err) { console.error('Telnyx gather_using_speak fallback error:', err); return false; }
 }
 
+/** Start real-time streaming transcription on a call.
+ *  Unlike gather-based ASR, this runs CONTINUOUSLY and fires call.transcription
+ *  webhook events with partial/final transcripts. Much more reliable than gather. */
+async function telnyxTranscriptionStart(callControlId: string): Promise<TelnyxResult> {
+  if (endedCallControlIds.has(callControlId)) {
+    return CALL_ENDED;
+  }
+  try {
+    const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/make-server-a8b2511f/telnyx/webhooks/call-status`;
+    console.log(`🎙️ [TRANSCRIPTION] Starting streaming transcription for ${callControlId}`);
+    console.log(`🎙️ [TRANSCRIPTION] Webhook URL: ${webhookUrl}`);
+    const txConfig = {
+      language: 'en',
+      interim_results: false,
+      transcription_engine: 'B',
+      transcription_tracks: 'both',
+      command_id: `tx_${Date.now()}`,
+    };
+    console.log(`🎙️ [TRANSCRIPTION] Config:`, JSON.stringify(txConfig));
+    const r = await telnyxRequest(`/calls/${callControlId}/actions/transcription_start`, {
+      method: 'POST',
+      body: JSON.stringify(txConfig),
+    });
+    if (r.ok) {
+      const responseData = await r.json();
+      console.log(`✅ [TRANSCRIPTION] Started — response:`, JSON.stringify(responseData));
+      return true;
+    }
+    const errorText = await r.text();
+    if (isCallEndedError(errorText, callControlId)) {
+      return CALL_ENDED;
+    }
+    console.error(`❌ [TRANSCRIPTION] Start failed:`, errorText);
+    return false;
+  } catch (err) {
+    console.error(`❌ [TRANSCRIPTION] Start error:`, err);
+    return false;
+  }
+}
+
 // POST /telnyx/webhooks/call-status - Handle call status webhooks
 app.post('/webhooks/call-status', async (c) => {
   try {
@@ -1101,6 +1108,9 @@ app.post('/webhooks/call-status', async (c) => {
 
     const eventType = data?.event_type;
     const callControlId = data?.payload?.call_control_id;
+
+    // ── SYNC log (visible in Supabase Dashboard even with waitUntil) ──
+    console.log(`📞 [WEBHOOK RECV] ${eventType} | cid=${callControlId}`);
 
     // ── Early mark: register hangup in in-memory set ASAP ──
     // This ensures any concurrent background tasks for the same call skip fast.
@@ -1113,8 +1123,7 @@ app.post('/webhooks/call-status', async (c) => {
       try {
         console.log('📞 ========================================');
         console.log('📞 Telnyx webhook BACKGROUND processing:', eventType, callControlId);
-        if (eventType === 'call.playback.ended' || eventType === 'call.speak.ended' || eventType === 'call.gather.ended') {
-          // For critical speech recognition events, log EVERYTHING
+        if (eventType === 'call.playback.ended' || eventType === 'call.speak.ended' || eventType === 'call.gather.ended' || eventType === 'call.transcription') {
           console.log('📞 🔍 CRITICAL EVENT - Full event data:', JSON.stringify(data, null, 2));
         }
         console.log('📞 ========================================');
@@ -1197,6 +1206,7 @@ app.post('/webhooks/call-status', async (c) => {
         case 'call.playback.started': mappedStatus = 'speaking'; break;
         case 'call.playback.ended': mappedStatus = 'listening'; break;
         case 'call.gather.ended': mappedStatus = 'processing'; break;
+        case 'call.transcription': break; // no status change — transcription events are continuous
         case 'call.hangup':
         case 'call.hangup.completed': mappedStatus = 'ended'; break;
         case 'call.machine.detection.ended':
@@ -1282,52 +1292,35 @@ app.post('/webhooks/call-status', async (c) => {
           return `Hey there! This is ${name} over at ${brand}. I was hoping to catch you for just a sec — is now an okay time?`;
         })();
 
-        // ── Shared helper: speak the opening line ──
-        // ARCHITECTURE: We DECOUPLE playback from speech recognition.
-        // gather_using_audio / gather_using_speak silently fail to activate speech
-        // recognition after playback, causing the call to go silent after the greeting.
-        // Instead: playback_start → call.playback.ended → gather → call.gather.ended → AI → repeat.
+        // ── Shared helper: speak opening line + start streaming transcription ──
+        // Uses telnyxSpeak for audio, then starts transcription_start for continuous ASR.
+        // The transcription runs for the entire call and fires call.transcription events.
         const speakOpeningLine = async () => {
           console.log(`🤖 Speaking opening line for ${call.id} (voice: ${voiceName}): "${resolvedOpening.substring(0, 60)}..."`);
           await kv.set(convKey, { history: [{ role: 'assistant', content: resolvedOpening }], turn_count: 0, created_at: new Date().toISOString() });
 
-          // Small pause so the call is fully audio-established on both ends before we play
           await new Promise(r => setTimeout(r, 800));
 
-          // Try pre-generated audio first (zero additional latency)
-          const preGenKey = `call_audio_pre:${call.id}`;
-          const preGen = await kv.get(preGenKey) as any;
-          if (preGen?.url) {
-            console.log(`⚡ Using pre-generated audio for ${call.id}`);
-            await kv.del(preGenKey); // one-time use — clean up
-            try {
-              const r = await telnyxRequest(`/calls/${callControlId}/actions/playback_start`, {
-                method: 'POST',
-                body: JSON.stringify({
-                  audio_url: preGen.url,
-                  client_state: btoa(JSON.stringify({ action: 'ai_speak' })),
-                }),
-              });
-              if (r.ok) { console.log(`✅ playback_start with pre-gen audio started for ${call.id}`); return; }
-              const errorText = await r.text();
-              if (errorText.includes('"90018"') || errorText.includes('Call has already ended')) {
-                console.log(`ℹ️ Call ${call.id} ended before playback_start (pre-gen) could execute.`);
-                return;
-              }
-              console.error(`⚠️ playback_start failed (pre-gen), falling back:`, errorText);
-            } catch (e) { console.error('playback_start error (pre-gen):', e); }
-          }
+          // Start streaming transcription FIRST so it's ready when user speaks
+          const txResult = await telnyxTranscriptionStart(callControlId);
+          console.log(`🎙️ Transcription start result for ${call.id}: ${txResult}`);
 
-          // Fall back to real-time ElevenLabs TTS → playback_start, or Telnyx native speak.
-          // telnyxSpeak uses playback_start with client_state 'ai_speak', so
-          // call.playback.ended will trigger a gather automatically.
+          // Initialize transcription state for this call
+          transcriptionState.set(callControlId, {
+            buffer: '',
+            lastPartialAt: Date.now(),
+            isSpeaking: false,
+            silenceTimer: null,
+          });
+
+          // Speak the opening line (simple speak, transcription handles the listening)
           const speakResult = await telnyxSpeak(callControlId, resolvedOpening, voiceName);
           if (speakResult === CALL_ENDED) {
             console.log(`ℹ️ Call ${call.id} ended before opening line could be spoken.`);
           } else if (!speakResult) {
             console.error(`❌ Failed to speak opening line for ${call.id} — all TTS paths failed`);
           } else {
-            console.log(`✅ Opening line playing for ${call.id} via telnyxSpeak (gather starts on playback.ended)`);
+            console.log(`✅ Opening line speaking + transcription active for ${call.id}`);
           }
         };
 
@@ -1354,200 +1347,186 @@ app.post('/webhooks/call-status', async (c) => {
           }
         }
 
-        // ② SPEAK / PLAYBACK ENDED → start listening for speech
-        // This is the CRITICAL link in the decoupled flow:
-        // playback_start/speak → call.playback.ended/call.speak.ended → gather → call.gather.ended
+        // ② SPEAK / PLAYBACK ENDED → release KV lock so transcription handler knows AI is done
         if (eventType === 'call.speak.ended' || eventType === 'call.playback.ended') {
-          let clientAction = '';
-          try { 
-            const cs = data.payload?.client_state; 
-            console.log(`🤖 [DEBUG] Raw client_state from ${eventType}:`, cs);
-            if (cs) {
-              const decoded = JSON.parse(atob(cs));
-              console.log(`🤖 [DEBUG] Decoded client_state:`, decoded);
-              clientAction = decoded.action || '';
-            }
-          } catch (e) {
-            console.error(`🤖 [DEBUG] Failed to parse client_state:`, e);
-          }
-          console.log(`🤖 ${eventType} for ${call.id}, client_state action: "${clientAction}"`);
-          // Start gather after ANY AI-related playback (greeting, response, nudge)
-          if (clientAction === 'ai_speak' || clientAction === 'ai_speak_and_listen' || clientAction === 'ai_nudge') {
-            console.log(`🤖 ✅ ${eventType} ended → TRIGGERING GATHER for ${call.id}`);
-            const gatherResult = await telnyxGather(callControlId);
-            console.log(`🤖 Gather start result for ${call.id}: ${gatherResult === true ? '✅ SUCCESS' : gatherResult === CALL_ENDED ? '📞 CALL ENDED' : '❌ FAILED'}`);
-            if (gatherResult !== true && gatherResult !== CALL_ENDED) {
-              console.error(`🤖 ❌ CRITICAL: Gather failed to start for ${call.id}! The call will go silent.`);
-            }
-          } else {
-            console.log(`🤖 ⚠️ Skipping gather — client_action "${clientAction}" not recognized as AI playback`);
-          }
+          console.log(`🤖 ${eventType} for ${call.id} — releasing AI lock, ready to hear user`);
+          await releaseAILock(callControlId);
         }
 
-        // ③ GATHER ENDED → process speech, generate AI response, speak back
-        if (eventType === 'call.gather.ended') {
-          // ── Robust speech extraction: Telnyx returns transcriptions in varying formats ──
-          const rawSpeech = data.payload?.speech;
-          const gatherStatus = data.payload?.status;
-          const prospectSaid = (
-            // Telnyx primary format: { results: [{ alternatives: [{ transcript: "..." }] }] }
-            (typeof rawSpeech === 'object' && rawSpeech !== null
-              ? (rawSpeech.results?.[0]?.alternatives?.[0]?.transcript
-                 || rawSpeech.result || rawSpeech.transcript || rawSpeech.text)
-              : null)
-            // String form: speech is the transcription directly
-            || (typeof rawSpeech === 'string' && rawSpeech.length > 0 ? rawSpeech : null)
-            // Alternative Telnyx field names
-            || data.payload?.transcription
+        // ③ TRANSCRIPTION → process real-time speech from streaming transcription
+        if (eventType === 'call.transcription') {
+          const transcriptionData = data.payload?.transcription_data;
+          const isFinal = transcriptionData?.is_final ?? data.payload?.is_final ?? false;
+          const track = transcriptionData?.track || data.payload?.track || 'unknown';
+          const confidence = transcriptionData?.confidence ?? -1;
+          const transcript = (
+            transcriptionData?.transcript
             || data.payload?.transcript
-            || data.payload?.result
-            // DTMF digits fallback
-            || data.payload?.digits
+            || data.payload?.transcription
             || ''
           ).toString().trim();
 
-          console.log(`🤖 Gather ended for ${call.id}, status: "${gatherStatus}", heard: "${prospectSaid}"`);
-          console.log(`🤖 [DEBUG] Raw gather payload keys: ${JSON.stringify(Object.keys(data.payload || {}))}`);
-          console.log(`🤖 [DEBUG] Raw speech field (type=${typeof rawSpeech}):`, JSON.stringify(rawSpeech));
-          // Always dump full payload for debugging speech recognition issues
-          console.log(`🤖 [DEBUG] FULL gather payload:`, JSON.stringify(data.payload));
-          if (!prospectSaid && gatherStatus !== 'timeout') {
-            console.log(`🤖 [DEBUG] FULL gather payload:`, JSON.stringify(data.payload));
-          }
+          console.log(`🎙️ [TX] ${isFinal ? 'FINAL' : 'partial'} track=${track} conf=${confidence} "${transcript}" | ${call.id}`);
 
-          const conv = await kv.get(convKey) || { history: [], turn_count: 0 };
-          const turnCount = (conv.turn_count || 0) + 1;
+          if (!transcript) {
+            // skip empty
+          } else if (!isFinal) {
+            // skip partial
+          } else {
+            // ── Check dedup + lock in parallel (NOT conv — read conv fresh after lock) ──
+            const txHash = transcript.toLowerCase().trim().substring(0, 60).replace(/\s+/g, '_');
+            const dedupKey = `tx_dedup:${callControlId}:${txHash}`;
+            const lockKey = `ai_lock:${callControlId}`;
 
-          // Silence / timeout / call_hangup handling — use natural, varied nudges
-          const isTimeout = !prospectSaid || prospectSaid === 'timeout' || gatherStatus === 'timeout';
-          const isCallHangup = gatherStatus === 'call_hangup';
-          
-          if (isCallHangup) {
-            console.log(`🤖 Gather ended due to call_hangup for ${call.id} — skipping response.`);
-            endedCallControlIds.add(callControlId);
-            return;
-          }
-          
-          if (isTimeout) {
-            console.log(`🤖 Silence/timeout detected for ${call.id}, turnCount: ${turnCount}`);
-            const silenceNudges = [
-              "Hey, are you still there? No worries if now's not a good time.",
-              "Hello? I think we might have a spotty connection.",
-              "Can you hear me okay? Sometimes these calls get a little glitchy.",
-            ];
-            if (turnCount <= 2) {
-              const nudge = silenceNudges[Math.min(turnCount - 1, silenceNudges.length - 1)] || silenceNudges[0];
-              conv.history.push({ role: 'assistant', content: nudge });
+            const [dedupVal, lockVal] = await Promise.all([
+              kv.get(dedupKey),
+              kv.get(lockKey),
+            ]);
+
+            if (dedupVal) {
+              console.log(`🎙️ [TX] Duplicate, skipping: "${transcript.substring(0, 40)}"`);
+              return;
+            }
+            if (lockVal && (Date.now() - lockVal) < 30000) {
+              console.log(`🎙️ [TX] AI busy (locked ${Date.now() - lockVal}ms ago), skipping`);
+              return;
+            }
+
+            // Acquire lock + mark dedup (parallel writes)
+            await Promise.all([
+              kv.set(dedupKey, Date.now()),
+              kv.set(lockKey, Date.now()),
+            ]);
+
+            try {
+              const prospectSaid = transcript;
+              console.log(`🤖 [TX] "${prospectSaid}"`);
+
+              // Read conv FRESH after lock acquisition — prevents stale data from concurrent instances
+              const conv = await kv.get(convKey) || { history: [], turn_count: 0 };
+              const turnCount = (conv.turn_count || 0) + 1;
+
+              // ── Echo filter: skip if transcript matches what AI just said ──
+              const recentAI = (conv.history || []).filter((h: any) => h.role === 'assistant').slice(-2).map((h: any) => h.content as string);
+              const normalizedTranscript = prospectSaid.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+              const isEcho = recentAI.some(aiMsg => {
+                const normalizedAI = aiMsg.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+                // If transcript is 80%+ overlap with AI utterance, it's echo
+                return normalizedAI.includes(normalizedTranscript) ||
+                  (normalizedTranscript.length > 10 && normalizedAI.startsWith(normalizedTranscript.substring(0, 20)));
+              });
+              if (isEcho) {
+                console.log(`🎙️ [TX] Echo detected (matches AI utterance), skipping: "${prospectSaid.substring(0, 40)}"`);
+                await releaseAILock(callControlId);
+                return;
+              }
+
+              conv.history.push({ role: 'user', content: prospectSaid });
+
+              // End signals
+              const lower = prospectSaid.toLowerCase();
+              if (['not interested','take me off',"don't call",'stop calling','remove me','no thanks','goodbye','bye','hang up','leave me alone'].some(s => lower.includes(s))) {
+                const byeOptions = [
+                  "No worries at all! Thanks so much for your time. Have a great rest of your day!",
+                  "Totally understand! I appreciate you taking a second. Take care!",
+                  "That's completely fair. Thanks for letting me know. Have an awesome day!",
+                ];
+                const bye = byeOptions[Math.floor(Math.random() * byeOptions.length)];
+                conv.history.push({ role: 'assistant', content: bye });
+                await kv.set(convKey, { ...conv, turn_count: turnCount, ended_reason: 'not_interested' });
+                await telnyxSpeak(callControlId, bye, voiceName);
+                setTimeout(async () => { try { await telnyxRequest(`/calls/${callControlId}/actions/hangup`, { method: 'POST', body: '{}' }); } catch {} }, 6000);
+                return;
+              }
+
+              // Max turns
+              const maxTurns = call.ai_config?.max_turns || 12;
+              if (turnCount >= maxTurns) {
+                const wrap = "Hey listen, I don't wanna take up too much more of your time. Let me send over a quick email with the details and we can go from there. Sound good?";
+                conv.history.push({ role: 'assistant', content: wrap });
+                await kv.set(convKey, { ...conv, turn_count: turnCount, ended_reason: 'max_turns' });
+                await telnyxSpeak(callControlId, wrap, voiceName);
+                setTimeout(async () => { try { await telnyxRequest(`/calls/${callControlId}/actions/hangup`, { method: 'POST', body: '{}' }); } catch {} }, 10000);
+                return;
+              }
+
+              // Generate AI response
+              console.log(`🤖 Generating AI response for ${call.id}, turn ${turnCount}, prospect said: "${prospectSaid}"`);
+              const systemPrompt = buildSystemPrompt(call.ai_config, {
+                name: call.lead_name || call.ai_config?.lead_name,
+                business: call.business_name || call.ai_config?.business_name,
+              });
+              const aiResponse = await getAIResponse(systemPrompt, conv.history);
+              conv.history.push({ role: 'assistant', content: aiResponse });
               await kv.set(convKey, { ...conv, turn_count: turnCount });
-              // Use telnyxSpeak — the call.playback.ended handler will start gather automatically
-              const nudgeResult = await telnyxSpeak(callControlId, nudge, voiceName);
-              console.log(`🤖 Nudge result for ${call.id}: ${nudgeResult}`);
-            } else {
-              const bye = "Hey, I think the connection might not be great. I'll shoot you a quick email instead. Have a great day!";
-              conv.history.push({ role: 'assistant', content: bye });
-              await kv.set(convKey, { ...conv, turn_count: turnCount, ended_reason: 'silence' });
-              await telnyxSpeak(callControlId, bye, voiceName);
-              setTimeout(async () => { try { await telnyxRequest(`/calls/${callControlId}/actions/hangup`, { method: 'POST', body: '{}' }); } catch {} }, 8000);
-            }
-            return;
-          }
+              console.log(`🤖 AI turn ${turnCount}: "${aiResponse}"`);
 
-          conv.history.push({ role: 'user', content: prospectSaid });
+              // ── Check if AI wants to trigger a transfer ──
+              const transferRules = call.ai_config?.transfer_rules || [];
+              let shouldTransfer = false;
+              let transferTarget: any = null;
 
-          // End signals
-          const lower = prospectSaid.toLowerCase();
-          if (['not interested','take me off',"don't call",'stop calling','remove me','no thanks','goodbye','bye','hang up','leave me alone'].some(s => lower.includes(s))) {
-            const byeOptions = [
-              "No worries at all! Thanks so much for your time. Have a great rest of your day!",
-              "Totally understand! I appreciate you taking a second. Take care!",
-              "That's completely fair. Thanks for letting me know. Have an awesome day!",
-            ];
-            const bye = byeOptions[Math.floor(Math.random() * byeOptions.length)];
-            conv.history.push({ role: 'assistant', content: bye });
-            await kv.set(convKey, { ...conv, turn_count: turnCount, ended_reason: 'not_interested' });
-            await telnyxSpeak(callControlId, bye, voiceName);
-            setTimeout(async () => { try { await telnyxRequest(`/calls/${callControlId}/actions/hangup`, { method: 'POST', body: '{}' }); } catch {} }, 6000);
-            return;
-          }
-
-          // Max turns (configurable per-agent, default 12)
-          const maxTurns = call.ai_config?.max_turns || 12;
-          if (turnCount >= maxTurns) {
-            const wrap = "Hey listen, I don't wanna take up too much more of your time. Let me send over a quick email with the details and we can go from there. Sound good?";
-            conv.history.push({ role: 'assistant', content: wrap });
-            await kv.set(convKey, { ...conv, turn_count: turnCount, ended_reason: 'max_turns' });
-            await telnyxSpeak(callControlId, wrap, voiceName);
-            setTimeout(async () => { try { await telnyxRequest(`/calls/${callControlId}/actions/hangup`, { method: 'POST', body: '{}' }); } catch {} }, 10000);
-            return;
-          }
-
-          // Generate AI response
-          console.log(`🤖 Generating AI response for ${call.id}, turn ${turnCount}, prospect said: "${prospectSaid}"`);
-          const systemPrompt = buildSystemPrompt(call.ai_config, {
-            name: call.lead_name || call.ai_config?.lead_name,
-            business: call.business_name || call.ai_config?.business_name,
-          });
-          const aiResponse = await getAIResponse(systemPrompt, conv.history);
-          conv.history.push({ role: 'assistant', content: aiResponse });
-          await kv.set(convKey, { ...conv, turn_count: turnCount });
-          console.log(`🤖 AI turn ${turnCount}: "${aiResponse}"`);
-
-          // ── Check if AI wants to trigger a transfer ──
-          const transferRules = call.ai_config?.transfer_rules || [];
-          let shouldTransfer = false;
-          let transferTarget: any = null;
-
-          if (transferRules.length > 0) {
-            const lowerResponse = aiResponse.toLowerCase();
-            const lowerProspect = lower; // prospectSaid.toLowerCase() from above
-            for (const rule of transferRules) {
-              const triggerLower = (rule.trigger || '').toLowerCase();
-              // Check if the conversation context matches a transfer trigger
-              if (triggerLower && (lowerProspect.includes(triggerLower) || lowerResponse.includes('transfer') || lowerResponse.includes('connect you'))) {
-                shouldTransfer = true;
-                transferTarget = rule;
-                break;
+              if (transferRules.length > 0) {
+                const lowerResponse = aiResponse.toLowerCase();
+                for (const rule of transferRules) {
+                  const triggerLower = (rule.trigger || '').toLowerCase();
+                  if (triggerLower && (lower.includes(triggerLower) || lowerResponse.includes('transfer') || lowerResponse.includes('connect you'))) {
+                    shouldTransfer = true;
+                    transferTarget = rule;
+                    break;
+                  }
+                }
               }
-            }
-          }
 
-          if (shouldTransfer && transferTarget?.phone) {
-            // Speak the transfer message, then do the transfer
-            const transferMsg = transferTarget.transfer_message || aiResponse;
-            await telnyxSpeak(callControlId, transferMsg, voiceName);
-            // Wait for speech to finish, then transfer
-            setTimeout(async () => {
-              try {
-                console.log(`🔀 Transferring call ${call.id} to ${transferTarget.phone} (rule: ${transferTarget.trigger})`);
-                await telnyxRequest(`/calls/${callControlId}/actions/transfer`, {
-                  method: 'POST',
-                  body: JSON.stringify({ to: formatToE164(transferTarget.phone) }),
-                });
-                conv.history.push({ role: 'system', content: `[Call transferred to ${transferTarget.description || transferTarget.phone}]` });
-                await kv.set(convKey, { ...conv, turn_count: turnCount, transferred_to: transferTarget.phone });
-              } catch (transferErr) {
-                console.error('Transfer failed:', transferErr);
+              if (shouldTransfer && transferTarget?.phone) {
+                const transferMsg = transferTarget.transfer_message || aiResponse;
+                await telnyxSpeak(callControlId, transferMsg, voiceName);
+                setTimeout(async () => {
+                  try {
+                    console.log(`🔀 Transferring call ${call.id} to ${transferTarget.phone}`);
+                    await telnyxRequest(`/calls/${callControlId}/actions/transfer`, {
+                      method: 'POST',
+                      body: JSON.stringify({ to: formatToE164(transferTarget.phone) }),
+                    });
+                    conv.history.push({ role: 'system', content: `[Call transferred to ${transferTarget.description || transferTarget.phone}]` });
+                    await kv.set(convKey, { ...conv, turn_count: turnCount, transferred_to: transferTarget.phone });
+                  } catch (transferErr) {
+                    console.error('Transfer failed:', transferErr);
+                  }
+                }, 6000);
+                return;
               }
-            }, 6000);
-            return;
-          }
 
-          // ── Speak AI response (gather starts automatically via call.playback.ended handler) ──
-          // DECOUPLED FLOW: telnyxSpeak plays audio → call.playback.ended fires → gather starts
-          console.log(`🤖 Speaking AI response for ${call.id}: "${aiResponse.substring(0, 80)}..." (voice: ${voiceName})`);
-          const speakResult = await telnyxSpeak(callControlId, aiResponse, voiceName);
-          console.log(`🤖 telnyxSpeak result for ${call.id}: ${speakResult}`);
-          if (speakResult === CALL_ENDED) {
-            console.log(`ℹ️ Call ${call.id} ended — not speaking response.`);
-          } else if (!speakResult) {
-            console.error(`❌ All TTS paths failed for ${call.id} — call will go silent`);
+              // Speak AI response — lock is held until call.speak.ended / call.playback.ended
+              console.log(`🤖 Speaking response for ${call.id}: "${aiResponse.substring(0, 80)}..." (voice: ${voiceName})`);
+              const speakResult = await telnyxSpeak(callControlId, aiResponse, voiceName);
+              if (speakResult === CALL_ENDED) {
+                console.log(`ℹ️ Call ${call.id} ended — not speaking response.`);
+                await releaseAILock(callControlId);
+              } else if (!speakResult) {
+                console.error(`❌ TTS failed for ${call.id} — releasing lock`);
+                await releaseAILock(callControlId);
+              }
+              // If speak succeeded, lock is released by call.speak.ended / call.playback.ended
+            } catch (txErr) {
+              console.error(`❌ Error processing transcript for ${call.id}:`, txErr);
+              await releaseAILock(callControlId);
+            }
           }
         }
 
-        // ④ CALL ENDED → finalize conversation log + mark in-memory
+        // ③b GATHER ENDED → fallback handler (kept for any legacy gather calls)
+        if (eventType === 'call.gather.ended') {
+          console.log(`🤖 [GATHER FALLBACK] Gather ended for ${call.id} — transcription flow is primary`);
+          console.log(`🤖 [GATHER FALLBACK] Full payload:`, JSON.stringify(data.payload));
+        }
+
+        // ④ CALL ENDED → finalize conversation log + mark in-memory + cleanup
         if (eventType === 'call.hangup' || eventType === 'call.hangup.completed') {
-          // Mark in endedCallControlIds so any concurrent/subsequent commands skip fast
           endedCallControlIds.add(callControlId);
+          transcriptionState.delete(callControlId);
+          // Release KV locks (best-effort, may already be cleared)
+          releaseAILock(callControlId).catch(() => {});
           const conv = await kv.get(convKey);
           if (conv) {
             console.log(`🤖 AI call ${call.id} ended. ${conv.history?.length || 0} messages.`);
@@ -1577,42 +1556,75 @@ app.post('/webhooks/call-status', async (c) => {
   }
 });
 
+// GET /telnyx/tts-stream — Streaming ElevenLabs proxy for Telnyx playback_start.
+// Eliminates upload-to-storage + signed-URL overhead (~700ms savings per turn).
+// Telnyx calls this URL and starts playing audio as ElevenLabs streams it.
+app.get('/tts-stream', async (c) => {
+  const text = c.req.query('text');
+  const voice = c.req.query('voice') || DEFAULT_VOICE;
+  const token = c.req.query('t');
+  const expectedToken = Deno.env.get('TTS_STREAM_TOKEN');
+
+  if (!text) return c.json({ error: 'Missing text' }, 400);
+  // Token check (skip if env var not set, for backwards compat during rollout)
+  if (expectedToken && token !== expectedToken) return c.json({ error: 'Unauthorized' }, 401);
+
+  const apiKey = Deno.env.get('ELEVENLABS_API_KEY');
+  if (!apiKey) return c.json({ error: 'ElevenLabs not configured' }, 500);
+
+  let voiceId: string;
+  if (voice.length > 15) {
+    voiceId = voice;
+  } else {
+    voiceId = ELEVENLABS_VOICES[voice.toLowerCase()] || ELEVENLABS_VOICES[DEFAULT_VOICE];
+  }
+
+  try {
+    const elevenResp = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
+      {
+        method: 'POST',
+        headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+        body: JSON.stringify({
+          text: decodeURIComponent(text),
+          model_id: 'eleven_turbo_v2_5',
+          voice_settings: { stability: 0.45, similarity_boost: 0.78, style: 0.08, use_speaker_boost: false },
+          output_format: 'mp3_44100_32',
+        }),
+      }
+    );
+
+    if (!elevenResp.ok || !elevenResp.body) {
+      return c.json({ error: 'ElevenLabs TTS failed' }, 502);
+    }
+
+    // Stream audio bytes directly to Telnyx — no storage upload needed
+    return new Response(elevenResp.body, {
+      headers: {
+        'Content-Type': 'audio/mpeg',
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  } catch (err) {
+    console.error('TTS stream error:', err);
+    return c.json({ error: 'TTS stream failed' }, 500);
+  }
+});
+
 // GET /telnyx/active-calls - Get currently active calls
 app.get('/active-calls', async (c) => {
   try {
     console.log('📞 [Active Calls] Starting request...');
-    console.log('📞 [Active Calls] Request headers:', Object.fromEntries(c.req.raw.headers));
     
     // Get all active calls from KV store
     const allCalls = await kv.getByPrefixLimited('call:', 1000, 0);
-    console.log(`📞 [Active Calls] Total calls found in KV: ${allCalls.length}`);
-    
-    // Log first call for debugging
-    if (allCalls.length > 0) {
-      console.log(`📞 [Active Calls] Sample call:`, JSON.stringify(allCalls[0], null, 2));
-    }
-    
-    // Log ALL call statuses for debugging
-    console.log('📞 [Active Calls] All call statuses:');
-    allCalls.forEach((c, idx) => {
-      if (c && c.id) {
-        console.log(`  ${idx + 1}. Call ${c.id}: status=${c.status}, last_event=${c.last_event || 'none'}, started=${c.started_at}`);
-      }
-    });
-    
     // getByPrefix returns values directly
     const now = Date.now();
     const activeCalls = allCalls
       .filter(c => {
-        if (!c || typeof c !== 'object') {
-          console.warn(`⚠️ [Active Calls] Invalid call object:`, c);
-          return false;
-        }
-        const isActive = ['initiated', 'ringing', 'answered', 'active', 'speaking', 'listening'].includes(c.status);
-        if (!isActive) {
-          console.log(`📞 [Active Calls] Call ${c.id} excluded: status=${c.status}, last_event=${c.last_event || 'none'}`);
-        }
-        return isActive;
+        if (!c || typeof c !== 'object') return false;
+        return ['initiated', 'ringing', 'answered', 'active', 'speaking', 'listening'].includes(c.status);
       })
       .map(c => {
         try {
@@ -1658,7 +1670,7 @@ app.get('/active-calls', async (c) => {
     };
 
     console.log('📞 [Active Calls] Stats calculated:', stats);
-    console.log('✅ [Active Calls] Returning response successfully');
+    console.log('📞 [Active Calls] Done');
 
     return c.json({
       success: true,
@@ -1937,7 +1949,7 @@ app.post('/calls/:callId/listen', async (c) => {
       
       console.error(`❌ Call verification failed:`, errorData);
       
-      if (errorDetail.includes('not found') || errorCode === '90015') {
+      if (errorDetail.includes('not found') || errorDetail.includes('could not be found') || errorCode === '90015') {
         // Update our local call status
         await kv.set(`call:${callId}`, {
           ...call,
@@ -2000,15 +2012,23 @@ app.post('/calls/:callId/listen', async (c) => {
       const errorDetail = errorData.errors?.[0]?.detail || '';
       const errorCode = errorData.errors?.[0]?.code || '';
       
-      if (errorDetail.includes('no longer active') || errorDetail.includes('already ended') || errorCode === '90018') {
+      const callEndedOnTelnyx =
+        errorDetail.includes('no longer active') ||
+        errorDetail.includes('already ended') ||
+        errorDetail.includes('not found') ||
+        errorDetail.includes('could not be found') ||
+        errorCode === '90018' ||
+        errorCode === '90015';
+
+      if (callEndedOnTelnyx) {
         console.log(`⚠️ Call ${callId} ended before we could set up listening - this is normal`);
-        return c.json({ 
-          success: false, 
+        return c.json({
+          success: false,
           error: 'Call has already ended. The AI call completed before you could join.',
-          call_ended: true 
+          call_ended: true
         }, 400);
       }
-      
+
       throw new Error(errorDetail || 'Failed to join conference');
     }
     
