@@ -997,11 +997,10 @@ async function telnyxGather(callControlId: string): Promise<TelnyxResult> {
   try {
     const gatherConfig = {
       type: 'speech',
-      language: 'en-US',
+      speech_language: 'en-US',  // correct field for ASR (not 'language' which is for TTS)
+      speech_engine: 'google',
       timeout_millis: 15000,
       end_silence_timeout_millis: 2000,
-      inter_digit_timeout_millis: 5000,
-      minimum_input_length: 1,
       client_state: btoa(JSON.stringify({ action: 'ai_listen' })),
     };
     console.log(`👂 [telnyxGather] Starting speech gather on ${callControlId}`);
