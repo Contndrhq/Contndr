@@ -7921,36 +7921,71 @@ app.get("/make-server-a8b2511f/live-traffic", async (c) => {
     // Group by User/Session to show unique "Users Online"
     // This fixes the issue where 1 user clicking 5 pages shows as 5 users
     const userMap = new Map();
-    
+
     recentVisits.forEach((v: any) => {
         let groupKey = v.lead_id;
-        
-        // For anonymous users, try to fingerprint to separate different anonymous users
-        // If they are truly anonymous (no lead_id), we group by attributes
+
+        // For anonymous users, fingerprint by user-agent + brand ONLY.
+        // We deliberately exclude city/region/country and lat/lng from the key:
+        // the same anonymous visitor often has TWO conflicting locations on file
+        // (one from the campaign tracker, one from the ISP IP-geolocation lookup).
+        // Including location in the key would split a single human into two pins.
         if (!groupKey || groupKey === 'anonymous') {
-            const loc = [v.city, v.region, v.country].filter(Boolean).join('|');
             const agent = v.user_agent || 'unknown';
             const brand = v.brand || 'unknown';
-            groupKey = `anon:${loc}:${agent}:${brand}`;
+            groupKey = `anon:${agent}:${brand}`;
         }
-        
-        // Keep the MOST RECENT visit for this user (updates their status/location)
+
+        // Keep the MOST RECENT visit for this user (updates their status/location).
+        // When merging, prefer campaign-supplied coords over ISP-derived coords —
+        // campaign tracker location is more accurate than IP geolocation.
         if (!userMap.has(groupKey)) {
             userMap.set(groupKey, v);
         } else {
             const existing = userMap.get(groupKey);
-            if (new Date(v.timestamp).getTime() > new Date(existing.timestamp).getTime()) {
-                userMap.set(groupKey, v);
+            const newer = new Date(v.timestamp).getTime() > new Date(existing.timestamp).getTime();
+            const merged = newer ? { ...existing, ...v } : { ...v, ...existing };
+            // Prefer the visit that came from a campaign (has campaign_id) for coords
+            const campaignVisit = v.campaign_id ? v : (existing.campaign_id ? existing : null);
+            if (campaignVisit && campaignVisit.latitude && campaignVisit.longitude) {
+                merged.latitude = campaignVisit.latitude;
+                merged.longitude = campaignVisit.longitude;
+                merged.city = campaignVisit.city || merged.city;
+                merged.region = campaignVisit.region || merged.region;
+                merged.country = campaignVisit.country || merged.country;
             }
+            userMap.set(groupKey, merged);
         }
     });
 
     const uniqueUsers = Array.from(userMap.values());
-    
+
+    // FINAL COLLAPSE: merge pins that land within ~5km of each other for the same
+    // brand. Catches the case where the campaign-vs-ISP coords differ slightly but
+    // represent the same human. Rounds lat/lng to 1 decimal (~11km grid) and keeps
+    // the most recent visit per cell.
+    const pinMap = new Map();
+    uniqueUsers.forEach((v: any) => {
+        const lat = typeof v.latitude === 'number' ? v.latitude : parseFloat(v.latitude);
+        const lng = typeof v.longitude === 'number' ? v.longitude : parseFloat(v.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            // No coords — keep keyed by id so it's not collapsed away
+            pinMap.set(`nocoord:${v.id}`, v);
+            return;
+        }
+        // Identified leads keep their own pin even at same coords
+        const idPart = (v.lead_id && v.lead_id !== 'anonymous') ? v.lead_id : 'anon';
+        const cellKey = `${idPart}:${v.brand || 'unknown'}:${lat.toFixed(1)}:${lng.toFixed(1)}`;
+        const existing = pinMap.get(cellKey);
+        if (!existing || new Date(v.timestamp).getTime() > new Date(existing.timestamp).getTime()) {
+            pinMap.set(cellKey, v);
+        }
+    });
+
     // Sort by timestamp descending
-    let visits = uniqueUsers.sort((a: any, b: any) => {
+    let visits = Array.from(pinMap.values()).sort((a: any, b: any) => {
         return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-    }).slice(0, 100); // Return top 100 recent unique users
+    }).slice(0, 100); // Return top 100 recent unique pins
     
     // Enrich with Lead Data
     const leadIds = [...new Set(visits.filter((v: any) => v.lead_id !== 'anonymous').map((v: any) => v.lead_id))];
