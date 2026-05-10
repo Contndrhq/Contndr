@@ -6473,6 +6473,74 @@ setInterval(() => {
   }
 }, 5 * 60_000);
 
+// ─── City centroid lookup ────────────────────────────────────────────
+// IP geolocation often returns the ISP's regional facility (e.g. Hialeah for
+// every Comcast subscriber in Miami-Dade), not the visitor's actual location.
+// Snapping to the city centroid keeps pins in the right metro instead of
+// piling them on top of an ISP datacenter.
+const cityCentroidMemCache = new Map<string, { lat: number; lng: number } | null>();
+
+function normalizeCityKey(city: string, region: string | null, country: string | null): string {
+  const parts = [city, region, country].filter(Boolean).map(s =>
+    String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, '_')
+  );
+  return parts.join(':');
+}
+
+async function getCityCentroid(
+  city: string | null | undefined,
+  region: string | null | undefined,
+  country: string | null | undefined,
+): Promise<{ lat: number; lng: number } | null> {
+  if (!city) return null;
+  const key = normalizeCityKey(city, region || null, country || null);
+  if (cityCentroidMemCache.has(key)) return cityCentroidMemCache.get(key) || null;
+
+  const kvKey = `city_centroid:${key}`;
+  try {
+    const cached = await kv.get(kvKey);
+    if (cached && typeof cached.lat === 'number' && typeof cached.lng === 'number') {
+      cityCentroidMemCache.set(key, cached);
+      return cached;
+    }
+    if (cached === 'NOT_FOUND') {
+      cityCentroidMemCache.set(key, null);
+      return null;
+    }
+  } catch (_) { /* KV miss — fall through to geocode */ }
+
+  // Geocode via Nominatim (free, ~1 req/sec — fine because we cache forever)
+  try {
+    const q = encodeURIComponent([city, region, country].filter(Boolean).join(', '));
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`,
+      {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Contndr-Tracking/1.0 (geocode-cache)' },
+      },
+    );
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      const arr = await res.json();
+      if (Array.isArray(arr) && arr.length > 0 && arr[0].lat && arr[0].lon) {
+        const centroid = { lat: parseFloat(arr[0].lat), lng: parseFloat(arr[0].lon) };
+        cityCentroidMemCache.set(key, centroid);
+        kv.set(kvKey, centroid).catch(() => {});
+        return centroid;
+      }
+    }
+  } catch (e: any) {
+    console.warn('[TRACKING] City centroid geocode failed:', e?.message);
+  }
+
+  // Cache the miss so we don't hammer Nominatim for unknown places
+  cityCentroidMemCache.set(key, null);
+  kv.set(kvKey, 'NOT_FOUND').catch(() => {});
+  return null;
+}
+
 // POST /track/web - Track web visits from leads (and anonymous visitors)
 app.post("/make-server-a8b2511f/track/web", async (c) => {
   try {
@@ -6496,6 +6564,12 @@ app.post("/make-server-a8b2511f/track/web", async (c) => {
     const body = await c.req.json();
     console.log('[TRACKING] Received visit:', JSON.stringify(body, null, 2));
     let { account_id, lead_id, campaign_id, email_id, event_type, element_text, element_href, url, title, timestamp, city, country, region, latitude, longitude, brand } = body;
+
+    // Remember whether coords came from the client (browser geolocation = precise)
+    // vs were derived server-side from IP lookup (= ISP regional point, often miles off).
+    // We snap IP-derived coords to the city centroid below so pins land in the right
+    // city instead of the ISP's facility (e.g. Brickell visitors don't show in Hialeah).
+    const clientSuppliedCoords = !!(latitude && longitude);
 
     // Sanitize string fields to prevent injection
     if (url && typeof url === 'string') url = url.slice(0, 2048);
@@ -6639,7 +6713,19 @@ app.post("/make-server-a8b2511f/track/web", async (c) => {
        }
     }
 
-    
+    // Snap IP-derived coords to the city centroid so pins land in the right
+    // metro instead of on the ISP's regional facility. Skipped when the client
+    // browser supplied precise coords via the Geolocation API.
+    if (!clientSuppliedCoords && city) {
+      const centroid = await getCityCentroid(city, region, country);
+      if (centroid) {
+        latitude = centroid.lat;
+        longitude = centroid.lng;
+        console.log(`[TRACKING] Snapped IP coords to city centroid for ${city}, ${region || country}`);
+      }
+    }
+
+
     // We need a Service Role client to write to the DB or KV
     const supabase = getSupabaseAdmin();
     
