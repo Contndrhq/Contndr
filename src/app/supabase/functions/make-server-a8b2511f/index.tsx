@@ -7229,6 +7229,24 @@ app.get("/make-server-a8b2511f/track/pixel", async (c) => {
     const leadId = c.req.query('lid') || c.req.query('lead_id');
     const brand = c.req.query('brand') || c.req.query('b');
     const trackedDomain = c.req.query('d');
+
+    // Validate UUIDs — without this, anyone can inject visits into any tenant's
+    // CRM by hitting the pixel URL with a forged `uid`. UUID-shaped check
+    // ensures the value at least came from our own ID generator.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!userId || !UUID_RE.test(userId)) {
+      // Always return the 1x1 GIF so the <img> tag doesn't break, but don't store anything.
+      return c.body(
+        new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b]),
+        200,
+        { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store' },
+      );
+    }
+    if (leadId && !UUID_RE.test(leadId)) {
+      // Drop the lead binding silently; still record an anonymous visit
+      console.warn('[PIXEL] Rejected non-UUID lead_id, treating as anonymous');
+    }
+    const safeLeadId = (leadId && UUID_RE.test(leadId)) ? leadId : null;
     
     // Track the visit using the same logic as POST /track/web
     // Use explicit page URL from query param (from JS tracker) or fall back to Referer
@@ -7309,9 +7327,11 @@ app.get("/make-server-a8b2511f/track/pixel", async (c) => {
     // Store the visit
     if (userId) {
       let lead = null;
-      if (leadId) {
+      if (safeLeadId) {
         const adminClient = getSupabaseAdmin();
-        const { data } = await adminClient.from('leads').select('*').eq('id', leadId).single();
+        // Match user_id too — without this, anyone with a valid uid+lid pair
+        // (from any tenant) could log visits against another tenant's lead.
+        const { data } = await adminClient.from('leads').select('*').eq('id', safeLeadId).eq('user_id', userId).single();
         if (data) lead = data;
       }
       
@@ -8497,11 +8517,56 @@ app.get("/make-server-a8b2511f/leads/:id/replies", async (c) => {
 // POST /emails/inbound - Handle incoming emails from Resend
 app.post("/make-server-a8b2511f/emails/inbound", async (c) => {
   try {
+    // Authenticate the webhook caller. Resend Inbound delivers a Svix-style
+    // signature (svix-id / svix-timestamp / svix-signature). Without this
+    // check, anyone on the internet can POST forged "replies" to any lead in
+    // any tenant — they'd flip lead status to Replied and trigger pipeline
+    // automation. Reject the request unless either:
+    //   1) the request carries a valid HMAC signature against INBOUND_EMAIL_SECRET, OR
+    //   2) the request carries an exact-match shared secret in X-Inbound-Token.
+    const inboundSecret = Deno.env.get('INBOUND_EMAIL_SECRET');
+    const sharedToken = Deno.env.get('INBOUND_EMAIL_TOKEN');
+    const headerToken = c.req.header('x-inbound-token') || c.req.header('X-Inbound-Token');
+    const svixSig = c.req.header('svix-signature');
+    const svixId = c.req.header('svix-id');
+    const svixTs = c.req.header('svix-timestamp');
+
+    const rawBody = await c.req.text();
+    let authed = false;
+
+    if (sharedToken && headerToken && headerToken === sharedToken) {
+      authed = true;
+    } else if (inboundSecret && svixSig && svixId && svixTs) {
+      // Verify Svix signature: HMAC-SHA256 of `${svix-id}.${svix-timestamp}.${body}`
+      // base64-encoded, prefixed with "v1,".
+      try {
+        const ageMs = Date.now() - parseInt(svixTs) * 1000;
+        if (Math.abs(ageMs) > 5 * 60_000) {
+          return c.json({ error: 'Signature timestamp out of window' }, 401);
+        }
+        const toSign = `${svixId}.${svixTs}.${rawBody}`;
+        const secretKey = inboundSecret.startsWith('whsec_')
+          ? Uint8Array.from(atob(inboundSecret.slice(6)), ch => ch.charCodeAt(0))
+          : new TextEncoder().encode(inboundSecret);
+        const key = await crypto.subtle.importKey('raw', secretKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const sigBuf = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(toSign));
+        const expected = btoa(String.fromCharCode(...new Uint8Array(sigBuf)));
+        // Header is space-separated `v1,<sig> v1,<sig>` — accept any match
+        const candidates = svixSig.split(' ').map(s => s.replace(/^v1,/, ''));
+        authed = candidates.includes(expected);
+      } catch (sigErr) {
+        console.warn('[INBOUND] Signature verification error:', sigErr);
+      }
+    }
+
+    if (!authed) {
+      console.warn('[INBOUND] Rejected unauthenticated inbound email request');
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
     const supabase = getSupabaseAdmin();
-    
-    // Verify signature if possible, but for now just process the body
-    const payload = await c.req.json();
-    
+    const payload = JSON.parse(rawBody);
+
     console.log('[INBOUND] Received email:', payload.subject, 'From:', payload.from);
     
     // Parse Sender
@@ -10363,6 +10428,7 @@ app.post("/make-server-a8b2511f/crm/leads/create", async (c) => {
 
 // POST /leads/import - Import leads from CSV WITH DUPLICATE DETECTION
 app.post("/make-server-a8b2511f/leads/import", async (c) => {
+  let _importLockUser: string | null = null;
   try {
     const { leads, org_id } = await c.req.json();
 
@@ -10372,6 +10438,24 @@ app.post("/make-server-a8b2511f/leads/import", async (c) => {
 
     // Get user_id from auth token
     const { user, supabase } = await getAuthenticatedUser(c);
+
+    // Per-user import lock. Without this, two concurrent imports of the same
+    // CSV (e.g. the user double-clicked Import) both pass the duplicate check
+    // and both insert — producing duplicate leads in the DB. Lock TTL is 60s
+    // because large imports take time. We refuse rather than queue if another
+    // import is already running, so the user gets a clear error instead of
+    // a silent serialization delay.
+    const lockKey = `lead_import_lock:${user.id}`;
+    try {
+      const existing: number | null = await kv.get(lockKey);
+      if (existing && Date.now() - existing < 60_000) {
+        return c.json({ error: 'Another import is in progress. Please wait for it to finish before starting a new one.' }, 409);
+      }
+      await kv.set(lockKey, Date.now());
+      _importLockUser = user.id;
+    } catch (lockErr) {
+      console.warn('[LEAD IMPORT] Lock acquisition failed (KV degraded), proceeding without lock:', lockErr);
+    }
 
     // **LEAD LIMIT CHECK** — enforce plan-based limits BEFORE heavy processing
     const limitCheck = await checkLeadLimit(user, supabase, leads.length);
@@ -10547,9 +10631,9 @@ app.post("/make-server-a8b2511f/leads/import", async (c) => {
     }
 
     console.log(`✅ Imported ${data.length} new leads (skipped ${duplicates} duplicates${trimmedCount > 0 ? `, trimmed ${trimmedCount} due to plan limit` : ''})`);
-    return c.json({ 
-      success: true, 
-      leads: data, 
+    return c.json({
+      success: true,
+      leads: data,
       imported: data.length,
       total: data.length,
       duplicates,
@@ -10560,6 +10644,10 @@ app.post("/make-server-a8b2511f/leads/import", async (c) => {
   } catch (error) {
     console.error('Error importing leads:', error);
     return c.json({ error: "Failed to import leads", details: error.message }, 500);
+  } finally {
+    if (_importLockUser) {
+      kv.del(`lead_import_lock:${_importLockUser}`).catch(() => {});
+    }
   }
 });
 
@@ -14756,16 +14844,13 @@ app.post("/webhooks/resend-v2", createResendWebhookHandler('RESEND_WEBHOOK_SECRE
 // GET Endpoint for V2 - To verify browser connectivity
 app.get("/make-server-a8b2511f/webhooks/resend-v2", (c) => c.text("Webhook V2 endpoint is reachable via GET. Use POST for webhooks.", 200));
 
-// PUBLIC HEALTH CHECK - No auth required, proves JWT verification is disabled
+// PUBLIC HEALTH CHECK - No auth required, used by uptime monitors.
+// Intentionally returns NO information about which API keys / providers are
+// configured — that's recon for an attacker.
 app.get("/make-server-a8b2511f/public-health", (c) => {
   return c.json({
     status: "ok",
-    version: "3.2.0",
-    ai_provider: "gpt-4o-mini",
-    message: "✅ Public endpoint working! JWT verification is disabled.",
     timestamp: new Date().toISOString(),
-    deployed: true,
-    openai_key_set: !!Deno.env.get('OPENAI_API_KEY'),
   }, 200);
 });
 

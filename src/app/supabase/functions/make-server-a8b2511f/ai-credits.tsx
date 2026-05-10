@@ -69,6 +69,51 @@ export const CREDIT_PACKS = [
 
 function creditKey(userId: string) { return `ai_credits:${userId}`; }
 function logKey(userId: string) { return `ai_credits_log:${userId}`; }
+function lockKey(userId: string) { return `ai_credits_lock:${userId}`; }
+
+/**
+ * KV-based mutex so concurrent credit operations for the same user can't race.
+ * Without this, two simultaneous deductCredits() calls would both read the
+ * same balance and write it back independently, double-spending credits.
+ *
+ * The lock is best-effort — if KV is unavailable we proceed anyway, since
+ * blocking all credit ops on a degraded KV is worse than the small risk of
+ * a race during an outage. Cleaned up via try/finally and a short TTL.
+ */
+const LOCK_TTL_MS = 5_000;
+const LOCK_RETRY_MS = 50;
+const LOCK_MAX_WAIT_MS = 3_000;
+
+async function acquireLock(userId: string): Promise<boolean> {
+  const start = Date.now();
+  const key = lockKey(userId);
+  while (Date.now() - start < LOCK_MAX_WAIT_MS) {
+    try {
+      const existing: number | null = await kv.get(key);
+      if (!existing || Date.now() - existing > LOCK_TTL_MS) {
+        await kv.set(key, Date.now());
+        return true;
+      }
+    } catch {
+      return false; // KV degraded — let caller proceed without lock
+    }
+    await new Promise(r => setTimeout(r, LOCK_RETRY_MS));
+  }
+  return false;
+}
+
+async function releaseLock(userId: string): Promise<void> {
+  try { await kv.del(lockKey(userId)); } catch {}
+}
+
+async function withCreditLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const got = await acquireLock(userId);
+  try {
+    return await fn();
+  } finally {
+    if (got) await releaseLock(userId);
+  }
+}
 
 /** Get or initialise a user's credit balance */
 export async function getCredits(userId: string): Promise<CreditBalance> {
@@ -193,97 +238,100 @@ export async function deductCredits(
   meta?: { call_id?: string; campaign_id?: string; lead_name?: string }
 ): Promise<CreditBalance | null> {
   const creditsToDeduct = Math.max(1, Math.ceil(minutes)); // minimum 1 credit per call
-  const bal = await getCredits(userId);
 
-  if (bal.balance < creditsToDeduct) {
-    console.warn(`[CREDITS] Insufficient credits for ${userId}: has ${bal.balance}, needs ${creditsToDeduct}`);
-    return null;
-  }
+  // Lock so two concurrent deductions can't both read the same balance and
+  // double-spend. Re-read inside the lock to get the freshest balance.
+  return withCreditLock(userId, async () => {
+    const bal = await getCredits(userId);
 
-  // Deduct from bonus credits first, then monthly
-  let newBonus = bal.bonus_credits;
-  let remaining = creditsToDeduct;
+    if (bal.balance < creditsToDeduct) {
+      console.warn(`[CREDITS] Insufficient credits for ${userId}: has ${bal.balance}, needs ${creditsToDeduct}`);
+      return null;
+    }
 
-  // First consume from monthly allocation (balance - bonus_credits)
-  const monthlyRemaining = bal.balance - bal.bonus_credits;
-  if (monthlyRemaining >= remaining) {
-    // All from monthly
-  } else {
-    // Consume all monthly first, then from bonus
-    const fromBonus = remaining - Math.max(0, monthlyRemaining);
-    newBonus = Math.max(0, bal.bonus_credits - fromBonus);
-  }
+    let newBonus = bal.bonus_credits;
+    const remaining = creditsToDeduct;
+    const monthlyRemaining = bal.balance - bal.bonus_credits;
+    if (monthlyRemaining < remaining) {
+      const fromBonus = remaining - Math.max(0, monthlyRemaining);
+      newBonus = Math.max(0, bal.bonus_credits - fromBonus);
+    }
 
-  const updated: CreditBalance = {
-    ...bal,
-    balance: bal.balance - creditsToDeduct,
-    bonus_credits: newBonus,
-    used_this_period: bal.used_this_period + creditsToDeduct,
-    updated_at: new Date().toISOString(),
-  };
+    const updated: CreditBalance = {
+      ...bal,
+      balance: bal.balance - creditsToDeduct,
+      bonus_credits: newBonus,
+      used_this_period: bal.used_this_period + creditsToDeduct,
+      updated_at: new Date().toISOString(),
+    };
 
-  await kv.set(creditKey(userId), updated);
+    await kv.set(creditKey(userId), updated);
 
-  const desc = meta?.lead_name
-    ? `AI call to ${meta.lead_name} (${minutes.toFixed(1)} min)`
-    : `AI call (${minutes.toFixed(1)} min)`;
+    const desc = meta?.lead_name
+      ? `AI call to ${meta.lead_name} (${minutes.toFixed(1)} min)`
+      : `AI call (${minutes.toFixed(1)} min)`;
 
-  await appendLog(userId, {
-    type: 'deduction',
-    amount: -creditsToDeduct,
-    balance_after: updated.balance,
-    description: desc,
-    call_id: meta?.call_id,
-    campaign_id: meta?.campaign_id,
+    await appendLog(userId, {
+      type: 'deduction',
+      amount: -creditsToDeduct,
+      balance_after: updated.balance,
+      description: desc,
+      call_id: meta?.call_id,
+      campaign_id: meta?.campaign_id,
+    });
+
+    console.log(`[CREDITS] Deducted ${creditsToDeduct} credits from ${userId}. New balance: ${updated.balance}`);
+    return updated;
   });
-
-  console.log(`[CREDITS] Deducted ${creditsToDeduct} credits from ${userId}. New balance: ${updated.balance}`);
-  return updated;
 }
 
 /** Add purchased top-up credits */
 export async function addTopupCredits(userId: string, credits: number, packId: string): Promise<CreditBalance> {
-  const bal = await getCredits(userId);
+  return withCreditLock(userId, async () => {
+    const bal = await getCredits(userId);
 
-  const updated: CreditBalance = {
-    ...bal,
-    balance: bal.balance + credits,
-    bonus_credits: bal.bonus_credits + credits,
-    updated_at: new Date().toISOString(),
-  };
+    const updated: CreditBalance = {
+      ...bal,
+      balance: bal.balance + credits,
+      bonus_credits: bal.bonus_credits + credits,
+      updated_at: new Date().toISOString(),
+    };
 
-  await kv.set(creditKey(userId), updated);
-  await appendLog(userId, {
-    type: 'topup',
-    amount: credits,
-    balance_after: updated.balance,
-    description: `Purchased ${credits} credit top-up (${packId})`,
+    await kv.set(creditKey(userId), updated);
+    await appendLog(userId, {
+      type: 'topup',
+      amount: credits,
+      balance_after: updated.balance,
+      description: `Purchased ${credits} credit top-up (${packId})`,
+    });
+
+    console.log(`[CREDITS] Added ${credits} top-up credits for ${userId}. New balance: ${updated.balance}`);
+    return updated;
   });
-
-  console.log(`[CREDITS] Added ${credits} top-up credits for ${userId}. New balance: ${updated.balance}`);
-  return updated;
 }
 
 /** Admin credit adjustment */
 export async function adminAdjust(userId: string, amount: number, reason: string): Promise<CreditBalance> {
-  const bal = await getCredits(userId);
-  const updated: CreditBalance = {
-    ...bal,
-    balance: Math.max(0, bal.balance + amount),
-    bonus_credits: amount > 0 ? bal.bonus_credits + amount : bal.bonus_credits,
-    updated_at: new Date().toISOString(),
-  };
+  return withCreditLock(userId, async () => {
+    const bal = await getCredits(userId);
+    const updated: CreditBalance = {
+      ...bal,
+      balance: Math.max(0, bal.balance + amount),
+      bonus_credits: amount > 0 ? bal.bonus_credits + amount : bal.bonus_credits,
+      updated_at: new Date().toISOString(),
+    };
 
-  await kv.set(creditKey(userId), updated);
-  await appendLog(userId, {
-    type: 'admin_adjust',
-    amount,
-    balance_after: updated.balance,
-    description: `Admin adjustment: ${reason}`,
+    await kv.set(creditKey(userId), updated);
+    await appendLog(userId, {
+      type: 'admin_adjust',
+      amount,
+      balance_after: updated.balance,
+      description: `Admin adjustment: ${reason}`,
+    });
+
+    console.log(`[CREDITS] Admin adjusted ${amount} credits for ${userId}: ${reason}`);
+    return updated;
   });
-
-  console.log(`[CREDITS] Admin adjusted ${amount} credits for ${userId}: ${reason}`);
-  return updated;
 }
 
 // ─── Log helpers ──────────────────────────────────────────────────────────

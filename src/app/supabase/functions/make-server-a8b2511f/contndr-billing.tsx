@@ -8,6 +8,34 @@ import { getStripePriceId, validateStripePriceId, detectCountryFromRequest, STRI
 const STRIPE_KEY = Deno.env.get('STRIPE_SECRET_KEY') || Deno.env.get('STRIPE_SECRET_KEY_ROADR') || Deno.env.get('STRIPE_SECRET_KEY_SOURCR');
 const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET') || Deno.env.get('STRIPE_WEBHOOK_SECRET_ROADR') || Deno.env.get('STRIPE_WEBHOOK_SECRET_SOURCR');
 
+// KV-based mutex for affiliate referral list mutations. Two concurrent webhook
+// events for the same affiliate would otherwise both read the same array and
+// clobber each other's modifications when writing back, losing conversions.
+const AFFILIATE_LOCK_TTL_MS = 5_000;
+async function withAffiliateLock<T>(affiliateUserId: string, fn: () => Promise<T>): Promise<T> {
+  const key = `affiliate_lock:${affiliateUserId}`;
+  const start = Date.now();
+  let acquired = false;
+  while (Date.now() - start < 3_000) {
+    try {
+      const existing: number | null = await kv.get(key);
+      if (!existing || Date.now() - existing > AFFILIATE_LOCK_TTL_MS) {
+        await kv.set(key, Date.now());
+        acquired = true;
+        break;
+      }
+    } catch {
+      break; // KV degraded — proceed without lock
+    }
+    await new Promise(r => setTimeout(r, 50));
+  }
+  try {
+    return await fn();
+  } finally {
+    if (acquired) { try { await kv.del(key); } catch {} }
+  }
+}
+
 // Price IDs from Environment Variables
 export const PLANS = {
   growth: {
@@ -671,7 +699,26 @@ export async function handleStripeWebhook(req: Request) {
     throw new Error(`Webhook signature verification failed: ${err.message}`);
   }
 
-  console.log(`Processing Stripe event: ${event.type}`);
+  // Idempotency guard. Stripe retries webhooks aggressively (up to 3 days);
+  // without this check, a single checkout.session.completed retry would
+  // double-allocate AI credits, double-record the affiliate referral, and
+  // re-log the deal in the sales leaderboard. Mark each event.id as seen
+  // for 7 days (longer than Stripe's retry window).
+  const eventDedupKey = `stripe_event:${event.id}`;
+  try {
+    const seen = await kv.get(eventDedupKey);
+    if (seen) {
+      console.log(`[BILLING WEBHOOK] Skipping duplicate event ${event.id} (${event.type}) — already processed at ${seen}`);
+      return { received: true, duplicate: true };
+    }
+    await kv.set(eventDedupKey, new Date().toISOString());
+  } catch (dedupErr) {
+    // If KV is degraded, prefer to skip rather than risk double-processing.
+    console.error(`[BILLING WEBHOOK] Idempotency check failed for ${event.id}, refusing to process:`, dedupErr);
+    throw new Error('Idempotency check failed — refusing to process to avoid duplicate side effects');
+  }
+
+  console.log(`Processing Stripe event: ${event.type} (${event.id})`);
 
   switch (event.type) {
     case 'checkout.session.completed': {
@@ -764,31 +811,35 @@ export async function handleStripeWebhook(req: Request) {
         }
 
         // ── Affiliate conversion tracking ──
+        // Locked because two concurrent webhook events for the same affiliate
+        // would both read the same `referrals` array and clobber each other's
+        // appended/modified entries on write-back, losing conversions.
         try {
           const affiliateUserId = await kv.get(`affiliate_ref:${userId}`);
           if (affiliateUserId) {
             console.log(`[AFFILIATE WEBHOOK] Converting referral for affiliate ${affiliateUserId}, subscriber ${userId}, plan ${planType}`);
-            const referrals = (await kv.get(`affiliate:${affiliateUserId}:referrals`)) || [];
-            const idx = referrals.findIndex((r: any) => r.referred_user_id === userId);
-            if (idx !== -1) {
-              referrals[idx].status = 'active';
-              referrals[idx].plan = planType;
-              referrals[idx].converted_at = new Date().toISOString();
-              referrals[idx].stripe_sub_id = session.subscription;
-            } else {
-              // Edge case: referral wasn't tracked at signup (e.g. social login)
-              referrals.push({
-                id: crypto.randomUUID(),
-                referred_user_id: userId,
-                referred_email: session.customer_email || 'unknown',
-                signed_up_at: new Date().toISOString(),
-                converted_at: new Date().toISOString(),
-                plan: planType,
-                stripe_sub_id: session.subscription,
-                status: 'active',
-              });
-            }
-            await kv.set(`affiliate:${affiliateUserId}:referrals`, referrals);
+            await withAffiliateLock(affiliateUserId, async () => {
+              const referrals = (await kv.get(`affiliate:${affiliateUserId}:referrals`)) || [];
+              const idx = referrals.findIndex((r: any) => r.referred_user_id === userId);
+              if (idx !== -1) {
+                referrals[idx].status = 'active';
+                referrals[idx].plan = planType;
+                referrals[idx].converted_at = new Date().toISOString();
+                referrals[idx].stripe_sub_id = session.subscription;
+              } else {
+                referrals.push({
+                  id: crypto.randomUUID(),
+                  referred_user_id: userId,
+                  referred_email: session.customer_email || 'unknown',
+                  signed_up_at: new Date().toISOString(),
+                  converted_at: new Date().toISOString(),
+                  plan: planType,
+                  stripe_sub_id: session.subscription,
+                  status: 'active',
+                });
+              }
+              await kv.set(`affiliate:${affiliateUserId}:referrals`, referrals);
+            });
             console.log(`[AFFILIATE WEBHOOK] ✅ Referral converted successfully`);
           }
         } catch (affErr) {
@@ -875,14 +926,16 @@ export async function handleStripeWebhook(req: Request) {
           try {
             const affiliateUserId = await kv.get(`affiliate_ref:${userId}`);
             if (affiliateUserId) {
-              const referrals = (await kv.get(`affiliate:${affiliateUserId}:referrals`)) || [];
-              const idx = referrals.findIndex((r: any) => r.referred_user_id === userId);
-              if (idx !== -1) {
-                referrals[idx].status = 'churned';
-                referrals[idx].churned_at = new Date().toISOString();
-                await kv.set(`affiliate:${affiliateUserId}:referrals`, referrals);
-                console.log(`[AFFILIATE] Marked referral as churned for affiliate ${affiliateUserId}`);
-              }
+              await withAffiliateLock(affiliateUserId, async () => {
+                const referrals = (await kv.get(`affiliate:${affiliateUserId}:referrals`)) || [];
+                const idx = referrals.findIndex((r: any) => r.referred_user_id === userId);
+                if (idx !== -1) {
+                  referrals[idx].status = 'churned';
+                  referrals[idx].churned_at = new Date().toISOString();
+                  await kv.set(`affiliate:${affiliateUserId}:referrals`, referrals);
+                  console.log(`[AFFILIATE] Marked referral as churned for affiliate ${affiliateUserId}`);
+                }
+              });
             }
           } catch (affErr) {
             console.error('[AFFILIATE] Error tracking churn:', affErr);
