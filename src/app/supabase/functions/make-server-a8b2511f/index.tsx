@@ -7293,7 +7293,19 @@ app.get("/make-server-a8b2511f/track/pixel", async (c) => {
         console.warn('[PIXEL] Geo lookup failed:', e.message);
       }
     }
-    
+
+    // Snap IP-derived coords to the city centroid so pins land in the right
+    // metro instead of on the ISP's regional facility (pixel tracker has no
+    // browser-supplied coords, so coords here are always IP-derived).
+    if (city) {
+      const centroid = await getCityCentroid(city, region, country);
+      if (centroid) {
+        latitude = centroid.lat;
+        longitude = centroid.lng;
+        console.log(`[PIXEL] Snapped IP coords to city centroid for ${city}, ${region || country}`);
+      }
+    }
+
     // Store the visit
     if (userId) {
       let lead = null;
