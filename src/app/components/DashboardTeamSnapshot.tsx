@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Users, Trophy, ArrowUpRight, Loader2, Flame, Mail, MailOpen, MousePointerClick, MailCheck, TrendingUp, Zap, Eye } from 'lucide-react';
+import { DashboardListSkeleton } from './DashboardSkeleton';
 import { authenticatedFetch } from '../lib/auth';
 import { projectId } from '../utils/supabase/info';
 import { apiCache } from '../lib/api-cache';
@@ -114,8 +115,9 @@ export function DashboardTeamSnapshot({ onNavigate, stats }: { onNavigate: (view
 
   if (loading) {
     return (
-      <div className="glass-card p-6 h-full flex items-center justify-center">
-        <Loader2 className="w-5 h-5 text-zinc-400 animate-spin" />
+      <div className="glass-card p-6 h-full flex flex-col">
+        <div className="h-3.5 w-24 rounded bg-zinc-100 dark:bg-white/[0.06] skeleton-shimmer mb-4" />
+        <DashboardListSkeleton rows={4} />
       </div>
     );
   }

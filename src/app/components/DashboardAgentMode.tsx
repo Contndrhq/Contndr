@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowUpRight, CheckCircle2, Loader2, Play, Phone, ShieldCheck, Sparkles } from 'lucide-react';
+import { DashboardListSkeleton } from './DashboardSkeleton';
 import { toast } from 'sonner';
 import { authenticatedFetch } from '../lib/auth';
 import { projectId } from '../utils/supabase/info';
@@ -69,8 +70,9 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
 
   if (loading) {
     return (
-      <div className="glass-card h-full p-5 flex items-center justify-center">
-        <Loader2 className="w-5 h-5 animate-spin text-zinc-400" />
+      <div className="glass-card h-full p-5 flex flex-col">
+        <div className="h-3.5 w-28 rounded bg-zinc-100 dark:bg-white/[0.06] skeleton-shimmer mb-4" />
+        <DashboardListSkeleton rows={3} withIcon={false} />
       </div>
     );
   }

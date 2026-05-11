@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Zap, ArrowUpRight, Loader2, Eye, MousePointerClick, Reply, Globe, Mail, UserRound } from 'lucide-react';
+import { DashboardListSkeleton } from './DashboardSkeleton';
 import { authenticatedFetch } from '../lib/auth';
 import { projectId } from '../utils/supabase/info';
 import { apiCache } from '../lib/api-cache';
@@ -231,9 +232,7 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
       </div>
 
       {loading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-5 h-5 animate-spin text-zinc-400" />
-        </div>
+        <DashboardListSkeleton rows={4} />
       ) : signals.length > 0 ? (
         <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-0.5 -mx-1">
           {signals.map((signal) => (

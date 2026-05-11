@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
+import { DashboardChartSkeleton } from './DashboardSkeleton';
 import { supabase } from '../lib/supabase';
 import { useDemoMode } from './DemoContext';
 
@@ -147,9 +148,7 @@ export function DashboardEngagementHeatmap({ brandFilter = 'all', dateRange }: D
       </div>
 
       {loading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
-        </div>
+        <DashboardChartSkeleton />
       ) : (
         <div className="flex-1 min-h-0 flex flex-col justify-center">
           <div className="rounded-2xl border border-zinc-200/70 dark:border-white/[0.06] bg-zinc-50/60 dark:bg-white/[0.02] p-3 sm:p-4">
