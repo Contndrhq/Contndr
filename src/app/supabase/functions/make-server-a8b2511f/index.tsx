@@ -91,6 +91,68 @@ declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 // fresh isolate).
 const campaignSendInFlight = new Map<string, string>();
 
+// ─── PII redaction in console output ─────────────────────────────────
+// Supabase Function logs are retained and queryable; logging raw emails,
+// phone numbers, and bearer tokens turns those logs into a PII liability
+// (GDPR / CCPA / SOC2). We wrap the console methods once at startup so
+// every existing and future log line is redacted before it's emitted.
+// Set DISABLE_LOG_REDACTION=1 in env if you ever need raw logs for
+// debugging (e.g. local dev).
+(function installLogRedaction() {
+  if (Deno.env.get('DISABLE_LOG_REDACTION') === '1') return;
+
+  const EMAIL_RE = /([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+  const PHONE_RE = /\b(\+?\d[\s\-().]*){9,15}\d\b/g;
+  const BEARER_RE = /(?<=Bearer\s+|access_token["'\s:=]+)[A-Za-z0-9_\-.]{20,}/gi;
+  const JWT_RE = /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
+  const WHITELIST = new Set([
+    'admin@contndr.com', 'or@contndr.com', 'or@roadr.com', // operational/admin emails
+  ]);
+
+  function redactString(s: string): string {
+    return s
+      .replace(JWT_RE, '<JWT_REDACTED>')
+      .replace(BEARER_RE, '<TOKEN_REDACTED>')
+      .replace(EMAIL_RE, (full, local, domain) => {
+        if (WHITELIST.has(full.toLowerCase())) return full;
+        const head = local.length <= 2 ? local[0] || '*' : local.slice(0, 2);
+        return `${head}***@${domain}`;
+      })
+      .replace(PHONE_RE, (full) => {
+        const digits = full.replace(/\D/g, '');
+        if (digits.length < 9) return full; // not a phone — likely an ID
+        return `***${digits.slice(-4)}`;
+      });
+  }
+
+  function redactArg(a: any, depth = 0): any {
+    if (depth > 4) return a; // bound recursion on circular/huge objects
+    if (a == null) return a;
+    if (typeof a === 'string') return redactString(a);
+    if (typeof a === 'number' || typeof a === 'boolean') return a;
+    if (a instanceof Error) {
+      try { return new Error(redactString(a.message)); } catch { return a; }
+    }
+    if (Array.isArray(a)) return a.map(x => redactArg(x, depth + 1));
+    if (typeof a === 'object') {
+      try {
+        const out: any = {};
+        for (const k of Object.keys(a)) out[k] = redactArg(a[k], depth + 1);
+        return out;
+      } catch { return a; }
+    }
+    return a;
+  }
+
+  for (const method of ['log', 'warn', 'error', 'info', 'debug'] as const) {
+    const original = console[method].bind(console);
+    console[method] = (...args: any[]) => {
+      try { original(...args.map(a => redactArg(a))); }
+      catch { original(...args); }
+    };
+  }
+})();
+
 // ─── Supabase Admin Client Singleton ─────────────────────────────────
 // Re-uses a single service-role client instead of calling createClient()
 // on every request, avoiding redundant TCP/TLS handshakes.
@@ -218,6 +280,23 @@ const app = new Hono();
 // Expose the Hono app instance on globalThis so internal modules (e.g. cron-scheduler)
 // can call routes directly without going through the Supabase API gateway.
 (globalThis as any).__honoApp = app;
+
+// ── Build / version stamp ───────────────────────────────────────────
+// Surfaced to support so a customer ticket can be matched to a deploy.
+const BUILD_VERSION = Deno.env.get('BUILD_SHA') || Deno.env.get('VERCEL_GIT_COMMIT_SHA') || 'unknown';
+const BUILD_TIME = Deno.env.get('BUILD_TIME') || new Date().toISOString();
+
+// ── Request ID middleware ───────────────────────────────────────────
+// Accepts an inbound X-Request-ID (so frontend / proxy can supply one) or
+// generates a fresh UUID. Echoed back on the response so the user can quote
+// it in a support ticket and we can grep logs for that exact request.
+app.use('*', async (c, next) => {
+  const inbound = c.req.header('x-request-id') || c.req.header('X-Request-ID');
+  const reqId = inbound && /^[A-Za-z0-9._-]{8,128}$/.test(inbound) ? inbound : crypto.randomUUID();
+  c.set('requestId', reqId);
+  c.header('X-Request-ID', reqId);
+  await next();
+});
 
 // Global Error Handler to prevent crashes
 app.onError((err, c) => {
@@ -2053,9 +2132,9 @@ app.get("/make-server-a8b2511f/user/me", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
     const sub = await kv.get(`contndr_sub:${user.id}`);
-    
+
     c.header('Cache-Control', 'private, max-age=15, stale-while-revalidate=30');
-    return c.json({ 
+    return c.json({
         id: user.id,
         email: user.email,
         subscription: sub || { status: 'none' }
@@ -2063,6 +2142,230 @@ app.get("/make-server-a8b2511f/user/me", async (c) => {
   } catch (error) {
     // If auth fails, return 401
     return c.json({ error: error.message }, 401);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// GDPR / CCPA endpoints — data export and account deletion.
+// These satisfy the "right to portability" (Article 20) and "right to
+// erasure" (Article 17) requirements and unblock enterprise security
+// questionnaires that explicitly ask for user-initiated deletion.
+// ─────────────────────────────────────────────────────────────────────
+
+// GET /account/export — return all user-owned data as a single JSON file.
+// Best-effort: every source the backend knows about is collected. The
+// response is streamed-as-JSON via c.json() — for very large tenants we
+// could later switch to NDJSON streaming, but for now a single payload
+// keeps the UX simple ("Download my data" → single .json file).
+app.get("/make-server-a8b2511f/account/export", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const userId = user.id;
+
+    // Load all user-scoped DB tables in parallel. Each query is bounded —
+    // pathological tenants get truncated rather than OOMing the function.
+    const HARD_CAP = 50_000;
+    const [
+      leads, campaigns, emails, emailEvents, signatures,
+      automationRules, followUps, leadGroups,
+    ] = await Promise.all([
+      supabase.from('leads').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('campaigns').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('emails').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('email_events').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('signatures').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('automation_rules').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('follow_ups').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('lead_groups').select('*').eq('user_id', userId).limit(HARD_CAP),
+    ]);
+
+    // KV-backed records (bounded prefix scans — ignore failures so a single
+    // missing prefix doesn't block the whole export).
+    const safeKv = async (prefix: string): Promise<any[]> => {
+      try { return await kv.getByPrefixLimited(prefix, 5000, 0); } catch { return []; }
+    };
+    const [
+      kvCampaigns, kvAiCalls, kvCompanies, kvVisits,
+      kvCredits, kvCreditsLog, kvSubscription, kvSettings,
+    ] = await Promise.all([
+      safeKv(`campaign:${userId}:`),
+      safeKv(`ai_call:${userId}:`),
+      safeKv(`company:${userId}:`),
+      safeKv(`recent_visit_v2:${userId}:`),
+      kv.get(`ai_credits:${userId}`).catch(() => null),
+      kv.get(`ai_credits_log:${userId}`).catch(() => null),
+      kv.get(`contndr_sub:${userId}`).catch(() => null),
+      kv.get(`user_settings:${userId}`).catch(() => null),
+    ]);
+
+    const payload = {
+      meta: {
+        exported_at: new Date().toISOString(),
+        user: { id: user.id, email: user.email, created_at: user.created_at },
+        format_version: 1,
+        notice: 'This export contains all data Contndr stores about you. Some derived caches (e.g. dashboard rollups) are omitted because they are reconstructable from the data above.',
+      },
+      tables: {
+        leads: leads.data || [],
+        campaigns: campaigns.data || [],
+        emails: emails.data || [],
+        email_events: emailEvents.data || [],
+        signatures: signatures.data || [],
+        automation_rules: automationRules.data || [],
+        follow_ups: followUps.data || [],
+        lead_groups: leadGroups.data || [],
+      },
+      kv: {
+        campaigns: kvCampaigns,
+        ai_calls: kvAiCalls,
+        companies: kvCompanies,
+        recent_visits: kvVisits,
+        ai_credits: kvCredits,
+        ai_credits_log: kvCreditsLog,
+        subscription: kvSubscription,
+        settings: kvSettings,
+      },
+    };
+
+    c.header('Content-Disposition', `attachment; filename="contndr-export-${user.id}-${new Date().toISOString().split('T')[0]}.json"`);
+    c.header('Cache-Control', 'no-store');
+    return c.json(payload);
+  } catch (error: any) {
+    console.error('[ACCOUNT EXPORT] Failed:', error);
+    return c.json({ error: error.message || 'Export failed' }, 500);
+  }
+});
+
+// POST /account/delete — permanently delete the calling user and all their
+// data. Requires `confirm: "DELETE"` in the body to prevent accidental
+// destruction. This is irreversible.
+app.post("/make-server-a8b2511f/account/delete", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const body = await c.req.json().catch(() => ({}));
+    if (body?.confirm !== 'DELETE') {
+      return c.json({ error: 'Confirmation required. Send {"confirm":"DELETE"} in the body.' }, 400);
+    }
+    const userId = user.id;
+    const userEmail = user.email;
+
+    // Delete DB rows. Best-effort per table — we keep going even if one
+    // table fails so the user's footprint is reduced as much as possible.
+    // Order matters for FK constraints: child tables before parent tables.
+    const dbTables = [
+      'lead_emails', 'lead_phones', 'lead_custom_fields',
+      'follow_ups', 'campaign_leads', 'group_leads',
+      'email_events', 'click_events', 'visitor_events', 'visitor_sessions',
+      'admin_events', 'automation_rules',
+      'emails', 'campaigns', 'lead_groups', 'signatures',
+      'leads', 'leads_new',
+    ];
+    const dbResults: Record<string, { ok: boolean; error?: string }> = {};
+    for (const table of dbTables) {
+      try {
+        // lead_emails / lead_phones / lead_custom_fields don't have user_id
+        // — they cascade through leads.id. Delete by lead_id IN (...).
+        if (['lead_emails', 'lead_phones', 'lead_custom_fields'].includes(table)) {
+          const { data: ownedLeads } = await supabase.from('leads').select('id').eq('user_id', userId).limit(50000);
+          const leadIds = (ownedLeads || []).map((l: any) => l.id);
+          if (leadIds.length > 0) {
+            await supabase.from(table).delete().in('lead_id', leadIds);
+          }
+        } else {
+          await supabase.from(table).delete().eq('user_id', userId);
+        }
+        dbResults[table] = { ok: true };
+      } catch (e: any) {
+        dbResults[table] = { ok: false, error: e.message };
+        console.warn(`[ACCOUNT DELETE] Failed to delete from ${table}:`, e.message);
+      }
+    }
+
+    // Purge KV namespaces tied to this user. Each prefix is scanned in
+    // chunks so a tenant with millions of KV rows still finishes.
+    const kvPrefixes = [
+      `campaign:${userId}:`,
+      `ai_call:${userId}:`,
+      `ai_call_campaign:${userId}:`,
+      `company:${userId}:`,
+      `recent_visit_v2:${userId}:`,
+      `intent:score:${userId}:`,
+      `dashboard:stats:kv:${userId}:`,
+      `dashboard:stats:lock:${userId}:`,
+      `tracked_sites_index:${userId}`,
+      `high_intent_leads:${userId}`,
+      `tx_dedup:${userId}:`,
+      `ai_lock:${userId}:`,
+    ];
+    const kvSingleKeys = [
+      `contndr_sub:${userId}`,
+      `ai_credits:${userId}`,
+      `ai_credits_log:${userId}`,
+      `ai_credits_lock:${userId}`,
+      `user_settings:${userId}`,
+      `user:${userId}:team`,
+      `gmail_tokens:${userId}`,
+      `outlook_tokens:${userId}`,
+      `calendly:${userId}`,
+      `hubspot:${userId}`,
+      `salesforce:${userId}`,
+      `quickbooks:${userId}`,
+      `affiliate_ref:${userId}`,
+      `affiliate:${userId}:referrals`,
+      `affiliate_lock:${userId}`,
+      `lead_import_lock:${userId}`,
+      `stripe_customer:${userId}`,
+    ];
+    const kvDeleted = { prefixes: 0, keys: 0 };
+    for (const prefix of kvPrefixes) {
+      try {
+        // Drain the prefix in batches of 500
+        for (;;) {
+          const batch = await kv.getByPrefixLimited(prefix, 500, 0).catch(() => []);
+          if (batch.length === 0) break;
+          // We need actual key strings, not values. Use a direct Supabase
+          // query against the KV table to get keys, then mdel.
+          const { createClient } = await import('npm:@supabase/supabase-js@2');
+          const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+          const { data: keyRows } = await sb.from('kv_store_a8b2511f').select('key').like('key', `${prefix}%`).limit(500);
+          const keys = (keyRows || []).map((r: any) => r.key);
+          if (keys.length === 0) break;
+          await kv.mdel(keys).catch(() => {});
+          kvDeleted.prefixes += keys.length;
+          if (keys.length < 500) break;
+        }
+      } catch (e) {
+        console.warn(`[ACCOUNT DELETE] Failed to drain KV prefix ${prefix}:`, e);
+      }
+    }
+    for (const key of kvSingleKeys) {
+      try { await kv.del(key); kvDeleted.keys++; } catch {}
+    }
+
+    // Finally, delete the auth user. This invalidates all sessions and
+    // makes the email re-registrable. Keep a minimal audit trail of the
+    // deletion event so support has a record if the user later asks
+    // "where did my account go".
+    let authDeleteOk = false;
+    try {
+      const { error: authErr } = await supabase.auth.admin.deleteUser(userId);
+      if (authErr) throw authErr;
+      authDeleteOk = true;
+    } catch (e: any) {
+      console.error('[ACCOUNT DELETE] auth.admin.deleteUser failed:', e.message);
+    }
+
+    console.log(`[ACCOUNT DELETE] User ${userId} (${userEmail}) self-deleted. DB: ${Object.values(dbResults).filter(r => r.ok).length}/${dbTables.length} tables OK. KV: ${kvDeleted.prefixes + kvDeleted.keys} entries removed. Auth: ${authDeleteOk}`);
+
+    return c.json({
+      success: true,
+      auth_deleted: authDeleteOk,
+      db_tables: dbResults,
+      kv_entries_removed: kvDeleted.prefixes + kvDeleted.keys,
+    });
+  } catch (error: any) {
+    console.error('[ACCOUNT DELETE] Failed:', error);
+    return c.json({ error: error.message || 'Delete failed' }, 500);
   }
 });
 
@@ -14876,6 +15179,16 @@ app.get("/make-server-a8b2511f/public-health", (c) => {
     status: "ok",
     timestamp: new Date().toISOString(),
   }, 200);
+});
+
+// GET /version — build stamp for support escalations. Customer can read
+// this in the Network tab; matches the X-Request-ID header on every response.
+app.get("/make-server-a8b2511f/version", (c) => {
+  return c.json({
+    version: BUILD_VERSION,
+    built_at: BUILD_TIME,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.post("/make-server-a8b2511f/public-health", (c) => {

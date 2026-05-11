@@ -16,6 +16,12 @@ function figmaAssetResolver() {
   }
 }
 
+// Build stamp surfaced in the bundle so support can match a customer ticket
+// to a specific deploy. Vercel injects VERCEL_GIT_COMMIT_SHA automatically;
+// locally we fall back to "dev".
+const BUILD_SHA = process.env.VERCEL_GIT_COMMIT_SHA || process.env.BUILD_SHA || 'dev';
+const BUILD_TIME = new Date().toISOString();
+
 export default defineConfig({
   plugins: [
     figmaAssetResolver(),
@@ -24,6 +30,10 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  define: {
+    __BUILD_SHA__: JSON.stringify(BUILD_SHA),
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
