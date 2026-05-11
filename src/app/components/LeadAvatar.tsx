@@ -19,40 +19,6 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
-// ── Deterministic color generator ───────────────────────────────────
-// Same name → same colors, every render. Picks from a curated palette of
-// readable, modern hues so an "all initials" view still looks distinctive
-// instead of a wall of identical gray pills. White text on top has WCAG
-// contrast of at least 4.5:1 against every palette entry.
-const PALETTE = [
-  ['#0EA5E9', '#0369A1'], // sky
-  ['#14B8A6', '#0F766E'], // teal
-  ['#22C55E', '#15803D'], // green
-  ['#F59E0B', '#B45309'], // amber
-  ['#EF4444', '#B91C1C'], // red
-  ['#EC4899', '#BE185D'], // pink
-  ['#A855F7', '#7E22CE'], // purple
-  ['#6366F1', '#4338CA'], // indigo
-  ['#3B82F6', '#1D4ED8'], // blue
-  ['#10B981', '#047857'], // emerald
-  ['#F97316', '#C2410C'], // orange
-  ['#84CC16', '#4D7C0F'], // lime
-];
-
-function hashString(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (h * 31 + s.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
-
-function paletteFor(seed: string): { from: string; to: string } {
-  const idx = hashString(seed.toLowerCase()) % PALETTE.length;
-  const [from, to] = PALETTE[idx];
-  return { from, to };
-}
-
 // ── Component ────────────────────────────────────────────────────────
 
 interface LeadAvatarProps {
@@ -95,7 +61,6 @@ export function LeadAvatar({
   const confidence = avatarConfidence ?? (email ? getAvatarConfidence(email) : 0);
 
   const initials = useMemo(() => getInitials(name), [name]);
-  const palette = useMemo(() => paletteFor(name || email || linkedinUrl || '?'), [name, email, linkedinUrl]);
 
   // Determine if we should show the image:
   // - Must have a URL
@@ -122,34 +87,27 @@ export function LeadAvatar({
     if (avatarUrl) setImgFailed(false);
   }, [avatarUrl]);
 
-  // Inline fontSize scales proportionally to the circle size. We removed the
-  // old `leading-none` class — it caused some fonts to render slightly above
-  // the geometric center, making letters look top-cropped in dark mode.
-  // Default line-height + grid placement gives pixel-perfect optical centering
-  // at any size.
+  // Inline fontSize scales proportionally to the circle size. The previous
+  // `leading-none` was causing letters to render slightly above the geometric
+  // center; grid placement + a small upward optical nudge gives pixel-perfect
+  // centering at any size, in any font.
   const fontSize = Math.max(10, Math.round(size * 0.4));
-  const background = showImage
-    ? undefined
-    : `linear-gradient(135deg, ${palette.from} 0%, ${palette.to} 100%)`;
 
   return (
     <div
-      className={`rounded-full flex-shrink-0 overflow-hidden relative grid place-items-center ${className}`}
-      style={{ width: size, height: size, background, lineHeight: 1 }}
+      className={`rounded-full flex-shrink-0 overflow-hidden relative grid place-items-center bg-zinc-100 dark:bg-zinc-800 ${className}`}
+      style={{ width: size, height: size, lineHeight: 1 }}
       aria-label={name || 'avatar'}
     >
-      {/* Initials layer — always present underneath. White text on colored
-          gradient (~4.5:1 contrast) when there's no photo. Falls back to
-          neutral when an image is loaded so a transparent PNG doesn't show
-          the gradient through. */}
+      {/* Initials layer — always present underneath. Neutral text on neutral
+          background; gets covered by the photo when one loads. */}
       <span
-        className="font-semibold select-none text-white"
+        className="font-semibold select-none text-zinc-600 dark:text-zinc-300"
         style={{
           fontSize,
           // Tiny optical adjustment — most sans fonts have a slightly larger
           // descender than ascender area; nudging up by a hair centers caps.
           transform: 'translateY(-2%)',
-          textShadow: showImage ? 'none' : '0 1px 1px rgba(0,0,0,0.15)',
         }}
       >
         {initials}
