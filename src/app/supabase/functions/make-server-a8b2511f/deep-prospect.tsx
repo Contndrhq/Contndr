@@ -772,7 +772,7 @@ function filterEmailQualifiedPeople<T extends DeepLead>(people: T[], context: st
 async function filterMailboxSafePeople<T extends DeepLead>(
   people: T[],
   context: string,
-  options: { keepCallablePhoneFallback?: boolean; limit?: number } = {},
+  options: { keepCallablePhoneFallback?: boolean; keepEmailless?: boolean; limit?: number } = {},
 ): Promise<T[]> {
   // Concurrent mailbox verification — was the slowest step in the entire
   // search pipeline. Sequential 1-2s/email × 100 leads pushed the search
@@ -782,12 +782,22 @@ async function filterMailboxSafePeople<T extends DeepLead>(
   const filtered: T[] = [];
   let dropped = 0;
 
-  // Split into leads with email (need verification) and without (phone-fallback only)
+  // Split into leads with email (need verification) and without (kept if
+  // they're actionable — LinkedIn-only or phone-only fallbacks).
   const needsVerify: T[] = [];
   for (const lead of people) {
     const email = (lead.email || "").trim().toLowerCase();
     if (!email) {
-      if (options.keepCallablePhoneFallback && hasCallablePhone(lead)) filtered.push(lead);
+      const linkedinUrl = ((lead as any).linkedin_url || (lead as any).person_linkedin_url || "").toLowerCase();
+      const hasLinkedin = linkedinUrl.includes("linkedin.com/");
+      if (options.keepEmailless && (hasLinkedin || hasCallablePhone(lead))) {
+        // Tier 4 LinkedIn-only / actionable-without-email lead — keep it so
+        // the user can run "Find email" later instead of seeing no result.
+        if (!lead.email_status) (lead as any).email_status = "unavailable";
+        filtered.push(lead);
+      } else if (options.keepCallablePhoneFallback && hasCallablePhone(lead)) {
+        filtered.push(lead);
+      }
     } else {
       needsVerify.push(lead);
     }
@@ -2917,7 +2927,19 @@ app.post("/search-stream", async (c) => {
           const tier1People: DeepLead[] = []; // With email
           const tier2People: DeepLead[] = []; // Phone-only email-qualified leads.
           const tier3PhonePeople: DeepLead[] = []; // Local-business fallback: verified phone, no person email.
+          // Tier 4: leads with a LinkedIn URL but no discoverable email yet.
+          // Previously dropped silently — that's the "returns barely anything"
+          // bug. They're still actionable for outreach; the user can run
+          // "Find email" later. We mark email_status="unavailable" so the UI
+          // can render a "Find email" affordance instead of a verified badge.
+          const tier4LinkedinOnly: DeepLead[] = [];
+          const linkedinCandidateNames = new Set<string>();
           const phoneCandidateNames = new Set<string>();
+
+          const hasLinkedinUrl = (lead: DeepLead): boolean => {
+            const li = (lead.linkedin_url || (lead as any).person_linkedin_url || "").toLowerCase();
+            return li.includes("linkedin.com/");
+          };
 
           // Helper: check if lead has basic data (name + company + title) but no email
           // More lenient for leads with LinkedIn URL — still actionable for outreach
@@ -3004,6 +3026,13 @@ app.post("/search-stream", async (c) => {
               dlead.email_status = dlead.email_status || "unavailable";
               tier3PhonePeople.push(dlead);
               mergeStats.phoneFallback++;
+            } else if (hasLinkedinUrl(dlead) && isPartialQualityLead(dlead) && !linkedinCandidateNames.has(nameKey)) {
+              // Tier 4: still useful — has LinkedIn + name + company. Email
+              // can be discovered later via the "Find email" action.
+              linkedinCandidateNames.add(nameKey);
+              dlead.email = "";
+              dlead.email_status = "unavailable";
+              tier4LinkedinOnly.push(dlead);
             } else {
               if (email) mergeStats.qualityRejected++;
               else mergeStats.partialRejected++;
@@ -3037,6 +3066,11 @@ app.post("/search-stream", async (c) => {
               dlead.email_status = dlead.email_status || "unavailable";
               tier3PhonePeople.push(dlead);
               mergeStats.phoneFallback++;
+            } else if (hasLinkedinUrl(dlead) && isPartialQualityLead(dlead) && !linkedinCandidateNames.has(nameKey)) {
+              linkedinCandidateNames.add(nameKey);
+              dlead.email = "";
+              dlead.email_status = "unavailable";
+              tier4LinkedinOnly.push(dlead);
             } else {
               if (email) mergeStats.qualityRejected++;
               else mergeStats.partialRejected++;
@@ -3053,7 +3087,7 @@ app.post("/search-stream", async (c) => {
           if (organization_industries?.length) {
             console.log(`[DEEP PROSPECT] Industry filter active: [${organization_industries.join(', ')}]`);
           }
-          console.log(`[DEEP PROSPECT] Three-tier merge: ${tier1People.length} primary email contacts, ${tier2People.length} secondary email contacts, ${tier3PhonePeople.length} local phone contacts, from ${preQualityCount} total candidates`);
+          console.log(`[DEEP PROSPECT] Four-tier merge: ${tier1People.length} primary email, ${tier2People.length} secondary email, ${tier3PhonePeople.length} local phone, ${tier4LinkedinOnly.length} linkedin-only, from ${preQualityCount} total candidates`);
 
           // Sort within each tier: leads WITH industry first, then without
           const sortByIndustry = (a: DeepLead, b: DeepLead) => {
@@ -3064,6 +3098,7 @@ app.post("/search-stream", async (c) => {
           tier1People.sort(sortByIndustry);
           tier2People.sort(sortByIndustry);
           tier3PhonePeople.sort(sortByIndustry);
+          tier4LinkedinOnly.sort(sortByIndustry);
 
           // Fill real person emails first. For local-business searches, fill the
           // remaining requested count with callable phone contacts instead of
@@ -3095,9 +3130,25 @@ app.post("/search-stream", async (c) => {
               addFinal(p);
             }
           }
+          // Tier 4 fallback: LinkedIn-only leads with no email yet. Always
+          // included (not just for local-business searches) because the most
+          // common "returns barely anything" complaint comes from B2B title
+          // searches where 60-80% of LinkedIn discoveries lack an email at
+          // discovery time. Better to show them with a "Find email" path than
+          // return an empty result set.
+          if (finalPeople.length < max_results) {
+            for (const p of tier4LinkedinOnly) {
+              if (finalPeople.length >= max_results) break;
+              addFinal(p);
+            }
+          }
 
           const mailboxSafePeople = await filterMailboxSafePeople(finalPeople, "final output", {
             keepCallablePhoneFallback: isLocalBusinessSearch,
+            // Tier 4 surfacing: keep LinkedIn-only / actionable leads even
+            // without a verified email so the result list isn't artificially
+            // empty when discovery finds people but enrichment hasn't run yet.
+            keepEmailless: true,
             limit: max_results,
           });
           finalPeople.length = 0;
