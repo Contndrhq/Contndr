@@ -501,11 +501,45 @@ async function searchPublicRecords(
 // for business contacts by name + company domain.
 // ══════════════════════════════════════════════════════════════════════════
 
+// Circuit breaker for Explorium. The API has been returning 403 on every
+// call (multiple times per search → ~20s wasted per query). Once we see a
+// few auth failures in a row we stop calling it for an hour. Hits 0 calls
+// instead of 5 calls × 10s timeout per search until the operator notices
+// the auth issue and rotates the key. Re-arms automatically.
+let _exploriumCircuitOpenUntil = 0;
+let _exploriumConsecutiveAuthFailures = 0;
+const EXPLORIUM_FAIL_THRESHOLD = 3;
+const EXPLORIUM_CIRCUIT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+function isExploriumCircuitOpen(): boolean {
+  if (_exploriumCircuitOpenUntil === 0) return false;
+  if (Date.now() >= _exploriumCircuitOpenUntil) {
+    _exploriumCircuitOpenUntil = 0;
+    _exploriumConsecutiveAuthFailures = 0;
+    return false;
+  }
+  return true;
+}
+function recordExploriumFailure(status: number) {
+  if (status === 401 || status === 403) {
+    _exploriumConsecutiveAuthFailures++;
+    if (_exploriumConsecutiveAuthFailures >= EXPLORIUM_FAIL_THRESHOLD) {
+      _exploriumCircuitOpenUntil = Date.now() + EXPLORIUM_CIRCUIT_COOLDOWN_MS;
+      console.warn(`[PHONE ENRICH] Explorium auth failed ${_exploriumConsecutiveAuthFailures}× — circuit opened for 1h. Check EXPLORIUM_API_KEY.`);
+    }
+  }
+}
+function recordExploriumSuccess() {
+  _exploriumConsecutiveAuthFailures = 0;
+}
+
 async function searchExplorium(
   lead: LeadForPhone,
   exploriumApiKey: string
 ): Promise<PhoneResult[]> {
   if (!exploriumApiKey) return [];
+  // Skip immediately if the circuit is open — saves ~10s per call when
+  // the API is broken or the key is stale.
+  if (isExploriumCircuitOpen()) return [];
 
   const domain = (lead.organization_website || '')
     .replace(/^https?:\/\//, '')
@@ -530,10 +564,13 @@ async function searchExplorium(
         company_domain: domain || undefined,
         company_name: lead.organization_name || undefined,
       }),
-      signal: AbortSignal.timeout(10000),
+      // Was 10s — too long for an API that's been dead. 4s is enough for a
+      // healthy API and fails fast when it isn't.
+      signal: AbortSignal.timeout(4000),
     });
 
     if (response.ok) {
+      recordExploriumSuccess();
       const data = await response.json();
       const contact = data.data || data.result || data;
 
@@ -574,13 +611,15 @@ async function searchExplorium(
       }
     } else if (response.status !== 404 && response.status !== 422) {
       console.warn(`[PHONE ENRICH] Explorium contact enrich returned ${response.status}`);
+      recordExploriumFailure(response.status);
     }
   } catch (err: any) {
     console.warn(`[PHONE ENRICH] Explorium contact enrich error: ${err.message}`);
   }
 
-  // Approach 2: Business match by domain → company phone (fallback)
-  if (phones.length === 0 && domain) {
+  // Approach 2: Business match by domain → company phone (fallback).
+  // Same circuit-breaker check — skip when the API has been failing.
+  if (phones.length === 0 && domain && !isExploriumCircuitOpen()) {
     try {
       const response = await fetch('https://api.explorium.ai/v1/businesses/match', {
         method: 'POST',
@@ -590,10 +629,11 @@ async function searchExplorium(
           'Accept': 'application/json',
         },
         body: JSON.stringify({ domain }),
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(4000),
       });
 
       if (response.ok) {
+        recordExploriumSuccess();
         const data = await response.json();
         const biz = data.data || data.result || data;
 
@@ -615,6 +655,8 @@ async function searchExplorium(
           });
           break;
         }
+      } else if (response.status === 401 || response.status === 403) {
+        recordExploriumFailure(response.status);
       }
     } catch {
       // Non-fatal
