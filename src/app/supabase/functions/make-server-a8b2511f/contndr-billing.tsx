@@ -1002,6 +1002,166 @@ export async function handleStripeWebhook(req: Request) {
         }
       }
 
+      // ── Reset payment-failure counter + log admin event ──
+      // Successful payment clears any prior dunning state so we don't
+      // accidentally downgrade an account that recovered.
+      try {
+        const invCustomerId = invoice.customer;
+        const invUserId = await kv.get(`stripe_customer_reverse:${invCustomerId}`);
+        if (invUserId) {
+          await kv.del(`payment_failures:${invUserId}`).catch(() => {});
+        }
+        const amount = invoice.amount_paid ? invoice.amount_paid / 100 : 0;
+        const lineItem = invoice.lines?.data?.[0];
+        const interval = lineItem?.price?.recurring?.interval || 'monthly';
+        const { logAdminEvent } = await import('./admin-events.tsx');
+        logAdminEvent(
+          'payment_succeeded',
+          'Recurring Payment Received',
+          `${invoice.customer_email || invoice.customer_name || 'Customer'} paid $${amount.toFixed(2)} (${interval}, ${invoice.billing_reason || 'cycle'})`,
+          {
+            email: invoice.customer_email,
+            metadata: {
+              amount,
+              currency: invoice.currency,
+              interval,
+              billing_reason: invoice.billing_reason,
+              stripe_invoice_id: invoice.id,
+              stripe_sub_id: subId,
+            },
+          },
+        ).catch(() => {});
+      } catch (adminErr) {
+        console.error('[BILLING WEBHOOK] Admin event log error (non-fatal):', adminErr);
+      }
+
+      break;
+    }
+
+    // ── Payment failure → track, alert admin, eventually downgrade ──
+    case 'invoice.payment_failed': {
+      const invoice = event.data.object;
+      const subId = invoice.subscription;
+      const customerId = invoice.customer;
+
+      if (!subId) {
+        console.log('[BILLING WEBHOOK] invoice.payment_failed — no subscription, skipping');
+        break;
+      }
+
+      // How many consecutive failures before we downgrade? Configurable so
+      // ops can dial it up/down based on tolerance. Default 3 — matches
+      // Stripe's default Smart Retries before they give up.
+      const FAILURE_THRESHOLD = Math.max(1, parseInt(Deno.env.get('PAYMENT_FAILURE_THRESHOLD') || '3', 10));
+      const failedAt = new Date().toISOString();
+      const amountDue = invoice.amount_due ? invoice.amount_due / 100 : 0;
+      const attemptCount = invoice.attempt_count || 1;
+      const customerEmail = invoice.customer_email || invoice.customer_name || 'unknown';
+
+      console.warn(`[BILLING WEBHOOK] invoice.payment_failed — sub=${subId}, attempt=${attemptCount}, amount=${amountDue}, customer=${customerEmail}`);
+
+      // Resolve user
+      let failedUserId: string | null = null;
+      try {
+        failedUserId = await kv.get(`stripe_customer_reverse:${customerId}`);
+      } catch {}
+
+      // Bump the consecutive-failure counter. Keyed by user so a recovered
+      // payment naturally resets the count via the success handler above.
+      let failures = 1;
+      if (failedUserId) {
+        try {
+          const prev = (await kv.get(`payment_failures:${failedUserId}`)) || { count: 0 };
+          failures = (prev.count || 0) + 1;
+          await kv.set(`payment_failures:${failedUserId}`, {
+            count: failures,
+            first_failed_at: prev.first_failed_at || failedAt,
+            last_failed_at: failedAt,
+            stripe_sub_id: subId,
+            stripe_invoice_id: invoice.id,
+            amount_due: amountDue,
+            attempts: attemptCount,
+          });
+        } catch (kvErr) {
+          console.error('[BILLING WEBHOOK] Could not record payment failure counter:', kvErr);
+        }
+      }
+
+      // Alert admin on every failure — surface in Activity feed
+      try {
+        const { logAdminEvent } = await import('./admin-events.tsx');
+        logAdminEvent(
+          'payment_failed',
+          failures >= FAILURE_THRESHOLD ? 'Payment Failed — DOWNGRADING' : `Payment Failed (${failures}/${FAILURE_THRESHOLD})`,
+          `${customerEmail} payment failed: $${amountDue.toFixed(2)} (attempt ${attemptCount}). ${failures >= FAILURE_THRESHOLD ? 'Auto-downgrading.' : 'Will retry per Stripe smart-retry policy.'}`,
+          {
+            email: invoice.customer_email,
+            metadata: {
+              amount_due: amountDue,
+              currency: invoice.currency,
+              attempt_count: attemptCount,
+              consecutive_failures: failures,
+              threshold: FAILURE_THRESHOLD,
+              stripe_invoice_id: invoice.id,
+              stripe_sub_id: subId,
+            },
+          },
+        ).catch(() => {});
+      } catch (_) {}
+
+      // Auto-downgrade after threshold
+      if (failedUserId && failures >= FAILURE_THRESHOLD) {
+        try {
+          console.warn(`[BILLING WEBHOOK] Threshold reached (${failures}/${FAILURE_THRESHOLD}) — downgrading user ${failedUserId}`);
+
+          // Best-effort cancel the Stripe subscription so they stop being
+          // charged and Stripe stops retrying.
+          try {
+            await stripe.subscriptions.cancel(subId, { prorate: false });
+          } catch (cancelErr: any) {
+            // Subscription may already be canceled or in unrecoverable state — log and continue
+            console.warn(`[BILLING WEBHOOK] Could not cancel sub ${subId} during downgrade: ${cancelErr?.message}`);
+          }
+
+          // Flip plan to 'none' in our records so feature gates take effect immediately.
+          const existingSub = (await kv.get(`contndr_sub:${failedUserId}`)) || {};
+          await kv.set(`contndr_sub:${failedUserId}`, {
+            ...existingSub,
+            plan: 'none',
+            status: 'canceled',
+            downgraded_at: failedAt,
+            downgrade_reason: `payment_failed_${failures}x`,
+            previous_plan: existingSub.plan || null,
+            stripe_sub_id: subId,
+            updated_at: failedAt,
+          });
+
+          // Clear the failure counter — we acted on it
+          await kv.del(`payment_failures:${failedUserId}`).catch(() => {});
+
+          // Log the downgrade as its own event
+          try {
+            const { logAdminEvent } = await import('./admin-events.tsx');
+            logAdminEvent(
+              'subscription_downgraded',
+              'Account Downgraded — Payment Failures',
+              `${customerEmail} downgraded from ${existingSub.plan || 'paid'} after ${failures} consecutive failed payments`,
+              {
+                email: invoice.customer_email,
+                metadata: {
+                  previous_plan: existingSub.plan || null,
+                  consecutive_failures: failures,
+                  stripe_sub_id: subId,
+                  reason: 'payment_failed',
+                },
+              },
+            ).catch(() => {});
+          } catch (_) {}
+        } catch (downgradeErr) {
+          console.error('[BILLING WEBHOOK] Auto-downgrade failed:', downgradeErr);
+        }
+      }
+
       break;
     }
   }
