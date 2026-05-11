@@ -82,6 +82,15 @@ function hasCallablePhone(lead: Pick<ApolloLead, 'phone_numbers' | '_has_phone'>
   );
 }
 
+// LinkedIn URL is the third actionable contact path. Without this, the
+// "no email + no phone" filter at the quality gate silently drops every
+// LinkedIn-only lead that the backend's tier 4 surfaces — even when the
+// user can clearly act on the LinkedIn profile or run "Find email" later.
+function hasLinkedinProfile(lead: { linkedin_url?: string | null; person_linkedin_url?: string | null }): boolean {
+  const li = (lead.linkedin_url || (lead as any).person_linkedin_url || "").toLowerCase();
+  return li.includes("linkedin.com/");
+}
+
 // ── Strip emoji and unicode decorators ──
 function stripDisplayEmoji(str: string): string {
   if (!str) return '';
@@ -2580,7 +2589,11 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
       const companyName = (l.organization?.name || '').trim();
       const hasCompany = companyName.length >= 2 && companyName !== '—' && companyName !== '-';
       if (!hasCompany) { filterReasons.noCompany++; return false; }
-      if (!hasUsableEmail(l) && !hasCallablePhone(l)) { filterReasons.noContact++; return false; }
+      // Lead is actionable if there's any way to reach the person:
+      // verified email, callable phone, OR a LinkedIn profile (which the
+      // user can DM or use to run "Find email" later). The previous gate
+      // dropped every tier-4 LinkedIn-only lead silently.
+      if (!hasUsableEmail(l) && !hasCallablePhone(l) && !hasLinkedinProfile(l)) { filterReasons.noContact++; return false; }
       // DEDUPLICATE against CRM — never show leads the user already has (by email)
       if (l.email && existingEmails.has(l.email.toLowerCase())) return false;
       return true;
