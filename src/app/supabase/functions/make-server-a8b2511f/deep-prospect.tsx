@@ -1714,7 +1714,6 @@ app.post("/search-stream", async (c) => {
 
     const HUNTER_KEY = Deno.env.get("HUNTER_API_KEY");
     const FINDYMAIL_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-    const EXPLORIUM_KEY = Deno.env.get("EXPLORIUM_API_KEY");
     const TELNYX_KEY = Deno.env.get("TELNYX_API_KEY");
 
     console.log(`[DEEP PROSPECT] Starting for ${user.email}: titles=${JSON.stringify(person_titles)}, locations=${JSON.stringify(organization_locations)}, industries=${JSON.stringify(organization_industries)}, max=${max_results}, db_only=${db_only}, force_external=${force_external}, bypass_cache=${bypass_cache}, preferred_industries=${JSON.stringify(preferred_industries)}`);
@@ -2815,7 +2814,6 @@ app.post("/search-stream", async (c) => {
               const deepResult = await enrichPhoneNumbers(
                 leadsForDeepPhone as DeepPhoneLead[],
                 SERPAPI_KEY,
-                EXPLORIUM_KEY || '',
                 {
                   onProgress: (done, total) => {
                     send("progress", { fetched: done, total, phase: "deep_phone" });
@@ -3346,7 +3344,6 @@ app.post("/enrich-linkedin", async (c) => {
     if (!SERPAPI_KEY) return c.json({ error: "Discovery engine not configured" }, 500);
     const HUNTER_KEY = Deno.env.get("HUNTER_API_KEY");
     const FINDYMAIL_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-    const EXPLORIUM_KEY = Deno.env.get("EXPLORIUM_API_KEY") || "";
 
     // ══════════════════════════════════════════════════════════════
     // PHASE A: SerpAPI Google scrape — name/title/company (~3s)

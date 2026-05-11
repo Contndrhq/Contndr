@@ -5,8 +5,11 @@
 //   2. Press releases & news mentions (SerpAPI)
 //   3. WHOIS domain records
 //   4. Public business records (state registries, OpenCorporates, etc.)
-//   5. Explorium Contact Enrichment API
-//   6. Telnyx Number Lookup for verification
+//   5. Telnyx Number Lookup for verification
+//
+// Explorium Contact Enrichment was previously source #5 but removed —
+// the API was returning 401/403 on every call and burning ~25s per
+// search waiting for timeouts on a service the account doesn't use.
 // ══════════════════════════════════════════════════════════════════════════
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
@@ -495,176 +498,6 @@ async function searchPublicRecords(
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-// SOURCE 5: Explorium Contact Enrichment API
-// Uses the Explorium Prospecting API to find direct/mobile phone numbers
-// for business contacts by name + company domain.
-// ══════════════════════════════════════════════════════════════════════════
-
-// Circuit breaker for Explorium. The API has been returning 403 on every
-// call (multiple times per search → ~20s wasted per query). Once we see a
-// few auth failures in a row we stop calling it for an hour. Hits 0 calls
-// instead of 5 calls × 10s timeout per search until the operator notices
-// the auth issue and rotates the key. Re-arms automatically.
-let _exploriumCircuitOpenUntil = 0;
-let _exploriumConsecutiveAuthFailures = 0;
-const EXPLORIUM_FAIL_THRESHOLD = 3;
-const EXPLORIUM_CIRCUIT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
-function isExploriumCircuitOpen(): boolean {
-  if (_exploriumCircuitOpenUntil === 0) return false;
-  if (Date.now() >= _exploriumCircuitOpenUntil) {
-    _exploriumCircuitOpenUntil = 0;
-    _exploriumConsecutiveAuthFailures = 0;
-    return false;
-  }
-  return true;
-}
-function recordExploriumFailure(status: number) {
-  if (status === 401 || status === 403) {
-    _exploriumConsecutiveAuthFailures++;
-    if (_exploriumConsecutiveAuthFailures >= EXPLORIUM_FAIL_THRESHOLD) {
-      _exploriumCircuitOpenUntil = Date.now() + EXPLORIUM_CIRCUIT_COOLDOWN_MS;
-      console.warn(`[PHONE ENRICH] Explorium auth failed ${_exploriumConsecutiveAuthFailures}× — circuit opened for 1h. Check EXPLORIUM_API_KEY.`);
-    }
-  }
-}
-function recordExploriumSuccess() {
-  _exploriumConsecutiveAuthFailures = 0;
-}
-
-async function searchExplorium(
-  lead: LeadForPhone,
-  exploriumApiKey: string
-): Promise<PhoneResult[]> {
-  if (!exploriumApiKey) return [];
-  // Skip immediately if the circuit is open — saves ~10s per call when
-  // the API is broken or the key is stale.
-  if (isExploriumCircuitOpen()) return [];
-
-  const domain = (lead.organization_website || '')
-    .replace(/^https?:\/\//, '')
-    .replace(/^www\./, '')
-    .replace(/\/.*/, '')
-    .trim();
-
-  const phones: PhoneResult[] = [];
-
-  // Approach 1: Contact enrichment by name + domain
-  try {
-    const response = await fetch('https://api.explorium.ai/v1/contacts/enrich', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${exploriumApiKey}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({
-        first_name: lead.first_name,
-        last_name: lead.last_name,
-        company_domain: domain || undefined,
-        company_name: lead.organization_name || undefined,
-      }),
-      // Was 10s — too long for an API that's been dead. 4s is enough for a
-      // healthy API and fails fast when it isn't.
-      signal: AbortSignal.timeout(4000),
-    });
-
-    if (response.ok) {
-      recordExploriumSuccess();
-      const data = await response.json();
-      const contact = data.data || data.result || data;
-
-      // Extract phone fields — Explorium returns various phone fields
-      const phoneFields = [
-        { field: contact?.mobile_phone || contact?.cell_phone || contact?.personal_phone, type: 'mobile' as const },
-        { field: contact?.direct_phone || contact?.direct_dial || contact?.work_direct_phone, type: 'direct' as const },
-        { field: contact?.work_phone || contact?.business_phone || contact?.office_phone, type: 'work' as const },
-        { field: contact?.phone || contact?.phone_number, type: 'direct' as const },
-        { field: contact?.company_phone || contact?.hq_phone, type: 'company' as const },
-      ];
-
-      // Also check nested phone_numbers array if present
-      if (Array.isArray(contact?.phone_numbers)) {
-        for (const pn of contact.phone_numbers) {
-          const num = pn?.number || pn?.raw_number || pn?.phone || '';
-          const pType = (pn?.type || '').toLowerCase();
-          if (num && isValidPhone(num)) {
-            const mapped = pType.includes('mobile') || pType.includes('cell') ? 'mobile' as const :
-                          pType.includes('direct') ? 'direct' as const :
-                          pType.includes('work') || pType.includes('office') ? 'work' as const : 'direct' as const;
-            phones.push({ number: num, type: mapped, source: 'explorium', confidence: 85 });
-          }
-        }
-      }
-
-      for (const { field, type } of phoneFields) {
-        if (!field) continue;
-        const num = String(field).trim();
-        if (!num || !isValidPhone(num)) continue;
-        if (phones.some(p => normalizePhone(p.number) === normalizePhone(num))) continue;
-        phones.push({
-          number: num,
-          type,
-          source: 'explorium',
-          confidence: type === 'mobile' ? 92 : type === 'direct' ? 88 : 75,
-        });
-      }
-    } else if (response.status !== 404 && response.status !== 422) {
-      console.warn(`[PHONE ENRICH] Explorium contact enrich returned ${response.status}`);
-      recordExploriumFailure(response.status);
-    }
-  } catch (err: any) {
-    console.warn(`[PHONE ENRICH] Explorium contact enrich error: ${err.message}`);
-  }
-
-  // Approach 2: Business match by domain → company phone (fallback).
-  // Same circuit-breaker check — skip when the API has been failing.
-  if (phones.length === 0 && domain && !isExploriumCircuitOpen()) {
-    try {
-      const response = await fetch('https://api.explorium.ai/v1/businesses/match', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${exploriumApiKey}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ domain }),
-        signal: AbortSignal.timeout(4000),
-      });
-
-      if (response.ok) {
-        recordExploriumSuccess();
-        const data = await response.json();
-        const biz = data.data || data.result || data;
-
-        const bizPhoneFields = [
-          biz?.phone, biz?.phone_number, biz?.hq_phone,
-          biz?.main_phone, biz?.business_phone,
-        ];
-
-        for (const field of bizPhoneFields) {
-          if (!field) continue;
-          const num = String(field).trim();
-          if (!num || !isValidPhone(num)) continue;
-          if (phones.some(p => normalizePhone(p.number) === normalizePhone(num))) continue;
-          phones.push({
-            number: num,
-            type: 'company',
-            source: 'explorium',
-            confidence: 60,
-          });
-          break;
-        }
-      } else if (response.status === 401 || response.status === 403) {
-        recordExploriumFailure(response.status);
-      }
-    } catch {
-      // Non-fatal
-    }
-  }
-
-  return phones;
-}
 
 // ══════════════════════════════════════════════════════════════════════════
 // PHONE VERIFICATION: Telnyx Number Lookup
@@ -852,7 +685,6 @@ export interface DeepPhoneLead {
 export async function enrichPhoneNumbers(
   leads: DeepPhoneLead[],
   serpApiKey: string,
-  exploriumApiKey: string,
   options?: {
     onProgress?: (done: number, total: number) => void;
     isCancelled?: () => boolean;
@@ -867,7 +699,6 @@ export async function enrichPhoneNumbers(
     press: 0,
     whois: 0,
     public_records: 0,
-    explorium: 0,
   };
   let enriched = 0;
   const BATCH_SIZE = 10;
@@ -928,16 +759,6 @@ export async function enrichPhoneNumbers(
             allPhones.push(...recordsPhones);
           } catch (e) {
             console.warn(`[PHONE ENRICH] Public records error for ${lead.name}:`, e);
-          }
-        }
-
-        // Source 5: Explorium Contact Enrichment API
-        if (allPhones.length === 0 && exploriumApiKey) {
-          try {
-            const exploriumPhones = await searchExplorium(leadInput, exploriumApiKey);
-            allPhones.push(...exploriumPhones);
-          } catch (e) {
-            console.warn(`[PHONE ENRICH] Explorium error for ${lead.name}:`, e);
           }
         }
 
@@ -1013,7 +834,7 @@ export async function enrichPhoneNumbers(
   }
 
   console.log(`[PHONE ENRICH] Complete: ${enriched} phones found from ${leadsNoPhone.length} leads`);
-  console.log(`[PHONE ENRICH] Sources: website=${sourceCounts.website}, press=${sourceCounts.press}, whois=${sourceCounts.whois}, public_records=${sourceCounts.public_records}, explorium=${sourceCounts.explorium}`);
+  console.log(`[PHONE ENRICH] Sources: website=${sourceCounts.website}, press=${sourceCounts.press}, whois=${sourceCounts.whois}, public_records=${sourceCounts.public_records}`);
 
   return { enriched, sources: sourceCounts };
 }
