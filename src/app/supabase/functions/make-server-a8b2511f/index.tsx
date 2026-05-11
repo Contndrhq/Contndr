@@ -8,6 +8,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 // contact-scraper.tsx — lazy-loaded if needed
 // enrichment_agent.tsx — lazy-loaded if needed
 import * as kv from "./kv-retry.tsx";
+import { recordAuditEvent } from "./audit-log.tsx";
 import { handleBounceAutoDelete, getBouncedLeads, purgeBouncedLeads, markLeadBouncedByEmail } from "./bounce-handler.tsx";
 import { checkDuplicatesAndFilter } from "./duplicate-check.tsx";
 // follow-ups.tsx — lazy-loaded on demand (transitively bundled via campaign-worker.tsx)
@@ -646,12 +647,19 @@ async function getAuthenticatedUser(c: any) {
   if (!user) {
     throw authError("Session expired or invalid - please sign in again");
   }
-  
+
   // Cache email→uid mapping so isAdminEmail() can resolve UIDs automatically
   // even when callers only pass user.email (avoids changing 40+ call sites)
   if (user.email && user.id) {
     _recentEmailToUid.set(user.email.toLowerCase().trim(), user.id);
   }
+
+  // Stash actor identity on the Hono context so audit-log helpers and any
+  // request-scoped logging can read it without re-running auth.
+  try {
+    c.set('userId', user.id);
+    c.set('userEmail', user.email || null);
+  } catch { /* context.set may not be available in odd code paths */ }
 
   return { user, supabase };
 }
@@ -2357,6 +2365,19 @@ app.post("/make-server-a8b2511f/account/delete", async (c) => {
 
     console.log(`[ACCOUNT DELETE] User ${userId} (${userEmail}) self-deleted. DB: ${Object.values(dbResults).filter(r => r.ok).length}/${dbTables.length} tables OK. KV: ${kvDeleted.prefixes + kvDeleted.keys} entries removed. Auth: ${authDeleteOk}`);
 
+    // Record before the auth delete so the actor_id FK still resolves; the
+    // SET NULL cascade on actor_id keeps the row intact after the user is gone.
+    await recordAuditEvent(c, {
+      action: 'account.self_delete',
+      resource: 'user',
+      resourceId: userId,
+      metadata: {
+        auth_deleted: authDeleteOk,
+        db_tables_ok: Object.values(dbResults).filter(r => r.ok).length,
+        kv_entries_removed: kvDeleted.prefixes + kvDeleted.keys,
+      },
+    });
+
     return c.json({
       success: true,
       auth_deleted: authDeleteOk,
@@ -3154,16 +3175,22 @@ app.post("/make-server-a8b2511f/admin/users/delete", async (c) => {
     if (!isAdminEmail(user.email)) {
       return c.json({ error: 'Unauthorized' }, 403);
     }
-    
+
     const { userId } = await c.req.json();
     if (!userId) return c.json({ error: "User ID required" }, 400);
-    
+
     const { error } = await supabase.auth.admin.deleteUser(userId);
     if (error) throw error;
-    
+
     // Cleanup KV subscription
     await kv.del(`contndr_sub:${userId}`);
-    
+
+    await recordAuditEvent(c, {
+      action: 'admin.user.delete',
+      resource: 'user',
+      resourceId: userId,
+    });
+
     return c.json({ success: true });
   } catch (error) {
     console.error('[ADMIN] Error deleting user:', error);
@@ -3305,6 +3332,13 @@ app.post("/make-server-a8b2511f/admin/users/plan", async (c) => {
       console.log('[ADMIN] Team check (non-fatal):', teamErr?.message || teamErr);
     }
     
+    await recordAuditEvent(c, {
+      action: 'admin.user.plan_change',
+      resource: 'user',
+      resourceId: userId,
+      metadata: { plan, interval: requestedInterval, charge: !!charge, stripe_sub_id: stripeSubId, target_email: userEmail },
+    });
+
     return c.json({ success: true, subscription: newSub, teamNote, billingAction });
   } catch (error) {
     console.error('[ADMIN] Error updating user plan:', error);
@@ -10204,9 +10238,26 @@ app.post("/make-server-a8b2511f/leads/bulk-delete", async (c) => {
     
     console.log(`[BULK DELETE] Completed: ${deletedCount} deleted, ${failedCount + unauthorizedCount} failed/unauthorized`);
     
+    if (deletedCount > 0) {
+      // Truncate the resourceId list to keep the audit row sane on huge bulk
+      // deletes — the count is what matters for forensics, the IDs are best-effort.
+      await recordAuditEvent(c, {
+        action: 'lead.bulk_delete',
+        resource: 'lead',
+        resourceId: ownedLeadIds.slice(0, 50).join(',') + (ownedLeadIds.length > 50 ? `,…+${ownedLeadIds.length - 50}` : ''),
+        metadata: {
+          requested: lead_ids.length,
+          deleted: deletedCount,
+          failed: failedCount,
+          unauthorized: unauthorizedCount,
+          admin: userIsAdmin,
+        },
+      });
+    }
+
     return c.json({
       success: deletedCount > 0,
-      message: deletedCount > 0 
+      message: deletedCount > 0
         ? `Deleted ${deletedCount} of ${lead_ids.length} leads${unauthorizedCount > 0 ? ` (${unauthorizedCount} were not owned by you)` : ''}`
         : 'No leads were deleted',
       results: {
@@ -10215,10 +10266,10 @@ app.post("/make-server-a8b2511f/leads/bulk-delete", async (c) => {
         failed: failedCount + unauthorizedCount
       }
     });
-    
+
   } catch (error) {
     console.error('[BULK DELETE] Unexpected error:', error);
-    return c.json({ 
+    return c.json({
       error: 'Failed to delete leads',
       details: error.message,
       results: { total: 0, deleted: 0, failed: 0 }
@@ -15189,6 +15240,60 @@ app.get("/make-server-a8b2511f/version", (c) => {
     built_at: BUILD_TIME,
     timestamp: new Date().toISOString(),
   });
+});
+
+// GET /health/deep — true health check that probes the dependencies the app
+// can't run without. Use this for uptime monitors and load-balancer status
+// pages instead of /public-health (which only confirms the function booted).
+//
+// Returns 200 + status:"ok" only when every required dependency is reachable.
+// Returns 503 + status:"degraded" with per-component detail otherwise. This
+// way an uptime monitor flips red when the DB is down even if Hono is fine.
+app.get("/make-server-a8b2511f/health/deep", async (c) => {
+  const start = Date.now();
+  const checks: Record<string, { ok: boolean; ms: number; error?: string }> = {};
+
+  async function probe(name: string, fn: () => Promise<unknown>): Promise<void> {
+    const t = Date.now();
+    try {
+      await Promise.race([
+        fn(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000)),
+      ]);
+      checks[name] = { ok: true, ms: Date.now() - t };
+    } catch (e: any) {
+      checks[name] = { ok: false, ms: Date.now() - t, error: (e?.message || String(e)).slice(0, 120) };
+    }
+  }
+
+  await Promise.all([
+    // DB: cheapest possible round-trip to confirm connectivity + auth
+    probe('db', async () => {
+      const sb = getSupabaseAdmin();
+      const { error } = await sb.from('kv_store_a8b2511f').select('key', { head: true, count: 'exact' }).limit(1);
+      if (error) throw error;
+    }),
+    // KV layer: confirms our retry wrapper is healthy and circuit isn't open
+    probe('kv', async () => {
+      const { isCircuitOpen } = await import('./kv-retry.tsx');
+      if (isCircuitOpen()) throw new Error('circuit open');
+    }),
+    // Auth: lightweight check that we can talk to Supabase Auth
+    probe('auth', async () => {
+      const sb = getSupabaseAdmin();
+      const { error } = await sb.auth.admin.listUsers({ page: 1, perPage: 1 });
+      if (error) throw error;
+    }),
+  ]);
+
+  const allOk = Object.values(checks).every(r => r.ok);
+  return c.json({
+    status: allOk ? 'ok' : 'degraded',
+    version: BUILD_VERSION,
+    timestamp: new Date().toISOString(),
+    elapsed_ms: Date.now() - start,
+    checks,
+  }, allOk ? 200 : 503);
 });
 
 app.post("/make-server-a8b2511f/public-health", (c) => {

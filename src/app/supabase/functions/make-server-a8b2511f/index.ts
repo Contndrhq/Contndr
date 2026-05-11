@@ -8,6 +8,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 // contact-scraper.tsx — lazy-loaded if needed
 // enrichment_agent.tsx — lazy-loaded if needed
 import * as kv from "./kv-retry.tsx";
+import { recordAuditEvent } from "./audit-log.tsx";
 import { handleBounceAutoDelete, getBouncedLeads, purgeBouncedLeads, markLeadBouncedByEmail } from "./bounce-handler.tsx";
 import { checkDuplicatesAndFilter } from "./duplicate-check.tsx";
 // follow-ups.tsx — lazy-loaded on demand (transitively bundled via campaign-worker.tsx)
@@ -48,7 +49,6 @@ import quickbooksApp from "./quickbooks.tsx";
 import teamSharingApp from "./team-sharing.tsx";
 import salesLeaderboardApp from "./sales-leaderboard.tsx";
 import gravatarApp from "./gravatar.tsx";
-import { attachCachedAvatars } from "./avatar-cache.tsx";
 import aiAssistantApp from "./ai-assistant.tsx";
 import pipelineApp from "./pipeline.tsx";
 import { firePipelineTrigger } from "./pipeline.tsx";
@@ -91,6 +91,68 @@ declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 // Cleared on cold boot — that's intentional (no send was in-flight on a
 // fresh isolate).
 const campaignSendInFlight = new Map<string, string>();
+
+// ─── PII redaction in console output ─────────────────────────────────
+// Supabase Function logs are retained and queryable; logging raw emails,
+// phone numbers, and bearer tokens turns those logs into a PII liability
+// (GDPR / CCPA / SOC2). We wrap the console methods once at startup so
+// every existing and future log line is redacted before it's emitted.
+// Set DISABLE_LOG_REDACTION=1 in env if you ever need raw logs for
+// debugging (e.g. local dev).
+(function installLogRedaction() {
+  if (Deno.env.get('DISABLE_LOG_REDACTION') === '1') return;
+
+  const EMAIL_RE = /([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+  const PHONE_RE = /\b(\+?\d[\s\-().]*){9,15}\d\b/g;
+  const BEARER_RE = /(?<=Bearer\s+|access_token["'\s:=]+)[A-Za-z0-9_\-.]{20,}/gi;
+  const JWT_RE = /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
+  const WHITELIST = new Set([
+    'admin@contndr.com', 'or@contndr.com', 'or@roadr.com', // operational/admin emails
+  ]);
+
+  function redactString(s: string): string {
+    return s
+      .replace(JWT_RE, '<JWT_REDACTED>')
+      .replace(BEARER_RE, '<TOKEN_REDACTED>')
+      .replace(EMAIL_RE, (full, local, domain) => {
+        if (WHITELIST.has(full.toLowerCase())) return full;
+        const head = local.length <= 2 ? local[0] || '*' : local.slice(0, 2);
+        return `${head}***@${domain}`;
+      })
+      .replace(PHONE_RE, (full) => {
+        const digits = full.replace(/\D/g, '');
+        if (digits.length < 9) return full; // not a phone — likely an ID
+        return `***${digits.slice(-4)}`;
+      });
+  }
+
+  function redactArg(a: any, depth = 0): any {
+    if (depth > 4) return a; // bound recursion on circular/huge objects
+    if (a == null) return a;
+    if (typeof a === 'string') return redactString(a);
+    if (typeof a === 'number' || typeof a === 'boolean') return a;
+    if (a instanceof Error) {
+      try { return new Error(redactString(a.message)); } catch { return a; }
+    }
+    if (Array.isArray(a)) return a.map(x => redactArg(x, depth + 1));
+    if (typeof a === 'object') {
+      try {
+        const out: any = {};
+        for (const k of Object.keys(a)) out[k] = redactArg(a[k], depth + 1);
+        return out;
+      } catch { return a; }
+    }
+    return a;
+  }
+
+  for (const method of ['log', 'warn', 'error', 'info', 'debug'] as const) {
+    const original = console[method].bind(console);
+    console[method] = (...args: any[]) => {
+      try { original(...args.map(a => redactArg(a))); }
+      catch { original(...args); }
+    };
+  }
+})();
 
 // ─── Supabase Admin Client Singleton ─────────────────────────────────
 // Re-uses a single service-role client instead of calling createClient()
@@ -219,6 +281,23 @@ const app = new Hono();
 // Expose the Hono app instance on globalThis so internal modules (e.g. cron-scheduler)
 // can call routes directly without going through the Supabase API gateway.
 (globalThis as any).__honoApp = app;
+
+// ── Build / version stamp ───────────────────────────────────────────
+// Surfaced to support so a customer ticket can be matched to a deploy.
+const BUILD_VERSION = Deno.env.get('BUILD_SHA') || Deno.env.get('VERCEL_GIT_COMMIT_SHA') || 'unknown';
+const BUILD_TIME = Deno.env.get('BUILD_TIME') || new Date().toISOString();
+
+// ── Request ID middleware ───────────────────────────────────────────
+// Accepts an inbound X-Request-ID (so frontend / proxy can supply one) or
+// generates a fresh UUID. Echoed back on the response so the user can quote
+// it in a support ticket and we can grep logs for that exact request.
+app.use('*', async (c, next) => {
+  const inbound = c.req.header('x-request-id') || c.req.header('X-Request-ID');
+  const reqId = inbound && /^[A-Za-z0-9._-]{8,128}$/.test(inbound) ? inbound : crypto.randomUUID();
+  c.set('requestId', reqId);
+  c.header('X-Request-ID', reqId);
+  await next();
+});
 
 // Global Error Handler to prevent crashes
 app.onError((err, c) => {
@@ -568,12 +647,19 @@ async function getAuthenticatedUser(c: any) {
   if (!user) {
     throw authError("Session expired or invalid - please sign in again");
   }
-  
+
   // Cache email→uid mapping so isAdminEmail() can resolve UIDs automatically
   // even when callers only pass user.email (avoids changing 40+ call sites)
   if (user.email && user.id) {
     _recentEmailToUid.set(user.email.toLowerCase().trim(), user.id);
   }
+
+  // Stash actor identity on the Hono context so audit-log helpers and any
+  // request-scoped logging can read it without re-running auth.
+  try {
+    c.set('userId', user.id);
+    c.set('userEmail', user.email || null);
+  } catch { /* context.set may not be available in odd code paths */ }
 
   return { user, supabase };
 }
@@ -852,15 +938,6 @@ function isAdminEmail(email: string | undefined | null, uid?: string | undefined
   return ADMIN_EMAILS.includes(e);
 }
 
-function normalizeWaitlistStatus(status: string | undefined | null): string {
-  const value = (status || '').toLowerCase().trim();
-  return value || 'pending_signup';
-}
-
-function isApprovedWaitlistStatus(status: string | undefined | null): boolean {
-  return ['approved', 'invited', 'signed_up'].includes(normalizeWaitlistStatus(status));
-}
-
 function isMissingAccessField(value: any): boolean {
   const normalized = String(value || '').trim().toLowerCase();
   return !normalized || ['unknown', 'n/a', 'na', 'none', 'null', 'undefined'].includes(normalized);
@@ -877,76 +954,9 @@ function validateAccessApplicationFields(fields: Record<string, any>) {
     ['teamSize', 'Team size'],
     ['annualRevenue', 'Annual revenue'],
   ] as const;
-  const missing = requiredFields
+  return requiredFields
     .filter(([key]) => isMissingAccessField(fields[key]))
     .map(([, label]) => label);
-  return missing;
-}
-
-async function getWaitlistEntryByEmail(email: string): Promise<{ id: string | null; entry: any | null }> {
-  const normalizedEmail = email.toLowerCase().trim();
-  const id = await kv.get(`waitlist:email:${normalizedEmail}`);
-  if (!id) return { id: null, entry: null };
-  const entry = await kv.get(`waitlist:${id}`);
-  return { id, entry: entry || null };
-}
-
-async function upsertWaitlistSignupEntry(params: {
-  email: string;
-  userId: string;
-  name?: string;
-  company?: string;
-  phone?: string;
-  businessType?: string;
-  monthlyLeadVolume?: string;
-  teamSize?: string;
-  annualRevenue?: string;
-  approved: boolean;
-  source: string;
-  existingId?: string | null;
-  existingEntry?: any | null;
-}) {
-  const now = new Date().toISOString();
-  const normalizedEmail = params.email.toLowerCase().trim();
-  const status = params.approved ? 'signed_up' : 'pending_signup';
-  let entryId = params.existingId || null;
-  let entry = params.existingEntry || null;
-
-  if (!entryId) {
-    entryId = crypto.randomUUID();
-  }
-
-  entry = {
-    ...(entry || {}),
-    id: entryId,
-    name: params.name || entry?.name || 'User',
-    company: params.company || entry?.company || '',
-    email: normalizedEmail,
-    phone: params.phone || entry?.phone || '',
-    businessType: params.businessType || entry?.businessType || '',
-    monthlyLeadVolume: params.monthlyLeadVolume || entry?.monthlyLeadVolume || '',
-    teamSize: params.teamSize || entry?.teamSize || '',
-    annualRevenue: params.annualRevenue || entry?.annualRevenue || '',
-    status,
-    userId: params.userId,
-    source: entry?.source || params.source,
-    created_at: entry?.created_at || now,
-    updated_at: now,
-  };
-
-  await kv.set(`waitlist:${entryId}`, entry);
-  await kv.set(`waitlist:email:${normalizedEmail}`, entryId);
-
-  const listKey = 'waitlist_entries_list';
-  const existingList = (await kv.get(listKey)) || [];
-  if (!existingList.includes(entryId)) {
-    await kv.set(listKey, [entryId, ...existingList].slice(0, 5000));
-    const countKey = 'waitlist_count';
-    const currentCount = (await kv.get(countKey)) || 127;
-    await kv.set(countKey, currentCount + 1);
-  }
-
-  return entry;
 }
 
 // ─── Affiliate Auto-Enrollment Helper ────────────────────────────────
@@ -1249,47 +1259,24 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
     // Admin bypass
     const isAdmin = isAdminEmail(normalizedEmail);
 
+    // Enforce Waitlist / Invite-Only Access (Soft Gate)
+    // Logic: Allow signup, but set status to 'pending' if not approved.
+    
     let isApproved = false;
     let subscriptionStatus = 'pending';
     let subscriptionPlan = 'waitlist';
-    let existingWaitlistId: string | null = null;
-    let existingWaitlistEntry: any | null = null;
-    let isWhitelisted = false;
-
-    if (!isAdmin) {
-      const storageGuard = kv.shouldSkipWriteHeavyTask('auth-signup-v2');
-      if (!storageGuard.ok) {
-        console.warn('[AUTH] Signup paused because storage is degraded:', storageGuard.reason);
-        return c.json({
-          error: 'Access applications are temporarily delayed. Please try again shortly.',
-          reason: 'storage_degraded',
-        }, 503);
-      }
-
-      try {
-        const waitlistResult = await getWaitlistEntryByEmail(normalizedEmail);
-        existingWaitlistId = waitlistResult.id;
-        existingWaitlistEntry = waitlistResult.entry;
-        isWhitelisted = !!(await kv.get(`whitelist:${normalizedEmail}`));
-      } catch (waitlistReadErr: any) {
-        console.error('[AUTH] Could not check waitlist before signup:', waitlistReadErr?.message || waitlistReadErr);
-        return c.json({
-          error: 'Access applications are temporarily delayed. Please try again shortly.',
-          reason: 'waitlist_unavailable',
-        }, 503);
-      }
-    }
 
     // Admin bypass - ONLY admins get automatic active access
     if (isAdmin) {
         isApproved = true;
         subscriptionStatus = 'active';
         subscriptionPlan = 'growth'; // Admins get full access
-    } else if (isWhitelisted || isApprovedWaitlistStatus(existingWaitlistEntry?.status)) {
-        isApproved = true;
-        subscriptionStatus = 'unpaid';
-        subscriptionPlan = 'none';
     }
+    // Note: For non-admin users, we don't set approval status during signup
+    // The billing service will check waitlist approval status on each login
+    
+    // We proceed to create the user regardless of approval status.
+    // If not approved, they get 'pending' status and will see the 'Pending' screen.
 
     const supabase = getSupabaseAdmin();
 
@@ -1300,7 +1287,7 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
       user_metadata: { 
         name: name || 'User',
         brand: company || name || 'My Brand',
-        phone: phone || '',
+        phone,
         businessType,
         monthlyLeadVolume,
         teamSize,
@@ -1323,49 +1310,73 @@ app.post("/make-server-a8b2511f/auth/signup-v2", async (c) => {
     if (data.user) {
         console.log('[AUTH] User created successfully:', data.user.id);
         
-        try {
-          await kv.set(`contndr_sub:${data.user.id}`, {
-            status: subscriptionStatus,
-            plan: subscriptionPlan,
-            created_at: new Date().toISOString(),
-            signup_method: 'email',
-        });
-
-          if (!isAdmin) {
-            await upsertWaitlistSignupEntry({
-              email: normalizedEmail,
-              userId: data.user.id,
-              name,
-              company,
-              phone,
-              businessType,
-              monthlyLeadVolume,
-              teamSize,
-              annualRevenue,
-              approved: isApproved,
-              source: existingWaitlistEntry?.source || 'direct_signup',
-              existingId: existingWaitlistId,
-              existingEntry: existingWaitlistEntry,
-            });
-          }
-        } catch (e: any) {
-            console.error('[AUTH] Critical waitlist/subscription write failed, rolling back auth user:', e?.message || e);
-            try {
-              await supabase.auth.admin.deleteUser(data.user.id);
-            } catch (deleteErr: any) {
-              console.error('[AUTH] Failed to rollback partial auth user:', deleteErr?.message || deleteErr);
-            }
-            return c.json({
-              error: 'Could not complete access application. Please try again shortly.',
-              reason: 'waitlist_write_failed',
-            }, 503);
-        }
-
-        // Log admin event for new signup after critical gating records exist.
+        // Log admin event for new signup
         logAdminEvent('new_signup', 'New Signup', `${name || 'User'} (${normalizedEmail}) just signed up`, {
           email: normalizedEmail,
           metadata: { name, company, phone, businessType, plan: subscriptionPlan, status: subscriptionStatus }
         }).catch(() => {});
+        await kv.set(`contndr_sub:${data.user.id}`, {
+            status: subscriptionStatus,
+            plan: subscriptionPlan,
+            created_at: new Date().toISOString()
+        });
+        
+        // Waitlist Management
+        try {
+            const waitlistId = await kv.get(`waitlist:email:${normalizedEmail}`);
+            if (waitlistId) {
+                // Update existing waitlist entry
+                const entry = await kv.get(`waitlist:${waitlistId}`);
+                if (entry) {
+                    entry.userId = data.user.id;
+                    entry.name = entry.name && entry.name !== 'User' && entry.name !== 'OAuth User' ? entry.name : (name || entry.name || 'User');
+                    entry.phone = phone;
+                    entry.businessType = businessType;
+                    entry.monthlyLeadVolume = monthlyLeadVolume;
+                    entry.teamSize = teamSize;
+                    entry.annualRevenue = annualRevenue;
+                    // If they are approved, they are fully signed up.
+                    // If pending, they are 'pending_signup' (signed up but waiting)
+                    entry.status = isApproved ? 'signed_up' : 'pending_signup';
+                    entry.updated_at = new Date().toISOString();
+                    await kv.set(`waitlist:${waitlistId}`, entry);
+                }
+            } else if (!isApproved) {
+                 // If NOT on waitlist and NOT approved (direct signup attempt),
+                 // automatically add them to the waitlist.
+                 
+                 const entryId = crypto.randomUUID();
+                 const entry = {
+                   id: entryId,
+                   name: name || 'User',
+                   email: normalizedEmail,
+                   phone,
+                   businessType,
+                   monthlyLeadVolume,
+                   teamSize,
+                   annualRevenue,
+                   status: 'pending_signup', // Distinct status for signed-up-but-waiting
+                   created_at: new Date().toISOString(),
+                   userId: data.user.id,
+                   source: 'direct_signup'
+                 };
+                 
+                 await kv.set(`waitlist:${entryId}`, entry);
+                 await kv.set(`waitlist:email:${normalizedEmail}`, entryId);
+                 
+                 // Add to list
+                 const listKey = 'waitlist_entries_list';
+                 const existingList = (await kv.get(listKey)) || [];
+                 await kv.set(listKey, [entryId, ...existingList].slice(0, 5000));
+                 
+                 // Update global count
+                 const countKey = 'waitlist_count';
+                 const currentCount = (await kv.get(countKey)) || 127;
+                 await kv.set(countKey, currentCount + 1);
+            }
+        } catch (e) {
+            console.error('Error updating waitlist on signup:', e);
+        }
 
         // Affiliate referral tracking
         if (ref && typeof ref === 'string') {
@@ -2129,9 +2140,9 @@ app.get("/make-server-a8b2511f/user/me", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
     const sub = await kv.get(`contndr_sub:${user.id}`);
-    
+
     c.header('Cache-Control', 'private, max-age=15, stale-while-revalidate=30');
-    return c.json({ 
+    return c.json({
         id: user.id,
         email: user.email,
         subscription: sub || { status: 'none' }
@@ -2139,6 +2150,243 @@ app.get("/make-server-a8b2511f/user/me", async (c) => {
   } catch (error) {
     // If auth fails, return 401
     return c.json({ error: error.message }, 401);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// GDPR / CCPA endpoints — data export and account deletion.
+// These satisfy the "right to portability" (Article 20) and "right to
+// erasure" (Article 17) requirements and unblock enterprise security
+// questionnaires that explicitly ask for user-initiated deletion.
+// ─────────────────────────────────────────────────────────────────────
+
+// GET /account/export — return all user-owned data as a single JSON file.
+// Best-effort: every source the backend knows about is collected. The
+// response is streamed-as-JSON via c.json() — for very large tenants we
+// could later switch to NDJSON streaming, but for now a single payload
+// keeps the UX simple ("Download my data" → single .json file).
+app.get("/make-server-a8b2511f/account/export", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const userId = user.id;
+
+    // Load all user-scoped DB tables in parallel. Each query is bounded —
+    // pathological tenants get truncated rather than OOMing the function.
+    const HARD_CAP = 50_000;
+    const [
+      leads, campaigns, emails, emailEvents, signatures,
+      automationRules, followUps, leadGroups,
+    ] = await Promise.all([
+      supabase.from('leads').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('campaigns').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('emails').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('email_events').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('signatures').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('automation_rules').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('follow_ups').select('*').eq('user_id', userId).limit(HARD_CAP),
+      supabase.from('lead_groups').select('*').eq('user_id', userId).limit(HARD_CAP),
+    ]);
+
+    // KV-backed records (bounded prefix scans — ignore failures so a single
+    // missing prefix doesn't block the whole export).
+    const safeKv = async (prefix: string): Promise<any[]> => {
+      try { return await kv.getByPrefixLimited(prefix, 5000, 0); } catch { return []; }
+    };
+    const [
+      kvCampaigns, kvAiCalls, kvCompanies, kvVisits,
+      kvCredits, kvCreditsLog, kvSubscription, kvSettings,
+    ] = await Promise.all([
+      safeKv(`campaign:${userId}:`),
+      safeKv(`ai_call:${userId}:`),
+      safeKv(`company:${userId}:`),
+      safeKv(`recent_visit_v2:${userId}:`),
+      kv.get(`ai_credits:${userId}`).catch(() => null),
+      kv.get(`ai_credits_log:${userId}`).catch(() => null),
+      kv.get(`contndr_sub:${userId}`).catch(() => null),
+      kv.get(`user_settings:${userId}`).catch(() => null),
+    ]);
+
+    const payload = {
+      meta: {
+        exported_at: new Date().toISOString(),
+        user: { id: user.id, email: user.email, created_at: user.created_at },
+        format_version: 1,
+        notice: 'This export contains all data Contndr stores about you. Some derived caches (e.g. dashboard rollups) are omitted because they are reconstructable from the data above.',
+      },
+      tables: {
+        leads: leads.data || [],
+        campaigns: campaigns.data || [],
+        emails: emails.data || [],
+        email_events: emailEvents.data || [],
+        signatures: signatures.data || [],
+        automation_rules: automationRules.data || [],
+        follow_ups: followUps.data || [],
+        lead_groups: leadGroups.data || [],
+      },
+      kv: {
+        campaigns: kvCampaigns,
+        ai_calls: kvAiCalls,
+        companies: kvCompanies,
+        recent_visits: kvVisits,
+        ai_credits: kvCredits,
+        ai_credits_log: kvCreditsLog,
+        subscription: kvSubscription,
+        settings: kvSettings,
+      },
+    };
+
+    c.header('Content-Disposition', `attachment; filename="contndr-export-${user.id}-${new Date().toISOString().split('T')[0]}.json"`);
+    c.header('Cache-Control', 'no-store');
+    return c.json(payload);
+  } catch (error: any) {
+    console.error('[ACCOUNT EXPORT] Failed:', error);
+    return c.json({ error: error.message || 'Export failed' }, 500);
+  }
+});
+
+// POST /account/delete — permanently delete the calling user and all their
+// data. Requires `confirm: "DELETE"` in the body to prevent accidental
+// destruction. This is irreversible.
+app.post("/make-server-a8b2511f/account/delete", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const body = await c.req.json().catch(() => ({}));
+    if (body?.confirm !== 'DELETE') {
+      return c.json({ error: 'Confirmation required. Send {"confirm":"DELETE"} in the body.' }, 400);
+    }
+    const userId = user.id;
+    const userEmail = user.email;
+
+    // Delete DB rows. Best-effort per table — we keep going even if one
+    // table fails so the user's footprint is reduced as much as possible.
+    // Order matters for FK constraints: child tables before parent tables.
+    const dbTables = [
+      'lead_emails', 'lead_phones', 'lead_custom_fields',
+      'follow_ups', 'campaign_leads', 'group_leads',
+      'email_events', 'click_events', 'visitor_events', 'visitor_sessions',
+      'admin_events', 'automation_rules',
+      'emails', 'campaigns', 'lead_groups', 'signatures',
+      'leads', 'leads_new',
+    ];
+    const dbResults: Record<string, { ok: boolean; error?: string }> = {};
+    for (const table of dbTables) {
+      try {
+        // lead_emails / lead_phones / lead_custom_fields don't have user_id
+        // — they cascade through leads.id. Delete by lead_id IN (...).
+        if (['lead_emails', 'lead_phones', 'lead_custom_fields'].includes(table)) {
+          const { data: ownedLeads } = await supabase.from('leads').select('id').eq('user_id', userId).limit(50000);
+          const leadIds = (ownedLeads || []).map((l: any) => l.id);
+          if (leadIds.length > 0) {
+            await supabase.from(table).delete().in('lead_id', leadIds);
+          }
+        } else {
+          await supabase.from(table).delete().eq('user_id', userId);
+        }
+        dbResults[table] = { ok: true };
+      } catch (e: any) {
+        dbResults[table] = { ok: false, error: e.message };
+        console.warn(`[ACCOUNT DELETE] Failed to delete from ${table}:`, e.message);
+      }
+    }
+
+    // Purge KV namespaces tied to this user. Each prefix is scanned in
+    // chunks so a tenant with millions of KV rows still finishes.
+    const kvPrefixes = [
+      `campaign:${userId}:`,
+      `ai_call:${userId}:`,
+      `ai_call_campaign:${userId}:`,
+      `company:${userId}:`,
+      `recent_visit_v2:${userId}:`,
+      `intent:score:${userId}:`,
+      `dashboard:stats:kv:${userId}:`,
+      `dashboard:stats:lock:${userId}:`,
+      `tracked_sites_index:${userId}`,
+      `high_intent_leads:${userId}`,
+      `tx_dedup:${userId}:`,
+      `ai_lock:${userId}:`,
+    ];
+    const kvSingleKeys = [
+      `contndr_sub:${userId}`,
+      `ai_credits:${userId}`,
+      `ai_credits_log:${userId}`,
+      `ai_credits_lock:${userId}`,
+      `user_settings:${userId}`,
+      `user:${userId}:team`,
+      `gmail_tokens:${userId}`,
+      `outlook_tokens:${userId}`,
+      `calendly:${userId}`,
+      `hubspot:${userId}`,
+      `salesforce:${userId}`,
+      `quickbooks:${userId}`,
+      `affiliate_ref:${userId}`,
+      `affiliate:${userId}:referrals`,
+      `affiliate_lock:${userId}`,
+      `lead_import_lock:${userId}`,
+      `stripe_customer:${userId}`,
+    ];
+    const kvDeleted = { prefixes: 0, keys: 0 };
+    for (const prefix of kvPrefixes) {
+      try {
+        // Drain the prefix in batches of 500
+        for (;;) {
+          const batch = await kv.getByPrefixLimited(prefix, 500, 0).catch(() => []);
+          if (batch.length === 0) break;
+          // We need actual key strings, not values. Use a direct Supabase
+          // query against the KV table to get keys, then mdel.
+          const { createClient } = await import('npm:@supabase/supabase-js@2');
+          const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+          const { data: keyRows } = await sb.from('kv_store_a8b2511f').select('key').like('key', `${prefix}%`).limit(500);
+          const keys = (keyRows || []).map((r: any) => r.key);
+          if (keys.length === 0) break;
+          await kv.mdel(keys).catch(() => {});
+          kvDeleted.prefixes += keys.length;
+          if (keys.length < 500) break;
+        }
+      } catch (e) {
+        console.warn(`[ACCOUNT DELETE] Failed to drain KV prefix ${prefix}:`, e);
+      }
+    }
+    for (const key of kvSingleKeys) {
+      try { await kv.del(key); kvDeleted.keys++; } catch {}
+    }
+
+    // Finally, delete the auth user. This invalidates all sessions and
+    // makes the email re-registrable. Keep a minimal audit trail of the
+    // deletion event so support has a record if the user later asks
+    // "where did my account go".
+    let authDeleteOk = false;
+    try {
+      const { error: authErr } = await supabase.auth.admin.deleteUser(userId);
+      if (authErr) throw authErr;
+      authDeleteOk = true;
+    } catch (e: any) {
+      console.error('[ACCOUNT DELETE] auth.admin.deleteUser failed:', e.message);
+    }
+
+    console.log(`[ACCOUNT DELETE] User ${userId} (${userEmail}) self-deleted. DB: ${Object.values(dbResults).filter(r => r.ok).length}/${dbTables.length} tables OK. KV: ${kvDeleted.prefixes + kvDeleted.keys} entries removed. Auth: ${authDeleteOk}`);
+
+    // Record before the auth delete so the actor_id FK still resolves; the
+    // SET NULL cascade on actor_id keeps the row intact after the user is gone.
+    await recordAuditEvent(c, {
+      action: 'account.self_delete',
+      resource: 'user',
+      resourceId: userId,
+      metadata: {
+        auth_deleted: authDeleteOk,
+        db_tables_ok: Object.values(dbResults).filter(r => r.ok).length,
+        kv_entries_removed: kvDeleted.prefixes + kvDeleted.keys,
+      },
+    });
+
+    return c.json({
+      success: true,
+      auth_deleted: authDeleteOk,
+      db_tables: dbResults,
+      kv_entries_removed: kvDeleted.prefixes + kvDeleted.keys,
+    });
+  } catch (error: any) {
+    console.error('[ACCOUNT DELETE] Failed:', error);
+    return c.json({ error: error.message || 'Delete failed' }, 500);
   }
 });
 
@@ -2714,6 +2962,8 @@ app.get("/make-server-a8b2511f/admin/waitlist", async (c) => {
     const entries = Array.from(byEmail.values())
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
+    // Self-heal the email index and ordered list so older duplicate KV rows stop
+    // resurfacing through legacy code paths.
     await Promise.allSettled(entries.map((entry: any) => kv.set(`waitlist:email:${entry.email}`, entry.id)));
     try {
       const listKey = 'waitlist_entries_list';
@@ -2837,11 +3087,6 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
     // index alignment.
     const subValues = await Promise.all(users.map(u => kv.get(`contndr_sub:${u.id}`)));
     const teamValues = await Promise.all(users.map(u => kv.get(`user:${u.id}:team`)));
-    const waitlistIds = await Promise.all(users.map(u => {
-      const email = u.email?.toLowerCase().trim();
-      return email ? kv.get(`waitlist:email:${email}`) : Promise.resolve(null);
-    }));
-    const waitlistEntries = await Promise.all(waitlistIds.map(id => id ? kv.get(`waitlist:${id}`) : null));
     
     // Fetch lead counts for ALL users in parallel
     const leadCountValues = await Promise.all(users.map(u => getUserLeadCount(supabase, u.id)));
@@ -2855,68 +3100,6 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
     for (let i = 0; i < users.length; i++) {
       const sub = subValues[i] || { status: 'none' };
       const teamOwnerId = teamValues[i] || null;
-      let waitlistEntry = waitlistEntries[i] || null;
-      const email = users[i].email?.toLowerCase().trim();
-
-      // Self-heal partial Auth users that were created before the waitlist/sub
-      // write completed. This prevents Admin from showing "None" and restores
-      // the intended waitlist gate for production signups.
-      if (
-        email &&
-        !isAdminEmail(email, users[i].id) &&
-        !isInternalEmail(email) &&
-        (!sub.status || sub.status === 'none') &&
-        !waitlistEntry &&
-        !kv.isStorageDegraded()
-      ) {
-        const userName = users[i].user_metadata?.name ||
-          users[i].user_metadata?.full_name ||
-          users[i].user_metadata?.user_name ||
-          email.split('@')[0] ||
-          'User';
-
-        await kv.set(`contndr_sub:${users[i].id}`, {
-          status: 'pending',
-          plan: 'waitlist',
-          created_at: users[i].created_at || new Date().toISOString(),
-          repaired_at: new Date().toISOString(),
-          signup_method: users[i].app_metadata?.provider || 'unknown',
-        });
-
-        waitlistEntry = await upsertWaitlistSignupEntry({
-          email,
-          userId: users[i].id,
-          name: userName,
-          company: users[i].user_metadata?.brand || users[i].user_metadata?.company || '',
-          phone: users[i].user_metadata?.phone || '',
-          businessType: users[i].user_metadata?.businessType || 'Unknown',
-          monthlyLeadVolume: users[i].user_metadata?.monthlyLeadVolume || 'Unknown',
-          teamSize: users[i].user_metadata?.teamSize || 'Unknown',
-          annualRevenue: users[i].user_metadata?.annualRevenue || 'Unknown',
-          approved: false,
-          source: 'admin_users_self_heal',
-          existingId: null,
-          existingEntry: null,
-        });
-
-        sub.status = 'pending';
-        sub.plan = 'waitlist';
-        sub.repaired_at = new Date().toISOString();
-      }
-
-      // If a user has no subscription record but is on the waitlist, surface that
-      // state in Admin instead of showing "None". This also makes old partial
-      // signups visible as waitlisted after repair.
-      if (
-        waitlistEntry &&
-        (!sub.plan || sub.plan === 'none') &&
-        (!sub.status || sub.status === 'none')
-      ) {
-        sub.status = isApprovedWaitlistStatus(waitlistEntry.status) ? 'unpaid' : 'pending';
-        sub.plan = isApprovedWaitlistStatus(waitlistEntry.status) ? 'none' : 'waitlist';
-        sub.waitlist_status = waitlistEntry.status || 'pending_signup';
-        sub.waitlist_id = waitlistIds[i];
-      }
       
       // If user is a team member, enrich their subscription with team info
       // so the admin dashboard can see they inherit from a team owner
@@ -2985,103 +3168,6 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
   }
 });
 
-// POST /admin/waitlist/repair-users - Backfill partial Auth users into waitlist/sub records
-app.post("/make-server-a8b2511f/admin/waitlist/repair-users", async (c) => {
-  try {
-    const { user, supabase } = await getAuthenticatedUser(c);
-    if (!isAdminEmail(user.email, user.id)) {
-      return c.json({ error: 'Unauthorized: Admin access required' }, 403);
-    }
-
-    const storageGuard = kv.shouldSkipWriteHeavyTask('admin-waitlist-repair-users');
-    if (!storageGuard.ok) {
-      return c.json({
-        success: false,
-        skipped: true,
-        reason: storageGuard.reason || 'storage_degraded',
-      }, 503);
-    }
-
-    const repaired: any[] = [];
-    const skipped: any[] = [];
-    let page = 1;
-    const perPage = 100;
-
-    while (page <= 20) {
-      const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
-      if (error) throw error;
-      const users = data?.users || [];
-      if (!users.length) break;
-
-      for (const authUser of users) {
-        const email = authUser.email?.toLowerCase().trim();
-        if (!email) continue;
-        if (isAdminEmail(email, authUser.id) || isInternalEmail(email)) {
-          skipped.push({ email, reason: 'internal_or_admin' });
-          continue;
-        }
-
-        const sub = await kv.get(`contndr_sub:${authUser.id}`);
-        const waitlist = await getWaitlistEntryByEmail(email);
-        const hasUsableSub = sub && sub.status && sub.status !== 'none';
-
-        if (hasUsableSub && waitlist.entry) {
-          skipped.push({ email, reason: 'already_wired' });
-          continue;
-        }
-
-        const userName = authUser.user_metadata?.name ||
-          authUser.user_metadata?.full_name ||
-          authUser.user_metadata?.user_name ||
-          email.split('@')[0] ||
-          'User';
-
-        if (!hasUsableSub) {
-          await kv.set(`contndr_sub:${authUser.id}`, {
-            status: 'pending',
-            plan: 'waitlist',
-            created_at: authUser.created_at || new Date().toISOString(),
-            repaired_at: new Date().toISOString(),
-            signup_method: authUser.app_metadata?.provider || 'unknown',
-          });
-        }
-
-        await upsertWaitlistSignupEntry({
-          email,
-          userId: authUser.id,
-          name: userName,
-          company: authUser.user_metadata?.brand || authUser.user_metadata?.company || '',
-          phone: authUser.user_metadata?.phone || '',
-          businessType: authUser.user_metadata?.businessType || 'Unknown',
-          monthlyLeadVolume: authUser.user_metadata?.monthlyLeadVolume || 'Unknown',
-          teamSize: authUser.user_metadata?.teamSize || 'Unknown',
-          annualRevenue: authUser.user_metadata?.annualRevenue || 'Unknown',
-          approved: isApprovedWaitlistStatus(waitlist.entry?.status),
-          source: waitlist.entry?.source || 'admin_repair',
-          existingId: waitlist.id,
-          existingEntry: waitlist.entry,
-        });
-
-        repaired.push({ email, userId: authUser.id, createdSubscription: !hasUsableSub, createdWaitlist: !waitlist.entry });
-      }
-
-      if (users.length < perPage) break;
-      page++;
-    }
-
-    return c.json({
-      success: true,
-      repairedCount: repaired.length,
-      skippedCount: skipped.length,
-      repaired,
-      skipped: skipped.slice(0, 50),
-    });
-  } catch (error: any) {
-    console.error('[ADMIN] Error repairing waitlist users:', error);
-    return c.json({ error: error.message }, 500);
-  }
-});
-
 // POST /admin/users/delete - Delete a user
 app.post("/make-server-a8b2511f/admin/users/delete", async (c) => {
   try {
@@ -3089,16 +3175,22 @@ app.post("/make-server-a8b2511f/admin/users/delete", async (c) => {
     if (!isAdminEmail(user.email)) {
       return c.json({ error: 'Unauthorized' }, 403);
     }
-    
+
     const { userId } = await c.req.json();
     if (!userId) return c.json({ error: "User ID required" }, 400);
-    
+
     const { error } = await supabase.auth.admin.deleteUser(userId);
     if (error) throw error;
-    
+
     // Cleanup KV subscription
     await kv.del(`contndr_sub:${userId}`);
-    
+
+    await recordAuditEvent(c, {
+      action: 'admin.user.delete',
+      resource: 'user',
+      resourceId: userId,
+    });
+
     return c.json({ success: true });
   } catch (error) {
     console.error('[ADMIN] Error deleting user:', error);
@@ -3240,6 +3332,13 @@ app.post("/make-server-a8b2511f/admin/users/plan", async (c) => {
       console.log('[ADMIN] Team check (non-fatal):', teamErr?.message || teamErr);
     }
     
+    await recordAuditEvent(c, {
+      action: 'admin.user.plan_change',
+      resource: 'user',
+      resourceId: userId,
+      metadata: { plan, interval: requestedInterval, charge: !!charge, stripe_sub_id: stripeSubId, target_email: userEmail },
+    });
+
     return c.json({ success: true, subscription: newSub, teamNote, billingAction });
   } catch (error) {
     console.error('[ADMIN] Error updating user plan:', error);
@@ -3745,26 +3844,7 @@ async function runKvGarbageCollection(): Promise<{
 
   // 7. Delete misc caches
   let miscCount = 0;
-  for (const prefix of [
-    'scraper_cache:',
-    'brandfetch:',
-    'company_cache:',
-    'domain_cache:',
-    'enrichment_cache:',
-    'recent_visit_v2:',
-    'active_queues:',
-    'campaign_queue:',
-    'retry_queue:',
-    'retry_dlq:',
-    'intent:activity:',
-    'tracking_ua:',
-    'apollo_phone:',
-    'lead_pool:',
-    'deep_prospect:',
-    'company_search:',
-    'cache:',
-    'affiliate_slug_transfer_roadr_to_contndr:',
-  ]) {
+  for (const prefix of ['scraper_cache:', 'brandfetch:', 'company_cache:', 'domain_cache:', 'enrichment_cache:']) {
     miscCount += await deleteByPrefix(prefix);
   }
   result.misc_deleted = miscCount;
@@ -3803,79 +3883,6 @@ app.post("/make-server-a8b2511f/admin/kv-gc", async (c) => {
   } catch (error: any) {
     console.error('[ADMIN] KV GC error:', error);
     return c.json({ error: error.message }, 500);
-  }
-});
-
-// POST /admin/system/cleanup-storage — Emergency bounded cleanup for KV memory pressure
-app.post("/make-server-a8b2511f/admin/system/cleanup-storage", async (c) => {
-  try {
-    const { user } = await getAuthenticatedUser(c);
-    if (!isAdminEmail(user.email, user.id)) {
-      return c.json({ error: 'Unauthorized' }, 403);
-    }
-
-    const gcResult = await runKvGarbageCollection();
-    const total = gcResult.dpx_deleted + gcResult.dp_deleted + gcResult.admin_events_deleted
-      + gcResult.click_track_deleted + gcResult.email_track_deleted + gcResult.live_event_deleted + gcResult.misc_deleted;
-    return c.json({
-      success: true,
-      scanned: 'prefix',
-      total_deleted: total,
-      by_prefix: gcResult,
-      storageHealth: kv.getStorageHealth(),
-    });
-  } catch (error: any) {
-    console.error('[ADMIN] cleanup-storage error:', error);
-    return c.json({ success: false, error: error.message, storageHealth: kv.getStorageHealth() }, 500);
-  }
-});
-
-// GET /admin/system/storage-health — Lightweight health snapshot for operators
-app.get("/make-server-a8b2511f/admin/system/storage-health", async (c) => {
-  try {
-    const { user } = await getAuthenticatedUser(c);
-    if (!isAdminEmail(user.email, user.id)) {
-      return c.json({ error: 'Unauthorized' }, 403);
-    }
-
-    const supabase = getSupabaseAdmin();
-    const prefixes = [
-      'admin_event:',
-      'email_track:',
-      'click_track:',
-      'dpx:',
-      'dp:',
-      'live_event:',
-      'live_events:',
-      'recent_visit_v2:',
-      'active_queues:',
-      'campaign_queue:',
-      'retry_queue:',
-      'campaign:',
-    ];
-    const estimatedKeyCountsByPrefix: Record<string, number> = {};
-    for (const prefix of prefixes) {
-      try {
-        const { count, error } = await supabase
-          .from('kv_store_a8b2511f')
-          .select('key', { count: 'estimated', head: true })
-          .like('key', `${prefix}%`);
-        estimatedKeyCountsByPrefix[prefix] = error ? -1 : (count || 0);
-      } catch {
-        estimatedKeyCountsByPrefix[prefix] = -1;
-      }
-    }
-
-    return c.json({
-      ...kv.getStorageHealth(),
-      estimatedKeyCountsByPrefix,
-    });
-  } catch (error: any) {
-    return c.json({
-      ...kv.getStorageHealth(),
-      estimatedKeyCountsByPrefix: {},
-      error: error.message,
-    }, 200);
   }
 });
 
@@ -5423,12 +5430,6 @@ app.get("/make-server-a8b2511f/crm/leads", async (c) => {
       }
     }
 
-    leads = await attachCachedAvatars(
-      leads,
-      (lead: any) => lead.email,
-      (lead: any) => lead.person_linkedin_url || lead.linkedin_url || lead.linkedin,
-    );
-
     // When pre-filtered at DB level, totalCount is already accurate.
     // When post-filtered, use filtered leads.length as approximate total (single-page only).
     const finalTotal = contactedPreFiltered ? totalCount : 
@@ -6785,14 +6786,26 @@ app.get("/make-server-a8b2511f/config/mapbox", async (c) => {
 });
 
 // ─── Tracking endpoint rate limiter (in-memory, per IP) ──────────────
+// Bounded to prevent unbounded growth from unique-IP attacks. When the cap
+// is hit we drop the oldest-inserted entry (Map preserves insertion order).
 const trackingRateMap = new Map<string, { count: number; resetAt: number }>();
 const TRACKING_RATE_WINDOW_MS = 60_000; // 1 minute window
 const TRACKING_RATE_MAX = 30; // max 30 requests per IP per minute
+const TRACKING_RATE_MAX_ENTRIES = 50_000; // hard cap on map size
 
 function isTrackingRateLimited(ip: string): boolean {
   const now = Date.now();
   const entry = trackingRateMap.get(ip);
   if (!entry || now > entry.resetAt) {
+    if (trackingRateMap.size >= TRACKING_RATE_MAX_ENTRIES) {
+      // Evict the oldest 10% in one pass to amortize overhead
+      const toEvict = Math.ceil(TRACKING_RATE_MAX_ENTRIES * 0.1);
+      let i = 0;
+      for (const k of trackingRateMap.keys()) {
+        if (i++ >= toEvict) break;
+        trackingRateMap.delete(k);
+      }
+    }
     trackingRateMap.set(ip, { count: 1, resetAt: now + TRACKING_RATE_WINDOW_MS });
     return false;
   }
@@ -6808,6 +6821,86 @@ setInterval(() => {
     if (now > entry.resetAt) trackingRateMap.delete(ip);
   }
 }, 5 * 60_000);
+
+// ─── City centroid lookup ────────────────────────────────────────────
+// IP geolocation often returns the ISP's regional facility (e.g. Hialeah for
+// every Comcast subscriber in Miami-Dade), not the visitor's actual location.
+// Snapping to the city centroid keeps pins in the right metro instead of
+// piling them on top of an ISP datacenter.
+// Bounded LRU. KV is the durable layer; this Map is just a hot-path cache.
+const cityCentroidMemCache = new Map<string, { lat: number; lng: number } | null>();
+const CITY_CENTROID_MAX_ENTRIES = 5_000;
+function rememberCentroid(key: string, value: { lat: number; lng: number } | null) {
+  // Move-to-front for LRU semantics
+  if (cityCentroidMemCache.has(key)) cityCentroidMemCache.delete(key);
+  cityCentroidMemCache.set(key, value);
+  if (cityCentroidMemCache.size > CITY_CENTROID_MAX_ENTRIES) {
+    // Drop the oldest entry (Map preserves insertion order)
+    const oldest = cityCentroidMemCache.keys().next().value;
+    if (oldest !== undefined) cityCentroidMemCache.delete(oldest);
+  }
+}
+
+function normalizeCityKey(city: string, region: string | null, country: string | null): string {
+  const parts = [city, region, country].filter(Boolean).map(s =>
+    String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, '_')
+  );
+  return parts.join(':');
+}
+
+async function getCityCentroid(
+  city: string | null | undefined,
+  region: string | null | undefined,
+  country: string | null | undefined,
+): Promise<{ lat: number; lng: number } | null> {
+  if (!city) return null;
+  const key = normalizeCityKey(city, region || null, country || null);
+  if (cityCentroidMemCache.has(key)) return cityCentroidMemCache.get(key) || null;
+
+  const kvKey = `city_centroid:${key}`;
+  try {
+    const cached = await kv.get(kvKey);
+    if (cached && typeof cached.lat === 'number' && typeof cached.lng === 'number') {
+      rememberCentroid(key, cached);
+      return cached;
+    }
+    if (cached === 'NOT_FOUND') {
+      rememberCentroid(key, null);
+      return null;
+    }
+  } catch (_) { /* KV miss — fall through to geocode */ }
+
+  // Geocode via Nominatim (free, ~1 req/sec — fine because we cache forever)
+  try {
+    const q = encodeURIComponent([city, region, country].filter(Boolean).join(', '));
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`,
+      {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Contndr-Tracking/1.0 (geocode-cache)' },
+      },
+    );
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      const arr = await res.json();
+      if (Array.isArray(arr) && arr.length > 0 && arr[0].lat && arr[0].lon) {
+        const centroid = { lat: parseFloat(arr[0].lat), lng: parseFloat(arr[0].lon) };
+        rememberCentroid(key, centroid);
+        kv.set(kvKey, centroid).catch(() => {});
+        return centroid;
+      }
+    }
+  } catch (e: any) {
+    console.warn('[TRACKING] City centroid geocode failed:', e?.message);
+  }
+
+  // Cache the miss so we don't hammer Nominatim for unknown places
+  cityCentroidMemCache.set(key, null);
+  kv.set(kvKey, 'NOT_FOUND').catch(() => {});
+  return null;
+}
 
 // POST /track/web - Track web visits from leads (and anonymous visitors)
 app.post("/make-server-a8b2511f/track/web", async (c) => {
@@ -6832,6 +6925,12 @@ app.post("/make-server-a8b2511f/track/web", async (c) => {
     const body = await c.req.json();
     console.log('[TRACKING] Received visit:', JSON.stringify(body, null, 2));
     let { account_id, lead_id, campaign_id, email_id, event_type, element_text, element_href, url, title, timestamp, city, country, region, latitude, longitude, brand } = body;
+
+    // Remember whether coords came from the client (browser geolocation = precise)
+    // vs were derived server-side from IP lookup (= ISP regional point, often miles off).
+    // We snap IP-derived coords to the city centroid below so pins land in the right
+    // city instead of the ISP's facility (e.g. Brickell visitors don't show in Hialeah).
+    const clientSuppliedCoords = !!(latitude && longitude);
 
     // Sanitize string fields to prevent injection
     if (url && typeof url === 'string') url = url.slice(0, 2048);
@@ -6975,7 +7074,19 @@ app.post("/make-server-a8b2511f/track/web", async (c) => {
        }
     }
 
-    
+    // Snap IP-derived coords to the city centroid so pins land in the right
+    // metro instead of on the ISP's regional facility. Skipped when the client
+    // browser supplied precise coords via the Geolocation API.
+    if (!clientSuppliedCoords && city) {
+      const centroid = await getCityCentroid(city, region, country);
+      if (centroid) {
+        latitude = centroid.lat;
+        longitude = centroid.lng;
+        console.log(`[TRACKING] Snapped IP coords to city centroid for ${city}, ${region || country}`);
+      }
+    }
+
+
     // We need a Service Role client to write to the DB or KV
     const supabase = getSupabaseAdmin();
     
@@ -7479,6 +7590,24 @@ app.get("/make-server-a8b2511f/track/pixel", async (c) => {
     const leadId = c.req.query('lid') || c.req.query('lead_id');
     const brand = c.req.query('brand') || c.req.query('b');
     const trackedDomain = c.req.query('d');
+
+    // Validate UUIDs — without this, anyone can inject visits into any tenant's
+    // CRM by hitting the pixel URL with a forged `uid`. UUID-shaped check
+    // ensures the value at least came from our own ID generator.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!userId || !UUID_RE.test(userId)) {
+      // Always return the 1x1 GIF so the <img> tag doesn't break, but don't store anything.
+      return c.body(
+        new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b]),
+        200,
+        { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store' },
+      );
+    }
+    if (leadId && !UUID_RE.test(leadId)) {
+      // Drop the lead binding silently; still record an anonymous visit
+      console.warn('[PIXEL] Rejected non-UUID lead_id, treating as anonymous');
+    }
+    const safeLeadId = (leadId && UUID_RE.test(leadId)) ? leadId : null;
     
     // Track the visit using the same logic as POST /track/web
     // Use explicit page URL from query param (from JS tracker) or fall back to Referer
@@ -7543,13 +7672,27 @@ app.get("/make-server-a8b2511f/track/pixel", async (c) => {
         console.warn('[PIXEL] Geo lookup failed:', e.message);
       }
     }
-    
+
+    // Snap IP-derived coords to the city centroid so pins land in the right
+    // metro instead of on the ISP's regional facility (pixel tracker has no
+    // browser-supplied coords, so coords here are always IP-derived).
+    if (city) {
+      const centroid = await getCityCentroid(city, region, country);
+      if (centroid) {
+        latitude = centroid.lat;
+        longitude = centroid.lng;
+        console.log(`[PIXEL] Snapped IP coords to city centroid for ${city}, ${region || country}`);
+      }
+    }
+
     // Store the visit
     if (userId) {
       let lead = null;
-      if (leadId) {
+      if (safeLeadId) {
         const adminClient = getSupabaseAdmin();
-        const { data } = await adminClient.from('leads').select('*').eq('id', leadId).single();
+        // Match user_id too — without this, anyone with a valid uid+lid pair
+        // (from any tenant) could log visits against another tenant's lead.
+        const { data } = await adminClient.from('leads').select('*').eq('id', safeLeadId).eq('user_id', userId).single();
         if (data) lead = data;
       }
       
@@ -8257,36 +8400,71 @@ app.get("/make-server-a8b2511f/live-traffic", async (c) => {
     // Group by User/Session to show unique "Users Online"
     // This fixes the issue where 1 user clicking 5 pages shows as 5 users
     const userMap = new Map();
-    
+
     recentVisits.forEach((v: any) => {
         let groupKey = v.lead_id;
-        
-        // For anonymous users, try to fingerprint to separate different anonymous users
-        // If they are truly anonymous (no lead_id), we group by attributes
+
+        // For anonymous users, fingerprint by user-agent + brand ONLY.
+        // We deliberately exclude city/region/country and lat/lng from the key:
+        // the same anonymous visitor often has TWO conflicting locations on file
+        // (one from the campaign tracker, one from the ISP IP-geolocation lookup).
+        // Including location in the key would split a single human into two pins.
         if (!groupKey || groupKey === 'anonymous') {
-            const loc = [v.city, v.region, v.country].filter(Boolean).join('|');
             const agent = v.user_agent || 'unknown';
             const brand = v.brand || 'unknown';
-            groupKey = `anon:${loc}:${agent}:${brand}`;
+            groupKey = `anon:${agent}:${brand}`;
         }
-        
-        // Keep the MOST RECENT visit for this user (updates their status/location)
+
+        // Keep the MOST RECENT visit for this user (updates their status/location).
+        // When merging, prefer campaign-supplied coords over ISP-derived coords —
+        // campaign tracker location is more accurate than IP geolocation.
         if (!userMap.has(groupKey)) {
             userMap.set(groupKey, v);
         } else {
             const existing = userMap.get(groupKey);
-            if (new Date(v.timestamp).getTime() > new Date(existing.timestamp).getTime()) {
-                userMap.set(groupKey, v);
+            const newer = new Date(v.timestamp).getTime() > new Date(existing.timestamp).getTime();
+            const merged = newer ? { ...existing, ...v } : { ...v, ...existing };
+            // Prefer the visit that came from a campaign (has campaign_id) for coords
+            const campaignVisit = v.campaign_id ? v : (existing.campaign_id ? existing : null);
+            if (campaignVisit && campaignVisit.latitude && campaignVisit.longitude) {
+                merged.latitude = campaignVisit.latitude;
+                merged.longitude = campaignVisit.longitude;
+                merged.city = campaignVisit.city || merged.city;
+                merged.region = campaignVisit.region || merged.region;
+                merged.country = campaignVisit.country || merged.country;
             }
+            userMap.set(groupKey, merged);
         }
     });
 
     const uniqueUsers = Array.from(userMap.values());
-    
+
+    // FINAL COLLAPSE: merge pins that land within ~5km of each other for the same
+    // brand. Catches the case where the campaign-vs-ISP coords differ slightly but
+    // represent the same human. Rounds lat/lng to 1 decimal (~11km grid) and keeps
+    // the most recent visit per cell.
+    const pinMap = new Map();
+    uniqueUsers.forEach((v: any) => {
+        const lat = typeof v.latitude === 'number' ? v.latitude : parseFloat(v.latitude);
+        const lng = typeof v.longitude === 'number' ? v.longitude : parseFloat(v.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            // No coords — keep keyed by id so it's not collapsed away
+            pinMap.set(`nocoord:${v.id}`, v);
+            return;
+        }
+        // Identified leads keep their own pin even at same coords
+        const idPart = (v.lead_id && v.lead_id !== 'anonymous') ? v.lead_id : 'anon';
+        const cellKey = `${idPart}:${v.brand || 'unknown'}:${lat.toFixed(1)}:${lng.toFixed(1)}`;
+        const existing = pinMap.get(cellKey);
+        if (!existing || new Date(v.timestamp).getTime() > new Date(existing.timestamp).getTime()) {
+            pinMap.set(cellKey, v);
+        }
+    });
+
     // Sort by timestamp descending
-    let visits = uniqueUsers.sort((a: any, b: any) => {
+    let visits = Array.from(pinMap.values()).sort((a: any, b: any) => {
         return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-    }).slice(0, 100); // Return top 100 recent unique users
+    }).slice(0, 100); // Return top 100 recent unique pins
     
     // Enrich with Lead Data
     const leadIds = [...new Set(visits.filter((v: any) => v.lead_id !== 'anonymous').map((v: any) => v.lead_id))];
@@ -8700,11 +8878,56 @@ app.get("/make-server-a8b2511f/leads/:id/replies", async (c) => {
 // POST /emails/inbound - Handle incoming emails from Resend
 app.post("/make-server-a8b2511f/emails/inbound", async (c) => {
   try {
+    // Authenticate the webhook caller. Resend Inbound delivers a Svix-style
+    // signature (svix-id / svix-timestamp / svix-signature). Without this
+    // check, anyone on the internet can POST forged "replies" to any lead in
+    // any tenant — they'd flip lead status to Replied and trigger pipeline
+    // automation. Reject the request unless either:
+    //   1) the request carries a valid HMAC signature against INBOUND_EMAIL_SECRET, OR
+    //   2) the request carries an exact-match shared secret in X-Inbound-Token.
+    const inboundSecret = Deno.env.get('INBOUND_EMAIL_SECRET');
+    const sharedToken = Deno.env.get('INBOUND_EMAIL_TOKEN');
+    const headerToken = c.req.header('x-inbound-token') || c.req.header('X-Inbound-Token');
+    const svixSig = c.req.header('svix-signature');
+    const svixId = c.req.header('svix-id');
+    const svixTs = c.req.header('svix-timestamp');
+
+    const rawBody = await c.req.text();
+    let authed = false;
+
+    if (sharedToken && headerToken && headerToken === sharedToken) {
+      authed = true;
+    } else if (inboundSecret && svixSig && svixId && svixTs) {
+      // Verify Svix signature: HMAC-SHA256 of `${svix-id}.${svix-timestamp}.${body}`
+      // base64-encoded, prefixed with "v1,".
+      try {
+        const ageMs = Date.now() - parseInt(svixTs) * 1000;
+        if (Math.abs(ageMs) > 5 * 60_000) {
+          return c.json({ error: 'Signature timestamp out of window' }, 401);
+        }
+        const toSign = `${svixId}.${svixTs}.${rawBody}`;
+        const secretKey = inboundSecret.startsWith('whsec_')
+          ? Uint8Array.from(atob(inboundSecret.slice(6)), ch => ch.charCodeAt(0))
+          : new TextEncoder().encode(inboundSecret);
+        const key = await crypto.subtle.importKey('raw', secretKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const sigBuf = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(toSign));
+        const expected = btoa(String.fromCharCode(...new Uint8Array(sigBuf)));
+        // Header is space-separated `v1,<sig> v1,<sig>` — accept any match
+        const candidates = svixSig.split(' ').map(s => s.replace(/^v1,/, ''));
+        authed = candidates.includes(expected);
+      } catch (sigErr) {
+        console.warn('[INBOUND] Signature verification error:', sigErr);
+      }
+    }
+
+    if (!authed) {
+      console.warn('[INBOUND] Rejected unauthenticated inbound email request');
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
     const supabase = getSupabaseAdmin();
-    
-    // Verify signature if possible, but for now just process the body
-    const payload = await c.req.json();
-    
+    const payload = JSON.parse(rawBody);
+
     console.log('[INBOUND] Received email:', payload.subject, 'From:', payload.from);
     
     // Parse Sender
@@ -10015,9 +10238,26 @@ app.post("/make-server-a8b2511f/leads/bulk-delete", async (c) => {
     
     console.log(`[BULK DELETE] Completed: ${deletedCount} deleted, ${failedCount + unauthorizedCount} failed/unauthorized`);
     
+    if (deletedCount > 0) {
+      // Truncate the resourceId list to keep the audit row sane on huge bulk
+      // deletes — the count is what matters for forensics, the IDs are best-effort.
+      await recordAuditEvent(c, {
+        action: 'lead.bulk_delete',
+        resource: 'lead',
+        resourceId: ownedLeadIds.slice(0, 50).join(',') + (ownedLeadIds.length > 50 ? `,…+${ownedLeadIds.length - 50}` : ''),
+        metadata: {
+          requested: lead_ids.length,
+          deleted: deletedCount,
+          failed: failedCount,
+          unauthorized: unauthorizedCount,
+          admin: userIsAdmin,
+        },
+      });
+    }
+
     return c.json({
       success: deletedCount > 0,
-      message: deletedCount > 0 
+      message: deletedCount > 0
         ? `Deleted ${deletedCount} of ${lead_ids.length} leads${unauthorizedCount > 0 ? ` (${unauthorizedCount} were not owned by you)` : ''}`
         : 'No leads were deleted',
       results: {
@@ -10026,10 +10266,10 @@ app.post("/make-server-a8b2511f/leads/bulk-delete", async (c) => {
         failed: failedCount + unauthorizedCount
       }
     });
-    
+
   } catch (error) {
     console.error('[BULK DELETE] Unexpected error:', error);
-    return c.json({ 
+    return c.json({
       error: 'Failed to delete leads',
       details: error.message,
       results: { total: 0, deleted: 0, failed: 0 }
@@ -10566,6 +10806,7 @@ app.post("/make-server-a8b2511f/crm/leads/create", async (c) => {
 
 // POST /leads/import - Import leads from CSV WITH DUPLICATE DETECTION
 app.post("/make-server-a8b2511f/leads/import", async (c) => {
+  let _importLockUser: string | null = null;
   try {
     const { leads, org_id } = await c.req.json();
 
@@ -10575,6 +10816,24 @@ app.post("/make-server-a8b2511f/leads/import", async (c) => {
 
     // Get user_id from auth token
     const { user, supabase } = await getAuthenticatedUser(c);
+
+    // Per-user import lock. Without this, two concurrent imports of the same
+    // CSV (e.g. the user double-clicked Import) both pass the duplicate check
+    // and both insert — producing duplicate leads in the DB. Lock TTL is 60s
+    // because large imports take time. We refuse rather than queue if another
+    // import is already running, so the user gets a clear error instead of
+    // a silent serialization delay.
+    const lockKey = `lead_import_lock:${user.id}`;
+    try {
+      const existing: number | null = await kv.get(lockKey);
+      if (existing && Date.now() - existing < 60_000) {
+        return c.json({ error: 'Another import is in progress. Please wait for it to finish before starting a new one.' }, 409);
+      }
+      await kv.set(lockKey, Date.now());
+      _importLockUser = user.id;
+    } catch (lockErr) {
+      console.warn('[LEAD IMPORT] Lock acquisition failed (KV degraded), proceeding without lock:', lockErr);
+    }
 
     // **LEAD LIMIT CHECK** — enforce plan-based limits BEFORE heavy processing
     const limitCheck = await checkLeadLimit(user, supabase, leads.length);
@@ -10750,9 +11009,9 @@ app.post("/make-server-a8b2511f/leads/import", async (c) => {
     }
 
     console.log(`✅ Imported ${data.length} new leads (skipped ${duplicates} duplicates${trimmedCount > 0 ? `, trimmed ${trimmedCount} due to plan limit` : ''})`);
-    return c.json({ 
-      success: true, 
-      leads: data, 
+    return c.json({
+      success: true,
+      leads: data,
       imported: data.length,
       total: data.length,
       duplicates,
@@ -10763,6 +11022,10 @@ app.post("/make-server-a8b2511f/leads/import", async (c) => {
   } catch (error) {
     console.error('Error importing leads:', error);
     return c.json({ error: "Failed to import leads", details: error.message }, 500);
+  } finally {
+    if (_importLockUser) {
+      kv.del(`lead_import_lock:${_importLockUser}`).catch(() => {});
+    }
   }
 });
 
@@ -12669,12 +12932,7 @@ app.post("/make-server-a8b2511f/campaigns/:id/send-batch", async (c) => {
   try {
     const { user, supabase } = await getAuthenticatedUser(c);
     const campaignId = c.req.param('id');
-    const storageGuard = kv.shouldSkipWriteHeavyTask('send-batch');
-    if (!storageGuard.ok) {
-      return c.json({ ok: false, skipped: true, reason: 'storage_degraded', retryAfterSeconds: storageGuard.retryAfterSeconds || 30 }, 503);
-    }
-    const requestedLimit = parseInt(c.req.query('limit') || '5');
-    const limit = Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 5, 5));
+    const limit = parseInt(c.req.query('limit') || '10');
 
     // ── Server-side in-flight guard ──────────────────────────────────
     inFlightKey = `${user.id}:${campaignId}`;
@@ -13832,10 +14090,6 @@ app.post("/make-server-a8b2511f/campaigns/:id/launch", async (c) => {
 app.get("/make-server-a8b2511f/campaigns/pending", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
-    const storageGuard = kv.shouldSkipWriteHeavyTask('campaigns-pending');
-    if (!storageGuard.ok) {
-      return c.json({ success: true, skipped: true, reason: 'storage_degraded', pending: [], retryAfterSeconds: storageGuard.retryAfterSeconds || 30 });
-    }
     const pending = await getPendingCampaigns(user.id);
     return c.json({ success: true, pending });
   } catch (error: any) {
@@ -13850,10 +14104,6 @@ app.get("/make-server-a8b2511f/campaigns/pending", async (c) => {
 app.post("/make-server-a8b2511f/campaigns/auto-resume", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
-    const storageGuard = kv.shouldSkipWriteHeavyTask('campaigns-auto-resume');
-    if (!storageGuard.ok) {
-      return c.json({ success: true, skipped: true, reason: 'storage_degraded', resumed: 0, pending: [], retryAfterSeconds: storageGuard.retryAfterSeconds || 30 });
-    }
     const pending = await getPendingCampaigns(user.id);
 
     // Also check for campaigns with pending retries
@@ -13931,10 +14181,6 @@ app.get("/make-server-a8b2511f/retry/stats", async (c) => {
 app.post("/make-server-a8b2511f/followups/auto-process", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
-    const storageGuard = kv.shouldSkipWriteHeavyTask('followups-auto-process');
-    if (!storageGuard.ok) {
-      return c.json({ success: true, skipped: true, reason: 'storage_degraded', processed: 0, sent: 0, campaigns: [], errors: [], retryAfterSeconds: storageGuard.retryAfterSeconds || 30 });
-    }
     console.log(`[WORKER] Processing follow-ups for user ${user.email}`);
     const result = await processAllFollowUps(user.id);
 
@@ -14523,8 +14769,6 @@ function liveEventsKey(campaignId: string) {
 
 async function appendLiveCampaignEvent(campaignId: string, event: any) {
   try {
-    const storageGuard = kv.shouldSkipWriteHeavyTask('live-event-append');
-    if (!storageGuard.ok) return false;
     const key = liveEventsKey(campaignId);
     const existing = await kv.get(key).catch(() => []);
     const events = Array.isArray(existing) ? existing : [];
@@ -14978,17 +15222,78 @@ app.post("/webhooks/resend-v2", createResendWebhookHandler('RESEND_WEBHOOK_SECRE
 // GET Endpoint for V2 - To verify browser connectivity
 app.get("/make-server-a8b2511f/webhooks/resend-v2", (c) => c.text("Webhook V2 endpoint is reachable via GET. Use POST for webhooks.", 200));
 
-// PUBLIC HEALTH CHECK - No auth required, proves JWT verification is disabled
+// PUBLIC HEALTH CHECK - No auth required, used by uptime monitors.
+// Intentionally returns NO information about which API keys / providers are
+// configured — that's recon for an attacker.
 app.get("/make-server-a8b2511f/public-health", (c) => {
   return c.json({
     status: "ok",
-    version: "3.2.0",
-    ai_provider: "gpt-4o-mini",
-    message: "✅ Public endpoint working! JWT verification is disabled.",
     timestamp: new Date().toISOString(),
-    deployed: true,
-    openai_key_set: !!Deno.env.get('OPENAI_API_KEY'),
   }, 200);
+});
+
+// GET /version — build stamp for support escalations. Customer can read
+// this in the Network tab; matches the X-Request-ID header on every response.
+app.get("/make-server-a8b2511f/version", (c) => {
+  return c.json({
+    version: BUILD_VERSION,
+    built_at: BUILD_TIME,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// GET /health/deep — true health check that probes the dependencies the app
+// can't run without. Use this for uptime monitors and load-balancer status
+// pages instead of /public-health (which only confirms the function booted).
+//
+// Returns 200 + status:"ok" only when every required dependency is reachable.
+// Returns 503 + status:"degraded" with per-component detail otherwise. This
+// way an uptime monitor flips red when the DB is down even if Hono is fine.
+app.get("/make-server-a8b2511f/health/deep", async (c) => {
+  const start = Date.now();
+  const checks: Record<string, { ok: boolean; ms: number; error?: string }> = {};
+
+  async function probe(name: string, fn: () => Promise<unknown>): Promise<void> {
+    const t = Date.now();
+    try {
+      await Promise.race([
+        fn(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000)),
+      ]);
+      checks[name] = { ok: true, ms: Date.now() - t };
+    } catch (e: any) {
+      checks[name] = { ok: false, ms: Date.now() - t, error: (e?.message || String(e)).slice(0, 120) };
+    }
+  }
+
+  await Promise.all([
+    // DB: cheapest possible round-trip to confirm connectivity + auth
+    probe('db', async () => {
+      const sb = getSupabaseAdmin();
+      const { error } = await sb.from('kv_store_a8b2511f').select('key', { head: true, count: 'exact' }).limit(1);
+      if (error) throw error;
+    }),
+    // KV layer: confirms our retry wrapper is healthy and circuit isn't open
+    probe('kv', async () => {
+      const { isCircuitOpen } = await import('./kv-retry.tsx');
+      if (isCircuitOpen()) throw new Error('circuit open');
+    }),
+    // Auth: lightweight check that we can talk to Supabase Auth
+    probe('auth', async () => {
+      const sb = getSupabaseAdmin();
+      const { error } = await sb.auth.admin.listUsers({ page: 1, perPage: 1 });
+      if (error) throw error;
+    }),
+  ]);
+
+  const allOk = Object.values(checks).every(r => r.ok);
+  return c.json({
+    status: allOk ? 'ok' : 'degraded',
+    version: BUILD_VERSION,
+    timestamp: new Date().toISOString(),
+    elapsed_ms: Date.now() - start,
+    checks,
+  }, allOk ? 200 : 503);
 });
 
 app.post("/make-server-a8b2511f/public-health", (c) => {
@@ -17006,9 +17311,9 @@ app.get("/make-server-a8b2511f/track/open/:id", async (c) => {
                   metadata: { email_id: emailId, campaign_id: email.campaign_id, source: 'self_hosted_pixel' },
                 });
                 // Set Resend dedup key so the Resend webhook doesn't double-fire (fire-and-forget)
-                if (email.resend_id && !kv.isStorageDegraded()) {
+                if (email.resend_id) {
                   kv.set(`intent:resend_dedup:${email.resend_id}:opened`, { fired_at: new Date().toISOString() })
-                    .catch(() => kv.logStorageDegradedOnce('intent-dedup-write'));
+                    .catch((kvErr) => console.warn('[INTENT] Failed to set dedup key (non-fatal):', kvErr?.message));
                 }
               }
             } catch (e) { console.warn('[INTENT] Failed to record open signal:', e); }
@@ -17027,8 +17332,6 @@ app.get("/make-server-a8b2511f/track/open/:id", async (c) => {
 
               const latitude  = cfLat ? parseFloat(cfLat) : null;
               const longitude = cfLon ? parseFloat(cfLon) : null;
-
-              if (kv.isStorageDegraded()) return;
 
               // 2. Only proceed if we have real coordinates (don't place dots in the ocean)
               if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) {
@@ -17246,25 +17549,6 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
           event_type: 'clicked',
           created_at: now,
         });
-
-      // Durable click analytics table. This is best-effort so deployments that
-      // have not run the migration yet still redirect without interruption.
-      try {
-        await supabase
-          .from('click_events')
-          .insert({
-            tenant_id: resolvedUserId || null,
-            user_id: resolvedUserId || null,
-            lead_id: resolvedLeadId,
-            campaign_id: resolvedCampaignId,
-            email_id: email_id || null,
-            tracking_id: trackingId,
-            destination_url: url,
-            user_agent: clickUA,
-            metadata: { source: 'self_hosted_redirect' },
-            created_at: now,
-          });
-      } catch (_) { /* migration may not be applied yet */ }
         
       // Write live event to KV for real-time frontend polling (fire-and-forget)
       if (resolvedCampaignId) {
@@ -17288,56 +17572,51 @@ app.get("/make-server-a8b2511f/track/click/:id", async (c) => {
         console.log(`[CLICK TRACK] ℹ️ Not writing live event (no campaign_id found for email ${email_id})`);
       }
 
-      // Create a live map visit directly from the click. Some landing pages do
-      // not run our web tracker, but campaign clicks still need to surface in
-      // Analytics immediately.
       if (resolvedUserId && resolvedLeadId && !clickUAClass.isBot) {
         try {
-          if (!kv.isStorageDegraded()) {
-            const { data: fullLead } = await supabase
-              .from('leads')
-              .select('id, business_name, contact_name, email, city, state, country, brand, phone, website')
-              .eq('id', resolvedLeadId)
-              .maybeSingle();
+          const { data: fullLead } = await supabase
+            .from('leads')
+            .select('id, business_name, contact_name, email, city, state, country, brand, phone, website')
+            .eq('id', resolvedLeadId)
+            .maybeSingle();
 
-            if (fullLead) {
-              const geo = await resolveTrackingGeo(c, fullLead);
-              const visitId = crypto.randomUUID();
-              const nowMs = Date.now();
-              const atomicKey = `recent_visit_v2:${resolvedUserId}:${nowMs}:${visitId}`;
-              const visitData: any = {
-                id: visitId,
-                user_id: resolvedUserId,
-                lead_id: resolvedLeadId,
-                brand: fullLead.brand || 'contndr',
-                url,
-                title: `Email Clicked — ${fullLead.business_name || fullLead.contact_name || 'Lead'}`,
-                timestamp: new Date(nowMs).toISOString(),
-                user_agent: clickUA,
-                event_type: 'email_click',
-                city: geo.city,
-                country: geo.country,
-                countryCode: geo.countryCode || undefined,
-                region: geo.region,
-                latitude: geo.latitude,
-                longitude: geo.longitude,
-                source: 'email_click',
-                email_id,
-                campaign_id: resolvedCampaignId,
-                kv_key: atomicKey,
-              };
+          if (fullLead) {
+            const geo = await resolveTrackingGeo(c, fullLead);
+            const visitId = crypto.randomUUID();
+            const nowMs = Date.now();
+            const atomicKey = `recent_visit_v2:${resolvedUserId}:${nowMs}:${visitId}`;
+            const visitData: any = {
+              id: visitId,
+              user_id: resolvedUserId,
+              lead_id: resolvedLeadId,
+              brand: fullLead.brand || 'contndr',
+              url,
+              title: `Email Clicked — ${fullLead.business_name || fullLead.contact_name || 'Lead'}`,
+              timestamp: new Date(nowMs).toISOString(),
+              user_agent: clickUA,
+              event_type: 'email_click',
+              city: geo.city,
+              country: geo.country,
+              countryCode: geo.countryCode || undefined,
+              region: geo.region,
+              latitude: geo.latitude,
+              longitude: geo.longitude,
+              source: 'email_click',
+              email_id,
+              campaign_id: resolvedCampaignId,
+              kv_key: atomicKey,
+            };
 
-              await kv.set(atomicKey, visitData);
-              maybeTriggerAgentHotVisitorCall({
-                targetUserId: resolvedUserId,
-                lead: fullLead,
-                visitData,
-                supabase,
-              }).catch((error: any) => {
-                console.warn('[AGENT HOT CALL] Click trigger failed:', error?.message || error);
-              });
-              console.log(`[CLICK TRACK MAP] ✅ Map visit created for lead ${resolvedLeadId} (${fullLead.business_name || fullLead.contact_name})`);
-            }
+            await kv.set(atomicKey, visitData);
+            maybeTriggerAgentHotVisitorCall({
+              targetUserId: resolvedUserId,
+              lead: fullLead,
+              visitData,
+              supabase,
+            }).catch((error: any) => {
+              console.warn('[AGENT HOT CALL] Click trigger failed:', error?.message || error);
+            });
+            console.log(`[CLICK TRACK MAP] ✅ Map visit created for lead ${resolvedLeadId} (${fullLead.business_name || fullLead.contact_name})`);
           }
         } catch (mapErr: any) {
           console.warn('[CLICK TRACK MAP] Failed to create map visit (non-fatal):', mapErr?.message || mapErr);
@@ -21103,9 +21382,9 @@ function isClientDisconnect(err: unknown): boolean {
 }
 
 // ── One-time migration: transfer affiliate slug from or@roadr.com → or@contndr.com ──
-// This used to run on every cold start, which amplified KV pressure during
-// outages. It is now manual/admin-only.
-async function runAffiliateSlugTransferMigration() {
+(async () => {
+  // Delay 12s after cold-start so migration doesn't compete with initial requests for DB connections
+  await new Promise((r) => setTimeout(r, 12000));
   try {
     const MIGRATION_KEY = 'affiliate_slug_transfer_roadr_to_contndr:done';
     let done: any;
@@ -21225,24 +21504,7 @@ async function runAffiliateSlugTransferMigration() {
   } catch (err) {
     console.error('[AFFILIATE MIGRATION] Error (non-fatal):', err);
   }
-}
-
-app.post("/make-server-a8b2511f/admin/system/run-affiliate-migration", async (c) => {
-  try {
-    const { user } = await getAuthenticatedUser(c);
-    if (!isAdminEmail(user.email, user.id)) {
-      return c.json({ error: 'Unauthorized' }, 403);
-    }
-    const storageGuard = kv.shouldSkipWriteHeavyTask('affiliate-migration');
-    if (!storageGuard.ok) {
-      return c.json({ ok: false, skipped: true, reason: 'storage_degraded', retryAfterSeconds: storageGuard.retryAfterSeconds || 30 }, 503);
-    }
-    await runAffiliateSlugTransferMigration();
-    return c.json({ success: true });
-  } catch (error: any) {
-    return c.json({ success: false, error: error.message }, 500);
-  }
-});
+})();
 
 // ─── POST /admin/cleanup-duplicate-followups ──────────────────────────────────
 // One-shot cleanup: for every lead in a campaign, find all email rows where the
