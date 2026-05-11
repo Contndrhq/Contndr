@@ -52,7 +52,7 @@ const MAX_REPOLLS = 5; // up to 5 re-polls to catch all background results
 const REPOLL_DELAYS = [4000, 6000, 8000, 12000, 20000]; // escalating delays
 
 /** Client-side cache version — bump to invalidate stale null entries from previous strategies */
-const CLIENT_CACHE_VERSION = 7; // Bumped: inbox avatar lookup/fallback fixes
+const CLIENT_CACHE_VERSION = 8; // Bumped: LinkedIn-only lookup + initials redesign
 const CLIENT_CACHE_VERSION_KEY = '__avatar_cache_v';
 
 // Auto-clear stale cache on module load
@@ -273,7 +273,13 @@ function scheduleBatch() {
  */
 export function requestAvatar(email: string, linkedinUrl?: string, name?: string): void {
   const norm = email.trim().toLowerCase();
-  if (!norm || !norm.includes("@")) return;
+  if (!norm) return;
+  // Accept either a real email or a synthetic `linkedin:<slug>` key. The
+  // synthetic key only makes sense when we ALSO have a LinkedIn URL or a
+  // name to look up by — otherwise there's nothing the server can resolve.
+  const isRealEmail = norm.includes("@");
+  const isLinkedinKey = norm.startsWith("linkedin:") && (!!linkedinUrl || !!name);
+  if (!isRealEmail && !isLinkedinKey) return;
   if (avatarCache.has(norm) || pendingEmails.has(norm) || inflightEmails.has(norm)) return;
   pendingEmails.add(norm);
   if (linkedinUrl && linkedinUrl.includes("linkedin.com/")) {
@@ -352,28 +358,41 @@ export function useLeadAvatar(
   linkedinUrl?: string | null,
   name?: string | null,
 ): string | null | undefined {
-  const normalized = email?.trim().toLowerCase() || "";
+  const normalizedEmail = email?.trim().toLowerCase() || "";
+  // When there's no email but we have a LinkedIn URL, key the cache by a
+  // synthetic pseudo-email derived from the LinkedIn slug. Without this,
+  // every LinkedIn-only lead (very common for freshly-scraped leads) skips
+  // the lookup entirely and falls back to initials forever.
+  const liSlug = (linkedinUrl || "")
+    .toLowerCase()
+    .replace(/^https?:\/\/(www\.)?linkedin\.com\//, "")
+    .replace(/\/+$/, "")
+    .replace(/[^a-z0-9/-]/g, "");
+  const cacheKey = normalizedEmail || (liSlug ? `linkedin:${liSlug}` : "");
 
   const [, rerender] = useState(0);
 
   useEffect(() => {
-    if (!normalized || !normalized.includes("@")) return;
+    if (!cacheKey) return;
 
     // Subscribe to batch completions
     const update = () => rerender((n) => n + 1);
     subscribers.add(update);
 
     // Enqueue if not yet cached
-    if (!avatarCache.has(normalized)) {
-      requestAvatar(normalized, linkedinUrl || undefined, name || undefined);
+    if (!avatarCache.has(cacheKey)) {
+      // requestAvatar wants a real-looking email; pseudo-key still works
+      // because the server only ever uses it as a cache key alongside the
+      // linkedin_urls / names maps.
+      requestAvatar(cacheKey, linkedinUrl || undefined, name || undefined);
     }
 
     return () => {
       subscribers.delete(update);
     };
-  }, [normalized, linkedinUrl, name]);
+  }, [cacheKey, linkedinUrl, name]);
 
-  if (!normalized || !normalized.includes("@")) return null;
-  if (avatarCache.has(normalized)) return avatarCache.get(normalized)!;
+  if (!cacheKey) return null;
+  if (avatarCache.has(cacheKey)) return avatarCache.get(cacheKey)!;
   return undefined; // still loading
 }

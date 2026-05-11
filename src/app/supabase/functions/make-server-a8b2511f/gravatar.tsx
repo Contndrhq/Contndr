@@ -217,13 +217,19 @@ app.post("/batch", async (c) => {
 
     const serpApiKey = Deno.env.get("SERPAPI_API_KEY") || "";
 
-    // Normalise & deduplicate
+    // Normalise & deduplicate. Accept either real emails or synthetic
+    // `linkedin:<slug>` cache keys — the latter are used by the frontend
+    // when a lead has no email yet but does have a LinkedIn URL. Either
+    // form ends up flowing through the same KV cache (keyed on its sha256).
     const seen = new Set<string>();
     const emailsToProcess: string[] = [];
     for (const raw of emails) {
       if (!raw || typeof raw !== "string") continue;
       const norm = raw.trim().toLowerCase();
-      if (!norm || norm.length < 3 || !norm.includes("@")) continue;
+      if (!norm || norm.length < 3) continue;
+      const isEmail = norm.includes("@");
+      const isLinkedinKey = norm.startsWith("linkedin:") && (linkedinUrlMap[norm] || namesMap[norm]);
+      if (!isEmail && !isLinkedinKey) continue;
       if (seen.has(norm)) continue;
       seen.add(norm);
       emailsToProcess.push(norm);

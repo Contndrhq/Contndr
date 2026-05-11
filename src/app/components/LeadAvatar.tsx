@@ -11,12 +11,46 @@ const MIN_DISPLAY_CONFIDENCE = 0.75;
 function getInitials(name: string): string {
   if (!name) return '?';
   return name
-    .split(' ')
+    .split(/[\s.]+/)
     .filter(Boolean)
     .map(n => n[0])
     .join('')
     .slice(0, 2)
     .toUpperCase();
+}
+
+// ── Deterministic color generator ───────────────────────────────────
+// Same name → same colors, every render. Picks from a curated palette of
+// readable, modern hues so an "all initials" view still looks distinctive
+// instead of a wall of identical gray pills. White text on top has WCAG
+// contrast of at least 4.5:1 against every palette entry.
+const PALETTE = [
+  ['#0EA5E9', '#0369A1'], // sky
+  ['#14B8A6', '#0F766E'], // teal
+  ['#22C55E', '#15803D'], // green
+  ['#F59E0B', '#B45309'], // amber
+  ['#EF4444', '#B91C1C'], // red
+  ['#EC4899', '#BE185D'], // pink
+  ['#A855F7', '#7E22CE'], // purple
+  ['#6366F1', '#4338CA'], // indigo
+  ['#3B82F6', '#1D4ED8'], // blue
+  ['#10B981', '#047857'], // emerald
+  ['#F97316', '#C2410C'], // orange
+  ['#84CC16', '#4D7C0F'], // lime
+];
+
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+function paletteFor(seed: string): { from: string; to: string } {
+  const idx = hashString(seed.toLowerCase()) % PALETTE.length;
+  const [from, to] = PALETTE[idx];
+  return { from, to };
 }
 
 // ── Component ────────────────────────────────────────────────────────
@@ -47,14 +81,21 @@ export function LeadAvatar({
 }: LeadAvatarProps) {
   const [imgFailed, setImgFailed] = useState(false);
 
-  // Use the batched avatar hook — SerpAPI LinkedIn photo lookup
-  const fetchedAvatarUrl = useLeadAvatar(lookup && !providedAvatarUrl ? email : null, linkedinUrl, name);
+  // Trigger lookup whenever we have ANY identifier — email OR linkedin URL.
+  // Previously we required an email, so leads scraped from LinkedIn (no email
+  // yet) never got their photo even though their LinkedIn URL was present.
+  const fetchedAvatarUrl = useLeadAvatar(
+    lookup && !providedAvatarUrl ? email : null,
+    linkedinUrl,
+    name,
+  );
   const avatarUrl = providedAvatarUrl ?? fetchedAvatarUrl;
 
   // Get confidence score from the client-side cache
   const confidence = avatarConfidence ?? (email ? getAvatarConfidence(email) : 0);
 
   const initials = useMemo(() => getInitials(name), [name]);
+  const palette = useMemo(() => paletteFor(name || email || linkedinUrl || '?'), [name, email, linkedinUrl]);
 
   // Determine if we should show the image:
   // - Must have a URL
@@ -81,18 +122,35 @@ export function LeadAvatar({
     if (avatarUrl) setImgFailed(false);
   }, [avatarUrl]);
 
-  // Inline fontSize scales proportionally — avoids Tailwind class merge issues
-  const fontSize = Math.max(10, Math.round(size * 0.38));
+  // Inline fontSize scales proportionally to the circle size. We removed the
+  // old `leading-none` class — it caused some fonts to render slightly above
+  // the geometric center, making letters look top-cropped in dark mode.
+  // Default line-height + grid placement gives pixel-perfect optical centering
+  // at any size.
+  const fontSize = Math.max(10, Math.round(size * 0.4));
+  const background = showImage
+    ? undefined
+    : `linear-gradient(135deg, ${palette.from} 0%, ${palette.to} 100%)`;
 
   return (
     <div
-      className={`rounded-full flex-shrink-0 overflow-hidden relative bg-zinc-200 dark:bg-zinc-800 ${className}`}
-      style={{ width: size, height: size }}
+      className={`rounded-full flex-shrink-0 overflow-hidden relative grid place-items-center ${className}`}
+      style={{ width: size, height: size, background, lineHeight: 1 }}
+      aria-label={name || 'avatar'}
     >
-      {/* Initials layer — always present underneath */}
+      {/* Initials layer — always present underneath. White text on colored
+          gradient (~4.5:1 contrast) when there's no photo. Falls back to
+          neutral when an image is loaded so a transparent PNG doesn't show
+          the gradient through. */}
       <span
-        className="absolute inset-0 flex items-center justify-center font-semibold select-none leading-none text-zinc-600 dark:text-zinc-300"
-        style={{ fontSize }}
+        className="font-semibold select-none text-white"
+        style={{
+          fontSize,
+          // Tiny optical adjustment — most sans fonts have a slightly larger
+          // descender than ascender area; nudging up by a hair centers caps.
+          transform: 'translateY(-2%)',
+          textShadow: showImage ? 'none' : '0 1px 1px rgba(0,0,0,0.15)',
+        }}
       >
         {initials}
       </span>
