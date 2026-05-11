@@ -834,25 +834,36 @@ export async function rescoreAllUsersLeads(): Promise<{
           .limit(100000);
 
         if (allLeads && allLeads.length > 0) {
-          // Batch check: for each lead, try to find its intent score
-          // We cap this to avoid timeout — check up to 500 leads per cycle
+          // Batched intent-score lookup. Was 500 serial KV gets per user; for
+          // 10 users that's 5,000 sequential round trips per cron run, which
+          // OOMed the function and timed out before campaign-resume could
+          // run. Single `mget` chunked into 200-key batches keeps memory and
+          // request count bounded.
           const leadsToCheck = allLeads.slice(0, 500);
-          for (const lead of leadsToCheck) {
+          const intentKeys = leadsToCheck.map(l => `intent:score:${userId}:lead_${l.id}`);
+          const CHUNK = 200;
+          const allScores: any[] = [];
+          for (let i = 0; i < intentKeys.length; i += CHUNK) {
             try {
-              const directScore = await kv.get(`intent:score:${userId}:lead_${lead.id}`);
-              if (directScore && typeof (directScore as any).total_score === 'number') {
-                const ts = (directScore as any).total_score;
-                if (ts >= 61) {
-                  if (!highIntentLeadIds.includes(lead.id)) {
-                    highIntentLeadIds.push(lead.id);
-                  }
-                } else if (ts >= 30) {
-                  if (!mediumIntentLeadIds.includes(lead.id)) {
-                    mediumIntentLeadIds.push(lead.id);
-                  }
-                }
+              const batch = await kv.mget(intentKeys.slice(i, i + CHUNK));
+              allScores.push(...batch);
+            } catch (e: any) {
+              console.warn(`[CRON-RESCORE] mget batch failed for ${userId}:`, e?.message);
+              allScores.push(...new Array(Math.min(CHUNK, intentKeys.length - i)).fill(null));
+            }
+          }
+          // Indexes align — see kv_store.tsx#mget contract.
+          for (let i = 0; i < leadsToCheck.length; i++) {
+            const directScore = allScores[i];
+            if (directScore && typeof directScore.total_score === 'number') {
+              const ts = directScore.total_score;
+              const leadId = leadsToCheck[i].id;
+              if (ts >= 61) {
+                if (!highIntentLeadIds.includes(leadId)) highIntentLeadIds.push(leadId);
+              } else if (ts >= 30) {
+                if (!mediumIntentLeadIds.includes(leadId)) mediumIntentLeadIds.push(leadId);
               }
-            } catch (_) { /* skip individual failures */ }
+            }
           }
         }
 

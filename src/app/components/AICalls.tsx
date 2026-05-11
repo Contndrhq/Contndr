@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Phone, 
   PhoneCall, 
@@ -106,16 +106,49 @@ export function AICalls({
   const [showAgentConfig, setShowAgentConfig] = useState(false);
   const [showVoicePanel, setShowVoicePanel] = useState(false);
 
+  // Adaptive polling. Hard 2-second polling burned 30 req/min per open tab;
+  // with 100 concurrent users that was a sustained 3000 rpm against a single
+  // backend route. Now:
+  //   - 3s when there ARE active calls (UI needs near-real-time updates)
+  //   - 15s when there are no active calls (just keeping campaigns fresh)
+  //   - paused when the tab is hidden
+  //   - exponential backoff to a 60s cap on consecutive errors
+  const errorCountRef = useRef(0);
+  const activeCallsCountRef = useRef(0);
   useEffect(() => {
-    loadData();
-    const pollInterval = setInterval(() => loadData(true), 2000);
-    return () => clearInterval(pollInterval);
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.hidden) {
+        // Tab hidden — check back in 5s without making a network call
+        timeoutId = setTimeout(tick, 5_000);
+        return;
+      }
+      try {
+        await loadData(true);
+        errorCountRef.current = 0;
+      } catch {
+        errorCountRef.current = Math.min(errorCountRef.current + 1, 6);
+      }
+      if (cancelled) return;
+      const baseDelay = activeCallsCountRef.current > 0 ? 3_000 : 15_000;
+      const backoff = errorCountRef.current > 0 ? Math.min(60_000, baseDelay * 2 ** errorCountRef.current) : baseDelay;
+      timeoutId = setTimeout(tick, backoff);
+    };
+
+    loadData().finally(() => { if (!cancelled) timeoutId = setTimeout(tick, 3_000); });
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, []);
 
   async function loadData(silent = false) {
     if (!silent) setLoading(true);
     setError(null);
-    
+
     try {
       const headers = await getAuthHeaders();
 
@@ -136,23 +169,28 @@ export function AICalls({
 
       try {
         const callsResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/telnyx/active-calls`, 
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/telnyx/active-calls`,
           { headers, method: 'GET', signal: AbortSignal.timeout(10000) }
         );
 
         if (callsResponse.ok) {
           const data = await callsResponse.json();
-          setActiveCalls(data.calls || []);
+          const calls = data.calls || [];
+          setActiveCalls(calls);
+          activeCallsCountRef.current = calls.length;
           setStats(data.stats || stats);
         } else {
           setActiveCalls([]);
+          activeCallsCountRef.current = 0;
         }
       } catch (fetchError) {
         setActiveCalls([]);
+        activeCallsCountRef.current = 0;
       }
     } catch (error) {
       console.error('Error loading AI calls data:', error);
       if (!silent) setError(t('aiCalls.failedLoadData'));
+      throw error;
     } finally {
       setLoading(false);
     }

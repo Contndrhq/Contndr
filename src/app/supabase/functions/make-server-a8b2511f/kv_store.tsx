@@ -58,13 +58,28 @@ export const mset = async (keys: string[], values: any[]): Promise<void> => {
 };
 
 // Gets multiple key-value pairs from the database.
+//
+// IMPORTANT: returns values aligned to the INPUT order of `keys`, with `null`
+// in the slot for any missing key. Postgres `.in()` returns rows in arbitrary
+// order and silently drops missing keys, so without this re-alignment a
+// caller that does `keys[i]` -> `result[i]` would read the wrong value or
+// off-by-one its way through stale/wrong data. This was previously the cause
+// of silent subscription-list and team-link corruption.
 export const mget = async (keys: string[]): Promise<any[]> => {
-  const supabase = client()
-  const { data, error } = await supabase.from("kv_store_a8b2511f").select("value").in("key", keys);
+  if (!keys || keys.length === 0) return [];
+  const supabase = client();
+  const { data, error } = await supabase
+    .from("kv_store_a8b2511f")
+    .select("key, value")
+    .in("key", keys);
   if (error) {
     throw new Error(error.message);
   }
-  return data?.map((d) => d.value) ?? [];
+  const byKey = new Map<string, any>();
+  for (const row of data || []) {
+    byKey.set(row.key, row.value);
+  }
+  return keys.map((k) => (byKey.has(k) ? byKey.get(k) : null));
 };
 
 // Deletes multiple key-value pairs from the database.

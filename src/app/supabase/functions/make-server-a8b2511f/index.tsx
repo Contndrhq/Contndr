@@ -6449,14 +6449,26 @@ app.get("/make-server-a8b2511f/config/mapbox", async (c) => {
 });
 
 // ─── Tracking endpoint rate limiter (in-memory, per IP) ──────────────
+// Bounded to prevent unbounded growth from unique-IP attacks. When the cap
+// is hit we drop the oldest-inserted entry (Map preserves insertion order).
 const trackingRateMap = new Map<string, { count: number; resetAt: number }>();
 const TRACKING_RATE_WINDOW_MS = 60_000; // 1 minute window
 const TRACKING_RATE_MAX = 30; // max 30 requests per IP per minute
+const TRACKING_RATE_MAX_ENTRIES = 50_000; // hard cap on map size
 
 function isTrackingRateLimited(ip: string): boolean {
   const now = Date.now();
   const entry = trackingRateMap.get(ip);
   if (!entry || now > entry.resetAt) {
+    if (trackingRateMap.size >= TRACKING_RATE_MAX_ENTRIES) {
+      // Evict the oldest 10% in one pass to amortize overhead
+      const toEvict = Math.ceil(TRACKING_RATE_MAX_ENTRIES * 0.1);
+      let i = 0;
+      for (const k of trackingRateMap.keys()) {
+        if (i++ >= toEvict) break;
+        trackingRateMap.delete(k);
+      }
+    }
     trackingRateMap.set(ip, { count: 1, resetAt: now + TRACKING_RATE_WINDOW_MS });
     return false;
   }
@@ -6478,7 +6490,19 @@ setInterval(() => {
 // every Comcast subscriber in Miami-Dade), not the visitor's actual location.
 // Snapping to the city centroid keeps pins in the right metro instead of
 // piling them on top of an ISP datacenter.
+// Bounded LRU. KV is the durable layer; this Map is just a hot-path cache.
 const cityCentroidMemCache = new Map<string, { lat: number; lng: number } | null>();
+const CITY_CENTROID_MAX_ENTRIES = 5_000;
+function rememberCentroid(key: string, value: { lat: number; lng: number } | null) {
+  // Move-to-front for LRU semantics
+  if (cityCentroidMemCache.has(key)) cityCentroidMemCache.delete(key);
+  cityCentroidMemCache.set(key, value);
+  if (cityCentroidMemCache.size > CITY_CENTROID_MAX_ENTRIES) {
+    // Drop the oldest entry (Map preserves insertion order)
+    const oldest = cityCentroidMemCache.keys().next().value;
+    if (oldest !== undefined) cityCentroidMemCache.delete(oldest);
+  }
+}
 
 function normalizeCityKey(city: string, region: string | null, country: string | null): string {
   const parts = [city, region, country].filter(Boolean).map(s =>
@@ -6500,11 +6524,11 @@ async function getCityCentroid(
   try {
     const cached = await kv.get(kvKey);
     if (cached && typeof cached.lat === 'number' && typeof cached.lng === 'number') {
-      cityCentroidMemCache.set(key, cached);
+      rememberCentroid(key, cached);
       return cached;
     }
     if (cached === 'NOT_FOUND') {
-      cityCentroidMemCache.set(key, null);
+      rememberCentroid(key, null);
       return null;
     }
   } catch (_) { /* KV miss — fall through to geocode */ }
@@ -6526,7 +6550,7 @@ async function getCityCentroid(
       const arr = await res.json();
       if (Array.isArray(arr) && arr.length > 0 && arr[0].lat && arr[0].lon) {
         const centroid = { lat: parseFloat(arr[0].lat), lng: parseFloat(arr[0].lon) };
-        cityCentroidMemCache.set(key, centroid);
+        rememberCentroid(key, centroid);
         kv.set(kvKey, centroid).catch(() => {});
         return centroid;
       }
