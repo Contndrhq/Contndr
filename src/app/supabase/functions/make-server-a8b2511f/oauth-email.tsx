@@ -1,5 +1,6 @@
 // OAuth Email Module - Gmail & Outlook OAuth2 + API-based sending
 import * as kv from "./kv-retry.tsx";
+import { encryptJson, decryptJson, isEncrypted } from "./crypto-store.tsx";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -237,6 +238,23 @@ interface StoredTokens {
   name?: string;
 }
 
+// Helper: load a stored token blob, accepting both new encrypted-envelope
+// values and legacy plaintext-JSON values. Returns null when the key is
+// missing or the value can't be decrypted/parsed.
+async function loadStoredTokens(kvKey: string): Promise<StoredTokens | null> {
+  const raw = await kv.get(kvKey);
+  if (!raw) return null;
+  if (typeof raw === "string" && isEncrypted(raw)) {
+    return await decryptJson<StoredTokens>(raw);
+  }
+  // Legacy: stored as a JSON string OR (in some places) the raw object.
+  if (typeof raw === "string") {
+    try { return JSON.parse(raw) as StoredTokens; } catch { return null; }
+  }
+  if (typeof raw === "object") return raw as StoredTokens;
+  return null;
+}
+
 export async function storeGmailTokens(
   userId: string,
   tokens: { access_token: string; refresh_token: string; expires_in: number },
@@ -250,7 +268,10 @@ export async function storeGmailTokens(
     email: userInfo.email,
     name: userInfo.name,
   };
-  await kv.set(kvGmailTokensKey(userId), JSON.stringify(stored));
+  // Encrypted-at-rest. encryptJson falls back to plaintext JSON if
+  // TOKEN_ENCRYPTION_KEY isn't configured, so this is safe to deploy
+  // before the env var is set.
+  await kv.set(kvGmailTokensKey(userId), await encryptJson(stored));
   // Only switch the sending provider if this is NOT a sync-only connection
   if (!syncOnly) {
     await kv.set(kvProviderKey(userId), "gmail_oauth");
@@ -270,7 +291,7 @@ export async function storeOutlookTokens(
     email: userInfo.email,
     name: userInfo.name,
   };
-  await kv.set(kvOutlookTokensKey(userId), JSON.stringify(stored));
+  await kv.set(kvOutlookTokensKey(userId), await encryptJson(stored));
   await kv.set(kvProviderKey(userId), "outlook_oauth");
 }
 
@@ -278,9 +299,8 @@ export async function storeOutlookTokens(
 export async function getValidGmailToken(
   userId: string,
 ): Promise<StoredTokens | null> {
-  const raw = await kv.get(kvGmailTokensKey(userId));
-  if (!raw) return null;
-  const tokens: StoredTokens = JSON.parse(raw);
+  const tokens = await loadStoredTokens(kvGmailTokensKey(userId));
+  if (!tokens) return null;
 
   // Refresh if expiring within 5 minutes
   if (tokens.expires_at < Date.now() + 5 * 60 * 1000) {
@@ -288,7 +308,7 @@ export async function getValidGmailToken(
       const refreshed = await refreshGmailToken(tokens.refresh_token);
       tokens.access_token = refreshed.access_token;
       tokens.expires_at = Date.now() + refreshed.expires_in * 1000;
-      await kv.set(kvGmailTokensKey(userId), JSON.stringify(tokens));
+      await kv.set(kvGmailTokensKey(userId), await encryptJson(tokens));
     } catch (err) {
       console.error("[OAUTH] Gmail token refresh failed:", err);
       return null;
@@ -300,16 +320,15 @@ export async function getValidGmailToken(
 export async function getValidOutlookToken(
   userId: string,
 ): Promise<StoredTokens | null> {
-  const raw = await kv.get(kvOutlookTokensKey(userId));
-  if (!raw) return null;
-  const tokens: StoredTokens = JSON.parse(raw);
+  const tokens = await loadStoredTokens(kvOutlookTokensKey(userId));
+  if (!tokens) return null;
 
   if (tokens.expires_at < Date.now() + 5 * 60 * 1000) {
     try {
       const refreshed = await refreshOutlookToken(tokens.refresh_token);
       tokens.access_token = refreshed.access_token;
       tokens.expires_at = Date.now() + refreshed.expires_in * 1000;
-      await kv.set(kvOutlookTokensKey(userId), JSON.stringify(tokens));
+      await kv.set(kvOutlookTokensKey(userId), await encryptJson(tokens));
     } catch (err) {
       console.error("[OAUTH] Outlook token refresh failed:", err);
       return null;
@@ -568,16 +587,14 @@ export async function getEmailSettingsFromKV(userId: string) {
   let connectedName: string | null = null;
 
   if (provider === "gmail_oauth") {
-    const raw = await kv.get(kvGmailTokensKey(userId));
-    if (raw) {
-      const t = JSON.parse(raw);
+    const t = await loadStoredTokens(kvGmailTokensKey(userId));
+    if (t) {
       connectedEmail = t.email;
       connectedName = t.name || null;
     }
   } else if (provider === "outlook_oauth") {
-    const raw = await kv.get(kvOutlookTokensKey(userId));
-    if (raw) {
-      const t = JSON.parse(raw);
+    const t = await loadStoredTokens(kvOutlookTokensKey(userId));
+    if (t) {
       connectedEmail = t.email;
       connectedName = t.name || null;
     }
