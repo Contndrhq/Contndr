@@ -101,19 +101,24 @@ export function LeadAvatar({
       style={{ width: size, height: size }}
       aria-label={name || 'avatar'}
     >
-      {/* Initials layer — pixel-perfect centering via SVG. */}
+      {/* Initials layer — pixel-perfect centering via SVG. We use `dy=".35em"`
+          instead of `dominantBaseline` because the latter is implemented
+          inconsistently across browsers (Safari, in particular, ignores
+          `central` for some font weights). The 0.35em offset is the standard
+          baseline-to-center adjustment that works identically in every
+          modern browser and rendering engine. */}
       <svg
         viewBox={`0 0 ${size} ${size}`}
         width={size}
         height={size}
-        className="absolute inset-0 select-none"
+        className="absolute inset-0 block select-none"
         aria-hidden="true"
       >
         <text
           x="50%"
           y="50%"
+          dy=".35em"
           textAnchor="middle"
-          dominantBaseline="central"
           fontSize={fontSize}
           fontWeight={600}
           className="fill-zinc-600 dark:fill-zinc-300"
