@@ -21,17 +21,46 @@ import { useScrollHeader } from '../hooks/useScrollHeader';
 import { getLeadLimitForPlan } from '../lib/plan-entitlements';
 
 // ─── localStorage snapshot for instant hydration ──────────────────────
-// Updated: 2026-02-23 - Fixed build after email provider guard additions
-const SNAPSHOT_KEY = 'contndr:dashboard:snapshot';
+// The snapshot is keyed by the currently-authenticated Supabase user so a
+// different user signing in on the same browser cannot ever read the
+// previous user's dashboard data, even for a frame.
+const SNAPSHOT_KEY_PREFIX = 'contndr:dashboard:snapshot:';
+const LEGACY_SNAPSHOT_KEY = 'contndr:dashboard:snapshot';
 const SNAPSHOT_MAX_AGE = 10 * 60 * 1000; // 10 minutes — stale snapshots are ignored
+
+// Read the active Supabase user id synchronously from the auth-token
+// localStorage entry the supabase-js client maintains. Returns null if there
+// is no active session, in which case we refuse to return any snapshot.
+function getCurrentUserIdSync(): string | null {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith('sb-') || !k.endsWith('-auth-token')) continue;
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const uid = parsed?.user?.id || parsed?.currentSession?.user?.id;
+      if (uid) return uid;
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+function snapshotKey(userId: string) { return `${SNAPSHOT_KEY_PREFIX}${userId}`; }
 
 function readSnapshot(): { stats: DashboardStats; recentCampaigns: any[]; upcomingFollowUps: any[]; availableBrands: string[]; campaignIds: any[]; ts: number } | null {
   try {
-    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    // Migrate-or-discard the legacy unscoped snapshot so it can never leak.
+    if (localStorage.getItem(LEGACY_SNAPSHOT_KEY)) {
+      localStorage.removeItem(LEGACY_SNAPSHOT_KEY);
+    }
+    const uid = getCurrentUserIdSync();
+    if (!uid) return null;
+    const raw = localStorage.getItem(snapshotKey(uid));
     if (!raw) return null;
     const snap = JSON.parse(raw);
     if (Date.now() - snap.ts > SNAPSHOT_MAX_AGE) {
-      localStorage.removeItem(SNAPSHOT_KEY);
+      localStorage.removeItem(snapshotKey(uid));
       return null;
     }
     return snap;
@@ -40,7 +69,9 @@ function readSnapshot(): { stats: DashboardStats; recentCampaigns: any[]; upcomi
 
 function writeSnapshot(data: { stats: DashboardStats; recentCampaigns: any[]; upcomingFollowUps: any[]; availableBrands: string[]; campaignIds: any[] }) {
   try {
-    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({ ...data, ts: Date.now() }));
+    const uid = getCurrentUserIdSync();
+    if (!uid) return;
+    localStorage.setItem(snapshotKey(uid), JSON.stringify({ ...data, ts: Date.now() }));
   } catch { /* quota exceeded — ignore */ }
 }
 

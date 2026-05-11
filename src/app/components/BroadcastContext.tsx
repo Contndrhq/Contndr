@@ -425,17 +425,39 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
             const error = await response.json().catch(() => ({ error: 'Unable to send next message' }));
             console.error('[BROADCAST] Live batch failed:', error);
             consecutiveErrors++;
+            // Hard ceiling. Previously this only soft-paused for 5 seconds and
+            // looped forever, so a permanent failure (auth expired, plan limit
+            // hit, provider outage) silently halted progress while the UI kept
+            // saying "Sending…" — users only noticed days later when leads
+            // didn't reply. Now we abort the broadcast and surface the cause.
+            if (consecutiveErrors >= 8) {
+              const reason = error?.error || response.statusText || `HTTP ${response.status}`;
+              setState(prev => ({
+                ...prev,
+                active: false,
+                done: true,
+                currentEntry: null,
+                statusText: `Stopped after ${consecutiveErrors} failed sends. ${totalSent} of ${finalTotal || '?'} delivered. Reason: ${reason}`,
+              }));
+              try {
+                const { toast } = await import('sonner');
+                toast.error('Campaign broadcast halted', {
+                  description: `Sent ${totalSent} before stopping. Reason: ${reason}`,
+                  duration: 12000,
+                });
+              } catch {}
+              return;
+            }
             if (consecutiveErrors >= maxConsecutiveErrors) {
               setState(prev => ({
                 ...prev,
                 currentEntry: null,
-                statusText: 'Live send is waiting for the next safe message...',
+                statusText: `Pausing after ${consecutiveErrors} consecutive failures (${error?.error || 'send error'})...`,
               }));
-              consecutiveErrors = 0;
               await wait(5000);
               continue;
             }
-            setState(prev => ({ ...prev, statusText: 'Retrying the next message...' }));
+            setState(prev => ({ ...prev, statusText: `Retrying after error: ${error?.error || `HTTP ${response.status}`}` }));
             await wait(2000 * consecutiveErrors);
             continue;
           }

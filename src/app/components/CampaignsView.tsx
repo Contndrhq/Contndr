@@ -631,6 +631,12 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
       }
       setBouncedContacts([]);
       toast.success(`Deleted ${totalDeleted} bounced lead${totalDeleted === 1 ? '' : 's'}`);
+      // Refresh campaign stats so the "Bounced: N" badge in the header updates.
+      // Without this, the badge keeps showing the old count until page reload.
+      if (selectedCampaign) {
+        loadCampaignStatsLive(selectedCampaign).catch(() => {});
+      }
+      apiCache.invalidate('campaigns:*');
     } catch (error) {
       console.error('[BOUNCED] Error deleting all bounced contacts:', error);
       toast.error('Failed to delete bounced leads');
@@ -1124,10 +1130,14 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
     if (!confirm(t('campaigns.confirmDelete'))) return;
 
     try {
-      await authenticatedFetch(
+      const res = await authenticatedFetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${campaignId}`,
         { method: 'DELETE' }
       );
+      if (res && typeof (res as Response).ok === 'boolean' && !(res as Response).ok) {
+        const body = await (res as Response).json().catch(() => ({}));
+        throw new Error(body?.error || `Delete failed (${(res as Response).status})`);
+      }
 
       if (selectedCampaign === campaignId) {
         setSelectedCampaign(null);
@@ -1136,8 +1146,12 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
       apiCache.invalidate('campaigns:*');
       dispatchAppEvent({ type: 'campaigns:deleted', ids: [campaignId] });
       await loadCampaigns();
+      toast.success('Campaign deleted');
     } catch (error: any) {
       console.error('Error deleting campaign:', error);
+      toast.error('Failed to delete campaign', {
+        description: error?.message?.slice(0, 200) || 'Please try again.',
+      });
     }
   }
 

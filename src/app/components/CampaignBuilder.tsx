@@ -1374,6 +1374,10 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
 
   async function createCampaign() {
     setLoading(true);
+    // Track the campaign ID for rollback if a later step (lead-add) fails.
+    // Without rollback, a failed lead-add leaves an empty "ghost" campaign in
+    // the user's list with 0 leads and 0 sent — confusing and looks broken.
+    let createdCampaignIdForRollback: string | null = null;
     try {
       console.log('🚀 CREATING CAMPAIGN with product:', campaign.customProductName || campaign.product, 'brand:', campaign.brand);
       console.log('[CAMPAIGN] sendImmediately:', sendImmediately, 'scheduleValue:', scheduleValue);
@@ -1446,6 +1450,7 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
 
       const data = await response.json();
       const campaignId = data.campaign.id;
+      createdCampaignIdForRollback = campaignId;
       console.log('[CAMPAIGN] Campaign created:', campaignId);
       // NOTE: setCreatedCampaignId moved below — only shown after leads are confirmed added
 
@@ -1505,7 +1510,10 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
         leadsAdded = true;
       }
 
-      // Show "Campaign Launched" only AFTER leads are successfully added
+      // Show "Campaign Launched" only AFTER leads are successfully added.
+      // From this point onward, the campaign is real — clear the rollback
+      // flag so a later non-fatal failure (groups, broadcast) doesn't delete it.
+      createdCampaignIdForRollback = null;
       setCreatedCampaignId(campaignId);
 
       // Add selected groups to campaign
@@ -1559,7 +1567,23 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
 
     } catch (error: any) {
       console.error('Error creating campaign:', error);
-      
+
+      // Roll back the orphaned campaign so the user doesn't see a "ghost"
+      // entry with 0 leads in their list. Best-effort — failure to delete is
+      // logged but doesn't change the user-facing error.
+      if (createdCampaignIdForRollback) {
+        try {
+          const rollbackHeaders = await getAuthHeaders();
+          await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${createdCampaignIdForRollback}`,
+            { method: 'DELETE', headers: rollbackHeaders },
+          );
+          console.log('[CAMPAIGN] Rolled back orphaned campaign:', createdCampaignIdForRollback);
+        } catch (rollbackErr) {
+          console.error('[CAMPAIGN] Rollback delete failed (orphan left in DB):', rollbackErr);
+        }
+      }
+
       // Provide more specific error messages
       let errorMessage = error.message;
       if (error.message === 'Failed to fetch') {
@@ -1567,7 +1591,7 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
       } else if (error.message.includes('Not authenticated')) {
         errorMessage = t('campaignBuilder.sessionExpired');
       }
-      
+
       toast.error(t('campaignBuilder.errorCreatingCampaign', { message: errorMessage }), { duration: 8000 });
     } finally {
       setLoading(false);

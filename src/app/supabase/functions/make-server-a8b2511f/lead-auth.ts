@@ -1,11 +1,29 @@
 /**
  * Authorization helpers for lead deletion
  * Regular users can only delete leads they personally added
- * Shared leads (from other users) cannot be deleted by regular users  
+ * Shared leads (from other users) cannot be deleted by regular users
  * Only admins can delete any lead
+ *
+ * Admin list is read from the ADMIN_EMAILS environment variable
+ * (comma-separated). The hardcoded fallback exists so existing deployments
+ * keep working until the env var is set, but the env var should be the
+ * source of truth — it lets you revoke admin access without redeploying.
  */
 
-export const ADMIN_EMAILS = ['or@roadr.com', 'admin@contndr.com', 'or@contndr.com'];
+const FALLBACK_ADMIN_EMAILS = ['or@roadr.com', 'admin@contndr.com', 'or@contndr.com'];
+
+function loadAdminEmails(): string[] {
+  try {
+    const env = (globalThis as any).Deno?.env?.get?.('ADMIN_EMAILS');
+    if (env && typeof env === 'string') {
+      const parsed = env.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+      if (parsed.length > 0) return parsed;
+    }
+  } catch { /* fall through */ }
+  return FALLBACK_ADMIN_EMAILS;
+}
+
+export const ADMIN_EMAILS = loadAdminEmails();
 
 export function isAdmin(email: string | undefined): boolean {
   if (!email) return false;
