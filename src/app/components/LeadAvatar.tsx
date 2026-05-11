@@ -87,31 +87,41 @@ export function LeadAvatar({
     if (avatarUrl) setImgFailed(false);
   }, [avatarUrl]);
 
-  // Inline fontSize scales proportionally to the circle size. The previous
-  // `leading-none` was causing letters to render slightly above the geometric
-  // center; grid placement + a small upward optical nudge gives pixel-perfect
-  // centering at any size, in any font.
-  const fontSize = Math.max(10, Math.round(size * 0.4));
+  // Render initials as SVG text. SVG's `dominant-baseline="central"`
+  // positions text using the font's true vertical center (not its baseline),
+  // which DIV+flex/grid never does correctly because CSS line-height always
+  // includes the font's full ascender/descender boxes — for caps-only text
+  // like initials this leaves visual whitespace below and crops the top.
+  // SVG sidesteps the entire problem.
+  const fontSize = Math.round(size * 0.4);
 
   return (
     <div
-      className={`rounded-full flex-shrink-0 overflow-hidden relative grid place-items-center bg-zinc-100 dark:bg-zinc-800 ${className}`}
-      style={{ width: size, height: size, lineHeight: 1 }}
+      className={`rounded-full flex-shrink-0 overflow-hidden relative bg-zinc-100 dark:bg-zinc-800 ${className}`}
+      style={{ width: size, height: size }}
       aria-label={name || 'avatar'}
     >
-      {/* Initials layer — always present underneath. Neutral text on neutral
-          background; gets covered by the photo when one loads. */}
-      <span
-        className="font-semibold select-none text-zinc-600 dark:text-zinc-300"
-        style={{
-          fontSize,
-          // Tiny optical adjustment — most sans fonts have a slightly larger
-          // descender than ascender area; nudging up by a hair centers caps.
-          transform: 'translateY(-2%)',
-        }}
+      {/* Initials layer — pixel-perfect centering via SVG. */}
+      <svg
+        viewBox={`0 0 ${size} ${size}`}
+        width={size}
+        height={size}
+        className="absolute inset-0 select-none"
+        aria-hidden="true"
       >
-        {initials}
-      </span>
+        <text
+          x="50%"
+          y="50%"
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={fontSize}
+          fontWeight={600}
+          className="fill-zinc-600 dark:fill-zinc-300"
+          style={{ fontFamily: 'inherit' }}
+        >
+          {initials}
+        </text>
+      </svg>
       {/* Image layer — covers initials when loaded successfully */}
       {showImage && (
         <img
