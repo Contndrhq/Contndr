@@ -21381,6 +21381,41 @@ function isClientDisconnect(err: unknown): boolean {
   );
 }
 
+// ── KV duplicate-index janitor ─────────────────────────────────────────
+// Background: ~1,800 anonymous indexes named `kv_store_a8b2511f_key_idxNNNN`
+// once accumulated on the KV table over time, hitting 24 GB and triggering
+// "out of shared memory" on every write. Most likely created by Supabase
+// Dashboard's "Apply Index Suggestion" button. This hook calls a
+// SECURITY DEFINER cleanup function to drop any that reappear, capped at
+// 500 per cold-boot so it can't block startup if the count balloons again.
+//
+// We don't need to run this often — once per isolate cold-boot is plenty,
+// and the runtime spawns a new isolate every few minutes under normal load.
+// Only one isolate per cold-boot does the work; others see the
+// `kv_dup_idx_cleanup:last_at` KV gate and skip.
+(async () => {
+  await new Promise((r) => setTimeout(r, 30_000)); // wait out warmup
+  try {
+    const GATE_KEY = 'kv_dup_idx_cleanup:last_at';
+    const lastAt = await kv.get(GATE_KEY).catch(() => null);
+    // Only run if it's been more than 1 hour since the last cleanup
+    if (lastAt && Date.now() - new Date(lastAt).getTime() < 60 * 60 * 1000) return;
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await (supabase as any).rpc('cleanup_kv_dup_indexes');
+    if (error) {
+      console.warn('[KV-IDX-JANITOR] RPC failed (function may not be migrated yet):', error.message);
+      return;
+    }
+    const dropped = typeof data === 'number' ? data : 0;
+    if (dropped > 0) {
+      console.log(`[KV-IDX-JANITOR] Dropped ${dropped} duplicate auto-indexes from kv_store_a8b2511f`);
+    }
+    await kv.set(GATE_KEY, new Date().toISOString()).catch(() => {});
+  } catch (e: any) {
+    console.warn('[KV-IDX-JANITOR] Skipped:', e?.message);
+  }
+})();
+
 // ── One-time migration: transfer affiliate slug from or@roadr.com → or@contndr.com ──
 (async () => {
   // Delay 12s after cold-start so migration doesn't compete with initial requests for DB connections
