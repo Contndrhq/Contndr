@@ -774,43 +774,77 @@ async function filterMailboxSafePeople<T extends DeepLead>(
   context: string,
   options: { keepCallablePhoneFallback?: boolean; limit?: number } = {},
 ): Promise<T[]> {
+  // Concurrent mailbox verification — was the slowest step in the entire
+  // search pipeline. Sequential 1-2s/email × 100 leads pushed the search
+  // past 2 minutes and often timed out. Batches of 10 give us the same
+  // results in ~1/10th the wall time without overloading the verifier.
+  const CONCURRENCY = 10;
   const filtered: T[] = [];
   let dropped = 0;
 
+  // Split into leads with email (need verification) and without (phone-fallback only)
+  const needsVerify: T[] = [];
   for (const lead of people) {
     const email = (lead.email || "").trim().toLowerCase();
     if (!email) {
       if (options.keepCallablePhoneFallback && hasCallablePhone(lead)) filtered.push(lead);
-      continue;
-    }
-
-    const mailbox = await verifyMailboxDeliverability(email);
-    lead.email_verification = {
-      ...(lead.email_verification || {}),
-      deliverable: mailbox.safe_to_send,
-      status: mailbox.provider_status || mailbox.deliverability,
-      provider: mailbox.provider,
-      score: mailbox.score,
-      reason: mailbox.reason,
-    } as any;
-
-    if (mailbox.safe_to_send) {
-      lead.email = mailbox.email;
-      lead.email_status = "verified";
-      filtered.push(lead);
     } else {
-      dropped++;
-      console.log(`[DEEP PROSPECT] ${context}: blocked unsafe mailbox ${email} (${mailbox.deliverability}: ${mailbox.reason})`);
-      lead.email = "";
-      lead.email_status = mailbox.deliverability === "undeliverable" ? "invalid" : "risky";
-      if (options.keepCallablePhoneFallback && hasCallablePhone(lead)) filtered.push(lead);
+      needsVerify.push(lead);
     }
+    if (options.limit && filtered.length >= options.limit) {
+      return filtered;
+    }
+  }
 
+  for (let i = 0; i < needsVerify.length; i += CONCURRENCY) {
     if (options.limit && filtered.length >= options.limit) break;
+    const batch = needsVerify.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(batch.map(async (lead) => {
+      const email = (lead.email || "").trim().toLowerCase();
+      try {
+        const mailbox = await verifyMailboxDeliverability(email);
+        return { lead, email, mailbox, error: null as any };
+      } catch (err) {
+        return { lead, email, mailbox: null as any, error: err };
+      }
+    }));
+
+    for (const { lead, email, mailbox, error } of results) {
+      if (error || !mailbox) {
+        // Verifier failure shouldn't drop the lead silently — keep with a
+        // pending status so the user still sees them and downstream logic
+        // can decide what to do.
+        lead.email_status = "pending";
+        filtered.push(lead);
+        if (options.limit && filtered.length >= options.limit) break;
+        continue;
+      }
+      lead.email_verification = {
+        ...(lead.email_verification || {}),
+        deliverable: mailbox.safe_to_send,
+        status: mailbox.provider_status || mailbox.deliverability,
+        provider: mailbox.provider,
+        score: mailbox.score,
+        reason: mailbox.reason,
+      } as any;
+
+      if (mailbox.safe_to_send) {
+        lead.email = mailbox.email;
+        lead.email_status = "verified";
+        filtered.push(lead);
+      } else {
+        dropped++;
+        lead.email = "";
+        lead.email_status = mailbox.deliverability === "undeliverable" ? "invalid" : "risky";
+        if (options.keepCallablePhoneFallback && hasCallablePhone(lead)) filtered.push(lead);
+      }
+
+      if (options.limit && filtered.length >= options.limit) break;
+    }
   }
 
   if (dropped > 0) {
-    console.log(`[DEEP PROSPECT] ${context}: dropped ${dropped} unsafe/risky emails after mailbox verification`);
+    console.log(`[DEEP PROSPECT] ${context}: dropped ${dropped} unsafe/risky emails after mailbox verification (${needsVerify.length} verified in ${Math.ceil(needsVerify.length / CONCURRENCY)} batches)`);
   }
   return filtered;
 }
