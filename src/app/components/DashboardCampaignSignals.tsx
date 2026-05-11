@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Zap, ArrowUpRight, Loader2, Eye, MousePointerClick, Reply, Globe, Sparkles, Mail, UserRound } from 'lucide-react';
+import { Zap, ArrowUpRight, Loader2, Eye, MousePointerClick, Reply, Globe, Mail, UserRound } from 'lucide-react';
 import { authenticatedFetch } from '../lib/auth';
 import { projectId } from '../utils/supabase/info';
 import { apiCache } from '../lib/api-cache';
@@ -221,10 +221,7 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
   return (
     <div className="glass-card p-5 h-full flex flex-col overflow-hidden">
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
-        <div className="flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-[#1ED4A7]" />
-          <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider">{t('dashboard.buyingSignals')}</h3>
-        </div>
+        <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider">{t('dashboard.buyingSignals')}</h3>
         <button
           onClick={() => onNavigate('intent')}
           className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 dark:text-zinc-500 hover:text-[#1ED4A7] transition-colors"
