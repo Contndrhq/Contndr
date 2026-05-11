@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { User, Building, Mail, Camera, Upload, Loader2, CheckCircle, Download, Trash2, ShieldAlert } from 'lucide-react';
+import { User, Building, Mail, Camera, Upload, Loader2, CheckCircle, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId } from '../utils/supabase/info';
 import { getAuthHeaders, authenticatedFetch } from '../lib/auth';
@@ -328,70 +328,63 @@ export function ProfileSettings() {
           </button>
         </div>
 
-        {/* ── Privacy & data controls (GDPR / CCPA) ──────────────── */}
-        <div className="mt-10 pt-6 border-t border-zinc-200 dark:border-zinc-800">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-white mb-1">Privacy & data</h3>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
-            Download a copy of all data Contndr stores about you, or permanently delete your account.
-          </p>
-
-          <div className="space-y-3">
-            <button
-              onClick={downloadMyData}
-              disabled={exporting}
-              className="w-full sm:w-auto px-4 py-2.5 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors flex items-center gap-2 disabled:opacity-50"
-            >
-              {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              <span>Download my data</span>
-            </button>
-
-            {!showDeleteConfirm ? (
+        {/* ── Privacy & data (GDPR / CCPA) ──────────────── */}
+        <div className="mt-8 pt-5 border-t border-zinc-200 dark:border-zinc-800">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="min-w-0">
+              <h3 className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Privacy & data</h3>
+            </div>
+            <div className="flex items-center gap-3 text-sm">
+              <button
+                onClick={downloadMyData}
+                disabled={exporting}
+                className="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                <span>Download my data</span>
+              </button>
+              <span className="text-zinc-300 dark:text-zinc-700">·</span>
               <button
                 onClick={() => setShowDeleteConfirm(true)}
-                className="w-full sm:w-auto px-4 py-2.5 border border-red-200 dark:border-red-900/50 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors flex items-center gap-2"
+                className="text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors"
               >
-                <Trash2 className="w-4 h-4" />
-                <span>Delete my account</span>
+                Delete account
               </button>
-            ) : (
-              <div className="border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-950/20 rounded-lg p-4 space-y-3">
-                <div className="flex items-start gap-2">
-                  <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-red-900 dark:text-red-200">Permanent account deletion</p>
-                    <p className="text-xs text-red-700 dark:text-red-300 mt-1">
-                      All your leads, campaigns, emails, integrations, and settings will be permanently removed. This cannot be undone.
-                    </p>
-                  </div>
-                </div>
+            </div>
+          </div>
+
+          {showDeleteConfirm && (
+            <div className="mt-3 border border-red-200 dark:border-red-900/40 bg-red-50/40 dark:bg-red-950/15 rounded-lg p-3 space-y-2.5">
+              <p className="text-xs text-red-700 dark:text-red-300">
+                All your leads, campaigns, emails, and settings will be permanently removed. Type <span className="font-mono font-semibold">DELETE</span> to confirm.
+              </p>
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={deleteText}
                   onChange={(e) => setDeleteText(e.target.value)}
-                  placeholder='Type DELETE to confirm'
-                  className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-red-200 dark:border-red-900/50 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  placeholder='DELETE'
+                  className="flex-1 px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-red-200 dark:border-red-900/40 rounded text-sm focus:outline-none focus:ring-1 focus:ring-red-500"
                   disabled={deleting}
                 />
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={deleteMyAccount}
-                    disabled={deleteText !== 'DELETE' || deleting}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-md disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                    <span>Permanently delete</span>
-                  </button>
-                  <button
-                    onClick={() => { setShowDeleteConfirm(false); setDeleteText(''); }}
-                    disabled={deleting}
-                    className="px-4 py-2 border border-zinc-200 dark:border-zinc-800 rounded-md text-sm text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                <button
+                  onClick={deleteMyAccount}
+                  disabled={deleteText !== 'DELETE' || deleting}
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  {deleting && <Loader2 className="w-3 h-3 animate-spin" />}
+                  <span>Delete</span>
+                </button>
+                <button
+                  onClick={() => { setShowDeleteConfirm(false); setDeleteText(''); }}
+                  disabled={deleting}
+                  className="px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                >
+                  Cancel
+                </button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
