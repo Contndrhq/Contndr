@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { User, Building, Mail, Camera, Upload, Loader2, CheckCircle } from 'lucide-react';
+import { User, Building, Mail, Camera, Upload, Loader2, CheckCircle, Download, Trash2, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId } from '../utils/supabase/info';
 import { getAuthHeaders, authenticatedFetch } from '../lib/auth';
@@ -21,10 +21,65 @@ export function ProfileSettings() {
     company: '',
     avatarUrl: ''
   });
+  const [exporting, setExporting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteText, setDeleteText] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadUser();
   }, []);
+
+  // ── GDPR: download all user data as a single JSON file ────────────
+  async function downloadMyData() {
+    setExporting(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/account/export`,
+        { headers },
+      );
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `contndr-export-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Your data download has started');
+    } catch (e: any) {
+      toast.error('Export failed', { description: e.message });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  // ── GDPR: permanently delete account ──────────────────────────────
+  async function deleteMyAccount() {
+    if (deleteText !== 'DELETE') return;
+    setDeleting(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/account/delete`,
+        { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: 'DELETE' }) },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || `Delete failed (${res.status})`);
+      }
+      toast.success('Account deleted', { description: 'Signing you out…' });
+      // Auth is already gone server-side; clean up local session and route to landing.
+      await supabase.auth.signOut({ scope: 'local' });
+      setTimeout(() => { window.location.href = '/'; }, 1200);
+    } catch (e: any) {
+      toast.error('Delete failed', { description: e.message });
+      setDeleting(false);
+    }
+  }
 
   async function loadUser() {
     const { data: { session } } = await supabase.auth.getSession();
@@ -271,6 +326,72 @@ export function ProfileSettings() {
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
             <span>{t('profile.saveChanges')}</span>
           </button>
+        </div>
+
+        {/* ── Privacy & data controls (GDPR / CCPA) ──────────────── */}
+        <div className="mt-10 pt-6 border-t border-zinc-200 dark:border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-white mb-1">Privacy & data</h3>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
+            Download a copy of all data Contndr stores about you, or permanently delete your account.
+          </p>
+
+          <div className="space-y-3">
+            <button
+              onClick={downloadMyData}
+              disabled={exporting}
+              className="w-full sm:w-auto px-4 py-2.5 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors flex items-center gap-2 disabled:opacity-50"
+            >
+              {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              <span>Download my data</span>
+            </button>
+
+            {!showDeleteConfirm ? (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="w-full sm:w-auto px-4 py-2.5 border border-red-200 dark:border-red-900/50 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete my account</span>
+              </button>
+            ) : (
+              <div className="border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-950/20 rounded-lg p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-900 dark:text-red-200">Permanent account deletion</p>
+                    <p className="text-xs text-red-700 dark:text-red-300 mt-1">
+                      All your leads, campaigns, emails, integrations, and settings will be permanently removed. This cannot be undone.
+                    </p>
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  value={deleteText}
+                  onChange={(e) => setDeleteText(e.target.value)}
+                  placeholder='Type DELETE to confirm'
+                  className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-red-200 dark:border-red-900/50 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  disabled={deleting}
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={deleteMyAccount}
+                    disabled={deleteText !== 'DELETE' || deleting}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-md disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    <span>Permanently delete</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowDeleteConfirm(false); setDeleteText(''); }}
+                    disabled={deleting}
+                    className="px-4 py-2 border border-zinc-200 dark:border-zinc-800 rounded-md text-sm text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

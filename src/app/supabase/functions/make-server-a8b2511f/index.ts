@@ -15242,6 +15242,74 @@ app.get("/make-server-a8b2511f/version", (c) => {
   });
 });
 
+// POST /errors/report — frontend ErrorBoundary calls this when React throws.
+// Until we wire a real error reporter (Sentry/Datadog), the audit_log table
+// is the persistent home for these so support has somewhere to grep when a
+// customer says "the app crashed at X o'clock". Best-effort, never blocks
+// the user-facing recovery flow. Lightly rate-limited per IP so a buggy
+// customer in a render loop can't DOS the audit table.
+const _errorReportRate = new Map<string, { count: number; resetAt: number }>();
+const ERROR_REPORT_WINDOW_MS = 60_000;
+const ERROR_REPORT_MAX_PER_WINDOW = 20;
+app.post("/make-server-a8b2511f/errors/report", async (c) => {
+  try {
+    const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || c.req.header('cf-connecting-ip') || 'unknown';
+    const now = Date.now();
+    const bucket = _errorReportRate.get(ip);
+    if (!bucket || now > bucket.resetAt) {
+      _errorReportRate.set(ip, { count: 1, resetAt: now + ERROR_REPORT_WINDOW_MS });
+    } else {
+      bucket.count++;
+      if (bucket.count > ERROR_REPORT_MAX_PER_WINDOW) {
+        return c.json({ ok: true, throttled: true });
+      }
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    // Cap fields so a runaway error can't write a 5 MB stack trace.
+    const safe = {
+      message: String(body?.message || 'unknown').slice(0, 1000),
+      stack: typeof body?.stack === 'string' ? body.stack.slice(0, 4000) : null,
+      url: typeof body?.url === 'string' ? body.url.slice(0, 500) : null,
+      build: typeof body?.build === 'string' ? body.build.slice(0, 64) : null,
+      component_stack: typeof body?.component_stack === 'string' ? body.component_stack.slice(0, 2000) : null,
+      user_agent: (c.req.header('user-agent') || '').slice(0, 256),
+    };
+
+    // Try to attribute to a user if a valid token was sent (best-effort, no
+    // throw). Errors aren't auth-required because we want to capture pre-login
+    // crashes too.
+    let actorId: string | null = null;
+    let actorEmail: string | null = null;
+    const authHeader = c.req.header('Authorization');
+    if (authHeader) {
+      try {
+        const sb = getSupabaseAdmin();
+        const token = authHeader.replace('Bearer ', '').trim();
+        const { data } = await sb.auth.getUser(token);
+        actorId = data?.user?.id || null;
+        actorEmail = data?.user?.email || null;
+      } catch { /* anonymous error report — fine */ }
+    }
+
+    const { recordAuditEvent } = await import('./audit-log.tsx');
+    // Stash on context so the audit helper picks them up
+    try { c.set('userId', actorId); c.set('userEmail', actorEmail); } catch {}
+    await recordAuditEvent(c, {
+      action: 'frontend.error',
+      resource: 'browser',
+      resourceId: safe.build,
+      metadata: safe,
+    });
+
+    return c.json({ ok: true });
+  } catch (e: any) {
+    // Never throw from the error reporter itself
+    console.warn('[ERROR-REPORT] Swallowing reporter failure:', e?.message);
+    return c.json({ ok: false }, 200);
+  }
+});
+
 // GET /health/deep — true health check that probes the dependencies the app
 // can't run without. Use this for uptime monitors and load-balancer status
 // pages instead of /public-health (which only confirms the function booted).
