@@ -769,6 +769,55 @@ function hasCallablePhone(lead: any): boolean {
   );
 }
 
+// Sanitize a raw location string scraped from a search snippet. Drops
+// URL-looking fragments, company-name repetition, and obvious scraping
+// artifacts ("Owner.com Graphic. Owner.com. San..." style). Returns "" when
+// the input doesn't look like a real place — better empty than wrong.
+function sanitizeLocationString(raw: string | null | undefined, companyName?: string): string {
+  if (!raw) return "";
+  let s = String(raw).trim();
+  if (!s) return "";
+
+  // Strip after the first period — real locations don't have periods.
+  // Junk like "Owner.com Graphic. Owner.com. San Diego" loses everything
+  // before the first period (which is the URL fragment).
+  if (s.includes(".")) {
+    // If the LAST segment after a period looks like a real place ("San
+    // Diego, CA"), use that. Otherwise drop the field.
+    const segments = s.split(/\.\s+/).map(p => p.trim()).filter(Boolean);
+    s = segments[segments.length - 1] || "";
+    if (!s) return "";
+  }
+
+  // Drop URL fragments and TLDs — locations don't contain ".com", "http", etc.
+  if (/\b(?:https?:\/\/|www\.|\.com|\.io|\.co|\.net|\.org|\.app)\b/i.test(s)) {
+    return "";
+  }
+
+  // Drop bracketed/parenthetical noise
+  s = s.replace(/\s*[\[(].*?[\])]\s*/g, "").trim();
+
+  // Drop common scraped-artifact words
+  if (/\b(?:graphic|logo|website|profile|view|click|here|more|see all)\b/i.test(s)) {
+    return "";
+  }
+
+  // Drop the company name if it's leaked into the location field
+  if (companyName) {
+    const co = companyName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    s = s.replace(new RegExp(`\\b${co}\\b`, "gi"), "").trim();
+    s = s.replace(/^[,\s]+|[,\s]+$/g, "");
+  }
+
+  // Length sanity
+  if (s.length < 2 || s.length > 80) return "";
+
+  // Reject if more than 4 commas (real locations are "City, State, Country" max)
+  if ((s.match(/,/g) || []).length > 4) return "";
+
+  return s;
+}
+
 function filterEmailQualifiedPeople<T extends DeepLead>(people: T[], context: string): T[] {
   const filtered = people.filter(hasUsablePersonEmail);
   const dropped = people.length - filtered.length;
@@ -2319,7 +2368,10 @@ app.post("/search-stream", async (c) => {
               email_status: "",
               linkedin_url: p.linkedin_url || "",
               phone_numbers: [],
-              city: p.location || cbEnrichment?.city || "",
+              // Sanitize p.location — it's raw SerpAPI snippet text and often
+              // contains URL fragments / company name / "Graphic" alt-text
+              // that pollutes the rendered location field.
+              city: sanitizeLocationString(p.location, verifiedCompanyName) || cbEnrichment?.city || "",
               state: cbEnrichment?.state || "",
               country: organization_locations?.[0] || cbEnrichment?.country || "",
               seniority: p.seniority,
@@ -3160,6 +3212,21 @@ app.post("/search-stream", async (c) => {
           });
           finalPeople.length = 0;
           finalPeople.push(...mailboxSafePeople);
+
+          // Backfill from tier 4 if mailbox verification dropped emails and
+          // left us short of max_results. Without this, a search asking for
+          // 10 leads can return 7 because 3 emails failed verification —
+          // even when 30+ LinkedIn-only leads were available to fill the gap.
+          if (finalPeople.length < max_results && tier4LinkedinOnly.length > 0) {
+            const alreadyIncluded = new Set(finalPeople.map(p => (p.name || "").toLowerCase()));
+            for (const p of tier4LinkedinOnly) {
+              if (finalPeople.length >= max_results) break;
+              const nameKey = (p.name || "").toLowerCase();
+              if (nameKey && alreadyIncluded.has(nameKey)) continue;
+              finalPeople.push(p);
+              if (nameKey) alreadyIncluded.add(nameKey);
+            }
+          }
 
           const withIndustry = finalPeople.filter(l => l.organization?.industry).length;
           const previewLeads = finalPeople.filter(l => (l as any)._preview).length;
