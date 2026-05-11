@@ -760,6 +760,15 @@ function hasUsablePersonEmail(lead: DeepLead): boolean {
   return true;
 }
 
+// Module-scoped so filterMailboxSafePeople (also module-scoped) can reach it.
+// The merge block has a local copy of the same function — both should match.
+function hasCallablePhone(lead: any): boolean {
+  return !!(
+    (lead?.phone_numbers?.some?.((phone: any) => (phone?.raw_number || "").trim())) ||
+    lead?.organization?.phone
+  );
+}
+
 function filterEmailQualifiedPeople<T extends DeepLead>(people: T[], context: string): T[] {
   const filtered = people.filter(hasUsablePersonEmail);
   const dropped = people.length - filtered.length;
