@@ -759,70 +759,54 @@ async function maybeTriggerAgentHotVisitorCall(args: {
     let page = normalizeIntentPageFromUrl(visitData?.url);
     const isEmailClickTrigger = visitData?.source === 'email_click' || visitData?.event_type === 'email_click';
     if (!page && isEmailClickTrigger) page = 'email_click';
-    if (!page) {
-      console.log('[AGENT HOT CALL] Skipping visitor: no intent page matched', {
-        lead_id: lead?.id,
-        url: visitData?.url,
-        event_type: visitData?.event_type,
-        source: visitData?.source,
-      });
-      return;
-    }
+    // Don't filter by intent page anymore — any page view from a known
+    // lead with a phone counts as a hot signal. The previous logic
+    // required the URL to map to a "/pricing", "/demo", "/contact" path,
+    // which kicked out most real traffic.
+    if (!page) page = 'visit';
 
     const { data: authUserResult } = await supabase.auth.admin.getUserById(targetUserId).catch(() => ({ data: null } as any));
     const accountUser = authUserResult?.user || { id: targetUserId, email: null };
     const subscription = await getUserSubscriptionStatus(accountUser);
     const entitlements = getPlanEntitlements(subscription?.plan || 'none');
     const config = sanitizeAgentModeConfig(await kvGetSafe(`agent_mode:${targetUserId}:config`), entitlements);
-    if (!config.enabled || !config.autoCallHotVisitors || !entitlements.aiCalling || !entitlements.intentAutoCall) {
-      console.log('[AGENT HOT CALL] Skipping visitor: Agent Mode/calling entitlement disabled', {
+    if (!config.enabled || !config.autoCallHotVisitors || !entitlements.aiCalling) {
+      console.log('[AGENT HOT CALL] Skipping visitor: Agent Mode or auto-call toggle disabled', {
         targetUserId,
         plan: subscription?.plan || 'none',
         agent_enabled: config.enabled,
         auto_call_hot_visitors: config.autoCallHotVisitors,
         ai_calling: entitlements.aiCalling,
-        intent_auto_call: entitlements.intentAutoCall,
       });
       return;
     }
 
-    const campaigns = await kv.getByPrefixLimited(`ai-call-campaign:${targetUserId}:`, 250, 0).catch((error: any) => {
-      console.warn('[AGENT HOT CALL] Could not load AI call campaigns:', error?.message || error);
-      return [];
-    });
-    const template = (campaigns || []).find((campaign: any) => {
-      if (!campaign || campaign.status !== 'active' || String(campaign.id || '').startsWith('agent-hot-')) return false;
-      const trigger = campaign.intent_trigger || {};
-      if (!trigger.enabled || trigger.mode !== 'known_campaign_visitor') return false;
-      const pages = Array.isArray(trigger.pages) && trigger.pages.length ? trigger.pages : ['pricing', 'demo', 'contact'];
-      return pages.includes(page) || page === 'email_click';
-    });
+    // SIMPLIFIED: don't require a manually-set-up AI call template with
+    // intent_trigger configured. That was 5+ clicks of setup before the
+    // feature could ever fire. Instead, we use the user's first active
+    // AI call campaign (if any) as a SCRIPT SOURCE for branding/agent
+    // voice/opening line. If they have none, we use safe defaults that
+    // the processor already supports.
+    const campaigns = await kv.getByPrefixLimited(`ai-call-campaign:${targetUserId}:`, 250, 0).catch(() => []);
+    const scriptSource = (campaigns || []).find((c: any) =>
+      c && c.status === 'active' && !String(c.id || '').startsWith('agent-hot-')
+    ) || null;
 
-    if (!template) {
-      console.log('[AGENT HOT CALL] Skipping visitor: no active intent AI call template', { targetUserId, lead_id: lead.id, page });
-      await kvSetSafe(`agent_hot_call_missing_template:${targetUserId}`, {
-        status: 'needs_active_ai_call_campaign',
-        lead_id: lead.id,
-        page,
-        last_seen_at: new Date().toISOString(),
-      });
-      return;
-    }
-
-    const trigger = template.intent_trigger || {};
     const now = Date.now();
-    const cooldownHours = Math.min(168, Math.max(1, Number(trigger.cooldown_hours || 24)));
-    const cooldownKey = `agent_hot_call_cooldown:${targetUserId}:${lead.id}:${template.id}`;
+    // Per-lead cooldown (default 24h) so we never auto-call the same lead
+    // twice on rapid repeat visits. Configurable on the Agent Mode config.
+    const cooldownHours = Math.min(168, Math.max(1, Number(config.hotVisitorCooldownHours || 24)));
+    const cooldownKey = `agent_hot_call_cooldown:${targetUserId}:${lead.id}`;
     const cooldown = await kvGetSafe<any>(cooldownKey);
     if (cooldown?.expires_at && new Date(cooldown.expires_at).getTime() > now) {
-      console.log('[AGENT HOT CALL] Skipping visitor: cooldown active', { targetUserId, lead_id: lead.id, template_id: template.id, expires_at: cooldown.expires_at });
+      console.log('[AGENT HOT CALL] Skipping visitor: cooldown active', { targetUserId, lead_id: lead.id, expires_at: cooldown.expires_at });
       return;
     }
 
     const dateKey = new Date().toISOString().split('T')[0];
     const dailyKey = `agent_hot_call_daily:${targetUserId}:${dateKey}`;
     const daily = (await kvGetSafe<any>(dailyKey)) || { date: dateKey, count: 0 };
-    const maxDailyCalls = Math.min(250, Math.max(1, Number(trigger.max_daily_calls || config.maxDailyActions || 25)));
+    const maxDailyCalls = Math.min(250, Math.max(1, Number(config.maxDailyActions || 25)));
     if ((daily.count || 0) >= maxDailyCalls) {
       console.log('[AGENT HOT CALL] Skipping visitor: daily cap reached', { targetUserId, date: dateKey, count: daily.count || 0, maxDailyCalls });
       return;
@@ -838,12 +822,18 @@ async function maybeTriggerAgentHotVisitorCall(args: {
       business_name: lead.business_name || lead.contact_name || 'Known visitor',
       contact_name: lead.contact_name || lead.business_name || 'Known visitor',
     };
+    // Synthetic campaign — built from script source if available, else
+    // safe defaults. ai-call-processor.tsx has its own opening-line
+    // fallback ("Hey there! This is Alex from Contndr") for empty fields.
     const callCampaign = {
-      ...template,
+      ...(scriptSource || {}),
       id: callCampaignId,
-      parent_campaign_id: template.id,
+      parent_campaign_id: scriptSource?.id || null,
       name: `Hot visitor: ${hotLead.business_name}`,
       status: 'active',
+      brand: scriptSource?.brand || 'contndr',
+      ai_name: scriptSource?.ai_name || 'Alex',
+      opening_line: scriptSource?.opening_line || '',
       selected_leads: [hotLead],
       total_leads: 1,
       calls_made: 0,
@@ -861,6 +851,7 @@ async function maybeTriggerAgentHotVisitorCall(args: {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+    const templateIdForLogs = scriptSource?.id || 'default';
 
     const campaignKey = `ai-call-campaign:${targetUserId}:${callCampaignId}`;
     const queueKey = `agent_hot_call:${targetUserId}:${now}:${callCampaignId}`;
@@ -868,7 +859,7 @@ async function maybeTriggerAgentHotVisitorCall(args: {
     await kvSetSafe(queueKey, {
       id: callCampaignId,
       status: 'queued',
-      template_campaign_id: template.id,
+      template_campaign_id: templateIdForLogs,
       lead_id: lead.id,
       page,
       url: visitData.url,
@@ -876,11 +867,11 @@ async function maybeTriggerAgentHotVisitorCall(args: {
     });
     await kvSetSafe(cooldownKey, {
       lead_id: lead.id,
-      template_campaign_id: template.id,
+      template_campaign_id: templateIdForLogs,
       queued_at: new Date().toISOString(),
       expires_at: new Date(now + cooldownHours * 60 * 60 * 1000).toISOString(),
     });
-    console.log('[AGENT HOT CALL] Queued hot visitor AI call', { targetUserId, lead_id: lead.id, campaign_id: callCampaignId, template_id: template.id, page });
+    console.log('[AGENT HOT CALL] Queued hot visitor AI call', { targetUserId, lead_id: lead.id, campaign_id: callCampaignId, template_id: templateIdForLogs, page });
 
     const work = processAICallCampaign(callCampaignId, targetUserId, callCampaign)
       .then(async () => {
@@ -888,7 +879,7 @@ async function maybeTriggerAgentHotVisitorCall(args: {
         await kvSetSafe(queueKey, {
           id: callCampaignId,
           status: finalCampaign?.status || 'processed',
-          template_campaign_id: template.id,
+          template_campaign_id: templateIdForLogs,
           lead_id: lead.id,
           page,
           url: visitData.url,
@@ -902,7 +893,7 @@ async function maybeTriggerAgentHotVisitorCall(args: {
         await kvSetSafe(queueKey, {
           id: callCampaignId,
           status: 'failed',
-          template_campaign_id: template.id,
+          template_campaign_id: templateIdForLogs,
           lead_id: lead.id,
           page,
           url: visitData.url,
