@@ -434,34 +434,38 @@ export async function sendEmail(
   }
 
   // ── Real mailbox verification gate ──
-  // We ONLY block when the verifier is confident the mailbox is bad
-  // ("undeliverable"). "risky" (catch-all) and "unknown" (verifier couldn't
-  // determine status — common for corporate domains with anti-spam SMTP
-  // probes blocked) are allowed through to the provider. The provider's
-  // own SMTP delivery is the ground truth — if it actually bounces, we
-  // catch it on the post-send path. The previous behavior killed 99 of 100
-  // sends on a campaign because ZeroBounce returned "unknown" for nearly
-  // every business email.
-  const mailbox = await verifyMailboxDeliverability(options.to.trim());
-  if (mailbox.deliverability === "undeliverable") {
-    console.warn(`[EMAIL-SENDER] ✋ Mailbox verification blocked ${options.to}: undeliverable (${mailbox.reason})`);
-    try {
-      await kv.set(`suppressed:${options.to.toLowerCase().trim()}`, JSON.stringify({
-        reason: mailbox.reason,
-        provider: mailbox.provider,
-        provider_status: mailbox.provider_status,
-        added_at: new Date().toISOString(),
-        source: 'mailbox_verification',
-      }));
-    } catch (_) { /* non-fatal */ }
-    return {
-      success: false,
-      error: `Mailbox undeliverable: ${mailbox.reason}`,
-    };
-  }
-  if (!mailbox.safe_to_send) {
-    // risky / unknown — log but proceed. The provider has the final say.
-    console.log(`[EMAIL-SENDER] ⚠️ Proceeding despite uncertain verification for ${options.to}: ${mailbox.deliverability} (${mailbox.reason})`);
+  // Disabled by default. ZeroBounce returns "unknown" for most corporate
+  // domains (anti-spam blocks the probe) which was causing 99 of 100 sends
+  // to be wrongly blocked. The provider's own SMTP rejection is the
+  // ground truth — bounces flow back through the webhook handlers and
+  // mark the lead correctly post-fact.
+  //
+  // To re-enable strict pre-send verification, set the env var:
+  //   ENABLE_PRE_SEND_VERIFICATION=1
+  // Even then, we only block on a CONFIRMED "undeliverable" verdict; other
+  // statuses are logged and allowed through.
+  if (Deno.env.get('ENABLE_PRE_SEND_VERIFICATION') === '1') {
+    const mailbox = await verifyMailboxDeliverability(options.to.trim());
+    if (mailbox.deliverability === "undeliverable") {
+      console.warn(`[EMAIL-SENDER] ✋ Mailbox verification blocked ${options.to}: undeliverable (${mailbox.reason})`);
+      try {
+        await kv.set(`suppressed:${options.to.toLowerCase().trim()}`, JSON.stringify({
+          reason: mailbox.reason,
+          provider: mailbox.provider,
+          provider_status: mailbox.provider_status,
+          added_at: new Date().toISOString(),
+          source: 'mailbox_verification',
+        }));
+      } catch (_) { /* non-fatal */ }
+      return {
+        success: false,
+        error: `Mailbox undeliverable: ${mailbox.reason}`,
+      };
+    }
+    if (!mailbox.safe_to_send) {
+      // risky / unknown — log but proceed. The provider has the final say.
+      console.log(`[EMAIL-SENDER] ⚠️ Proceeding despite uncertain verification for ${options.to}: ${mailbox.deliverability} (${mailbox.reason})`);
+    }
   }
 
   // ── Bounce suppression check ──
