@@ -12194,17 +12194,60 @@ ABSOLUTE RULES:
 - Do NOT "improve" or "elevate" the language beyond what the instructions ask for.
 - STOP after the CTA. Do NOT write a sign-off, closing, or name. The signature is added automatically.`;
       } else if (hasKB) {
-        systemMessage = `You are a cold email writer for the sender's brand. Write the email based on their knowledge base. Match the tone: ${toneDescription}.
+        systemMessage = `You are a senior B2B copywriter writing cold outreach for the sender's brand. The goal is REPLIES, not pretty prose. Match the tone: ${toneDescription}.
 
-RULES:
-- Use ONLY the product name, value proposition, and messaging from the knowledge base.
-- Do NOT invent features, claims, or details not provided.
-- Do NOT add phrases like "not public yet", "quietly rolling out", "exclusive access", "limited spots" UNLESS the knowledge base says to.
+WHAT MAKES THIS EMAIL CONVERT:
+- The first sentence is a SPECIFIC observation about the prospect's business or industry. NOT "I came across", NOT "I noticed", NOT "I hope this finds you well".
+- The pitch is ONE concrete outcome the prospect cares about — NOT a list of features. Quantify when possible ("3x more booked meetings" beats "saves time").
+- The CTA is a direct yes/no or specific time — NOT "would it make sense to explore?" or "are you open to chatting?".
+- It reads like a one-on-one note from a peer, not a template. If a busy CEO would archive it in 2 seconds, you wrote it wrong.
+
+BANNED OPENINGS (rewrite if you reach for any of these):
+- "I came across [Company]"
+- "I noticed you / your team"
+- "I hope this finds you well" / "Hope you're doing well" / "Hope all is well"
+- "Just wanted to reach out / quick note / quick question"
+- "Reaching out because"
+- "My name is X and I'm with Y"
+
+BANNED VALUE-PROP PHRASES (lazy SDR template language):
+- "save time" / "streamline your workflow" / "all in one place" / "one stop shop"
+- "best in class" / "industry leading" / "next generation" / "cutting edge"
+- "help teams [generic verb]" — say what specifically changes
+- "find decision makers and organize outreach" — too vague, name the outcome
+
+BANNED CTAs:
+- "Would it make sense to explore?"
+- "Are you the right person?"
+- "Worth a quick chat?"
+- "Let me know your thoughts"
+
+BANNED FALSE-SCARCITY (unless KB explicitly tells you to use them):
+- "not public yet" / "quietly rolling out" / "exclusive access" / "limited spots" / "waitlist"
+
+WHAT TO DO INSTEAD:
+- Use ONLY the product name, value prop, and messaging from the knowledge base. Do NOT invent features.
 - Do NOT reference Contndr, Sourcr, Roadr, or Covera unless that IS the sender's brand.
-- Write as if you ARE the sender.
+- Subject lines: 3-6 words, lowercase, look like a colleague-to-colleague subject. Bad: "Quick Note for X". Good: "fort point + outreach", "quick q on Q4 pipeline", "30s read on your sales motion".
+- Write as if you ARE the sender. First-person, conversational, contractions OK.
 - STOP after the CTA. No sign-off or name. Signature is added automatically.`;
       } else {
-        systemMessage = `You are writing a cold outreach email for the sender. Tone: ${toneDescription}. Sound like a real person, not a template. Do NOT use phrases like "not public yet", "exclusive access", "limited spots", or "waitlist". STOP after the CTA. No sign-off or name. Signature is added automatically.`;
+        systemMessage = `You are a senior B2B copywriter writing a cold outreach email for the sender. The goal is REPLIES. Tone: ${toneDescription}. Sound like a real human peer, not an SDR template.
+
+WHAT MAKES THIS EMAIL CONVERT:
+- First sentence is a SPECIFIC observation about the prospect — never "I came across" or "I noticed" or "I hope this finds you well".
+- Pitch ONE concrete outcome (quantified if possible), not a feature list. "3x more booked meetings" beats "saves time".
+- CTA is a direct yes/no or a specific time slot — not "would it make sense?" or "open to chatting?".
+
+BANNED PHRASES (rewrite if you reach for any):
+Openings: "I came across", "I noticed", "I hope this finds you well", "Just wanted to reach out", "Quick note", "Reaching out because", "My name is X".
+Value-prop fluff: "save time", "streamline", "all in one place", "one stop shop", "best in class", "industry leading", "help teams [verb]".
+CTAs: "Would it make sense to explore?", "Worth a quick chat?", "Are you the right person?", "Let me know your thoughts".
+False scarcity: "not public yet", "exclusive access", "limited spots", "waitlist".
+
+Subject lines: 3-6 words, lowercase, peer-to-peer style. Bad: "Quick Note for X". Good: "fort point + outreach", "30s on your sales motion".
+
+STOP after the CTA. No sign-off, no name. The signature is added automatically.`;
       }
 
       // ── BUILD USER PROMPT ──
@@ -12249,13 +12292,15 @@ ${landing_url ? `Landing URL: ${landing_url}` : ''}`;
           // No custom instructions — use sensible defaults based on tone
           rules = `RULES:
 1. Start with "Hi ${firstName},".
-2. Keep it under ${wordLimit} words.
+2. Keep it under ${wordLimit} words. Shorter is better — sub-50 words gets the highest reply rate.
 3. Write 2-3 short paragraphs separated by blank lines.
 4. Tone: ${toneDescription}.
-5. Open with a relevant hook tied to their industry.
-6. ${landing_url ? `End with a soft CTA that includes "${landing_url}".` : 'End with a question inviting them to reply.'}
-7. DO NOT list features or mention pricing.
-8. STOP after the CTA. No sign-off, no name. We add the signature automatically.`;
+5. The OPENING SENTENCE must be a specific, plausible observation about ${lead.business_name || 'their business'} or their industry (${lead.category || lead.industry || 'their space'}). NEVER "I came across", "I noticed", "I hope this finds you well", or any generic SDR opener.
+6. ONE concrete outcome in the body. Quantify if you can ("X% more replies", "3x faster"). Never "save time" or "all in one place" or "help teams find decision makers".
+7. ${landing_url ? `End with a direct CTA referencing "${landing_url}". Make it a specific yes/no or time-slot ask, not "would it make sense to explore?".` : 'End with a SPECIFIC yes/no question or a time-slot ask. Never "make sense to explore?" or "open to chatting?".'}
+8. Subject line: 3-6 lowercase words, peer-to-peer style. NEVER "Quick Note for X" or "Hello from Y".
+9. DO NOT list features. DO NOT mention pricing unless the campaign value field is set.
+10. STOP after the CTA. No sign-off, no name. We add the signature automatically.`;
         }
 
         userPrompt = `Write a cold outreach email.
@@ -13462,9 +13507,24 @@ ABSOLUTE RULES:
 - Do NOT reference Contndr, Sourcr, Roadr, or Covera unless instructions mention them.
 - STOP after the CTA. No sign-off, closing, or name. Signature is added automatically.`;
           } else if (hasKB) {
-            systemMessage = `You are a cold email writer for the sender's brand. Write based on their knowledge base. Tone: ${toneDescription}. Do NOT invent features or claims. Do NOT add "exclusive access" or "waitlist" phrases. STOP after CTA. No sign-off.`;
+            systemMessage = `You are a senior B2B copywriter writing cold outreach for the sender's brand. Goal: REPLIES. Tone: ${toneDescription}.
+
+WHAT MAKES THIS CONVERT:
+- First sentence is a SPECIFIC observation about the prospect's business — NEVER "I came across", "I noticed", "I hope this finds you well".
+- ONE concrete outcome in the body (quantified if possible) — NEVER "save time", "all in one place", "streamline", "help teams find decision makers".
+- CTA is a direct yes/no or specific time — NEVER "would it make sense to explore?" or "open to chatting?".
+- Subject line: 3-6 lowercase words, peer-to-peer. Bad: "Quick Note for X". Good: "fort point + outreach".
+
+Use ONLY the product name, value prop, and messaging from the knowledge base. Don't invent features. Don't add "exclusive access" or "waitlist" phrases unless KB says to. Don't reference Contndr / Sourcr / Roadr / Covera unless that IS the sender's brand. Write as if you ARE the sender. STOP after the CTA.`;
           } else {
-            systemMessage = `You are writing a cold outreach email. Tone: ${toneDescription}. Sound like a real person. No "exclusive access" or "waitlist" phrases. STOP after CTA. No sign-off.`;
+            systemMessage = `You are a senior B2B copywriter writing a cold outreach email. Goal: REPLIES. Tone: ${toneDescription}. Sound like a peer, not a template.
+
+BANNED OPENINGS: "I came across", "I noticed", "I hope this finds you well", "Just wanted to reach out", "Quick note", "Reaching out because".
+BANNED VALUE PROPS: "save time", "streamline", "all in one place", "help teams [verb]", "best in class", "industry leading".
+BANNED CTAs: "would it make sense to explore?", "worth a quick chat?", "are you the right person?", "let me know your thoughts".
+BANNED FALSE SCARCITY: "exclusive access", "limited spots", "waitlist".
+
+INSTEAD: open with a SPECIFIC observation about the prospect. Pitch ONE concrete outcome (quantified beats vague). CTA is a yes/no or a specific time slot. Subject lines: 3-6 lowercase words. STOP after the CTA.`;
           }
 
           const targetInfo = `TARGET:\nName: ${lead.business_name || 'Business'}\nContact: ${firstName}\nIndustry: ${lead.category || lead.industry || ''}\nLocation: ${lead.city || ''}`;
@@ -13476,9 +13536,9 @@ ABSOLUTE RULES:
 
           let rules = '';
           if (hasCustomInstructions) {
-            rules = `FORMATTING RULES:\n1. Start with "Hi ${firstName},".\n2. Under ${wordLimit} words.\n3. Separate paragraphs with blank lines.\n4. ${landing_url ? `Include "${landing_url}" in your CTA.` : 'End with a question inviting reply.'}\n5. STOP after CTA. No sign-off, no name.\n6. Follow the WRITING INSTRUCTIONS for everything else.`;
+            rules = `FORMATTING RULES:\n1. Start with "Hi ${firstName},".\n2. Under ${wordLimit} words (sub-50 is even better).\n3. Separate paragraphs with blank lines.\n4. ${landing_url ? `Include "${landing_url}" in a direct CTA, not a vague "would it make sense to explore?".` : 'End with a SPECIFIC yes/no question or time-slot ask.'}\n5. STOP after CTA. No sign-off, no name.\n6. Follow the WRITING INSTRUCTIONS for everything else.`;
           } else {
-            rules = `RULES:\n1. Start with "Hi ${firstName},".\n2. Under ${wordLimit} words.\n3. Write 2-3 short paragraphs separated by blank lines.\n4. Tone: ${toneDescription}.\n5. Open with a relevant hook.\n6. ${landing_url ? `End with a soft CTA including "${landing_url}".` : 'End with a reply-inviting question.'}\n7. DO NOT list features or mention pricing.\n8. STOP after CTA. No sign-off, no name.`;
+            rules = `RULES:\n1. Start with "Hi ${firstName},".\n2. Under ${wordLimit} words (sub-50 gets the highest reply rate).\n3. 2-3 short paragraphs separated by blank lines.\n4. Tone: ${toneDescription}.\n5. OPENING SENTENCE: specific, plausible observation about ${lead.business_name || 'their business'} (${lead.category || lead.industry || 'their space'}). NEVER "I came across", "I noticed", "I hope this finds you well".\n6. ONE concrete outcome in the body, quantified when possible. NEVER "save time" / "all in one place" / "find decision makers".\n7. ${landing_url ? `End with a direct CTA referencing "${landing_url}" — a specific yes/no ask, not "would it make sense to explore?".` : 'End with a SPECIFIC yes/no question or time-slot ask. Never "make sense to explore?" or "open to chatting?".'}\n8. Subject line: 3-6 lowercase words, peer-to-peer. NEVER "Quick Note for X".\n9. DO NOT list features or mention pricing.\n10. STOP after CTA. No sign-off, no name.`;
           }
 
           userPrompt = `Write a cold outreach email.\n\n${targetInfo}\n\n${senderInfo}\n${instructionBlock}${exampleBlock}${kbBlock}\n${rules}\n\nFormat:\nSubject: [Subject line]\nPreview: [First sentence]\nBody: [Email body]`;
