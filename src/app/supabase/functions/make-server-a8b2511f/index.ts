@@ -13571,10 +13571,13 @@ INSTEAD: open with a SPECIFIC observation about the prospect. Pitch ONE concrete
           const leadDisplayName = _cleanContact12148 || lead.first_name || lead.business_name || lead.email;
           
           if (classification.isTransient) {
-            // Transient failure → queue for retry, do NOT mark as attempted
+            // Transient failure → queue for retry AND mark as attempted for
+            // this broadcast session so the loop doesn't pick the same lead
+            // again. The retry queue worker handles the async re-attempt.
             await enqueueRetry(user.id, campaignId, lead.id, lead.email, errMsg, classification.category).catch(() => {});
             console.log(`[SEND-BATCH] Lead ${lead.id} queued for retry (AI transient: ${classification.category})`);
             emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject: '', body: '', fromEmail: '', success: false, error: `Queued for retry: ${errMsg.slice(0, 200)}`, bounced: false, retryQueued: true });
+            newlyAttemptedIds.push(lead.id);
           } else {
             // Permanent failure → mark as attempted
             newlyAttemptedIds.push(lead.id);
@@ -13915,7 +13918,14 @@ INSTEAD: open with a SPECIFIC observation about the prospect. Pitch ONE concrete
             }
             
             emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: false, error: `Queued for retry: ${errMsg}`, bounced: false, retryQueued: true });
-            // NOTE: We intentionally do NOT push to newlyAttemptedIds so the lead remains eligible
+            // IMPORTANT: mark as attempted for THIS broadcast session so the
+            // loop doesn't immediately re-pick the same lead and burn the
+            // whole campaign on one bad recipient. The retry queue worker
+            // delivers asynchronously on its own schedule (typically minutes
+            // later), independent of the broadcast loop. Previously this
+            // wasn't pushed, which caused the same lead to be re-attempted
+            // 3+ times in a row inside a single broadcast.
+            newlyAttemptedIds.push(lead.id);
           } else {
             // Permanent failure → original logic
             emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: false, error: errMsg, bounced: isBounceError });
