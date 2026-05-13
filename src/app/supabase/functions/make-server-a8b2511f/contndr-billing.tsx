@@ -1157,6 +1157,25 @@ export async function handleStripeWebhook(req: Request) {
               },
             ).catch(() => {});
           } catch (_) {}
+
+          // Notify the customer — they need to know WHY their account
+          // changed so they can fix their card. Sent only when we have a
+          // real email address (skip the "unknown" placeholder case).
+          if (invoice.customer_email && /@/.test(invoice.customer_email)) {
+            try {
+              const { sendAccountDowngradedEmail } = await import('./email-sender.tsx');
+              await sendAccountDowngradedEmail({
+                email: invoice.customer_email,
+                name: invoice.customer_name || undefined,
+                previousPlan: existingSub.plan || null,
+                failureCount: failures,
+              });
+              console.log(`[BILLING WEBHOOK] Sent downgrade notification to ${invoice.customer_email}`);
+            } catch (emailErr: any) {
+              // Email failure shouldn't block the downgrade itself
+              console.error('[BILLING WEBHOOK] Could not send downgrade email:', emailErr?.message);
+            }
+          }
         } catch (downgradeErr) {
           console.error('[BILLING WEBHOOK] Auto-downgrade failed:', downgradeErr);
         }

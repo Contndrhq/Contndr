@@ -643,3 +643,62 @@ export async function sendAccessGrantedEmail(email: string, name: string): Promi
 export async function sendInviteEmail(email: string, name: string): Promise<SendEmailResult> {
   return await sendAccessGrantedEmail(email, name);
 }
+
+// ---------------------------------------------------------------------------
+// Sent automatically when an account is auto-downgraded after consecutive
+// failed payments. Tells the user what happened, why, and how to recover.
+// Kept short and direct — the goal is to make the recovery path obvious,
+// not to lecture the user about their card.
+// ---------------------------------------------------------------------------
+export async function sendAccountDowngradedEmail(args: {
+  email: string;
+  name?: string;
+  previousPlan?: string | null;
+  failureCount: number;
+}): Promise<SendEmailResult> {
+  const firstName = (args.name || args.email.split('@')[0] || 'there').split(' ')[0];
+  const planLabel = args.previousPlan
+    ? args.previousPlan.charAt(0).toUpperCase() + args.previousPlan.slice(1)
+    : 'paid';
+  return await sendSystemEmail({
+    from: 'billing@contndr.com',
+    to: args.email,
+    subject: `Your Contndr ${planLabel} subscription was paused`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #e5e5e5; background-color: #000; margin: 0; padding: 0; }
+            .wrapper { background-color: #000; padding: 40px 0; }
+            .container { max-width: 480px; margin: 0 auto; padding: 0 20px; }
+            .card { background-color: #0A0A0A; border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; padding: 40px 32px; }
+            h1 { font-size: 24px; font-weight: 700; color: #fff; margin: 0 0 16px 0; letter-spacing: -0.3px; }
+            p { color: #999; font-size: 15px; margin: 0 0 16px 0; line-height: 1.7; }
+            .btn { display: inline-block; background: #fff; color: #000; padding: 14px 22px; border-radius: 12px; text-decoration: none; font-weight: 700; font-size: 14px; margin-top: 8px; }
+            .meta { font-size: 13px; color: #666; margin-top: 24px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.06); }
+            .footer { margin-top: 24px; font-size: 11px; color: #444; text-align: center; }
+          </style>
+        </head>
+        <body>
+          <div class="wrapper">
+            <div class="container">
+              <div class="card">
+                <h1>Your ${planLabel} subscription was paused</h1>
+                <p>Hi ${firstName},</p>
+                <p>We tried to charge your card ${args.failureCount} time${args.failureCount === 1 ? '' : 's'} for your Contndr ${planLabel} plan and weren't able to complete the payment. To keep things from breaking quietly, we've paused the subscription and downgraded your account.</p>
+                <p>Your data is safe. You can reactivate any time by updating your payment method.</p>
+                <a href="https://contndr.com?auth=signin&panel=billing" class="btn">Update payment &rarr;</a>
+                <div class="meta">If you've already fixed your card with your bank, just visit Billing in Settings to re-subscribe — your previous plan info is preserved.</div>
+                <div class="footer">&copy; ${new Date().getFullYear()} Contndr. Need help? Reply to this email.</div>
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `,
+    text: `Hi ${firstName},\n\nWe tried to charge your card ${args.failureCount} time${args.failureCount === 1 ? '' : 's'} for your Contndr ${planLabel} plan and weren't able to complete the payment. To keep things from breaking quietly, we've paused the subscription and downgraded your account.\n\nYour data is safe. You can reactivate any time by updating your payment method:\nhttps://contndr.com?auth=signin&panel=billing\n\nIf you've already fixed your card with your bank, just visit Billing in Settings to re-subscribe.\n\nReply to this email if you need help.\n\n© ${new Date().getFullYear()} Contndr.`,
+  });
+}

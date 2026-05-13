@@ -676,6 +676,41 @@ function isValidBusinessEmail(email: string): boolean {
   return !invalidPatterns.some(p => emailLower.includes(p));
 }
 
+// Decide whether a send-time error message indicates the RECIPIENT'S
+// mailbox refused the message (a real bounce that should mark the lead
+// as bounced and forbid re-sending) vs. a sender-side problem like auth
+// failure, rate limit, network glitch, or provider outage (which should
+// NOT mark the lead as bounced — just retry the send later).
+//
+// Real recipient bounces from SMTP / Gmail / Outlook / Resend share
+// specific 5xx phrasings. The previous regex was too loose — words like
+// "unknown" and "rejected" appear in many sender-side error strings
+// ("Unknown error from Gmail", "API rate limit rejected request"),
+// which silently flagged 99/100 of a recent broadcast as bounced.
+//
+// Conservative rule: must match one of the precise mailbox-rejected
+// patterns AND must NOT contain any of the sender-side signal words.
+function looksLikeRecipientBounce(errMsg: string | null | undefined): boolean {
+  if (!errMsg) return false;
+  const msg = String(errMsg).toLowerCase();
+  // Sender-side signals — never a recipient bounce.
+  if (/\b(auth|token|credential|rate[ -]?limit(?:ed)?|429|timeout|timed out|network|fetch|connect(?:ion)?|tls|ssl|handshake|aborted|api key|unauthor(?:ized|ised)|forbidden|503|502|504|service unavailable|gateway|circuit|insufficient|quota exceeded(?: for sender)?)\b/i.test(errMsg)) {
+    return false;
+  }
+  // Precise recipient-bounce patterns.
+  return (
+    /\b5\.[157]\.[0-9]\b/.test(msg) ||                               // 5.1.1, 5.7.x SMTP perm-fail codes
+    /\b550\b.*(?:no such user|user unknown|mailbox|recipient|address)/i.test(errMsg) ||
+    /\brecipient (?:address )?(?:rejected|unknown|not found|does not exist)\b/i.test(errMsg) ||
+    /\bmailbox (?:unavailable|does not exist|not found|full|disabled|over quota|invalid)\b/i.test(errMsg) ||
+    /\baddress (?:not found|rejected|invalid|does not exist)\b/i.test(errMsg) ||
+    /\bno such (?:user|recipient|mailbox|address)\b/i.test(errMsg) ||
+    /\buser (?:unknown|does not exist|not found)\b/i.test(errMsg) ||
+    /\bemail (?:address )?(?:does not exist|invalid)\b/i.test(errMsg) ||
+    /\bundeliverable\b/i.test(errMsg) && /\b(?:recipient|mailbox|address|to)\b/i.test(errMsg)
+  );
+}
+
 function normalizeIntentPageFromUrl(rawUrl: string | null | undefined): string | null {
   if (!rawUrl) return null;
   try {
@@ -9985,7 +10020,7 @@ app.post("/make-server-a8b2511f/emails/send", async (c) => {
     
     if (!emailResult.success) {
       const errMsg = emailResult.error || 'Failed to send email';
-      const isBounceError = /bounce|rejected|undeliverable|mailbox.*full|user.*unknown|does not exist|recipient.*rejected/i.test(errMsg);
+      const isBounceError = looksLikeRecipientBounce(errMsg);
       const failStatus = isBounceError ? 'bounced' : 'failed';
       await supabase
         .from('emails')
@@ -13777,10 +13812,17 @@ ABSOLUTE RULES:
             }
           }
         } else {
-          // Detect bounce-related errors from the email provider
+          // Detect bounce-related errors from the email provider.
+          // Tight detector — see looksLikeRecipientBounce. Previous version
+          // misclassified auth/rate/transient errors as bounces and silently
+          // marked entire batches as 99/100 bounced.
           const errMsg = emailResult.error || '';
-          const isMailboxVerificationBlock = /mailbox verification|zerobounce|risky|catch-all|undeliverable|unknown/i.test(errMsg);
-          const isBounceError = isMailboxVerificationBlock || /bounce|rejected|undeliverable|mailbox.*full|user.*unknown|does not exist|recipient.*rejected/i.test(errMsg);
+          // Pre-send mailbox-verification blocks are a separate concern —
+          // those are OUR upstream verifier (ZeroBounce) refusing to send,
+          // not a Stripe-style hard bounce from the recipient mailbox. Keep
+          // marking these as bounced because the lead's email IS likely bad.
+          const isMailboxVerificationBlock = /\b(?:zerobounce|mailbox verification (?:blocked|failed)|catch-all blocked)\b/i.test(errMsg);
+          const isBounceError = isMailboxVerificationBlock || looksLikeRecipientBounce(errMsg);
           const emailStatus = isBounceError ? 'bounced' : 'failed';
           
           // ── Transient failure detection: queue for retry instead of marking as permanently failed ──
