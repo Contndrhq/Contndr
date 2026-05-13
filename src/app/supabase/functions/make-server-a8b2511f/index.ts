@@ -13576,12 +13576,12 @@ INSTEAD: open with a SPECIFIC observation about the prospect. Pitch ONE concrete
             // again. The retry queue worker handles the async re-attempt.
             await enqueueRetry(user.id, campaignId, lead.id, lead.email, errMsg, classification.category).catch(() => {});
             console.log(`[SEND-BATCH] Lead ${lead.id} queued for retry (AI transient: ${classification.category})`);
-            emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject: '', body: '', fromEmail: '', success: false, error: `Queued for retry: ${errMsg.slice(0, 200)}`, bounced: false, retryQueued: true });
+            emailsSent.push({ emailId: preInsertedId || undefined, leadName: leadDisplayName, leadEmail: lead.email, subject: '', body: '', fromEmail: '', success: false, error: `Queued for retry: ${errMsg.slice(0, 200)}`, bounced: false, retryQueued: true });
             newlyAttemptedIds.push(lead.id);
           } else {
             // Permanent failure → mark as attempted
             newlyAttemptedIds.push(lead.id);
-            emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject: '', body: '', fromEmail: '', success: false, error: `AI generation failed: ${errMsg.slice(0, 200)}`, bounced: false });
+            emailsSent.push({ emailId: preInsertedId || undefined, leadName: leadDisplayName, leadEmail: lead.email, subject: '', body: '', fromEmail: '', success: false, error: `AI generation failed: ${errMsg.slice(0, 200)}`, bounced: false });
           }
           continue;
         }
@@ -13708,6 +13708,13 @@ INSTEAD: open with a SPECIFIC observation about the prospect. Pitch ONE concrete
           sequence_number: 1,
           direction: 'sent',
           preview: preview || null,
+          // Populate to_email so the broadcast log + dashboard recent-emails
+          // endpoint can render the recipient. Previously this column was
+          // never written, which caused the historical-fetch entry to show
+          // the lead's name without their email — looking like a duplicate
+          // of the live entry that had the email but a different synthetic ID.
+          to_email: lead.email || null,
+          from_email: fromEmail || null,
         };
 
         let preInsertedId: string | null = null;
@@ -13813,7 +13820,7 @@ INSTEAD: open with a SPECIFIC observation about the prospect. Pitch ONE concrete
           newlyAttemptedIds.push(lead.id); // Track successful sends as attempted
           newlySentIds.push(lead.id);
           sent++;
-          emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: true });
+          emailsSent.push({ emailId: preInsertedId || undefined, leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: true });
 
           // Update lead status
           await supabase
@@ -13917,7 +13924,7 @@ INSTEAD: open with a SPECIFIC observation about the prospect. Pitch ONE concrete
               }
             }
             
-            emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: false, error: `Queued for retry: ${errMsg}`, bounced: false, retryQueued: true });
+            emailsSent.push({ emailId: preInsertedId || undefined, leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: false, error: `Queued for retry: ${errMsg}`, bounced: false, retryQueued: true });
             // IMPORTANT: mark as attempted for THIS broadcast session so the
             // loop doesn't immediately re-pick the same lead and burn the
             // whole campaign on one bad recipient. The retry queue worker
@@ -13928,7 +13935,7 @@ INSTEAD: open with a SPECIFIC observation about the prospect. Pitch ONE concrete
             newlyAttemptedIds.push(lead.id);
           } else {
             // Permanent failure → original logic
-            emailsSent.push({ leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: false, error: errMsg, bounced: isBounceError });
+            emailsSent.push({ emailId: preInsertedId || undefined, leadName: leadDisplayName, leadEmail: lead.email, subject, body, fromEmail, success: false, error: errMsg, bounced: isBounceError });
             newlyAttemptedIds.push(lead.id);
             
             // Mark the pre-inserted record as failed/bounced
