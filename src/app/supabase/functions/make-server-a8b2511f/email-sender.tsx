@@ -12,6 +12,19 @@ import {
 } from "./oauth-email.tsx";
 import { validateEmailFast } from "./email-verifier.tsx";
 import { verifyMailboxDeliverability } from "./email-verify.tsx";
+import { decryptJson, isEncrypted } from "./crypto-store.tsx";
+
+// Token reads must accept both encrypted-envelope values (post-encryption)
+// AND legacy plaintext JSON (pre-encryption). Without this, after
+// TOKEN_ENCRYPTION_KEY is set every send fails with
+// "Unexpected token 'e', \"enc:v1:...\" is not valid JSON".
+async function readTokenBlob(raw: unknown): Promise<any | null> {
+  if (raw == null) return null;
+  if (typeof raw === "object") return raw;
+  if (typeof raw !== "string") return null;
+  if (isEncrypted(raw)) return await decryptJson(raw);
+  try { return JSON.parse(raw); } catch { return null; }
+}
 
 // Lazy singleton — avoids creating a duplicate Supabase client at module scope.
 // Shares the same connection pool pattern as index.tsx's getSupabaseAdmin().
@@ -69,14 +82,14 @@ async function resolveProvider(userId: string): Promise<{
 
   if (kvProvider === "gmail_oauth") {
     const raw = await kv.get(kvGmailTokensKey(userId));
-    const email = raw ? JSON.parse(raw).email : undefined;
-    return { provider: "gmail_oauth", connectedEmail: email };
+    const tokens = await readTokenBlob(raw);
+    return { provider: "gmail_oauth", connectedEmail: tokens?.email };
   }
 
   if (kvProvider === "outlook_oauth") {
     const raw = await kv.get(kvOutlookTokensKey(userId));
-    const email = raw ? JSON.parse(raw).email : undefined;
-    return { provider: "outlook_oauth", connectedEmail: email };
+    const tokens = await readTokenBlob(raw);
+    return { provider: "outlook_oauth", connectedEmail: tokens?.email };
   }
 
   if (kvProvider === "smtp") {
