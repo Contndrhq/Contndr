@@ -10020,7 +10020,11 @@ app.post("/make-server-a8b2511f/emails/send", async (c) => {
     
     if (!emailResult.success) {
       const errMsg = emailResult.error || 'Failed to send email';
-      const isBounceError = looksLikeRecipientBounce(errMsg);
+      // See classifier note in send-batch — only "Mailbox undeliverable"
+      // (confirmed by verifier) or a true SMTP recipient-bounce pattern
+      // should cascade-mark the lead as bounced.
+      const isConfirmedUndeliverable = /\bMailbox undeliverable\b/i.test(errMsg);
+      const isBounceError = isConfirmedUndeliverable || looksLikeRecipientBounce(errMsg);
       const failStatus = isBounceError ? 'bounced' : 'failed';
       await supabase
         .from('emails')
@@ -13873,16 +13877,19 @@ INSTEAD: open with a SPECIFIC observation about the prospect. Pitch ONE concrete
           }
         } else {
           // Detect bounce-related errors from the email provider.
-          // Tight detector — see looksLikeRecipientBounce. Previous version
-          // misclassified auth/rate/transient errors as bounces and silently
-          // marked entire batches as 99/100 bounced.
+          // Tight detector — see looksLikeRecipientBounce.
+          //
+          // Pre-send "Mailbox verification failed" results from our own
+          // upstream verifier (ZeroBounce). The verifier itself does NOT
+          // prove the mailbox is bad — it returns "unknown" for any address
+          // it can't probe (corporate anti-spam blocks, greylists, etc.).
+          // Only when verification specifically returns "undeliverable" do
+          // we trust it enough to mark the LEAD as bounced. Anything else
+          // is treated as a transient failure: the email is marked failed
+          // for this attempt, but the lead stays sendable.
           const errMsg = emailResult.error || '';
-          // Pre-send mailbox-verification blocks are a separate concern —
-          // those are OUR upstream verifier (ZeroBounce) refusing to send,
-          // not a Stripe-style hard bounce from the recipient mailbox. Keep
-          // marking these as bounced because the lead's email IS likely bad.
-          const isMailboxVerificationBlock = /\b(?:zerobounce|mailbox verification (?:blocked|failed)|catch-all blocked)\b/i.test(errMsg);
-          const isBounceError = isMailboxVerificationBlock || looksLikeRecipientBounce(errMsg);
+          const isConfirmedUndeliverable = /\bMailbox undeliverable\b/i.test(errMsg);
+          const isBounceError = isConfirmedUndeliverable || looksLikeRecipientBounce(errMsg);
           const emailStatus = isBounceError ? 'bounced' : 'failed';
           
           // ── Transient failure detection: queue for retry instead of marking as permanently failed ──
