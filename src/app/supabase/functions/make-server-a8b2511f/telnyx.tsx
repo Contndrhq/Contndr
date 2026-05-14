@@ -2141,9 +2141,20 @@ app.get('/active-calls', async (c) => {
       kv.set(`call:${c.id}`, c).catch(() => {});
     }
 
+    // Helper used by both the live-calls list and the stats below to keep
+    // test traffic out of the dashboard. Defined here (before the stats
+    // block uses it) so we can reference it in both places.
+    const isTestCallEntry = (c: any) => {
+      if (!c) return false;
+      if (c._test_call === true) return true;
+      const cid = String(c.campaign_id || '');
+      return cid.startsWith('test-call-') || cid.startsWith('agent-hot-');
+    };
+
     const activeCalls = allCalls
       .filter(c => {
         if (!c || typeof c !== 'object') return false;
+        if (isTestCallEntry(c)) return false; // hide test calls from the live list too
         return ['initiated', 'ringing', 'answered', 'active', 'speaking', 'listening'].includes(c.status);
       })
       .map(c => {
@@ -2177,7 +2188,12 @@ app.get('/active-calls', async (c) => {
     today.setHours(0, 0, 0, 0);
     const todayTimestamp = today.toISOString();
 
-    const todayCalls = allCalls.filter(c => c && c.started_at && c.started_at >= todayTimestamp);
+    // Exclude test/auto-generated calls from the dashboard stats (same
+    // helper used above for the live-calls list). Testing the AI caller
+    // shouldn't pollute production counters.
+    const todayCalls = allCalls.filter(c =>
+      c && c.started_at && c.started_at >= todayTimestamp && !isTestCallEntry(c)
+    );
 
     // ── Connected = the prospect actually picked up at any point ──
     // We use `answered_at` (set by the webhook on call.answered) as the
