@@ -482,11 +482,13 @@ export function AgentModeSettings() {
               <input
                 type="text"
                 value={draft.elevenLabsPhoneNumberId}
-                onChange={e => setField('elevenLabsPhoneNumberId', e.target.value)}
-                onBlur={() => saveConfig(draft, true).catch(() => {})}
+                onChange={e => setField('elevenLabsPhoneNumberId', e.target.value, true /* persist immediately */)}
                 placeholder="phnum_xxxxxxxxxxxx"
                 className="w-full px-3 py-2 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black text-[12.5px] font-mono"
               />
+              {draft.elevenLabsPhoneNumberId && (
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">✓ Saved. Calls will route through ElevenLabs Convai when the toggle above is on.</p>
+              )}
               <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mt-1.5 leading-relaxed">
                 Required for sub-second-latency calls. Get this by:
                 <br />

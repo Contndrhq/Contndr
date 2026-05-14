@@ -19467,7 +19467,9 @@ app.post("/make-server-a8b2511f/ai-call/test-call", async (c) => {
       await kv.get(`agent_mode:${user.id}:config`),
       { agentMode: true, aiCalling: true, intentAutoCall: true } // entitlements ignored for test call
     );
+    console.log(`[TEST CALL] Route decision: useElevenLabsConvai=${agentModeConfig.useElevenLabsConvai}, elevenLabsPhoneNumberId=${agentModeConfig.elevenLabsPhoneNumberId || '(empty)'}`);
     if (agentModeConfig.useElevenLabsConvai && agentModeConfig.elevenLabsPhoneNumberId) {
+      console.log(`[TEST CALL · CONVAI] Routing through ElevenLabs Convai with phone_number_id=${agentModeConfig.elevenLabsPhoneNumberId}`);
       try {
         const { syncAgentForCall } = await import('./elevenlabs.tsx');
         // Push fresh playbook + KB + lead context into the agent BEFORE
