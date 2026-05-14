@@ -51,6 +51,7 @@ interface AgentModeConfig {
   autoLaunchCampaigns: boolean;
   autoPauseLowQuality: boolean;
   autoCallHotVisitors: boolean;
+  useElevenLabsConvai: boolean;
   maxDailyActions: number;
   quietHoursStart: string;
   quietHoursEnd: string;
@@ -77,6 +78,7 @@ const DEFAULT_CONFIG: AgentModeConfig = {
   autoLaunchCampaigns: false,
   autoPauseLowQuality: true,
   autoCallHotVisitors: false,
+  useElevenLabsConvai: false,
   maxDailyActions: 25,
   quietHoursStart: '20:00',
   quietHoursEnd: '08:00',
@@ -93,6 +95,46 @@ export function AgentModeSettings() {
   const [playbook, setPlaybook] = useState<AICallPlaybookData>(EMPTY_PLAYBOOK);
   const [playbookSaving, setPlaybookSaving] = useState(false);
 
+  // ── ElevenLabs Conversational AI agent state (Layer A) ──
+  const [agentInfo, setAgentInfo] = useState<{ agent_id?: string; created_at?: string; last_synced_at?: string } | null>(null);
+  const [agentSyncing, setAgentSyncing] = useState(false);
+  const [agentLoading, setAgentLoading] = useState(false);
+
+  const ensureAgent = async () => {
+    setAgentLoading(true);
+    try {
+      const res = await authenticatedFetch(`${API_BASE}/elevenlabs/my-agent`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to provision agent');
+      setAgentInfo({ agent_id: json.agent_id, created_at: json.record?.created_at, last_synced_at: json.record?.last_synced_at });
+      if (json.created) toast.success('ElevenLabs agent provisioned');
+    } catch (err: any) {
+      toast.error('Could not provision agent', { description: err.message });
+    } finally {
+      setAgentLoading(false);
+    }
+  };
+
+  const syncAgent = async () => {
+    setAgentSyncing(true);
+    try {
+      const res = await authenticatedFetch(`${API_BASE}/elevenlabs/my-agent/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ai_config: { name: 'Alex', brand: 'Contndr', objective: 'book_call', brand_tone: 'friendly' } }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Sync failed');
+      toast.success('Agent synced — playbook + KB pushed');
+      // Refresh status to show new last_synced_at
+      ensureAgent();
+    } catch (err: any) {
+      toast.error('Sync failed', { description: err.message });
+    } finally {
+      setAgentSyncing(false);
+    }
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -107,6 +149,17 @@ export function AgentModeSettings() {
       if (pbRes && pbRes.ok) {
         const pbJson = await pbRes.json();
         setPlaybook({ ...EMPTY_PLAYBOOK, ...(pbJson.playbook || {}) });
+      }
+      // Auto-fetch agent status if Convai is already enabled. Doesn't create
+      // an agent unless the user explicitly toggles it on for the first time.
+      if (json.config?.useElevenLabsConvai) {
+        try {
+          const aRes = await authenticatedFetch(`${API_BASE}/elevenlabs/my-agent`);
+          if (aRes.ok) {
+            const aJson = await aRes.json();
+            setAgentInfo({ agent_id: aJson.agent_id, created_at: aJson.record?.created_at, last_synced_at: aJson.record?.last_synced_at });
+          }
+        } catch {}
       }
     } catch (err: any) {
       toast.error('Agent Mode unavailable', { description: err.message });
@@ -315,6 +368,53 @@ export function AgentModeSettings() {
           icon={Phone}
           onChange={v => setField('autoCallHotVisitors', v, true)}
         />
+        <PermissionRow
+          title="Use ElevenLabs Conversational AI (beta)"
+          desc="Route AI calls through ElevenLabs' realtime agent for sub-500ms latency, natural barge-in, and human-grade voice. Phone routing wires up next; this provisions the agent so it's ready."
+          checked={draft.useElevenLabsConvai}
+          disabled={saving}
+          icon={Sparkles}
+          onChange={async v => {
+            setField('useElevenLabsConvai', v, true);
+            if (v) await ensureAgent();
+          }}
+        />
+        {draft.useElevenLabsConvai && (
+          <div className="px-4 py-3 bg-zinc-50/60 dark:bg-white/[0.02] border-t border-zinc-100 dark:border-white/[0.06]">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="text-[12px] text-zinc-600 dark:text-zinc-400 space-y-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-zinc-700 dark:text-zinc-300">Agent:</span>
+                  {agentLoading ? (
+                    <span className="text-zinc-400">Provisioning…</span>
+                  ) : agentInfo?.agent_id ? (
+                    <code className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400">{agentInfo.agent_id}</code>
+                  ) : (
+                    <button onClick={ensureAgent} className="text-zinc-700 dark:text-zinc-200 underline">Provision now</button>
+                  )}
+                </div>
+                {agentInfo?.last_synced_at && (
+                  <div><span className="font-medium">Last synced:</span> {new Date(agentInfo.last_synced_at).toLocaleString()}</div>
+                )}
+                <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 pt-1">
+                  Sync pushes your current playbook + Knowledge Base into the agent's prompt. The phone bridge (calls actually flowing through the agent) ships in the next update.
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                {!agentInfo?.agent_id && (
+                  <button onClick={ensureAgent} disabled={agentLoading} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800 text-[12px] font-medium hover:bg-zinc-100 dark:hover:bg-white/[0.04] disabled:opacity-50">
+                    {agentLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                    Provision agent
+                  </button>
+                )}
+                <button onClick={syncAgent} disabled={agentSyncing} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-900 dark:bg-white text-white dark:text-black text-[12px] font-semibold hover:opacity-90 disabled:opacity-50">
+                  {agentSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                  Sync now
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </SettingsSection>
 
       <SettingsSection title="AI Call Sales Playbook">
