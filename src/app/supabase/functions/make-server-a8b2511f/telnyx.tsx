@@ -1849,30 +1849,14 @@ app.post('/webhooks/call-status', async (c) => {
                 return;
               }
 
-              // ── Backchannel acknowledgement ──
-              // Fire a tiny "Mhm,"/"Yeah,"/"Right," in parallel with the LLM
-              // generation so the user hears acknowledgement within ~700ms
-              // instead of a 2.5-3s dead silence. The real response, once
-              // generated, will cut this off cleanly via playback_start.
-              const BACKCHANNELS = ['Mhm,', 'Yeah,', 'Right,', 'Got it,', 'Okay,'];
-              const backchannelText = BACKCHANNELS[Math.floor(Math.random() * BACKCHANNELS.length)];
-              // Fire-and-forget — don't block the main response path on this
-              elevenLabsTTS(backchannelText, voiceName).then(async (bcUrl) => {
-                if (!bcUrl || endedCallControlIds.has(callControlId)) return;
-                try {
-                  await telnyxRequest(`/calls/${callControlId}/actions/playback_start`, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                      audio_url: bcUrl,
-                      client_state: btoa(JSON.stringify({ action: 'backchannel' })),
-                    }),
-                  });
-                  console.log(`🗣️ [BACKCHANNEL] "${backchannelText}"`);
-                } catch (bcErr) {
-                  // Non-fatal — silence is acceptable, just means slower-feeling response
-                  console.warn('[BACKCHANNEL] playback failed (non-fatal):', bcErr);
-                }
-              }).catch(() => {});
+              // Note: we experimented with a parallel "backchannel" sound
+              // ("Mhm,"/"Got it,") played while the LLM generated the real
+              // response. It caused a stacked-acknowledgement effect because
+              // the LLM is already prompted to start every response with a
+              // reaction word — the user heard "Got it, ... Hmm, understood!"
+              // which felt like the AI was talking to itself. Removed.
+              // Lower latency is now handled purely by faster model + tighter
+              // tokens; the LLM's first word IS the acknowledgement.
 
               // ── Sales playbook: detect current stage + matching objection ──
               // The playbook drives WHAT the AI should say this turn (qualify
