@@ -114,8 +114,12 @@ export function AgentModeSettings() {
       });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || 'Test call failed');
-      toast.success('Test call started', {
-        description: `Ringing ${json.to} now. Playbook=${json.using_playbook ? 'yes' : 'no'}, KB=${json.using_kb ? 'yes' : 'no'}.`,
+      const isConvai = json.route === 'elevenlabs_convai';
+      toast.success(isConvai ? '🚀 Convai call started (sub-second latency)' : '⚠️ Test call started (legacy Telnyx path)', {
+        description: isConvai
+          ? `ElevenLabs is dialing ${json.to}. Conversation: ${json.conversation_id || '?'}.`
+          : `Ringing ${json.to} via Telnyx. Convai skipped: ${json.convai_skip_reason || 'unknown'}. Playbook=${json.using_playbook ? 'yes' : 'no'}, KB=${json.using_kb ? 'yes' : 'no'}.`,
+        duration: 12000,
       });
     } catch (err: any) {
       toast.error('Test call failed', { description: err.message });

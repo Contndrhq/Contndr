@@ -19467,7 +19467,13 @@ app.post("/make-server-a8b2511f/ai-call/test-call", async (c) => {
       await kv.get(`agent_mode:${user.id}:config`),
       { agentMode: true, aiCalling: true, intentAutoCall: true } // entitlements ignored for test call
     );
-    console.log(`[TEST CALL] Route decision: useElevenLabsConvai=${agentModeConfig.useElevenLabsConvai}, elevenLabsPhoneNumberId=${agentModeConfig.elevenLabsPhoneNumberId || '(empty)'}`);
+    const routeDecisionMsg = `useElevenLabsConvai=${agentModeConfig.useElevenLabsConvai}, elevenLabsPhoneNumberId=${agentModeConfig.elevenLabsPhoneNumberId || '(empty)'}`;
+    console.log(`[TEST CALL] Route decision: ${routeDecisionMsg}`);
+    if (!agentModeConfig.useElevenLabsConvai || !agentModeConfig.elevenLabsPhoneNumberId) {
+      // Surface the reason in the toast so the user knows WHY Convai was skipped.
+      // Don't error out — fall through to Telnyx path below.
+      console.log(`[TEST CALL] Skipping Convai → ${!agentModeConfig.useElevenLabsConvai ? 'toggle is OFF' : 'phone_number_id is empty'}`);
+    }
     if (agentModeConfig.useElevenLabsConvai && agentModeConfig.elevenLabsPhoneNumberId) {
       console.log(`[TEST CALL · CONVAI] Routing through ElevenLabs Convai with phone_number_id=${agentModeConfig.elevenLabsPhoneNumberId}`);
       try {
@@ -19584,13 +19590,21 @@ app.post("/make-server-a8b2511f/ai-call/test-call", async (c) => {
       }
     } catch {}
 
+    // Build a clear "why didn't Convai fire" reason for the toast.
+    const convaiSkipReason = !agentModeConfig.useElevenLabsConvai
+      ? 'toggle is OFF'
+      : !agentModeConfig.elevenLabsPhoneNumberId
+        ? 'phone number ID is empty'
+        : 'unknown';
     return c.json({
       success: true,
+      route: 'telnyx_legacy',
+      convai_skip_reason: convaiSkipReason,
       campaign_id: callCampaignId,
       to: toNumber,
       using_playbook: !!playbook,
       using_kb: !!campaign.knowledge_base,
-      message: `Calling ${toNumber} now. You should ring within 10 seconds.`,
+      message: `Calling ${toNumber} via Telnyx (Convai skipped: ${convaiSkipReason}).`,
     });
   } catch (error: any) {
     console.error('[TEST CALL] Failed:', error);
