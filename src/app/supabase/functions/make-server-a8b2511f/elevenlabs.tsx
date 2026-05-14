@@ -1094,9 +1094,75 @@ app.post('/my-agent/sync', async (c) => {
  *     }
  *   }
  */
+// ── HMAC signature verification for ElevenLabs webhooks ──
+// ElevenLabs signs each webhook with the shared HMAC secret you set in the
+// portal. Header format: `ElevenLabs-Signature: t=<timestamp>,v0=<sha256_hex>`.
+// We verify by recomputing HMAC-SHA256 over `${timestamp}.${rawBody}`.
+// If ELEVENLABS_WEBHOOK_SECRET isn't set, verification is skipped (dev/test).
+// Also rejects payloads older than 5 minutes to prevent replay attacks.
+async function verifyElevenLabsSignature(signatureHeader: string | null, rawBody: string): Promise<{ ok: boolean; reason?: string }> {
+  const secret = Deno.env.get('ELEVENLABS_WEBHOOK_SECRET');
+  if (!secret) return { ok: true }; // verification disabled if no secret
+  if (!signatureHeader) return { ok: false, reason: 'missing ElevenLabs-Signature header' };
+
+  // Parse "t=...,v0=..." format
+  const parts = signatureHeader.split(',').reduce((acc: Record<string, string>, p) => {
+    const [k, v] = p.split('=');
+    if (k && v) acc[k.trim()] = v.trim();
+    return acc;
+  }, {});
+  const timestamp = parts.t;
+  const v0 = parts.v0;
+  if (!timestamp || !v0) return { ok: false, reason: 'malformed signature header' };
+
+  // Reject if older than 5 min (replay protection)
+  const tsMs = Number(timestamp) * 1000;
+  if (!Number.isFinite(tsMs) || Math.abs(Date.now() - tsMs) > 5 * 60 * 1000) {
+    return { ok: false, reason: 'signature timestamp out of tolerance' };
+  }
+
+  // Recompute HMAC-SHA256(t.body) using shared secret
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${timestamp}.${rawBody}`));
+  const computed = Array.from(new Uint8Array(sig))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  // Constant-time compare
+  if (computed.length !== v0.length) return { ok: false, reason: 'signature mismatch (length)' };
+  let diff = 0;
+  for (let i = 0; i < computed.length; i++) diff |= computed.charCodeAt(i) ^ v0.charCodeAt(i);
+  return diff === 0 ? { ok: true } : { ok: false, reason: 'signature mismatch' };
+}
+
 app.post('/webhooks/conversation', async (c) => {
   try {
-    const body = await c.req.json().catch(() => ({}));
+    // ── HMAC verification ──
+    // Read the raw body first (verification needs the unmodified bytes);
+    // then JSON-parse it ourselves. Hono's c.req.json() consumes the body
+    // so we can't do verification after.
+    const rawBody = await c.req.text();
+    const sigHeader = c.req.header('ElevenLabs-Signature')
+      || c.req.header('elevenlabs-signature')
+      || null;
+    const verify = await verifyElevenLabsSignature(sigHeader, rawBody);
+    if (!verify.ok) {
+      console.warn(`[ConvAI WEBHOOK] ⚠️ Signature verification FAILED: ${verify.reason}. Rejecting.`);
+      return c.json({ error: 'invalid signature', reason: verify.reason }, 401);
+    }
+    if (Deno.env.get('ELEVENLABS_WEBHOOK_SECRET')) {
+      console.log('[ConvAI WEBHOOK] ✅ Signature verified');
+    }
+
+    let body: any = {};
+    try { body = JSON.parse(rawBody); } catch { body = {}; }
     // ElevenLabs nests everything under `data` for the post_call events,
     // but earlier event types use the top level — handle both.
     const data = body?.data || body;
