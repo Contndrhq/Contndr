@@ -787,6 +787,32 @@ async function ensureVoiceBucket() {
  *  doesn't enforce the gateway check, so Telnyx can fetch them. The
  *  tradeoff is ~500-1000ms latency added vs streaming (gen + upload),
  *  but a working call beats a fast silent one. */
+// Brand / acronym normalization for TTS.
+// ElevenLabs reads "contndr" letter-by-letter because there are no vowels —
+// it sounds like "C-T-N-D-R" instead of the intended "contender." Same
+// problem for any consonant-cluster brand name or domain. We rewrite the
+// text right before sending it to TTS so the AI's responses sound natural,
+// while the underlying LLM context still uses the real brand spelling.
+function normalizeForTTS(text: string): string {
+  if (!text) return '';
+  let out = text;
+  // Brand pronunciation map. Add more here as you discover them.
+  const replacements: Array<[RegExp, string]> = [
+    // "contndr" → "Contender". Case-insensitive, word-boundary safe so we
+    // don't mangle "contndrhq" etc. (those become "ContenderHQ").
+    [/\bcontndr\b/gi, 'Contender'],
+    [/\bcontndrhq\b/gi, 'Contender HQ'],
+    [/\bcontndr\.com\b/gi, 'Contender dot com'],
+    // Common URL/email reading tweaks
+    [/(?<=\w)\.com\b/gi, ' dot com'],
+    [/(?<=\w)@(?=\w)/g, ' at '],
+  ];
+  for (const [re, sub] of replacements) out = out.replace(re, sub);
+  // Collapse repeated spaces from the replacements above
+  out = out.replace(/\s{2,}/g, ' ').trim();
+  return out;
+}
+
 async function elevenLabsTTS(text: string, voiceName?: string): Promise<string | null> {
   const apiKey = Deno.env.get('ELEVENLABS_API_KEY');
   if (!apiKey) {
@@ -796,7 +822,10 @@ async function elevenLabsTTS(text: string, voiceName?: string): Promise<string |
   const voice = (voiceName || DEFAULT_VOICE).toLowerCase();
   const voiceId = voice.length > 15 ? voice : (ELEVENLABS_VOICES[voice] || ELEVENLABS_VOICES[DEFAULT_VOICE]);
 
-  console.log(`🎙️ ElevenLabs TTS gen: "${text.substring(0, 60)}..." voice=${voice}`);
+  // Rewrite brand/acronym text for natural pronunciation
+  const speakText = normalizeForTTS(text);
+
+  console.log(`🎙️ ElevenLabs TTS gen: "${speakText.substring(0, 60)}..." voice=${voice}`);
   const t0 = Date.now();
 
   try {
@@ -808,17 +837,17 @@ async function elevenLabsTTS(text: string, voiceName?: string): Promise<string |
         'Accept': 'audio/mpeg',
       },
       body: JSON.stringify({
-        text,
-        // eleven_multilingual_v2 is ElevenLabs' best-quality model for
-        // natural-sounding speech. ~400ms slower than turbo_v2_5 but the
-        // prosody and emotional range are night-and-day better. For a
-        // sales agent that needs to sound human, the latency tradeoff
-        // is worth it.
+        text: speakText,
+        // eleven_multilingual_v2 = ElevenLabs' best-quality model. ~400ms
+        // slower than turbo_v2_5 but the prosody and emotional range are
+        // night-and-day better. Worth the latency for sales calls.
         model_id: 'eleven_multilingual_v2',
         voice_settings: {
-          stability: 0.35,        // lower = more expressive intonation
-          similarity_boost: 0.85, // tighter voice match
-          style: 0.4,             // more emotional range
+          // Lower stability + higher style = smoother, less choppy reading
+          // with more natural intonation between words. Range 0-1.
+          stability: 0.3,
+          similarity_boost: 0.9,
+          style: 0.5,
           use_speaker_boost: true,
         },
         output_format: 'mp3_44100_128',
