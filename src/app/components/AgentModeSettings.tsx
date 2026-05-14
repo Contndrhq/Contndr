@@ -475,7 +475,29 @@ export function AgentModeSettings() {
         )}
       </SettingsSection>
 
-      <SettingsSection title="AI Call Sales Playbook">
+      <SettingsSection title="AI Sales Script">
+        <div className="px-4 py-4 flex items-center justify-between gap-3 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] text-zinc-700 dark:text-zinc-300">
+              The script your AI follows on every call now lives in <strong>AI Brain</strong>, alongside your Knowledge Base and Voice & Tone.
+            </p>
+            <p className="text-[11.5px] text-zinc-500 dark:text-zinc-400 mt-1">
+              One place to teach the AI what to know, how to sell, and how to sound.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('switch-settings-tab', { detail: 'knowledge-base' }))}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-zinc-900 dark:bg-white text-white dark:text-black text-[12px] font-semibold hover:opacity-90 shrink-0"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Open AI Brain
+          </button>
+        </div>
+      </SettingsSection>
+
+      {false && (
+      <SettingsSection title="AI Call Sales Playbook (legacy)">
         <div className="px-4 py-3 text-[12px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
           The script your AI agent follows on every call — discovery questions, value props, objection handlers, and how it asks for the meeting. Applies to manual calls, campaigns, and auto-calls from hot visitors.
         </div>
@@ -558,6 +580,7 @@ export function AgentModeSettings() {
           </button>
         </div>
       </SettingsSection>
+      )}
 
       <SettingsSection title="Guardrails">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-4 py-3.5">

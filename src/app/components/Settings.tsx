@@ -7,6 +7,7 @@ import { BillingSettings } from './BillingSettings';
 import { EmailProviderSettings } from './EmailProviderSettings';
 import { SignatureSettings } from './SignatureSettings';
 import { KnowledgeBase } from './KnowledgeBase';
+import { AIBrain } from './AIBrain';
 import { TeamSettings } from './TeamSettings';
 import { AffiliateSettings } from './AffiliateSettings';
 import { LeadScoringTest } from './LeadScoringTest';
@@ -99,7 +100,7 @@ export function Settings() {
     { id: 'signature', label: t('settings.signature', 'Signature') },
     { id: 'integrations', label: t('settings.integrations', 'Integrations') },
     { id: 'tracking', label: t('settings.tracking', 'Tracking') },
-    { id: 'knowledge-base', label: t('settings.knowledgeBase', 'Knowledge Base') },
+    { id: 'knowledge-base', label: t('settings.aiBrain', 'AI Brain') },
     { id: 'team', label: t('settings.team', 'Team') },
     ...(showAffiliateTab ? [{ id: 'affiliate' as SettingsTab, label: t('settings.affiliate', 'Affiliate') }] : []),
     { id: 'compliance', label: t('settings.compliance', 'Compliance') },
@@ -148,7 +149,7 @@ export function Settings() {
         
         {activeTab === 'email' && <EmailProviderSettings />}
 
-        {activeTab === 'knowledge-base' && <KnowledgeBase />}
+        {activeTab === 'knowledge-base' && <AIBrain />}
 
         {activeTab === 'integrations' && <IntegrationsTab />}
 

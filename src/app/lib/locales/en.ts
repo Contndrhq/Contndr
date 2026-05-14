@@ -282,6 +282,7 @@ export const en = {
       integrations: "Integrations",
       tracking: "Tracking",
       knowledgeBase: "Knowledge Base",
+      aiBrain: "AI Brain",
       team: "Team",
       affiliate: "Affiliate",
       compliance: "Compliance",

@@ -19239,6 +19239,55 @@ app.put("/make-server-a8b2511f/ai-call-playbook", async (c) => {
 });
 
 // ============================================================================
+// AI BRAIN — Voice & Tone defaults (user-level)
+// ============================================================================
+// Stored at `ai_brain:${user.id}:voice`. Surfaced in the "AI Brain → Voice &
+// Tone" tab. Pre-fills campaign builders and provides defaults for the
+// auto-call synthetic campaign and ElevenLabs Convai agent prompts.
+
+function sanitizeAIVoice(input: any): any {
+  const x = input && typeof input === 'object' ? input : {};
+  const allowedTone = ['friendly', 'professional', 'direct', 'confident'];
+  return {
+    ai_name: typeof x.ai_name === 'string' ? x.ai_name.trim().slice(0, 40) : '',
+    brand: typeof x.brand === 'string' ? x.brand.trim().slice(0, 60) : '',
+    tone: allowedTone.includes(x.tone) ? x.tone : 'friendly',
+    voice_id: typeof x.voice_id === 'string' ? x.voice_id.trim().slice(0, 60) : 'rachel',
+    filler_words: x.filler_words !== false,
+  };
+}
+
+app.get("/make-server-a8b2511f/ai-brain/voice", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const voice = await kv.get(`ai_brain:${user.id}:voice`);
+    c.header('Cache-Control', 'no-store');
+    return c.json({ success: true, voice: voice || sanitizeAIVoice(null) });
+  } catch (error: any) {
+    console.error('[AI BRAIN VOICE] Load failed:', error);
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+app.put("/make-server-a8b2511f/ai-brain/voice", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json().catch(() => ({}));
+    const voice = sanitizeAIVoice(body);
+    await kv.set(`ai_brain:${user.id}:voice`, {
+      ...voice,
+      updated_at: new Date().toISOString(),
+      updated_by: user.email || user.id,
+    });
+    c.header('Cache-Control', 'no-store');
+    return c.json({ success: true, voice });
+  } catch (error: any) {
+    console.error('[AI BRAIN VOICE] Save failed:', error);
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+// ============================================================================
 // AI CALL — TEST MODE
 // ============================================================================
 // One-click "Call me with a fake prospect" button. Bypasses cooldowns, daily
