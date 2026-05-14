@@ -809,19 +809,18 @@ async function elevenLabsTTS(text: string, voiceName?: string): Promise<string |
       },
       body: JSON.stringify({
         text,
-        // eleven_turbo_v2_5 is ElevenLabs' best low-latency model with
-        // noticeably more natural prosody than turbo_v2. The convai-only
-        // "must use turbo/flash v2" restriction does NOT apply here —
-        // this is the regular TTS endpoint which accepts all models.
-        model_id: 'eleven_turbo_v2_5',
+        // eleven_multilingual_v2 is ElevenLabs' best-quality model for
+        // natural-sounding speech. ~400ms slower than turbo_v2_5 but the
+        // prosody and emotional range are night-and-day better. For a
+        // sales agent that needs to sound human, the latency tradeoff
+        // is worth it.
+        model_id: 'eleven_multilingual_v2',
         voice_settings: {
-          stability: 0.4,         // lower = more expressive intonation
+          stability: 0.35,        // lower = more expressive intonation
           similarity_boost: 0.85, // tighter voice match
-          style: 0.35,            // more emotional range
+          style: 0.4,             // more emotional range
           use_speaker_boost: true,
         },
-        // Higher bitrate = smoother on phone audio. 128k MP3 still
-        // streams fast and uploads in <300ms.
         output_format: 'mp3_44100_128',
       }),
     });
@@ -841,8 +840,36 @@ async function elevenLabsTTS(text: string, voiceName?: string): Promise<string |
       return null;
     }
     const { data: pub } = supabaseVoice.storage.from(VOICE_BUCKET).getPublicUrl(fileName);
-    const url = pub?.publicUrl || null;
-    if (url) console.log(`✅ TTS ready in ${Date.now() - t0}ms — ${url.split('/').pop()}`);
+    let url = pub?.publicUrl || null;
+    if (!url) {
+      console.error('❌ No public URL returned for uploaded audio');
+      return null;
+    }
+
+    // Verify the public URL is actually publicly fetchable. If the bucket
+    // wasn't successfully upgraded to public, Telnyx will 401 it and the
+    // call goes silent — fail loudly here instead. If public fetch fails,
+    // fall back to a 1-hour signed URL (always public regardless of bucket).
+    try {
+      const probe = await fetch(url, { method: 'HEAD' });
+      if (!probe.ok) {
+        console.warn(`⚠️ Public URL not accessible (${probe.status}) — falling back to signed URL`);
+        const { data: signed } = await supabaseVoice.storage
+          .from(VOICE_BUCKET)
+          .createSignedUrl(fileName, 3600);
+        if (signed?.signedUrl) {
+          url = signed.signedUrl;
+          console.log(`🔐 Using signed URL fallback`);
+        } else {
+          console.error('❌ Both public and signed URL paths failed');
+          return null;
+        }
+      }
+    } catch (probeErr: any) {
+      console.warn('⚠️ Public URL probe error (proceeding with public URL anyway):', probeErr?.message || probeErr);
+    }
+
+    console.log(`✅ TTS ready in ${Date.now() - t0}ms — ${url.split('/').pop()?.split('?')[0]}`);
     return url;
   } catch (err: any) {
     console.error('❌ elevenLabsTTS error:', err?.message || err);
@@ -1182,32 +1209,15 @@ async function telnyxSpeak(callControlId: string, text: string, voiceName?: stri
       console.error('Telnyx playback_start failed:', errorText);
     } catch (err) { console.error('Telnyx playback error:', err); }
   }
-  // ── Re-check before fallback (call might have ended during TTS generation) ──
-  if (endedCallControlIds.has(callControlId)) {
-    console.log(`ℹ️ [telnyxSpeak] Skipping TTS fallback — call ${callControlId} ended during TTS.`);
-    return CALL_ENDED;
-  }
-  // Fallback to Telnyx built-in TTS
-  console.log(`⚠️ Falling back to Telnyx TTS for ${callControlId}`);
-  try {
-    const r = await telnyxRequest(`/calls/${callControlId}/actions/speak`, {
-      method: 'POST',
-      body: JSON.stringify({
-        payload: text, voice: 'female', language: 'en-US',
-        client_state: btoa(JSON.stringify({ action: 'ai_speak' })),
-      }),
-    });
-    if (!r.ok) {
-      const errorText = await r.text();
-      if (isCallEndedError(errorText, callControlId)) {
-        console.log(`ℹ️ Call ${callControlId} ended before speak could execute.`);
-        return CALL_ENDED;
-      }
-      console.error('Telnyx speak fallback failed:', errorText);
-      return false;
-    }
-    return true;
-  } catch (err) { console.error('Telnyx speak fallback error:', err); return false; }
+  // ── No fallback to Telnyx's built-in TTS ──
+  // Telnyx's built-in TTS uses old Amazon Polly voices that sound
+  // unmistakably robotic. Falling back to it makes the AI sound worse
+  // than not speaking at all and obscures the real failure (ElevenLabs
+  // not playing). If we get here, ElevenLabs gen or upload failed —
+  // logs above will pinpoint why. Better to drop one response than to
+  // train the user that "the AI sounds like a bot."
+  console.error(`❌ [telnyxSpeak] ElevenLabs path failed for ${callControlId} — dropping this utterance. Check ❌ logs above for cause.`);
+  return false;
 }
 
 /** Telnyx gather (listen for speech) via gather_using_speak with a silent prompt.
