@@ -18871,6 +18871,41 @@ app.patch("/make-server-a8b2511f/ai-call-campaigns/:id/status", async (c) => {
 });
 
 // DELETE /ai-call-campaigns/:id - Delete a campaign
+// One-click bulk cleanup of test/auto-generated campaigns. Wipes only the
+// ephemeral ones (test-call-* from the "Call me" button, agent-hot-* from
+// hot-visitor auto-calls). Real user-created campaigns are untouched.
+app.post("/make-server-a8b2511f/ai-call-campaigns/clear-test-calls", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-CALL-CAMPAIGNS");
+    if (authError || !user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const prefix = `ai-call-campaign:${user.id}:`;
+    const allCampaigns = await kv.getByPrefixLimited(prefix, 2000, 0).catch(() => []);
+    const toDelete = (allCampaigns || []).filter((c: any) => {
+      const id = String(c?.id || '');
+      return id.startsWith('test-call-') || id.startsWith('agent-hot-');
+    });
+
+    let deleted = 0;
+    for (const c of toDelete) {
+      try {
+        await kv.del(`${prefix}${c.id}`);
+        await kv.del(`ai-call-tracking:${user.id}:${c.id}`).catch(() => {});
+        deleted++;
+      } catch (e) {
+        console.warn(`[CLEAR TEST CALLS] Failed to delete ${c.id}:`, e);
+      }
+    }
+    console.log(`[CLEAR TEST CALLS] User ${user.email || user.id} cleared ${deleted} test campaigns.`);
+    return c.json({ success: true, deleted });
+  } catch (error: any) {
+    console.error('[CLEAR TEST CALLS] error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 app.delete("/make-server-a8b2511f/ai-call-campaigns/:id", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
