@@ -799,27 +799,63 @@ function isAllTimeRange(range: DashboardDateRange) {
 
 function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRange; onChange: (range: DashboardDateRange) => void }) {
   const [draft, setDraft] = useState(value);
+  const [error, setError] = useState<string>('');
 
   useEffect(() => {
     setDraft(value);
+    setError('');
   }, [value.start, value.end]);
 
-  const applyRange = (next: DashboardDateRange, event?: MouseEvent<HTMLElement>) => {
-    if (!next.start && !next.end) {
-      onChange({ start: '', end: '' });
-      event?.currentTarget.closest('details')?.removeAttribute('open');
-      return;
-    }
-    if (!next.start || !next.end) return;
-    const start = next.start <= next.end ? next.start : next.end;
-    const end = next.start <= next.end ? next.end : next.start;
-    onChange({ start, end });
+  const closePopover = (event?: MouseEvent<HTMLElement>) => {
     event?.currentTarget.closest('details')?.removeAttribute('open');
   };
 
-  const isActivePreset = (range: DashboardDateRange) => (
-    value.start === range.start && value.end === range.end
-  );
+  const applyRange = (next: DashboardDateRange, event?: MouseEvent<HTMLElement>) => {
+    setError('');
+    // "All time" reset
+    if (!next.start && !next.end) {
+      onChange({ start: '', end: '' });
+      closePopover(event);
+      return;
+    }
+    // Auto-fill: if only one side is set, treat it as a single day. Prior
+    // behaviour silently no-op'd which made the picker feel broken.
+    let s = next.start;
+    let e = next.end;
+    if (s && !e) e = s;
+    if (e && !s) s = e;
+    if (!s || !e) {
+      setError('Pick a start and end date, or hit All.');
+      return;
+    }
+    // Normalize order so user-typed reversed ranges still work
+    const start = s <= e ? s : e;
+    const end = s <= e ? e : s;
+    onChange({ start, end });
+    closePopover(event);
+  };
+
+  // Preset active-state: match by SPAN (days between) instead of exact
+  // string equality. The exact-match approach broke whenever the user's
+  // last-clicked preset was computed on a prior day — today's freshly-
+  // computed 7D range has a different end date than yesterday's.
+  const spanDays = (range: DashboardDateRange): number | null => {
+    if (!range.start || !range.end) return null;
+    const a = new Date(`${range.start}T12:00:00`).getTime();
+    const b = new Date(`${range.end}T12:00:00`).getTime();
+    return Math.round(Math.abs(b - a) / 86_400_000);
+  };
+  const valueSpan = spanDays(value);
+  const todayStr = getLocalDateString(new Date());
+  const isActivePreset = (range: DashboardDateRange) => {
+    // "All" preset matches when value is empty
+    if (!range.start && !range.end) return !value.start && !value.end;
+    if (!value.start || !value.end) return false;
+    const ps = spanDays(range);
+    // Same span AND end-date is today (within 1 day of today to allow for
+    // late-night vs early-morning clicks).
+    return ps === valueSpan && (value.end === todayStr || value.end === range.end);
+  };
 
   return (
     <details className="relative hidden sm:block group">
@@ -873,13 +909,26 @@ function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRan
             />
           </label>
         </div>
-        <button
-          type="button"
-          onClick={(event) => applyRange(draft, event)}
-          className="mt-3 w-full h-9 rounded-lg bg-[#1ED4A7] text-black text-xs font-bold hover:bg-[#24e4b6] transition-colors"
-        >
-          Apply range
-        </button>
+        {error && (
+          <p className="mt-2 text-[11px] text-red-500 dark:text-red-400">{error}</p>
+        )}
+        <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+          <button
+            type="button"
+            onClick={(event) => applyRange(draft, event)}
+            className="h-9 rounded-lg bg-[#1ED4A7] text-black text-xs font-bold hover:bg-[#24e4b6] transition-colors"
+          >
+            Apply range
+          </button>
+          <button
+            type="button"
+            onClick={(event) => { setDraft({ start: '', end: '' }); applyRange({ start: '', end: '' }, event); }}
+            className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-white/10 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/[0.06] transition-colors"
+            title="Clear and show all time"
+          >
+            Clear
+          </button>
+        </div>
       </div>
     </details>
   );
