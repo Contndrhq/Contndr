@@ -19239,6 +19239,105 @@ app.put("/make-server-a8b2511f/ai-call-playbook", async (c) => {
 });
 
 // ============================================================================
+// AI CALL — TEST MODE
+// ============================================================================
+// One-click "Call me with a fake prospect" button. Bypasses cooldowns, daily
+// caps, lead-existence, and entitlement checks. Uses the user's own profile
+// as the synthetic lead so they can hear the full pipeline (TTS, KB,
+// playbook, opening line) end-to-end without touching real leads.
+//
+// Why this exists: features without a one-click "prove it works" path don't
+// get trusted. Half of our prior debugging was "is the auto-call pipeline
+// even reachable?" — this answers that in 10 seconds.
+
+app.post("/make-server-a8b2511f/ai-call/test-call", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json().catch(() => ({}));
+    const toNumber: string = String(body?.phone || user.user_metadata?.phone || '').trim();
+    if (!toNumber) {
+      return c.json({
+        success: false,
+        error: 'No phone number provided. Save a phone in your Profile or pass `phone` in the request body.',
+      }, 400);
+    }
+
+    // Pull the user's playbook + KB so the test reflects their real config
+    let playbook: any = null;
+    try { playbook = await kv.get(`ai_call_playbook:${user.id}`); } catch {}
+
+    // Find the first active AI call campaign as a script source (same logic
+    // as the hot-visitor auto-call). If none, defaults flow through.
+    const campaigns = await kv.getByPrefixLimited(`ai-call-campaign:${user.id}:`, 50, 0).catch(() => []);
+    const scriptSource = (campaigns || []).find((c: any) =>
+      c && c.status === 'active' && !String(c.id || '').startsWith('agent-hot-') && !String(c.id || '').startsWith('test-call-')
+    ) || null;
+
+    const now = Date.now();
+    const callCampaignId = `test-call-${now}-${crypto.randomUUID().slice(0, 8)}`;
+    const userName = user.user_metadata?.full_name || user.user_metadata?.name || (user.email || 'You').split('@')[0];
+    const testLead = {
+      id: `test-lead-${user.id}`,
+      email: user.email || `test+${user.id}@contndr.com`,
+      phone: toNumber,
+      contact_name: userName,
+      business_name: scriptSource?.brand || 'Test Prospect',
+      first_name: userName.split(' ')[0],
+      _is_test_lead: true,
+    };
+
+    const campaign = {
+      ...(scriptSource || {}),
+      id: callCampaignId,
+      parent_campaign_id: scriptSource?.id || null,
+      name: `🧪 Test call to ${userName}`,
+      status: 'active',
+      brand: scriptSource?.brand || 'contndr',
+      ai_name: scriptSource?.ai_name || 'Alex',
+      opening_line: scriptSource?.opening_line || '',
+      voice_id: scriptSource?.voice_id || 'rachel',
+      knowledge_base: scriptSource?.knowledge_base || '',
+      playbook: playbook || null,
+      selected_leads: [testLead],
+      total_leads: 1,
+      calls_made: 0,
+      in_progress: 0,
+      completed_calls: 0,
+      trigger_source: 'test_call',
+      _test_call: true,
+      _test_call_initiator: user.id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    await kv.set(`ai-call-campaign:${user.id}:${callCampaignId}`, campaign);
+    console.log(`[TEST CALL] User ${user.email || user.id} firing test call to ${toNumber}`);
+
+    // Fire the processor without awaiting — same pattern as hot-visitor auto-call
+    const work = processAICallCampaign(callCampaignId, user.id, campaign).catch((error: any) => {
+      console.error('[TEST CALL] Processor error:', error?.message || error);
+    });
+    try {
+      if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) {
+        EdgeRuntime.waitUntil(work);
+      }
+    } catch {}
+
+    return c.json({
+      success: true,
+      campaign_id: callCampaignId,
+      to: toNumber,
+      using_playbook: !!playbook,
+      using_kb: !!campaign.knowledge_base,
+      message: `Calling ${toNumber} now. You should ring within 10 seconds.`,
+    });
+  } catch (error: any) {
+    console.error('[TEST CALL] Failed:', error);
+    return c.json({ success: false, error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+// ============================================================================
 // AI AGENT PROFILES CRUD ROUTES
 // ============================================================================
 

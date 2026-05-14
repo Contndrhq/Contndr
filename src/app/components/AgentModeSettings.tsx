@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Bot, Loader2, Phone, Play, Save, Plus, Trash2, Sparkles, Target } from 'lucide-react';
+import { Bot, Loader2, Phone, Play, Save, Plus, Trash2, Sparkles, Target, PhoneCall } from 'lucide-react';
 import { toast } from 'sonner';
 import { authenticatedFetch } from '../lib/auth';
 import { projectId } from '../utils/supabase/info';
@@ -94,6 +94,33 @@ export function AgentModeSettings() {
 
   const [playbook, setPlaybook] = useState<AICallPlaybookData>(EMPTY_PLAYBOOK);
   const [playbookSaving, setPlaybookSaving] = useState(false);
+
+  // ── Test call state ──
+  // Lets the user place a one-click pretend call to their own phone so they
+  // can hear the AI agent end-to-end (TTS + playbook + KB + opening line)
+  // without touching real leads or worrying about cooldowns / daily caps.
+  const [testPhone, setTestPhone] = useState('');
+  const [testCalling, setTestCalling] = useState(false);
+
+  const fireTestCall = async () => {
+    setTestCalling(true);
+    try {
+      const res = await authenticatedFetch(`${API_BASE}/ai-call/test-call`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(testPhone.trim() ? { phone: testPhone.trim() } : {}),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Test call failed');
+      toast.success('Test call started', {
+        description: `Ringing ${json.to} now. Playbook=${json.using_playbook ? 'yes' : 'no'}, KB=${json.using_kb ? 'yes' : 'no'}.`,
+      });
+    } catch (err: any) {
+      toast.error('Test call failed', { description: err.message });
+    } finally {
+      setTestCalling(false);
+    }
+  };
 
   // ── ElevenLabs Conversational AI agent state (Layer A) ──
   const [agentInfo, setAgentInfo] = useState<{ agent_id?: string; created_at?: string; last_synced_at?: string } | null>(null);
@@ -379,6 +406,37 @@ export function AgentModeSettings() {
             if (v) await ensureAgent();
           }}
         />
+        {/* ── Test call: dial yourself end-to-end ── */}
+        <div className="px-4 py-3.5 border-t border-zinc-100 dark:border-white/[0.06] flex items-center justify-between gap-3 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <PhoneCall className="w-4 h-4 text-zinc-500 dark:text-zinc-400 shrink-0" />
+              <p className="text-[13px] font-medium text-zinc-800 dark:text-zinc-200">Test call to me</p>
+            </div>
+            <p className="text-[11.5px] text-zinc-500 dark:text-zinc-400 mt-0.5 ml-6">
+              Rings your phone in 10 seconds. Uses your real playbook + KB but bypasses cooldowns and daily caps.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <input
+              type="tel"
+              value={testPhone}
+              onChange={e => setTestPhone(e.target.value)}
+              placeholder="+1 555 555 0123"
+              className="px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black text-[12.5px] w-[170px]"
+            />
+            <button
+              type="button"
+              onClick={fireTestCall}
+              disabled={testCalling}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-900 dark:bg-white text-white dark:text-black text-[12px] font-semibold hover:opacity-90 disabled:opacity-50"
+            >
+              {testCalling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PhoneCall className="w-3.5 h-3.5" />}
+              Call me
+            </button>
+          </div>
+        </div>
+
         {draft.useElevenLabsConvai && (
           <div className="px-4 py-3 bg-zinc-50/60 dark:bg-white/[0.02] border-t border-zinc-100 dark:border-white/[0.06]">
             <div className="flex items-start justify-between gap-3 flex-wrap">
