@@ -1345,7 +1345,13 @@ async function telnyxTranscriptionStart(callControlId: string): Promise<TelnyxRe
       language: 'en',
       interim_results: false,
       transcription_engine: 'B',
-      transcription_tracks: 'both',
+      // CRITICAL: 'inbound' only. Previously was 'both' which made Telnyx
+      // transcribe the AI's own outgoing speech and route it back as user
+      // input — the AI would hear its own questions and respond to itself.
+      // Even with the echo filter, partial AI utterances slipped through
+      // and corrupted the conversation. Only the prospect side gets
+      // transcribed now.
+      transcription_tracks: 'inbound',
       command_id: `tx_${Date.now()}`,
     };
     console.log(`🎙️ [TRANSCRIPTION] Config:`, JSON.stringify(txConfig));
@@ -1647,7 +1653,14 @@ app.post('/webhooks/call-status', async (c) => {
         if (eventType === 'call.transcription') {
           const transcriptionData = data.payload?.transcription_data;
           const isFinal = transcriptionData?.is_final ?? data.payload?.is_final ?? false;
-          const track = transcriptionData?.track || data.payload?.track || 'unknown';
+          // Telnyx actually puts the track name in `transcription_track`, not
+          // `track`. Reading the wrong field meant our outbound-filter
+          // never fired and the AI's own speech got fed back as input.
+          const track = transcriptionData?.transcription_track
+            || transcriptionData?.track
+            || data.payload?.transcription_track
+            || data.payload?.track
+            || 'unknown';
           const confidence = transcriptionData?.confidence ?? -1;
           const transcript = (
             transcriptionData?.transcript
@@ -1657,6 +1670,14 @@ app.post('/webhooks/call-status', async (c) => {
           ).toString().trim();
 
           console.log(`🎙️ [TX] ${isFinal ? 'FINAL' : 'partial'} track=${track} conf=${confidence} "${transcript}" | ${call.id}`);
+
+          // Defensive: drop outbound-track transcripts (= AI's own audio
+          // being transcribed). Belt-and-suspenders on top of the
+          // transcription_tracks: 'inbound' config above.
+          if (track === 'outbound') {
+            console.log(`🎙️ [TX] Dropping outbound-track transcript (AI's own audio): "${transcript.substring(0, 40)}"`);
+            return;
+          }
 
           if (!transcript) {
             // skip empty
