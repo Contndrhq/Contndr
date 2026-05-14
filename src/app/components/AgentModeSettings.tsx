@@ -52,6 +52,7 @@ interface AgentModeConfig {
   autoPauseLowQuality: boolean;
   autoCallHotVisitors: boolean;
   useElevenLabsConvai: boolean;
+  elevenLabsPhoneNumberId: string;
   maxDailyActions: number;
   quietHoursStart: string;
   quietHoursEnd: string;
@@ -79,6 +80,7 @@ const DEFAULT_CONFIG: AgentModeConfig = {
   autoPauseLowQuality: true,
   autoCallHotVisitors: false,
   useElevenLabsConvai: false,
+  elevenLabsPhoneNumberId: '',
   maxDailyActions: 25,
   quietHoursStart: '20:00',
   quietHoursEnd: '08:00',
@@ -455,7 +457,7 @@ export function AgentModeSettings() {
                   <div><span className="font-medium">Last synced:</span> {new Date(agentInfo.last_synced_at).toLocaleString()}</div>
                 )}
                 <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500 pt-1">
-                  Sync pushes your current playbook + Knowledge Base into the agent's prompt. The phone bridge (calls actually flowing through the agent) ships in the next update.
+                  Sync pushes your playbook + Knowledge Base into the agent's prompt.
                 </div>
               </div>
               <div className="flex gap-2 shrink-0">
@@ -470,6 +472,34 @@ export function AgentModeSettings() {
                   Sync now
                 </button>
               </div>
+            </div>
+
+            {/* ── Phone number ID for SIP-routed calls ── */}
+            <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-white/[0.06]">
+              <p className="text-[11.5px] font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                ElevenLabs phone number ID
+              </p>
+              <input
+                type="text"
+                value={draft.elevenLabsPhoneNumberId}
+                onChange={e => setField('elevenLabsPhoneNumberId', e.target.value)}
+                onBlur={() => saveConfig(draft, true).catch(() => {})}
+                placeholder="phnum_xxxxxxxxxxxx"
+                className="w-full px-3 py-2 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black text-[12.5px] font-mono"
+              />
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mt-1.5 leading-relaxed">
+                Required for sub-second-latency calls. Get this by:
+                <br />
+                <span className="text-zinc-600 dark:text-zinc-400">1.</span> Open ElevenLabs portal → Conversational AI → Phone Numbers
+                <br />
+                <span className="text-zinc-600 dark:text-zinc-400">2.</span> Click <em>Import a phone number from SIP trunk</em>
+                <br />
+                <span className="text-zinc-600 dark:text-zinc-400">3.</span> Use your Telnyx SIP credentials (find them in Telnyx portal → SIP Connections → Outbound)
+                <br />
+                <span className="text-zinc-600 dark:text-zinc-400">4.</span> ElevenLabs returns a <code>phnum_…</code> ID — paste it here.
+                <br />
+                With this set, calls route through ElevenLabs (~600ms latency). Without it, calls fall back to the legacy Telnyx pipeline (~3s latency).
+              </p>
             </div>
           </div>
         )}

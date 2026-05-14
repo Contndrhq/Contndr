@@ -18914,6 +18914,7 @@ const DEFAULT_AGENT_MODE_CONFIG = {
   autoPauseLowQuality: true,
   autoCallHotVisitors: false,
   useElevenLabsConvai: false,
+  elevenLabsPhoneNumberId: '',
   maxDailyActions: 25,
   quietHoursStart: '20:00',
   quietHoursEnd: '08:00',
@@ -18931,6 +18932,7 @@ function sanitizeAgentModeConfig(input: any, entitlements: any) {
     autoPauseLowQuality: raw.autoPauseLowQuality !== false,
     autoCallHotVisitors: !!raw.autoCallHotVisitors,
     useElevenLabsConvai: !!raw.useElevenLabsConvai,
+    elevenLabsPhoneNumberId: typeof raw.elevenLabsPhoneNumberId === 'string' ? raw.elevenLabsPhoneNumberId.trim().slice(0, 80) : '',
     maxDailyActions: Math.min(Math.max(Number(raw.maxDailyActions || 25), 1), 250),
     quietHoursStart: String(raw.quietHoursStart || '20:00').slice(0, 5),
     quietHoursEnd: String(raw.quietHoursEnd || '08:00').slice(0, 5),
@@ -19454,6 +19456,74 @@ app.post("/make-server-a8b2511f/ai-call/test-call", async (c) => {
     // Pull the user's playbook + KB so the test reflects their real config
     let playbook: any = null;
     try { playbook = await kv.get(`ai_call_playbook:${user.id}`); } catch {}
+
+    // ── Layer B: route through ElevenLabs Conversational AI if enabled ──
+    // When user has Convai toggle ON and registered their Telnyx number in
+    // the ElevenLabs portal, calls bypass our Telnyx + STT + GPT + TTS
+    // polling pipeline entirely. ElevenLabs handles the full conversation
+    // in a single streaming pipeline (~400ms end-to-end latency vs ~3s on
+    // the polling path).
+    const agentModeConfig = sanitizeAgentModeConfig(
+      await kv.get(`agent_mode:${user.id}:config`),
+      { agentMode: true, aiCalling: true, intentAutoCall: true } // entitlements ignored for test call
+    );
+    if (agentModeConfig.useElevenLabsConvai && agentModeConfig.elevenLabsPhoneNumberId) {
+      try {
+        const { syncAgentForCall } = await import('./elevenlabs.tsx');
+        // Push fresh playbook + KB + lead context into the agent BEFORE
+        // we dial. The agent will use this prompt for the entire call.
+        const userName = user.user_metadata?.full_name || user.user_metadata?.name || (user.email || 'You').split('@')[0];
+        const synced = await syncAgentForCall({
+          userId: user.id,
+          userEmail: user.email || undefined,
+          ai_config: {
+            name: 'Alex',
+            brand: 'Contndr',
+            objective: 'book_call',
+            brand_tone: 'friendly',
+          },
+          lead: {
+            name: userName,
+            business: 'Test Prospect',
+            email: user.email,
+            phone: toNumber,
+          },
+        });
+        if (!synced.synced) {
+          throw new Error(`Agent sync failed: ${synced.error}`);
+        }
+
+        const apiKey = Deno.env.get('ELEVENLABS_API_KEY');
+        if (!apiKey) throw new Error('ELEVENLABS_API_KEY not configured');
+
+        const convaiRes = await fetch('https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call', {
+          method: 'POST',
+          headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent_id: synced.agent_id,
+            agent_phone_number_id: agentModeConfig.elevenLabsPhoneNumberId,
+            to_number: toNumber,
+          }),
+        });
+        const convaiJson = await convaiRes.json().catch(() => ({}));
+        if (!convaiRes.ok || !convaiJson.success) {
+          throw new Error(`ElevenLabs Convai outbound failed (${convaiRes.status}): ${convaiJson.message || JSON.stringify(convaiJson).slice(0, 200)}`);
+        }
+
+        console.log(`[TEST CALL · CONVAI] User ${user.email || user.id} → ${toNumber} | conversation=${convaiJson.conversation_id} sip=${convaiJson.sip_call_id}`);
+        return c.json({
+          success: true,
+          route: 'elevenlabs_convai',
+          conversation_id: convaiJson.conversation_id,
+          sip_call_id: convaiJson.sip_call_id,
+          to: toNumber,
+          message: `ElevenLabs is dialing ${toNumber} now. Sub-second response latency. Conversation: ${convaiJson.conversation_id || '?'}.`,
+        });
+      } catch (convaiErr: any) {
+        console.error('[TEST CALL · CONVAI] Failed, falling back to Telnyx path:', convaiErr?.message || convaiErr);
+        // Fall through to legacy Telnyx path below
+      }
+    }
 
     // Find the first active AI call campaign as a script source (same logic
     // as the hot-visitor auto-call). If none, defaults flow through.
