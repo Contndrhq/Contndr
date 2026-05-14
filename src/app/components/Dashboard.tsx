@@ -916,7 +916,7 @@ function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRan
           <button
             type="button"
             onClick={(event) => applyRange(draft, event)}
-            className="h-9 rounded-lg bg-[#1ED4A7] text-black text-xs font-bold hover:bg-[#24e4b6] transition-colors"
+            className="h-9 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-black text-xs font-bold hover:opacity-90 transition-opacity"
           >
             Apply range
           </button>
