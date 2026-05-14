@@ -865,7 +865,10 @@ export async function getOrCreateUserAgent(opts: {
       },
       tts: {
         voice_id: voiceId,
-        model_id: DEFAULT_CONV_MODEL,
+        // ElevenLabs constraint as of 2026-05: English-language agents must
+        // use turbo_v2 or flash_v2 (NOT the v2_5 variants). flash_v2 is the
+        // lowest-latency option, ~75ms time-to-first-byte.
+        model_id: 'eleven_flash_v2',
         agent_output_audio_format: 'pcm_16000',
         optimize_streaming_latency: 3,
       },
