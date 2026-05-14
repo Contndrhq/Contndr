@@ -787,9 +787,15 @@ function elevenLabsTTS(text: string, voiceName?: string): Promise<string | null>
   // Build the streaming proxy URL — Telnyx calls this, we stream ElevenLabs back.
   // NOTE: telnyxApp is mounted under /make-server-a8b2511f/telnyx in index.ts, so
   // the streaming endpoint resolves to /make-server-a8b2511f/telnyx/tts-stream.
-  // Previously this URL was missing /telnyx/, which caused Telnyx to fetch a 404
-  // and the call to remain completely silent.
-  const streamUrl = `${supabaseUrl}/functions/v1/make-server-a8b2511f/telnyx/tts-stream?text=${encodedText}&voice=${encodedVoice}${token ? `&t=${token}` : ''}`;
+  //
+  // CRITICAL: Supabase Edge Functions require an `apikey` query param even when
+  // the function itself is deployed with --no-verify-jwt. Telnyx fetches the
+  // URL anonymously (no headers), so without ?apikey=... the platform 401s the
+  // request before our handler runs. The anon key is public (shipped to every
+  // browser already) so it's safe to embed in the URL.
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLIC_ANON_KEY') || '';
+  const apikeyParam = anonKey ? `&apikey=${encodeURIComponent(anonKey)}` : '';
+  const streamUrl = `${supabaseUrl}/functions/v1/make-server-a8b2511f/telnyx/tts-stream?text=${encodedText}&voice=${encodedVoice}${token ? `&t=${token}` : ''}${apikeyParam}`;
   console.log(`🎙️ ElevenLabs TTS (streaming): "${text.substring(0, 60)}..." voice=${voice}`);
   return Promise.resolve(streamUrl);
 }
