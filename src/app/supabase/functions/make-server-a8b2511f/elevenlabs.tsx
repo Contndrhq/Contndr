@@ -793,7 +793,7 @@ function buildAgentSystemPrompt(config: {
 
   prompt += `\nVOICE RULES:\n`;
   prompt += `- You are on a LIVE PHONE CALL. Sound like a real person — warm, natural, spontaneous\n`;
-  prompt += `- Keep responses to 1-3 short sentences (under 35 words)\n`;
+  prompt += `- Keep responses SHORT: 1 sentence, max 12 words. Punchy. Phone-call brief.\n`;
   prompt += `- LISTEN FIRST: Acknowledge what the prospect said before adding your point\n`;
   prompt += `- Use natural filler: "yeah", "so", "actually", "honestly"\n`;
   prompt += `- NEVER repeat your opening pitch after the first turn\n`;
@@ -801,6 +801,15 @@ function buildAgentSystemPrompt(config: {
   prompt += `- If they want to be removed, respect it immediately and end warmly\n`;
   prompt += `- Ask ONE question at a time\n`;
   prompt += `- React naturally: "Oh interesting!", "That makes sense", "Got it"\n`;
+
+  // ── Pronunciation guide ──
+  // ElevenLabs reads brand spellings literally. "Contndr" has no vowels so
+  // it gets said as "C-T-N-D-R". Tell the agent to use the phonetic form
+  // in its own generated output AND to read these words a certain way.
+  prompt += `\nPRONUNCIATION (critical — sounds robotic otherwise):\n`;
+  prompt += `- When referring to our company, ALWAYS say "Contender" (kuhn-TEN-der). Never spell out "Contndr" letter-by-letter.\n`;
+  prompt += `- Even if your context shows "Contndr" written, you must SAY "Contender" out loud.\n`;
+  prompt += `- For URLs say "dot com" (not "."), "at" (not "@"), and pronounce each word naturally.\n`;
 
   return prompt;
 }
@@ -859,6 +868,12 @@ export async function getOrCreateUserAgent(opts: {
       agent: {
         prompt: {
           prompt: `You are ${aiName}, a Sales Specialist at ${brand}. (Prompt will be refreshed before each call.)`,
+          // Low-latency LLM config. gpt-4o-mini is the fastest production
+          // model with decent quality. max_tokens 60 keeps responses
+          // short (~15 words) so TTS playback starts faster.
+          llm: 'gpt-4o-mini',
+          temperature: 0.7,
+          max_tokens: 60,
         },
         first_message: `Hey there! This is ${aiName} from ${brand}. Do you have a quick minute?`,
         language: 'en',
@@ -870,11 +885,15 @@ export async function getOrCreateUserAgent(opts: {
         // lowest-latency option, ~75ms time-to-first-byte.
         model_id: 'eleven_flash_v2',
         agent_output_audio_format: 'pcm_16000',
-        optimize_streaming_latency: 3,
+        // 4 = max latency optimization (some quality tradeoff, but on a
+        // phone call the quality drop is imperceptible)
+        optimize_streaming_latency: 4,
       },
       stt: { model: 'nova-2-general' },
       turn: {
-        turn_timeout: 15,
+        // turn_timeout 10s (was 15) — fires AI response sooner after user
+        // stops talking. Default is too patient for snappy phone calls.
+        turn_timeout: 10,
         mode: 'turn',
       },
       conversation: { max_duration_seconds: 600 },
@@ -952,10 +971,25 @@ export async function syncAgentForCall(opts: {
     const patch = {
       conversation_config: {
         agent: {
-          prompt: { prompt: finalPrompt },
+          prompt: {
+            prompt: finalPrompt,
+            // Re-apply low-latency LLM settings on every sync so existing
+            // agents (provisioned before we added these) get the upgrade.
+            llm: 'gpt-4o-mini',
+            temperature: 0.7,
+            max_tokens: 60,
+          },
           first_message: firstMessage,
         },
-        tts: opts.ai_config?.voice_id ? { voice_id: opts.ai_config.voice_id } : undefined,
+        tts: {
+          ...(opts.ai_config?.voice_id ? { voice_id: opts.ai_config.voice_id } : {}),
+          model_id: 'eleven_flash_v2',
+          optimize_streaming_latency: 4,
+        },
+        turn: {
+          turn_timeout: 10,
+          mode: 'turn',
+        },
       },
     };
 
