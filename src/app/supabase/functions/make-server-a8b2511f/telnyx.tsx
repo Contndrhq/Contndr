@@ -835,11 +835,11 @@ async function elevenLabsTTS(text: string, voiceName?: string, opts?: { highQual
   // Rewrite brand/acronym text for natural pronunciation
   const speakText = normalizeForTTS(text);
 
-  // Model selection — opening line uses the highest-quality multilingual_v2
-  // because first impressions matter; subsequent turns use turbo_v2_5
-  // which is ~400ms faster with negligible quality loss in a phone-call
-  // context. Caller decides via `opts.highQuality`.
-  const modelId = opts?.highQuality ? 'eleven_multilingual_v2' : 'eleven_turbo_v2_5';
+  // Model selection:
+  //  • opening line → eleven_multilingual_v2 (best quality, first impression)
+  //  • response turns → eleven_flash_v2_5 (lowest latency, ~150ms TTFB,
+  //    still solid quality on phone-grade audio)
+  const modelId = opts?.highQuality ? 'eleven_multilingual_v2' : 'eleven_flash_v2_5';
 
   console.log(`🎙️ ElevenLabs TTS gen (${modelId}): "${speakText.substring(0, 60)}..." voice=${voice}`);
   const t0 = Date.now();
@@ -1119,7 +1119,7 @@ function buildSystemPrompt(aiConfig: any, leadContext: any, runtime?: { stage?: 
     }
 
     prompt += `PHONE CALL RULES — non-negotiable:\n`;
-    prompt += `1. Every response = 1 sentence, max 20 words\n`;
+    prompt += `1. Every response = 1 sentence, MAX 12 words. Punchy. Phone-call brief.\n`;
     prompt += `2. ALWAYS start with a reaction word: "Yeah,", "Right,", "Oh,", "Got it,", "Hmm,", "So,", "Totally," — rotate, never repeat the same one twice in a row\n`;
     prompt += `3. Then your actual point. Nothing else.\n`;
     prompt += `4. NEVER re-introduce yourself. NEVER repeat what you said. Build forward.\n`;
@@ -1153,7 +1153,7 @@ function buildSystemPrompt(aiConfig: any, leadContext: any, runtime?: { stage?: 
   return `You are ${agentName}, a ${role} at ${brand}. You are on a live phone call right now.
 
 HARD RULES — follow exactly:
-1. Every response = 1 sentence, max 20 words
+1. Every response = 1 sentence, MAX 12 words. Punchy. Phone-call brief.
 2. ALWAYS start with a reaction word: "Yeah,", "Right,", "Oh,", "Got it,", "Hmm,", "So,", "Totally," — vary them, never repeat the same one twice in a row
 3. Then your actual point. That's it.
 4. NEVER re-introduce yourself after your first message
@@ -1200,9 +1200,10 @@ async function getAIResponse(
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages: contextMessages,
-        // Tightened from 70 → 55: shaves ~200ms off generation time. Still
-        // enough for 1 natural sentence on a phone call (~18-22 words).
-        max_tokens: 55,
+        // Aggressively tightened to 35 tokens (~10-12 words). Phone-call
+        // sales reps are punchy. Shorter response = faster GPT, faster
+        // TTS gen, faster playback, less dead air per turn.
+        max_tokens: 35,
         temperature: 0.8,
         frequency_penalty: 0.8,
         presence_penalty: 0.3,
