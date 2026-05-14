@@ -1698,9 +1698,42 @@ app.post('/webhooks/call-status', async (c) => {
               console.log(`🎙️ [TX] Duplicate, skipping: "${transcript.substring(0, 40)}"`);
               return;
             }
+
+            // ── Barge-in support ──
+            // Previous behaviour: if the AI was speaking, we DROPPED the user's
+            // transcript entirely. That made the AI feel deaf to anything the
+            // user said over its own audio — including short answers like
+            // "yes" or "I don't have one" to a yes/no question, which is the
+            // most natural way humans reply on a phone call.
+            //
+            // New behaviour: if the user speaks during AI playback, stop the
+            // AI's playback mid-sentence (Telnyx playback_stop), release the
+            // lock, then process the user's input as their turn. This is
+            // what humans do — pause and listen when someone interrupts.
+            //
+            // We only barge-in on utterances that look like real speech
+            // (>=2 chars after trimming). Single-syllable bleed ("uh", "a")
+            // shouldn't kill an AI sentence.
             if (lockVal && (Date.now() - lockVal) < 30000) {
-              console.log(`🎙️ [TX] AI busy (locked ${Date.now() - lockVal}ms ago), skipping`);
-              return;
+              const meaningful = transcript.replace(/[^a-z0-9 ]/gi, '').trim();
+              if (meaningful.length >= 2) {
+                console.log(`🎙️ [TX] User barge-in (lock=${Date.now() - lockVal}ms) — stopping AI playback to listen: "${transcript.substring(0, 40)}"`);
+                // Fire-and-forget playback_stop; even if it fails, releasing
+                // the lock + processing the turn is the right move.
+                try {
+                  await telnyxRequest(`/calls/${callControlId}/actions/playback_stop`, {
+                    method: 'POST',
+                    body: JSON.stringify({}),
+                  });
+                } catch (stopErr) {
+                  console.warn('[TX] playback_stop failed (non-fatal):', stopErr);
+                }
+                await releaseAILock(callControlId);
+                // fall through into normal processing below
+              } else {
+                console.log(`🎙️ [TX] Ignoring sub-2-char utterance during AI speech: "${transcript}"`);
+                return;
+              }
             }
 
             // Acquire lock + mark dedup (parallel writes)
