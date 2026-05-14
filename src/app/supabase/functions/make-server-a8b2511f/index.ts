@@ -19520,9 +19520,40 @@ app.post("/make-server-a8b2511f/ai-call/test-call", async (c) => {
         }
 
         console.log(`[TEST CALL · CONVAI] User ${user.email || user.id} → ${toNumber} | conversation=${convaiJson.conversation_id} sip=${convaiJson.sip_call_id}`);
+
+        // ── Write a call:* record so this conversation appears in the
+        // AI Calls dashboard. The ElevenLabs post-call webhook (handler
+        // in elevenlabs.tsx) will later fill in transcript + outcome.
+        const convaiCallId = `convai_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+        const userNameForCall = user.user_metadata?.full_name || user.user_metadata?.name || (user.email || 'You').split('@')[0];
+        const convaiCallRecord = {
+          id: convaiCallId,
+          user_id: user.id,
+          route: 'elevenlabs_convai',
+          convai_conversation_id: convaiJson.conversation_id || null,
+          convai_sip_call_id: convaiJson.sip_call_id || null,
+          status: 'answered', // ConvAI calls go straight to connected
+          answered_at: new Date().toISOString(),
+          started_at: new Date().toISOString(),
+          to_number: toNumber,
+          from_number: '',
+          lead_name: userNameForCall,
+          business_name: 'Test Prospect',
+          ai_name: 'Alex',
+          brand: 'contndr',
+          _test_call: true,
+        };
+        await kv.set(`call:${convaiCallId}`, convaiCallRecord).catch(() => {});
+        // Reverse index so the post-call webhook can find this record
+        // when ElevenLabs delivers the transcript by conversation_id.
+        if (convaiJson.conversation_id) {
+          await kv.set(`call_by_convai:${convaiJson.conversation_id}`, convaiCallId).catch(() => {});
+        }
+
         return c.json({
           success: true,
           route: 'elevenlabs_convai',
+          call_id: convaiCallId,
           conversation_id: convaiJson.conversation_id,
           sip_call_id: convaiJson.sip_call_id,
           to: toNumber,

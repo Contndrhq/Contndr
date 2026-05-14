@@ -1070,37 +1070,110 @@ app.post('/my-agent/sync', async (c) => {
 });
 
 /**
- * POST /elevenlabs/webhooks/conversation  (Layer C skeleton)
+ * POST /elevenlabs/webhooks/conversation  (Layer C)
  *
  * ElevenLabs posts here after a Conversational AI call completes. We use
- * the payload to attach the transcript + outcome to the Contndr call
- * record so dashboard stats stay accurate.
+ * the conversation_id to find the call:* record we wrote when initiating
+ * the outbound call, then enrich it with transcript, duration, and
+ * outcome so the AI Calls dashboard reflects the completed call.
  *
- * Currently a logging stub — full attribution wires up in Layer B once
- * call routing is in place.
+ * REGISTER THIS WEBHOOK in ElevenLabs portal:
+ *   Settings → Webhooks → "Post-call" event
+ *   URL: https://zylftkvcasvznhkmyzfj.supabase.co/functions/v1/make-server-a8b2511f/elevenlabs/webhooks/conversation
+ *   Events: post_call_transcription (and any related call events)
+ *
+ * ElevenLabs payload shape (post_call_transcription):
+ *   {
+ *     type: 'post_call_transcription',
+ *     event_timestamp: 1234567890,
+ *     data: {
+ *       conversation_id, agent_id, status,
+ *       transcript: [{ role, message, time_in_call_secs, ... }],
+ *       metadata: { call_duration_secs, start_time_unix_secs, ... },
+ *       analysis: { call_successful, transcript_summary, ... },
+ *     }
+ *   }
  */
 app.post('/webhooks/conversation', async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
-    const conversationId = body?.conversation_id || body?.data?.conversation_id;
-    const agentId = body?.agent_id || body?.data?.agent_id;
-    const userIdFromMeta = body?.data?.metadata?.contndr_user_id;
-    console.log(`[ConvAI WEBHOOK] conversation=${conversationId} agent=${agentId} user=${userIdFromMeta || 'unknown'}`);
+    // ElevenLabs nests everything under `data` for the post_call events,
+    // but earlier event types use the top level — handle both.
+    const data = body?.data || body;
+    const conversationId = data?.conversation_id || body?.conversation_id;
+    const agentId = data?.agent_id || body?.agent_id;
+    const eventType = body?.type || data?.type || 'unknown';
+    const status = data?.status || null;
+    const transcript = Array.isArray(data?.transcript) ? data.transcript : [];
+    const duration = data?.metadata?.call_duration_secs
+      || data?.call_duration_secs
+      || body?.call_duration_secs
+      || 0;
+    const summary = data?.analysis?.transcript_summary || null;
+    const callSuccessful = data?.analysis?.call_successful || null;
 
-    // Persist raw payload for now — once Layer B is in, we'll match it to
-    // the call:* record via conversation_id (stored at call initiation).
-    if (conversationId) {
+    console.log(`[ConvAI WEBHOOK] type=${eventType} conversation=${conversationId} agent=${agentId} duration=${duration}s status=${status}`);
+
+    if (!conversationId) {
+      console.warn('[ConvAI WEBHOOK] No conversation_id in payload — saving raw event for inspection.');
+      await kv.set(`convai_event:unmatched:${Date.now()}`, body).catch(() => {});
+      return c.json({ success: true });
+    }
+
+    // Find the call:* record by conversation_id via the reverse index we
+    // wrote at call initiation in index.ts (call_by_convai:CONV_ID → call_id).
+    const callId = await kv.get(`call_by_convai:${conversationId}`);
+    if (!callId) {
+      console.warn(`[ConvAI WEBHOOK] No call:* record found for conversation=${conversationId}. Storing raw event.`);
       await kv.set(`convai_event:${conversationId}`, {
         received_at: new Date().toISOString(),
         agent_id: agentId,
-        user_id: userIdFromMeta,
-        event: body?.type || 'unknown',
+        event: eventType,
+        duration,
+        summary,
+        transcript: transcript.slice(0, 50), // cap to keep KV value small
         payload: body,
-      });
+      }).catch(() => {});
+      return c.json({ success: true });
     }
+
+    const callRecord = await kv.get(`call:${callId}`);
+    if (!callRecord) {
+      console.warn(`[ConvAI WEBHOOK] call_by_convai pointed at missing call:${callId}`);
+      return c.json({ success: true });
+    }
+
+    // Determine final status. Post-call events always mean the call has
+    // ended. Mark as 'ended' so the dashboard counts it as completed.
+    const ended_at = new Date().toISOString();
+    const startedMs = callRecord.started_at ? new Date(callRecord.started_at).getTime() : Date.now() - duration * 1000;
+    const durationMs = Math.max(0, Date.now() - startedMs);
+    const outcome = callSuccessful === 'success'
+      ? 'booked'
+      : callSuccessful === 'failure'
+        ? 'no_outcome'
+        : (callRecord.outcome || null);
+
+    const updated = {
+      ...callRecord,
+      status: 'ended',
+      ended_at,
+      duration_secs: duration || Math.round(durationMs / 1000),
+      convai_transcript: transcript.slice(0, 100).map((t: any) => ({
+        role: t.role,
+        text: t.message || t.text || '',
+        at: t.time_in_call_secs,
+      })),
+      convai_summary: summary,
+      convai_call_successful: callSuccessful,
+      outcome,
+      updated_at: ended_at,
+    };
+    await kv.set(`call:${callId}`, updated);
+    console.log(`[ConvAI WEBHOOK] ✅ Attributed conversation=${conversationId} → call:${callId} (duration=${duration}s, outcome=${outcome})`);
     return c.json({ success: true });
   } catch (err: any) {
-    console.error('[ConvAI WEBHOOK] error:', err);
+    console.error('[ConvAI WEBHOOK] error:', err?.message || err);
     return c.json({ success: true }); // Always 200 so ElevenLabs doesn't retry
   }
 });
