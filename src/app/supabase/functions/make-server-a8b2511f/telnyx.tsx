@@ -2056,6 +2056,28 @@ app.get('/active-calls', async (c) => {
     const allCalls = allCallsRaw.filter((c: any) => c && typeof c === 'object' && (c.user_id === userId || c.ai_config?.user_id === userId));
     // getByPrefix returns values directly
     const now = Date.now();
+
+    // ── Stale-call cleanup ──
+    // Calls can get stuck "live" in KV if the call.hangup webhook never
+    // fires (network drop, ElevenLabs Convai calls that bypass our
+    // webhook, abandoned dev calls, etc.). Any call older than 10 min
+    // still showing as in-progress is almost certainly dead. Mark it
+    // ended in KV AND exclude it from the active list. Best-effort
+    // writes — we don't await them so the dashboard response stays fast.
+    const STALE_LIVE_AGE_MS = 10 * 60 * 1000;
+    const IN_PROGRESS_STATUSES = ['initiated', 'ringing', 'answered', 'active', 'speaking', 'listening', 'processing'];
+    for (const c of allCalls) {
+      if (!c || typeof c !== 'object') continue;
+      if (!IN_PROGRESS_STATUSES.includes(c.status)) continue;
+      const startedMs = c.started_at ? new Date(c.started_at).getTime() : 0;
+      if (!startedMs || (now - startedMs) <= STALE_LIVE_AGE_MS) continue;
+      console.log(`📞 [Active Calls] Cleaning up stale ${c.status} call ${c.id} (age: ${Math.round((now - startedMs) / 60000)}min)`);
+      c.status = 'ended';
+      if (!c.ended_at) c.ended_at = new Date(startedMs + STALE_LIVE_AGE_MS).toISOString();
+      c.cleanup_reason = 'stale_no_hangup_webhook';
+      kv.set(`call:${c.id}`, c).catch(() => {});
+    }
+
     const activeCalls = allCalls
       .filter(c => {
         if (!c || typeof c !== 'object') return false;
