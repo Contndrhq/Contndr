@@ -7,7 +7,7 @@
 // "All caught up" rather than a stack of empty boxes.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Flame, MessageSquare, Send, PhoneCall, CheckCircle2, Loader2, ArrowRight } from 'lucide-react';
+import { Flame, MessageSquare, Send, PhoneCall, CheckCircle2, Loader2, ArrowRight, ChevronDown } from 'lucide-react';
 import { authenticatedFetch } from '../lib/auth';
 import { projectId } from '../utils/supabase/info';
 
@@ -48,6 +48,14 @@ interface TodayData {
 export function TodayPanel({ onNavigate }: { onNavigate?: (view: string) => void }) {
   const [data, setData] = useState<TodayData | null>(null);
   const [loading, setLoading] = useState(true);
+  // Collapsible — power users who flip into the full-dashboard view don't
+  // want Today pushing the charts down on every visit. Choice persists.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('contndr:today:collapsed') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('contndr:today:collapsed', collapsed ? '1' : '0'); } catch {}
+  }, [collapsed]);
   const errorCountRef = useRef(0);
 
   const load = useCallback(async () => {
@@ -186,13 +194,35 @@ export function TodayPanel({ onNavigate }: { onNavigate?: (view: string) => void
     );
   }
 
+  // Total signal count drives the badge when collapsed
+  const totalSignals = data
+    ? data.hot_visitors_now.count + data.unread_replies.count
+      + data.ai_calls_today.active_now + data.campaigns_sending.count
+    : 0;
+
   return (
     <section className="space-y-3">
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-white">Today</h2>
-        <span className="text-[11.5px] text-zinc-400 dark:text-zinc-500">Live · auto-refreshing</span>
-      </div>
-      {cards.length === 0 ? (
+      <button
+        type="button"
+        onClick={() => setCollapsed(v => !v)}
+        className="w-full flex items-center justify-between gap-3 group"
+        aria-expanded={!collapsed}
+      >
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-white">Today</h2>
+          {collapsed && totalSignals > 0 && (
+            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-zinc-900 dark:bg-white text-white dark:text-black text-[10.5px] font-bold">
+              {totalSignals}
+            </span>
+          )}
+          <ChevronDown className={`w-4 h-4 text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+        </div>
+        <span className="text-[11.5px] text-zinc-400 dark:text-zinc-500">
+          {collapsed ? (totalSignals > 0 ? `${totalSignals} thing${totalSignals > 1 ? 's' : ''} to act on` : 'All caught up') : 'Live · auto-refreshing'}
+        </span>
+      </button>
+
+      {collapsed ? null : cards.length === 0 ? (
         <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-black p-6 flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center shrink-0">
             <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500" />
