@@ -349,7 +349,23 @@ export async function processCampaign(campaignId: string, userId: string, campai
               webhook_url: `${Deno.env.get('SUPABASE_URL')}/functions/v1/make-server-a8b2511f/telnyx/webhooks/call-status`,
               webhook_url_method: 'POST',
               audio_url: undefined,
-              // ⚠️ DO NOT enable answering_machine_detection — it conflicts with gather_using_audio
+              // Answering Machine Detection — premium mode is the fastest
+              // (~3s) and only fires "machine" with high confidence.
+              // The conflict noted in earlier code was with gather_using_audio
+              // which we no longer use (transcription_start replaced it).
+              // Handler at call.machine.detection.ended in telnyx.tsx hangs
+              // up automatically when result === 'machine' or 'machine_end'.
+              answering_machine_detection: 'premium',
+              answering_machine_detection_config: {
+                total_analysis_time_millis: 3000,
+                after_greeting_silence_millis: 800,
+                between_words_silence_millis: 400,
+                greeting_duration_millis: 3500,
+                initial_silence_millis: 3500,
+                maximum_number_of_words: 5,
+                maximum_word_length_millis: 3500,
+                silence_threshold: 256,
+              },
             })
           });
 

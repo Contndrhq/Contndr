@@ -645,10 +645,20 @@ app.post('/calls/initiate', async (c) => {
         webhook_url: `${Deno.env.get('SUPABASE_URL')}/functions/v1/make-server-a8b2511f/telnyx/webhooks/call-status`,
         webhook_url_method: 'POST',
         audio_url: undefined,
-        // ⚠️ DO NOT enable answering_machine_detection — it starts Telnyx's own internal
-        // gather that conflicts with our gather_using_audio/gather_using_speak commands,
-        // causing Telnyx to silently reject our audio actions and the call to be completely
-        // silent. The AI agent handles silence/timeouts naturally via its own gather loop.
+        // AMD now enabled — earlier conflict was with gather_using_audio
+        // which has been replaced by transcription_start. Handler at
+        // call.machine.detection.ended hangs up automatically on voicemail.
+        answering_machine_detection: 'premium',
+        answering_machine_detection_config: {
+          total_analysis_time_millis: 3000,
+          after_greeting_silence_millis: 800,
+          between_words_silence_millis: 400,
+          greeting_duration_millis: 3500,
+          initial_silence_millis: 3500,
+          maximum_number_of_words: 5,
+          maximum_word_length_millis: 3500,
+          silence_threshold: 256,
+        },
       })
     });
 
@@ -813,7 +823,7 @@ function normalizeForTTS(text: string): string {
   return out;
 }
 
-async function elevenLabsTTS(text: string, voiceName?: string): Promise<string | null> {
+async function elevenLabsTTS(text: string, voiceName?: string, opts?: { highQuality?: boolean }): Promise<string | null> {
   const apiKey = Deno.env.get('ELEVENLABS_API_KEY');
   if (!apiKey) {
     console.error('❌ ELEVENLABS_API_KEY not set');
@@ -825,7 +835,13 @@ async function elevenLabsTTS(text: string, voiceName?: string): Promise<string |
   // Rewrite brand/acronym text for natural pronunciation
   const speakText = normalizeForTTS(text);
 
-  console.log(`🎙️ ElevenLabs TTS gen: "${speakText.substring(0, 60)}..." voice=${voice}`);
+  // Model selection — opening line uses the highest-quality multilingual_v2
+  // because first impressions matter; subsequent turns use turbo_v2_5
+  // which is ~400ms faster with negligible quality loss in a phone-call
+  // context. Caller decides via `opts.highQuality`.
+  const modelId = opts?.highQuality ? 'eleven_multilingual_v2' : 'eleven_turbo_v2_5';
+
+  console.log(`🎙️ ElevenLabs TTS gen (${modelId}): "${speakText.substring(0, 60)}..." voice=${voice}`);
   const t0 = Date.now();
 
   try {
@@ -838,10 +854,7 @@ async function elevenLabsTTS(text: string, voiceName?: string): Promise<string |
       },
       body: JSON.stringify({
         text: speakText,
-        // eleven_multilingual_v2 = ElevenLabs' best-quality model. ~400ms
-        // slower than turbo_v2_5 but the prosody and emotional range are
-        // night-and-day better. Worth the latency for sales calls.
-        model_id: 'eleven_multilingual_v2',
+        model_id: modelId,
         voice_settings: {
           // Lower stability + higher style = smoother, less choppy reading
           // with more natural intonation between words. Range 0-1.
@@ -1187,9 +1200,11 @@ async function getAIResponse(
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages: contextMessages,
-        max_tokens: 70,       // ~25-35 words — enough for 1 natural sentence on a phone call
+        // Tightened from 70 → 55: shaves ~200ms off generation time. Still
+        // enough for 1 natural sentence on a phone call (~18-22 words).
+        max_tokens: 55,
         temperature: 0.8,
-        frequency_penalty: 0.8,  // Strong penalty prevents repetitive phrasing
+        frequency_penalty: 0.8,
         presence_penalty: 0.3,
       }),
     });
@@ -1211,14 +1226,14 @@ async function getAIResponse(
 }
 
 /** Play ElevenLabs audio on call via Telnyx playback_start, fallback to Telnyx TTS */
-async function telnyxSpeak(callControlId: string, text: string, voiceName?: string): Promise<TelnyxResult> {
+async function telnyxSpeak(callControlId: string, text: string, voiceName?: string, opts?: { highQuality?: boolean }): Promise<TelnyxResult> {
   // ── Fast-exit if we already know this call ended ──
   if (endedCallControlIds.has(callControlId)) {
     console.log(`ℹ️ [telnyxSpeak] Skipping — call ${callControlId} already ended (in-memory).`);
     return CALL_ENDED;
   }
   // Try ElevenLabs first for natural voice quality
-  const audioUrl = await elevenLabsTTS(text, voiceName);
+  const audioUrl = await elevenLabsTTS(text, voiceName, opts);
   if (audioUrl) {
     try {
       console.log(`🔊 Playing ElevenLabs audio on ${callControlId}. URL: ${audioUrl.substring(0, 50)}...`);
@@ -1638,8 +1653,10 @@ app.post('/webhooks/call-status', async (c) => {
             silenceTimer: null,
           });
 
-          // Speak the opening line (simple speak, transcription handles the listening)
-          const speakResult = await telnyxSpeak(callControlId, resolvedOpening, voiceName);
+          // Opening line uses the high-quality multilingual_v2 model — first
+          // impressions matter most. Subsequent turns drop to turbo_v2_5 for
+          // faster response time.
+          const speakResult = await telnyxSpeak(callControlId, resolvedOpening, voiceName, { highQuality: true });
           if (speakResult === CALL_ENDED) {
             console.log(`ℹ️ Call ${call.id} ended before opening line could be spoken.`);
           } else if (!speakResult) {
@@ -1796,21 +1813,30 @@ app.post('/webhooks/call-status', async (c) => {
 
               conv.history.push({ role: 'user', content: prospectSaid });
 
-              // End signals
+              // End signals — split into HARD (auto-hangup) vs SOFT (let the LLM handle).
+              //
+              // Old behavior auto-hung-up on "not interested" / "no thanks" — which
+              // killed calls where the prospect was just venting, frustrated, or
+              // testing the AI. The prospect would then say "actually yes" but
+              // the hangup timer had already fired and the call was gone.
+              //
+              // Now: only hang up on explicit removal requests. Casual no's get a
+              // graceful soft response but the call stays open in case they
+              // change their mind.
               const lower = prospectSaid.toLowerCase();
-              if (['not interested','take me off',"don't call",'stop calling','remove me','no thanks','goodbye','bye','hang up','leave me alone'].some(s => lower.includes(s))) {
-                const byeOptions = [
-                  "No worries at all! Thanks so much for your time. Have a great rest of your day!",
-                  "Totally understand! I appreciate you taking a second. Take care!",
-                  "That's completely fair. Thanks for letting me know. Have an awesome day!",
-                ];
-                const bye = byeOptions[Math.floor(Math.random() * byeOptions.length)];
+              const HARD_END_PHRASES = ['take me off', "don't call", 'stop calling', 'remove me', 'hang up', 'leave me alone'];
+              const isHardEnd = HARD_END_PHRASES.some(s => lower.includes(s));
+              if (isHardEnd) {
+                const bye = "No worries — I'll take you off the list. Have a great day!";
                 conv.history.push({ role: 'assistant', content: bye });
-                await kv.set(convKey, { ...conv, turn_count: turnCount, ended_reason: 'not_interested' });
+                await kv.set(convKey, { ...conv, turn_count: turnCount, ended_reason: 'hard_end' });
                 await telnyxSpeak(callControlId, bye, voiceName);
-                setTimeout(async () => { try { await telnyxRequest(`/calls/${callControlId}/actions/hangup`, { method: 'POST', body: '{}' }); } catch {} }, 6000);
+                setTimeout(async () => { try { await telnyxRequest(`/calls/${callControlId}/actions/hangup`, { method: 'POST', body: '{}' }); } catch {} }, 5000);
                 return;
               }
+              // For SOFT no's, just let the playbook flow into the objection-handler
+              // stage and the LLM will respond with a follow-up question or
+              // graceful close. No auto-hangup.
 
               // Max turns
               const maxTurns = call.ai_config?.max_turns || 12;
@@ -1822,6 +1848,31 @@ app.post('/webhooks/call-status', async (c) => {
                 setTimeout(async () => { try { await telnyxRequest(`/calls/${callControlId}/actions/hangup`, { method: 'POST', body: '{}' }); } catch {} }, 10000);
                 return;
               }
+
+              // ── Backchannel acknowledgement ──
+              // Fire a tiny "Mhm,"/"Yeah,"/"Right," in parallel with the LLM
+              // generation so the user hears acknowledgement within ~700ms
+              // instead of a 2.5-3s dead silence. The real response, once
+              // generated, will cut this off cleanly via playback_start.
+              const BACKCHANNELS = ['Mhm,', 'Yeah,', 'Right,', 'Got it,', 'Okay,'];
+              const backchannelText = BACKCHANNELS[Math.floor(Math.random() * BACKCHANNELS.length)];
+              // Fire-and-forget — don't block the main response path on this
+              elevenLabsTTS(backchannelText, voiceName).then(async (bcUrl) => {
+                if (!bcUrl || endedCallControlIds.has(callControlId)) return;
+                try {
+                  await telnyxRequest(`/calls/${callControlId}/actions/playback_start`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      audio_url: bcUrl,
+                      client_state: btoa(JSON.stringify({ action: 'backchannel' })),
+                    }),
+                  });
+                  console.log(`🗣️ [BACKCHANNEL] "${backchannelText}"`);
+                } catch (bcErr) {
+                  // Non-fatal — silence is acceptable, just means slower-feeling response
+                  console.warn('[BACKCHANNEL] playback failed (non-fatal):', bcErr);
+                }
+              }).catch(() => {});
 
               // ── Sales playbook: detect current stage + matching objection ──
               // The playbook drives WHAT the AI should say this turn (qualify
