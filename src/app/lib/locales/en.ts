@@ -5578,7 +5578,21 @@ export const en = {
         standard: "Standard",
         smartDiscoveryAI: "Smart Discovery AI",
         advancedWorkflows: "Advanced workflows",
-        fullAPI: "Full API"
+        fullAPI: "Full API",
+        // Plan-comparison value labels referenced by feature rows
+        unlimited: "Unlimited",
+        accountManagement: "Account management",
+        dedicatedCSM: "Dedicated CSM",
+        integrations: "Integrations",
+        allIncluded: "All included",
+        customAPI: "Custom + API",
+        sla: "SLA",
+        guaranteed: "Guaranteed",
+        onboarding: "Onboarding",
+        whiteGlove: "White-glove",
+        support: "Support",
+        priority: "Priority",
+        dedicated: "Dedicated"
       }
     },
     app: {
