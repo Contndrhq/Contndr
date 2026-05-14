@@ -1237,6 +1237,57 @@ app.post('/webhooks/conversation', async (c) => {
     };
     await kv.set(`call:${callId}`, updated);
     console.log(`[ConvAI WEBHOOK] ✅ Attributed conversation=${conversationId} → call:${callId} (duration=${duration}s, outcome=${outcome})`);
+
+    // ── Auto-send booking SMS ──
+    // After a successful AI call, text the prospect the user's Calendly
+    // (or other booking) link so they can pick a slot. Conditions:
+    //   - User has a booking_link configured in their playbook
+    //   - Call had a real prospect-side phone (skip test calls only if
+    //     they're truly self-tests, but still send so user can verify
+    //     the flow end-to-end)
+    //   - Call connected (duration > 5s, prevents SMS on missed calls)
+    //   - Outcome wasn't an explicit hard-no
+    try {
+      const callRecordUserId = updated.user_id;
+      const prospectNumber = updated.to_number;
+      if (callRecordUserId && prospectNumber && duration > 5) {
+        const playbook = await kv.get(`ai_call_playbook:${callRecordUserId}`).catch(() => null) as any;
+        const bookingLink = playbook?.booking_link;
+        if (bookingLink && bookingLink.trim()) {
+          // Skip on summaries that look like explicit removal/no-not-now
+          const summaryLower = (summary || '').toLowerCase();
+          const hardNo = ['take me off', 'remove me', 'do not call', 'not interested'].some(s => summaryLower.includes(s));
+          if (hardNo) {
+            console.log(`[ConvAI WEBHOOK] ⏭️ Skipping booking SMS — prospect declined (summary: "${summaryLower.slice(0, 80)}")`);
+          } else {
+            const agentName = updated.ai_name || 'Alex';
+            const brand = updated.brand || 'Contndr';
+            const smsText = `Hey — this is ${agentName} from ${brand}. Great chatting just now! Pick a time that works for you here: ${bookingLink}`;
+            const { sendTelnyxSMS } = await import('./telnyx.tsx');
+            const smsRes = await sendTelnyxSMS({
+              userId: callRecordUserId,
+              toNumber: prospectNumber,
+              text: smsText,
+              brand,
+            });
+            if (smsRes.ok) {
+              console.log(`[ConvAI WEBHOOK] 📱 Booking SMS sent to ${prospectNumber} (message=${smsRes.messageId})`);
+              // Mark on the record so the dashboard can show "follow-up sent"
+              updated.booking_sms_sent_at = new Date().toISOString();
+              updated.booking_sms_id = smsRes.messageId || null;
+              await kv.set(`call:${callId}`, updated).catch(() => {});
+            } else {
+              console.warn(`[ConvAI WEBHOOK] ⚠️ Booking SMS failed: ${smsRes.error}`);
+            }
+          }
+        } else {
+          console.log(`[ConvAI WEBHOOK] ⏭️ No booking link set in playbook — skipping SMS. (Set one in AI Brain → Sales Script → Booking link.)`);
+        }
+      }
+    } catch (smsErr: any) {
+      console.warn('[ConvAI WEBHOOK] Booking SMS step errored (non-fatal):', smsErr?.message || smsErr);
+    }
+
     return c.json({ success: true });
   } catch (err: any) {
     console.error('[ConvAI WEBHOOK] error:', err?.message || err);

@@ -78,9 +78,72 @@ function isCallEndedError(errorText: string, callControlId?: string): boolean {
 async function getTelnyxApiKey(): Promise<string | null> {
   const envKey = Deno.env.get('TELNYX_API_KEY');
   if (envKey) return envKey;
-  
+
   // Fallback to KV store
   return await kv.get('telnyx:api_key');
+}
+
+/**
+ * Send an SMS via Telnyx Messaging API.
+ * Used for post-call booking-link delivery: when an AI call closes with a
+ * meeting proposal, we text the prospect the user's Calendly link so they
+ * can self-book the time they just agreed to.
+ *
+ * Pulls the from-number from the user's configured Telnyx numbers (any
+ * active one in the brand bucket). The number must be SMS-enabled in
+ * Telnyx portal (most US Telnyx numbers are by default).
+ *
+ * Exported so the ElevenLabs webhook handler can call it.
+ */
+export async function sendTelnyxSMS(opts: {
+  userId: string;
+  toNumber: string;
+  text: string;
+  brand?: string;
+}): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+  try {
+    const apiKey = await getTelnyxApiKey();
+    if (!apiKey) return { ok: false, error: 'Telnyx API key not configured' };
+
+    // Find an SMS-capable from-number for this user. We reuse the same
+    // Telnyx numbers configured for AI calling — most US numbers are
+    // dual-capable (voice + SMS) by default.
+    const allNumbers = await kv.getByPrefixLimited('telnyx:number:', 250, 0).catch(() => []);
+    const activeNumbers = (allNumbers || []).filter((n: any) => n && n.status === 'active' && n.phone_number);
+    const candidate = activeNumbers.find((n: any) =>
+      opts.brand && (n.brand === opts.brand || n.brand === 'both' || n.brand === 'all')
+    ) || activeNumbers[0];
+    if (!candidate) return { ok: false, error: 'No active Telnyx number found for SMS sending' };
+
+    const fromNumber = formatToE164(candidate.phone_number);
+    const toNumber = formatToE164(opts.toNumber);
+
+    const body: any = {
+      from: fromNumber,
+      to: toNumber,
+      text: opts.text,
+    };
+    // Optional: use messaging_profile_id if configured (gets you better
+    // deliverability + 10DLC compliance). Without it, Telnyx routes via
+    // the number's default profile.
+    const messagingProfileId = Deno.env.get('TELNYX_MESSAGING_PROFILE_ID')
+      || await kv.get('telnyx:messaging_profile_id').catch(() => null);
+    if (messagingProfileId) body.messaging_profile_id = messagingProfileId;
+
+    const res = await fetch('https://api.telnyx.com/v2/messages', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      return { ok: false, error: `Telnyx SMS failed (${res.status}): ${txt.slice(0, 200)}` };
+    }
+    const json = await res.json();
+    return { ok: true, messageId: json?.data?.id };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
 }
 
 // Helper to get Telnyx Connection ID from environment or KV
