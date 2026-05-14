@@ -18871,9 +18871,11 @@ app.patch("/make-server-a8b2511f/ai-call-campaigns/:id/status", async (c) => {
 });
 
 // DELETE /ai-call-campaigns/:id - Delete a campaign
-// One-click bulk cleanup of test/auto-generated campaigns. Wipes only the
-// ephemeral ones (test-call-* from the "Call me" button, agent-hot-* from
-// hot-visitor auto-calls). Real user-created campaigns are untouched.
+// One-click bulk cleanup of test/auto-generated campaigns AND their call
+// records. Wipes only the ephemeral ones (test-call-* from the "Call me"
+// button, agent-hot-* from hot-visitor auto-calls, and any call record
+// flagged _test_call:true from the Convai test path). Real user-created
+// campaigns and calls are untouched.
 app.post("/make-server-a8b2511f/ai-call-campaigns/clear-test-calls", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
@@ -18881,25 +18883,51 @@ app.post("/make-server-a8b2511f/ai-call-campaigns/clear-test-calls", async (c) =
     const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-CALL-CAMPAIGNS");
     if (authError || !user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const prefix = `ai-call-campaign:${user.id}:`;
-    const allCampaigns = await kv.getByPrefixLimited(prefix, 2000, 0).catch(() => []);
-    const toDelete = (allCampaigns || []).filter((c: any) => {
+    // 1) Clear ephemeral campaigns + tracking
+    const campaignPrefix = `ai-call-campaign:${user.id}:`;
+    const allCampaigns = await kv.getByPrefixLimited(campaignPrefix, 2000, 0).catch(() => []);
+    const campaignsToDelete = (allCampaigns || []).filter((c: any) => {
       const id = String(c?.id || '');
       return id.startsWith('test-call-') || id.startsWith('agent-hot-');
     });
 
-    let deleted = 0;
-    for (const c of toDelete) {
+    let campaignsDeleted = 0;
+    for (const c of campaignsToDelete) {
       try {
-        await kv.del(`${prefix}${c.id}`);
+        await kv.del(`${campaignPrefix}${c.id}`);
         await kv.del(`ai-call-tracking:${user.id}:${c.id}`).catch(() => {});
-        deleted++;
+        campaignsDeleted++;
       } catch (e) {
-        console.warn(`[CLEAR TEST CALLS] Failed to delete ${c.id}:`, e);
+        console.warn(`[CLEAR TEST CALLS] Failed to delete campaign ${c.id}:`, e);
       }
     }
-    console.log(`[CLEAR TEST CALLS] User ${user.email || user.id} cleared ${deleted} test campaigns.`);
-    return c.json({ success: true, deleted });
+
+    // 2) Clear the corresponding call records that feed the dashboard stats.
+    // Match by: _test_call flag (Convai test path), campaign_id prefix
+    // (Telnyx test calls + hot-visitor auto-calls), or id prefix.
+    const callsRaw = await kv.getByPrefixLimited('call:', 5000, 0).catch(() => []);
+    let callsDeleted = 0;
+    for (const call of (callsRaw || [])) {
+      if (!call || typeof call !== 'object') continue;
+      const callUserId = call.user_id || call.ai_config?.user_id;
+      if (callUserId !== user.id) continue;
+      const campaignId = String(call.campaign_id || '');
+      const isTest = call._test_call === true
+        || campaignId.startsWith('test-call-')
+        || campaignId.startsWith('agent-hot-');
+      if (!isTest) continue;
+      try {
+        await kv.del(`call:${call.id}`);
+        if (call.telnyx_call_id) await kv.del(`call_by_telnyx:${call.telnyx_call_id}`).catch(() => {});
+        if (call.convai_conversation_id) await kv.del(`call_by_convai:${call.convai_conversation_id}`).catch(() => {});
+        callsDeleted++;
+      } catch (e) {
+        console.warn(`[CLEAR TEST CALLS] Failed to delete call ${call.id}:`, e);
+      }
+    }
+
+    console.log(`[CLEAR TEST CALLS] User ${user.email || user.id} cleared ${campaignsDeleted} campaigns + ${callsDeleted} call records.`);
+    return c.json({ success: true, deleted: campaignsDeleted, calls_deleted: callsDeleted });
   } catch (error: any) {
     console.error('[CLEAR TEST CALLS] error:', error);
     return c.json({ error: error.message }, 500);
