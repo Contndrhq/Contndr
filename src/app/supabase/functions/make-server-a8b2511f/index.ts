@@ -5706,9 +5706,16 @@ app.get("/make-server-a8b2511f/dashboard/stats", async (c) => {
     // Previous approach fetched all email rows and counted in JS — this transferred
     // 50k–200k rows per request under concurrent load and caused isolate timeouts.
     // Each HEAD count query returns only a number (~10–40ms each, run in parallel).
+    //
+    // IMPORTANT: count strategy changes based on whether a date filter is set.
+    // Postgres' `count: 'estimated'` returns the planner's row estimate which
+    // IGNORES WHERE clauses on large tables — so date-filtered totals came
+    // back identical to all-time totals. Use 'exact' whenever a date range
+    // is active; estimated stays for all-time (faster on 100k+ row tables).
+    const countMode: 'exact' | 'estimated' = (dateStart || dateEnd) ? 'exact' : 'estimated';
     let leadsCountQ = supabase
       .from('leads')
-      .select('id', { count: 'estimated', head: true })
+      .select('id', { count: countMode, head: true })
       .in('user_id', targetUserIds);
     if (dateStart) leadsCountQ = leadsCountQ.gte('created_at', dateStart);
     if (dateEnd) leadsCountQ = leadsCountQ.lte('created_at', dateEnd);
@@ -5723,19 +5730,19 @@ app.get("/make-server-a8b2511f/dashboard/stats", async (c) => {
         return q;
       };
       const [sentR, openedR, clickedR, deliveredR, repliedR] = await Promise.all([
-        applyEmailDateRange(supabase.from('emails').select('id', { count: 'estimated', head: true })
+        applyEmailDateRange(supabase.from('emails').select('id', { count: countMode, head: true })
           .in('campaign_id', campSlice)
           .in('status', ['sent','delivered','opened','clicked','bounced','complained'])),
-        applyEmailDateRange(supabase.from('emails').select('id', { count: 'estimated', head: true })
+        applyEmailDateRange(supabase.from('emails').select('id', { count: countMode, head: true })
           .in('campaign_id', campSlice)
           .in('status', ['opened','clicked'])),
-        applyEmailDateRange(supabase.from('emails').select('id', { count: 'estimated', head: true })
+        applyEmailDateRange(supabase.from('emails').select('id', { count: countMode, head: true })
           .in('campaign_id', campSlice)
           .eq('status', 'clicked')),
-        applyEmailDateRange(supabase.from('emails').select('id', { count: 'estimated', head: true })
+        applyEmailDateRange(supabase.from('emails').select('id', { count: countMode, head: true })
           .in('campaign_id', campSlice)
           .in('status', ['delivered','opened','clicked'])),
-        applyEmailDateRange(supabase.from('emails').select('id', { count: 'estimated', head: true })
+        applyEmailDateRange(supabase.from('emails').select('id', { count: countMode, head: true })
           .in('campaign_id', campSlice)
           .eq('status', 'replied')),
       ]);
