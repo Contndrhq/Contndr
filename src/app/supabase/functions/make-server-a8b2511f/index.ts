@@ -19239,6 +19239,139 @@ app.put("/make-server-a8b2511f/ai-call-playbook", async (c) => {
 });
 
 // ============================================================================
+// TODAY — Home-screen aggregator
+// ============================================================================
+// Surfaces the 3–5 things that matter RIGHT NOW: hot visitors on site,
+// unread replies, calls happening today, active campaigns. All in one
+// parallel call so the home screen feels instant.
+//
+// Design rule: zero-counts are returned (not omitted) so the frontend can
+// show "All caught up" instead of jankily mounting cards as data arrives.
+
+app.get("/make-server-a8b2511f/today", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const userId = user.id;
+    const nowMs = Date.now();
+    const HOT_WINDOW_MIN = 10; // visitor counts as "on site now" if seen in last 10 min
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+
+    // Run everything in parallel — fail-soft on any individual source
+    const [
+      visitsRaw,
+      repliedEmailsRes,
+      activeCampaignsRes,
+      allCallsRaw,
+    ] = await Promise.all([
+      kvGetByPrefixSafe(`recent_visit_v2:${userId}:`, []).catch(() => []),
+      supabase
+        .from('emails')
+        .select('id, lead_id, from_email, from_name, subject, snippet, body, received_at, replied_at, user_replied_at, status, direction')
+        .eq('user_id', userId)
+        .in('status', ['replied'])
+        .order('updated_at', { ascending: false })
+        .limit(50)
+        .then((r: any) => r).catch(() => ({ data: [], error: null })),
+      supabase
+        .from('campaigns')
+        .select('id, name, brand, status, total_recipients, sent_count, delivered_count, created_at, updated_at')
+        .eq('user_id', userId)
+        .in('status', ['active', 'sending'])
+        .order('updated_at', { ascending: false })
+        .limit(20)
+        .then((r: any) => r).catch(() => ({ data: [], error: null })),
+      kv.getByPrefixLimited('call:', 1000, 0).catch(() => []),
+    ]);
+
+    // ── Hot visitors on site right now ──
+    // Identified (has lead_id) + seen within HOT_WINDOW_MIN minutes
+    const hotCutoff = nowMs - HOT_WINDOW_MIN * 60_000;
+    const hotMap = new Map<string, any>();
+    for (const v of (visitsRaw as any[])) {
+      if (!v || !v.lead_id || v.lead_id === 'anonymous') continue;
+      const ts = v.timestamp ? new Date(v.timestamp).getTime() : 0;
+      if (ts < hotCutoff) continue;
+      const prev = hotMap.get(v.lead_id);
+      if (!prev || (prev._ts || 0) < ts) {
+        let page = '';
+        try { page = new URL(v.url || '').pathname || '/'; } catch { page = v.url || ''; }
+        hotMap.set(v.lead_id, {
+          lead_id: v.lead_id,
+          name: v.lead_name || v.contact_name || v.business_name || 'Known visitor',
+          business: v.business_name || '',
+          page,
+          last_seen_ms_ago: nowMs - ts,
+          _ts: ts,
+        });
+      }
+    }
+    const hotList = [...hotMap.values()]
+      .sort((a, b) => a.last_seen_ms_ago - b.last_seen_ms_ago)
+      .slice(0, 5)
+      .map(({ _ts, ...rest }) => rest);
+
+    // ── Unread replies ──
+    // Email status flipped to 'replied' (inbound), and the user hasn't sent
+    // an outbound to the same lead since. Best-effort heuristic: status is
+    // 'replied' and user_replied_at is null/missing.
+    const repliedRows = (repliedEmailsRes.data || []) as any[];
+    const unreadReplies = repliedRows
+      .filter((e: any) => !e.user_replied_at)
+      .slice(0, 5)
+      .map((e: any) => ({
+        email_id: e.id,
+        lead_id: e.lead_id,
+        from_name: e.from_name || (e.from_email ? e.from_email.split('@')[0] : 'Lead'),
+        from_email: e.from_email || '',
+        subject: e.subject || '(no subject)',
+        snippet: (e.snippet || e.body || '').toString().slice(0, 140),
+        received_at: e.replied_at || e.received_at || e.updated_at,
+      }));
+    const unreadCount = repliedRows.filter((e: any) => !e.user_replied_at).length;
+
+    // ── Active campaigns sending ──
+    const campaigns = (activeCampaignsRes.data || []) as any[];
+    const campaignSummaries = campaigns.slice(0, 5).map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      brand: c.brand,
+      status: c.status,
+      sent: c.sent_count || 0,
+      total: c.total_recipients || 0,
+    }));
+
+    // ── AI calls today ──
+    const myCallsToday = (allCallsRaw as any[]).filter((cc: any) =>
+      cc && (cc.user_id === userId || cc.ai_config?.user_id === userId) &&
+      cc.started_at && new Date(cc.started_at).getTime() >= todayStart.getTime()
+    );
+    const connectedToday = myCallsToday.filter((cc: any) =>
+      !!cc.answered_at || ['answered', 'speaking', 'listening', 'processing', 'completed', 'ended', 'voicemail'].includes(cc.status)
+    ).length;
+    const activeNow = myCallsToday.filter((cc: any) =>
+      ['initiated', 'ringing', 'answered', 'speaking', 'listening', 'processing'].includes(cc.status)
+    ).length;
+
+    c.header('Cache-Control', 'no-store');
+    return c.json({
+      success: true,
+      generated_at: new Date(nowMs).toISOString(),
+      hot_visitors_now: { count: hotList.length, top: hotList },
+      unread_replies: { count: unreadCount, top: unreadReplies },
+      campaigns_sending: { count: campaigns.length, items: campaignSummaries },
+      ai_calls_today: {
+        total: myCallsToday.length,
+        connected: connectedToday,
+        active_now: activeNow,
+      },
+    });
+  } catch (error: any) {
+    console.error('[TODAY] Aggregator failed:', error);
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+// ============================================================================
 // AI BRAIN — Voice & Tone defaults (user-level)
 // ============================================================================
 // Stored at `ai_brain:${user.id}:voice`. Surfaced in the "AI Brain → Voice &

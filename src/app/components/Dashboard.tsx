@@ -1,7 +1,8 @@
 // Rebuild: 2026-03-17T12:00 — force recompile after chunk loading failure fix
 import { useState, useEffect, useRef, type MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { TrendingUp, Mail, MailOpen, Users, DollarSign, Target, CalendarDays, ChevronDown } from 'lucide-react';
+import { TrendingUp, Mail, MailOpen, Users, DollarSign, Target, CalendarDays, ChevronDown, BarChart3 } from 'lucide-react';
+import { TodayPanel } from './TodayPanel';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { getAuthHeaders, authenticatedFetch } from '../lib/auth';
@@ -136,6 +137,16 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
   const [loading, setLoading] = useState(isDemoMode ? false : !snapshot);
   const [upcomingFollowUps, setUpcomingFollowUps] = useState<any[]>(isDemoMode ? DEMO_FOLLOW_UPS : (snapshot?.upcomingFollowUps ?? []));
   const [refreshing, setRefreshing] = useState(false);
+  // Today panel is the home screen — the existing detailed dashboard lives
+  // behind a toggle and is hidden by default to stop competing for attention.
+  // Persist the user's choice so power-users who want the full view always
+  // see it without re-toggling on every visit.
+  const [showFullDashboard, setShowFullDashboard] = useState<boolean>(() => {
+    try { return localStorage.getItem('contndr:dashboard:showFull') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('contndr:dashboard:showFull', showFullDashboard ? '1' : '0'); } catch {}
+  }, [showFullDashboard]);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [syncing, setSyncing] = useState(false);
   const [selectedBrand, setSelectedBrand] = useState<string>('all');
@@ -614,6 +625,26 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
 
       {/* Scrollable Content */}
       <div className="px-4 py-3 sm:px-6 sm:py-6 bg-transparent pb-[calc(env(safe-area-inset-bottom,20px)+20px)] sm:pb-6 flex-1 min-h-0 flex flex-col gap-3 sm:gap-6">
+        {/* ─── TODAY PANEL ─────────────────────────────────────────────
+           The 3-5 things that matter right now. Lives at the very top so
+           the user sees what to ACT on before any historical chart. The
+           rest of the dashboard collapses below a toggle so it doesn't
+           compete for attention but stays one click away. */}
+        <TodayPanel onNavigate={onNavigate} />
+
+        <button
+          type="button"
+          onClick={() => setShowFullDashboard(v => !v)}
+          className="self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-[12.5px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/[0.04] transition-colors"
+          aria-expanded={showFullDashboard}
+        >
+          <BarChart3 className="w-3.5 h-3.5" />
+          {showFullDashboard ? 'Hide detailed dashboard' : 'Show detailed dashboard'}
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showFullDashboard ? 'rotate-180' : ''}`} />
+        </button>
+
+        {showFullDashboard && (
+        <>
         {/* Key Metrics Grid — Revenue + Campaign combined */}
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-4 flex-shrink-0">
             {/* Total Leads — kept with usage bar */}
@@ -723,6 +754,8 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
                <DashboardEngagementHeatmap brandFilter={selectedBrand} dateRange={dateRange} />
             </div>
           </div>
+        </>
+        )}
         </div>
     </div>
   );
