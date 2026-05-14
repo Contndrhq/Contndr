@@ -461,12 +461,10 @@ app.post('/agents', async (c) => {
         },
         turn: {
           turn_timeout: 15,
-          mode: {
-            type: 'server_vad',
-            silence_duration_ms: 1500,
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-          },
+          // ElevenLabs schema as of 2026-05: `mode` is an enum string,
+          // not a nested object. Use 'turn' for natural turn-taking
+          // (recommended) or 'silence' for fixed silence-based detection.
+          mode: 'turn',
         },
         conversation: {
           max_duration_seconds,
