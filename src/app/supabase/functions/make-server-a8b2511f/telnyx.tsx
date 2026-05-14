@@ -749,16 +749,24 @@ const supabaseVoice = createClient(
 );
 const VOICE_BUCKET = 'make-a8b2511f-ai-voice';
 
-// Idempotently ensure the voice audio bucket exists
+// Idempotently ensure the voice audio bucket exists AS A PUBLIC bucket.
+// Public means Telnyx can fetch the audio URL without any Supabase apikey
+// header — which is necessary because Supabase's Edge Function gateway
+// 401s anonymous requests even when the function is deployed with
+// --no-verify-jwt. Storage public URLs bypass that gateway entirely.
 let bucketReady = false;
 async function ensureVoiceBucket() {
   if (bucketReady) return;
   try {
     const { data: buckets } = await supabaseVoice.storage.listBuckets();
-    const exists = buckets?.some((b: any) => b.name === VOICE_BUCKET);
-    if (!exists) {
-      await supabaseVoice.storage.createBucket(VOICE_BUCKET, { public: false });
-      console.log(`✅ Created storage bucket: ${VOICE_BUCKET}`);
+    const existing = buckets?.find((b: any) => b.name === VOICE_BUCKET);
+    if (!existing) {
+      await supabaseVoice.storage.createBucket(VOICE_BUCKET, { public: true });
+      console.log(`✅ Created PUBLIC storage bucket: ${VOICE_BUCKET}`);
+    } else if (existing.public === false) {
+      // Upgrade existing private bucket to public so Telnyx can fetch
+      await supabaseVoice.storage.updateBucket(VOICE_BUCKET, { public: true });
+      console.log(`✅ Upgraded bucket to public: ${VOICE_BUCKET}`);
     }
     bucketReady = true;
   } catch (err) {
@@ -767,37 +775,70 @@ async function ensureVoiceBucket() {
   }
 }
 
-/** Return a streaming ElevenLabs TTS URL — no upload, no signed URL, near-instant playback start.
- *  Telnyx fetches this URL and streams audio directly from ElevenLabs via our proxy endpoint. */
-function elevenLabsTTS(text: string, voiceName?: string): Promise<string | null> {
+/** Generate TTS via ElevenLabs, upload to public Storage, return public URL.
+ *
+ *  WHY NOT STREAMING: Supabase's Edge Function gateway requires a valid
+ *  apikey/JWT on every request — even for functions deployed with
+ *  --no-verify-jwt. Telnyx fetches audio_url anonymously (no headers, no
+ *  query-param trick works for Functions), so any URL pointing at our
+ *  function 401s and the call plays silence.
+ *
+ *  Storage public-bucket URLs go through a different code path that
+ *  doesn't enforce the gateway check, so Telnyx can fetch them. The
+ *  tradeoff is ~500-1000ms latency added vs streaming (gen + upload),
+ *  but a working call beats a fast silent one. */
+async function elevenLabsTTS(text: string, voiceName?: string): Promise<string | null> {
   const apiKey = Deno.env.get('ELEVENLABS_API_KEY');
   if (!apiKey) {
     console.error('❌ ELEVENLABS_API_KEY not set');
-    return Promise.resolve(null);
+    return null;
   }
+  const voice = (voiceName || DEFAULT_VOICE).toLowerCase();
+  const voiceId = voice.length > 15 ? voice : (ELEVENLABS_VOICES[voice] || ELEVENLABS_VOICES[DEFAULT_VOICE]);
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  if (!supabaseUrl) return Promise.resolve(null);
+  console.log(`🎙️ ElevenLabs TTS gen: "${text.substring(0, 60)}..." voice=${voice}`);
+  const t0 = Date.now();
 
-  const voice = voiceName || DEFAULT_VOICE;
-  const token = Deno.env.get('TTS_STREAM_TOKEN') || '';
-  const encodedText = encodeURIComponent(text);
-  const encodedVoice = encodeURIComponent(voice);
-
-  // Build the streaming proxy URL — Telnyx calls this, we stream ElevenLabs back.
-  // NOTE: telnyxApp is mounted under /make-server-a8b2511f/telnyx in index.ts, so
-  // the streaming endpoint resolves to /make-server-a8b2511f/telnyx/tts-stream.
-  //
-  // CRITICAL: Supabase Edge Functions require an `apikey` query param even when
-  // the function itself is deployed with --no-verify-jwt. Telnyx fetches the
-  // URL anonymously (no headers), so without ?apikey=... the platform 401s the
-  // request before our handler runs. The anon key is public (shipped to every
-  // browser already) so it's safe to embed in the URL.
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLIC_ANON_KEY') || '';
-  const apikeyParam = anonKey ? `&apikey=${encodeURIComponent(anonKey)}` : '';
-  const streamUrl = `${supabaseUrl}/functions/v1/make-server-a8b2511f/telnyx/tts-stream?text=${encodedText}&voice=${encodedVoice}${token ? `&t=${token}` : ''}${apikeyParam}`;
-  console.log(`🎙️ ElevenLabs TTS (streaming): "${text.substring(0, 60)}..." voice=${voice}`);
-  return Promise.resolve(streamUrl);
+  try {
+    const ttsRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg',
+      },
+      body: JSON.stringify({
+        text,
+        // English-only agents must use turbo_v2 / flash_v2; flash_v2 is the
+        // lowest-latency option (matches our agent provisioning choice).
+        model_id: 'eleven_turbo_v2',
+        voice_settings: { stability: 0.45, similarity_boost: 0.78, style: 0.1, use_speaker_boost: false },
+        output_format: 'mp3_44100_64',
+      }),
+    });
+    if (!ttsRes.ok) {
+      const body = await ttsRes.text().catch(() => '');
+      console.error(`❌ ElevenLabs TTS failed (${ttsRes.status}): ${body.slice(0, 200)}`);
+      return null;
+    }
+    const audioBytes = new Uint8Array(await ttsRes.arrayBuffer());
+    await ensureVoiceBucket();
+    const fileName = `tts/${Date.now()}_${crypto.randomUUID().slice(0, 8)}.mp3`;
+    const { error: upErr } = await supabaseVoice.storage
+      .from(VOICE_BUCKET)
+      .upload(fileName, audioBytes, { contentType: 'audio/mpeg', upsert: false });
+    if (upErr) {
+      console.error('❌ TTS audio upload failed:', upErr.message || upErr);
+      return null;
+    }
+    const { data: pub } = supabaseVoice.storage.from(VOICE_BUCKET).getPublicUrl(fileName);
+    const url = pub?.publicUrl || null;
+    if (url) console.log(`✅ TTS ready in ${Date.now() - t0}ms — ${url.split('/').pop()}`);
+    return url;
+  } catch (err: any) {
+    console.error('❌ elevenLabsTTS error:', err?.message || err);
+    return null;
+  }
 }
 
 // ─── Sales Playbook Layer ───────────────────────────────────────────────────
