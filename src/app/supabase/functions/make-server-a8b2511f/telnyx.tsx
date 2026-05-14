@@ -809,11 +809,20 @@ async function elevenLabsTTS(text: string, voiceName?: string): Promise<string |
       },
       body: JSON.stringify({
         text,
-        // English-only agents must use turbo_v2 / flash_v2; flash_v2 is the
-        // lowest-latency option (matches our agent provisioning choice).
-        model_id: 'eleven_turbo_v2',
-        voice_settings: { stability: 0.45, similarity_boost: 0.78, style: 0.1, use_speaker_boost: false },
-        output_format: 'mp3_44100_64',
+        // eleven_turbo_v2_5 is ElevenLabs' best low-latency model with
+        // noticeably more natural prosody than turbo_v2. The convai-only
+        // "must use turbo/flash v2" restriction does NOT apply here —
+        // this is the regular TTS endpoint which accepts all models.
+        model_id: 'eleven_turbo_v2_5',
+        voice_settings: {
+          stability: 0.4,         // lower = more expressive intonation
+          similarity_boost: 0.85, // tighter voice match
+          style: 0.35,            // more emotional range
+          use_speaker_boost: true,
+        },
+        // Higher bitrate = smoother on phone audio. 128k MP3 still
+        // streams fast and uploads in <300ms.
+        output_format: 'mp3_44100_128',
       }),
     });
     if (!ttsRes.ok) {
