@@ -182,6 +182,41 @@ export async function processCampaign(campaignId: string, userId: string, campai
     const fromNumber = normalizePhoneToE164(selectedNumber.phone_number);
     console.log(`📞 Using phone number: ${fromNumber}`);
 
+    // ── Enrich campaign with the user's Knowledge Base ──
+    // Pull the same KB stack the email composer uses so the AI agent can
+    // answer prospect questions on the call (pricing, products, hours, etc.).
+    // Campaign-specific `knowledge_base` text is treated as an override and
+    // merged in. This runs once per campaign run — not per lead — to save
+    // KV round-trips during high-volume dialing.
+    try {
+      const { getKnowledgeBaseContext } = await import('./knowledge-base.tsx');
+      const kbContext = await getKnowledgeBaseContext(
+        userId,
+        campaign.brand || 'all',
+        campaign.knowledge_base || ''
+      );
+      if (kbContext && kbContext.trim()) {
+        campaign.knowledge_base = kbContext;
+        console.log(`📚 Loaded KB for AI call campaign ${campaignId} — ${kbContext.length} chars`);
+      }
+    } catch (kbErr) {
+      console.warn('📚 KB load failed (non-fatal):', kbErr?.message || kbErr);
+    }
+
+    // ── Load the user's sales playbook into the campaign ──
+    // Same playbook the manual /telnyx/initiate-call path loads. Drives the
+    // qualify → present → close state machine on every call this campaign
+    // makes. Campaign-level playbook overrides (if ever added) merge on top.
+    try {
+      const userPlaybook = await kv.get(`ai_call_playbook:${userId}`);
+      if (userPlaybook) {
+        campaign.playbook = { ...userPlaybook, ...(campaign.playbook || {}) };
+        console.log(`🎯 Loaded sales playbook for AI call campaign ${campaignId}`);
+      }
+    } catch (pbErr: any) {
+      console.warn('🎯 Playbook load failed (non-fatal):', pbErr?.message || pbErr);
+    }
+
     // Get leads from campaign
     const leads = campaign.selected_leads || [];
     console.log(`📋 Campaign has ${leads.length} selected leads`);
@@ -381,6 +416,7 @@ export async function processCampaign(campaignId: string, userId: string, campai
               business_name: campaign.business_name || campaign.brand || 'Contndr',
               instructions: campaign.instructions || '',
               knowledge_base: campaign.knowledge_base || '',
+              playbook: campaign.playbook || null,
               transfer_rules: campaign.transfer_rules || [],
               qualification_questions: campaign.qualification_questions || [],
               max_turns: campaign.max_turns || 12,

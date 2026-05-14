@@ -571,6 +571,42 @@ app.post('/calls/initiate', async (c) => {
 
     console.log(`📞 Initiating AI call: ${formattedFrom} → ${formattedTo}, ai_config:`, ai_config ? 'yes' : 'no');
 
+    // ── Enrich ai_config with the user's Knowledge Base ──
+    // Mirrors the AI call processor — gives the agent access to the same KB
+    // the email composer uses so it can answer pricing/product/scheduling
+    // questions on the call. Existing ai_config.knowledge_base is treated as
+    // a campaign-level override and merged in by getKnowledgeBaseContext.
+    if (ai_config && body.user_id) {
+      try {
+        const { getKnowledgeBaseContext } = await import('./knowledge-base.tsx');
+        const kbContext = await getKnowledgeBaseContext(
+          body.user_id,
+          ai_config.brand || 'all',
+          ai_config.knowledge_base || ''
+        );
+        if (kbContext && kbContext.trim()) {
+          ai_config.knowledge_base = kbContext;
+          console.log(`📚 Loaded KB for manual AI call — ${kbContext.length} chars`);
+        }
+      } catch (kbErr: any) {
+        console.warn('📚 KB load failed (non-fatal):', kbErr?.message || kbErr);
+      }
+
+      // ── Load the user's sales playbook ──
+      // Drives the stage machine (qualify → present → close) and supplies
+      // qualifying questions, value props, meeting options, and a library
+      // of objection counters that the AI agent uses on every turn.
+      try {
+        const userPlaybook = await kv.get(`ai_call_playbook:${body.user_id}`);
+        if (userPlaybook) {
+          ai_config.playbook = { ...userPlaybook, ...(ai_config.playbook || {}) };
+          console.log(`🎯 Loaded sales playbook for manual AI call (user=${body.user_id})`);
+        }
+      } catch (pbErr: any) {
+        console.warn('🎯 Playbook load failed (non-fatal):', pbErr?.message || pbErr);
+      }
+    }
+
     // ── Credit pre-flight check ──
     const callerUserId = body.user_id;
     if (callerUserId) {
@@ -748,18 +784,185 @@ function elevenLabsTTS(text: string, voiceName?: string): Promise<string | null>
   const encodedText = encodeURIComponent(text);
   const encodedVoice = encodeURIComponent(voice);
 
-  // Build the streaming proxy URL — Telnyx calls this, we stream ElevenLabs back
-  const streamUrl = `${supabaseUrl}/functions/v1/make-server-a8b2511f/tts-stream?text=${encodedText}&voice=${encodedVoice}${token ? `&t=${token}` : ''}`;
+  // Build the streaming proxy URL — Telnyx calls this, we stream ElevenLabs back.
+  // NOTE: telnyxApp is mounted under /make-server-a8b2511f/telnyx in index.ts, so
+  // the streaming endpoint resolves to /make-server-a8b2511f/telnyx/tts-stream.
+  // Previously this URL was missing /telnyx/, which caused Telnyx to fetch a 404
+  // and the call to remain completely silent.
+  const streamUrl = `${supabaseUrl}/functions/v1/make-server-a8b2511f/telnyx/tts-stream?text=${encodedText}&voice=${encodedVoice}${token ? `&t=${token}` : ''}`;
   console.log(`🎙️ ElevenLabs TTS (streaming): "${text.substring(0, 60)}..." voice=${voice}`);
   return Promise.resolve(streamUrl);
 }
 
+// ─── Sales Playbook Layer ───────────────────────────────────────────────────
+// Layered on top of the agent's voice + KB. Drives the conversation through
+// an explicit qualify → present → close state machine, handles common
+// objections with a library of pre-written one-liners, and detects buying
+// signals to fast-forward toward asking for the meeting. This is what turns
+// a "natural-sounding chatbot" into "an actual closer."
+
+type CallStage = 'qualify' | 'present' | 'close' | 'objection' | 'wrap';
+
+const BUYING_SIGNAL_PATTERNS = [
+  /how (does|do) (it|this|that|you|your)/i,
+  /how much|what.{0,15}(cost|price|pricing)|pricing/i,
+  /send me (info|details|something|over|a link)/i,
+  /(can|could) you (send|share|email)/i,
+  /(when|how soon) can (we|i) (start|get started|see|try)/i,
+  /sounds (good|great|interesting|cool)/i,
+  /(book|schedule|set up|jump on) (a|the)? ?(call|meeting|demo|chat)/i,
+  /(love|like) to (see|learn|hear) more/i,
+  /show me|walk me through/i,
+  /(what|how) (are|is) the next step/i,
+];
+
+const STALL_PATTERNS = [
+  /(send|shoot|email) (me|over).{0,30}(info|details|something|deck|link)/i,
+  /let me think|need to think/i,
+  /circle back|follow up|reach back/i,
+  /not (a|the) right time|busy right now/i,
+  /talk to (my|the) (team|boss|partner|cofounder)/i,
+];
+
+// Default objection library — picked up by keyword. Each entry is "if the
+// prospect says X-ish, the AI's next reply should steer toward Y." We feed
+// these as guidance into the system prompt, not as canned scripts, so the
+// agent still sounds natural.
+const DEFAULT_OBJECTIONS: Array<{ trigger: RegExp; label: string; response: string }> = [
+  {
+    trigger: /(already (have|use|using)|we use|we have|got (a|one)|current(ly)? use)/i,
+    label: 'already_have_solution',
+    response: `Totally fair — most teams I talk to already have something. Quick question: what's the one thing your current setup doesn't do well that you wish it did?`,
+  },
+  {
+    trigger: /(too )?expensive|cost too much|out of budget|no budget|can't afford|pricey/i,
+    label: 'price',
+    response: `Yeah, budget's always a factor — but the folks getting real value here usually pay it back in the first month from one extra deal. Mind if I show you the math in 10 min?`,
+  },
+  {
+    trigger: /(send|shoot|email) (me|over).{0,30}(info|details|something|deck|link)/i,
+    label: 'send_info',
+    response: `Happy to — but honestly, a 10-min screen-share will land way better than a deck. How's tomorrow at this same time?`,
+  },
+  {
+    trigger: /(not (a|the) right time|busy right now|bad time|catch me later)/i,
+    label: 'bad_timing',
+    response: `Got it — won't keep you. Want me to grab 10 min on the calendar later this week instead of going back and forth?`,
+  },
+  {
+    trigger: /(talk to|run.{0,10}by|check with) (my|the) (team|boss|partner|cofounder|wife|husband)/i,
+    label: 'not_decision_maker',
+    response: `Makes sense — best path is usually I show you both at once. Want to grab 15 min with the two of you this week?`,
+  },
+  {
+    trigger: /(need to think|let me think|think about it|gotta sleep on)/i,
+    label: 'thinking',
+    response: `Totally — what's the main thing on your mind? I'd rather answer it now than have you stuck on it later.`,
+  },
+  {
+    trigger: /(don't|do not) (need|want)|not interested in this/i,
+    label: 'not_interested_soft',
+    response: `Fair enough — quick one before I let you go: what would have to be true for this to be a fit? If the answer's nothing, no worries.`,
+  },
+  {
+    trigger: /(call back|callback|circle back).{0,20}(later|tomorrow|next week|month)/i,
+    label: 'callback_later',
+    response: `Sure — what works better for you, Thursday afternoon or Friday morning? I'll put it on the calendar so we actually connect.`,
+  },
+];
+
+function detectStage(turnCount: number, prospectSaid: string, lastStage?: CallStage): CallStage {
+  const t = (prospectSaid || '').toLowerCase();
+  // Buying signal → jump straight to close, regardless of turn count
+  if (BUYING_SIGNAL_PATTERNS.some(r => r.test(t))) return 'close';
+  // Objection / stall → objection-handling stage
+  if (STALL_PATTERNS.some(r => r.test(t))) return 'objection';
+  // Otherwise progress by turn count
+  if (turnCount <= 2) return 'qualify';
+  if (turnCount <= 5) return 'present';
+  if (turnCount <= 8) return 'close';
+  return 'wrap';
+}
+
+function matchObjection(prospectSaid: string, customObjections: Array<{ trigger: string; response: string; label?: string }> | undefined) {
+  const t = (prospectSaid || '').toLowerCase();
+  // User-defined objections take priority (they know their market better than us)
+  if (Array.isArray(customObjections)) {
+    for (const o of customObjections) {
+      const trig = (o.trigger || '').toLowerCase().trim();
+      if (!trig) continue;
+      // Simple substring match for user-friendly authoring (no regex required)
+      if (t.includes(trig)) return { label: o.label || trig, response: o.response };
+    }
+  }
+  for (const o of DEFAULT_OBJECTIONS) {
+    if (o.trigger.test(t)) return { label: o.label, response: o.response };
+  }
+  return null;
+}
+
+interface Playbook {
+  qualifying_questions?: string[];
+  value_props?: string[];
+  meeting_options?: string;   // e.g. "Thursday at 2pm or Friday at 10am ET"
+  booking_link?: string;      // optional Calendly / cal.com URL
+  objections?: Array<{ trigger: string; response: string; label?: string }>;
+  close_style?: 'soft' | 'direct';
+}
+
+function buildPlaybookBlock(playbook: Playbook | undefined, stage: CallStage, matchedObjection: ReturnType<typeof matchObjection>): string {
+  const pb = playbook || {};
+  let block = `\n━━━ SALES PLAYBOOK (stage: ${stage.toUpperCase()}) ━━━\n`;
+
+  if (stage === 'qualify') {
+    block += `You are in DISCOVERY mode. Goal of this turn: learn one piece of pain or context. Ask ONE open question — never two. Don't pitch yet.\n`;
+    if (pb.qualifying_questions && pb.qualifying_questions.length) {
+      block += `Pick ONE you haven't asked yet from this list (rephrase casually, don't read verbatim):\n`;
+      pb.qualifying_questions.slice(0, 5).forEach((q, i) => { block += `  ${i + 1}. ${q}\n`; });
+    } else {
+      block += `Default move: ask how they currently handle [the problem your product solves]. Keep it concrete.\n`;
+    }
+  } else if (stage === 'present') {
+    block += `You are in PITCH mode. They've shared some context. Now connect ONE value prop to what they just said. Don't list features — name the outcome.\n`;
+    if (pb.value_props && pb.value_props.length) {
+      block += `Available value props (pick the ONE that matches what they just told you):\n`;
+      pb.value_props.slice(0, 5).forEach((v, i) => { block += `  ${i + 1}. ${v}\n`; });
+    }
+    block += `Then end with a soft question that tees up the close (e.g., "Would something like that move the needle?")\n`;
+  } else if (stage === 'close') {
+    block += `You are in CLOSE mode. They've shown interest. STOP discovering. ASK FOR THE MEETING this turn — specific times, not "when works for you."\n`;
+    const opts = pb.meeting_options || 'Thursday at 2pm or Friday at 10am';
+    block += `Use this exact pattern: "I'd love to grab 15 min — does ${opts} work better?"\n`;
+    if (pb.booking_link) {
+      block += `If they want to self-serve, you can offer: ${pb.booking_link}\n`;
+    }
+    block += `If they say yes, confirm the time clearly and tell them you'll send a calendar invite.\n`;
+  } else if (stage === 'objection') {
+    block += `They just raised an objection. DO NOT plow forward — address it first. Acknowledge → reframe → ask one question.\n`;
+    if (matchedObjection) {
+      block += `Suggested move for this objection (${matchedObjection.label}): "${matchedObjection.response}"\n`;
+      block += `You can use that response verbatim OR adapt it to feel natural — but cover the same point.\n`;
+    }
+  } else if (stage === 'wrap') {
+    block += `Call has gone long. WRAP IT UP this turn. Either lock in a meeting time or get permission to follow up via email. No more discovery.\n`;
+    const opts = pb.meeting_options || 'tomorrow afternoon';
+    block += `Try: "Hey, don't wanna take up more of your time — can we lock in ${opts} for a proper 15 min?"\n`;
+  }
+
+  block += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  return block;
+}
+
 /** Build system prompt for the AI sales agent */
-function buildSystemPrompt(aiConfig: any, leadContext: any): string {
+function buildSystemPrompt(aiConfig: any, leadContext: any, runtime?: { stage?: CallStage; prospectSaid?: string; matchedObjection?: ReturnType<typeof matchObjection> }): string {
   const agentName = aiConfig?.name || 'Alex';
   const role = aiConfig?.role || 'Sales Specialist';
   const brand = aiConfig?.brand || 'Contndr';
   const objective = aiConfig?.objective || 'book_call';
+  const playbook: Playbook | undefined = aiConfig?.playbook;
+  const stage: CallStage = runtime?.stage || 'qualify';
+  const matchedObjection = runtime?.matchedObjection || null;
+  const playbookBlock = buildPlaybookBlock(playbook, stage, matchedObjection);
 
   // ── Agent Profile mode — user-defined instructions take priority ──
   if (aiConfig?.instructions && aiConfig.instructions.trim()) {
@@ -807,7 +1010,8 @@ function buildSystemPrompt(aiConfig: any, leadContext: any): string {
       if (leadContext.business && leadContext.business !== 'Unknown') prompt += `- Company: ${leadContext.business}\n`;
     }
 
-    prompt += `\nONE sentence. Start with a reaction. Go.`;
+    prompt += playbookBlock;
+    prompt += `\nONE sentence. Start with a reaction. Follow the playbook stage above. Go.`;
     return prompt;
   }
 
@@ -838,8 +1042,8 @@ HARD RULES — follow exactly:
 GOAL: ${objectiveInstructions[objective] || objectiveInstructions.book_call}
 
 ${leadContext?.name && leadContext.name !== 'Unknown' ? `Prospect: ${leadContext.name}${leadContext.business && leadContext.business !== 'Unknown' ? ` at ${leadContext.business}` : ''}` : ''}
-
-ONE sentence. Start with a reaction. Go.`;
+${playbookBlock}
+ONE sentence. Start with a reaction. Follow the playbook stage above. Go.`;
 }
 
 /** Call OpenAI to generate the AI agent's next response */
@@ -1208,7 +1412,20 @@ app.post('/webhooks/call-status', async (c) => {
         case 'call.gather.ended': mappedStatus = 'processing'; break;
         case 'call.transcription': break; // no status change — transcription events are continuous
         case 'call.hangup':
-        case 'call.hangup.completed': mappedStatus = 'ended'; break;
+        case 'call.hangup.completed': {
+          // If the call hung up without ever being answered, it's a no-answer
+          // (busy, rejected, ring-timeout, etc.). Telnyx's hangup_cause field
+          // is reliable for this — see https://developers.telnyx.com/docs/voice/programmable-voice/call-control-events
+          const hangupCause = String(data.payload?.hangup_cause || data.payload?.hangup_source || '').toLowerCase();
+          const wasAnswered = !!call.answered_at || ['answered','speaking','listening','processing','voicemail'].includes(call.status);
+          if (!wasAnswered) {
+            if (hangupCause.includes('busy')) mappedStatus = 'busy';
+            else mappedStatus = 'no-answer';
+          } else {
+            mappedStatus = 'ended';
+          }
+          break;
+        }
         case 'call.machine.detection.ended':
           mappedStatus = data.payload?.result === 'machine' ? 'voicemail' : 'answered'; break;
         case 'call.machine.greeting.ended': mappedStatus = 'voicemail'; break;
@@ -1219,6 +1436,13 @@ app.post('/webhooks/call-status', async (c) => {
 
       const updatedCall: any = { ...call, status: mappedStatus, last_event: eventType, updated_at: new Date().toISOString() };
       if (mappedStatus === 'ended' || mappedStatus === 'completed') updatedCall.ended_at = new Date().toISOString();
+      // Mark the moment the prospect picked up so the dashboard can count
+      // "connected" calls reliably (status flips through many intermediate
+      // values — speaking/listening/processing/ended — so a single boolean
+      // here is the simplest source of truth).
+      if (eventType === 'call.answered' || eventType === 'call.bridged') {
+        if (!call.answered_at) updatedCall.answered_at = new Date().toISOString();
+      }
       await kv.set(`call:${call.id}`, updatedCall);
       console.log(`✅ Call ${call.id}: ${eventType} → ${mappedStatus}`);
 
@@ -1450,15 +1674,26 @@ app.post('/webhooks/call-status', async (c) => {
                 return;
               }
 
+              // ── Sales playbook: detect current stage + matching objection ──
+              // The playbook drives WHAT the AI should say this turn (qualify
+              // vs pitch vs close vs handle-objection) on top of the agent's
+              // voice/persona prompt. Buying signals fast-forward to the
+              // close stage; objection keywords pull a pre-written counter.
+              const stage = detectStage(turnCount, prospectSaid, conv.stage);
+              const matchedObjection = stage === 'objection'
+                ? matchObjection(prospectSaid, call.ai_config?.playbook?.objections)
+                : null;
+              console.log(`🎯 [PLAYBOOK] turn=${turnCount} stage=${stage}${matchedObjection ? ` objection=${matchedObjection.label}` : ''}`);
+
               // Generate AI response
               console.log(`🤖 Generating AI response for ${call.id}, turn ${turnCount}, prospect said: "${prospectSaid}"`);
               const systemPrompt = buildSystemPrompt(call.ai_config, {
                 name: call.lead_name || call.ai_config?.lead_name,
                 business: call.business_name || call.ai_config?.business_name,
-              });
+              }, { stage, prospectSaid, matchedObjection });
               const aiResponse = await getAIResponse(systemPrompt, conv.history);
               conv.history.push({ role: 'assistant', content: aiResponse });
-              await kv.set(convKey, { ...conv, turn_count: turnCount });
+              await kv.set(convKey, { ...conv, turn_count: turnCount, stage });
               console.log(`🤖 AI turn ${turnCount}: "${aiResponse}"`);
 
               // ── Check if AI wants to trigger a transfer ──
@@ -1612,13 +1847,28 @@ app.get('/tts-stream', async (c) => {
   }
 });
 
-// GET /telnyx/active-calls - Get currently active calls
+// GET /telnyx/active-calls - Get currently active calls (scoped to the requesting user)
 app.get('/active-calls', async (c) => {
   try {
     console.log('📞 [Active Calls] Starting request...');
-    
-    // Get all active calls from KV store
-    const allCalls = await kv.getByPrefixLimited('call:', 1000, 0);
+
+    // ── Authenticate + scope to this user ──
+    // Previously this endpoint returned every call in the KV store across all
+    // tenants — both a privacy leak (one user's lead names visible to others)
+    // and a correctness bug (stats showed someone else's totals or zero when
+    // the scan limit skipped the caller's calls).
+    const accessToken = c.req.header('Authorization')?.split(' ')[1] || '';
+    const supabaseAuth = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { user, error: authError } = await (await import('./auth-helpers.tsx')).authGetUser(supabaseAuth, accessToken, 'TELNYX-ACTIVE-CALLS');
+    if (authError || !user) {
+      return c.json({ success: false, error: 'Unauthorized', calls: [], stats: { activeNow:0, totalToday:0, connected:0, voicemail:0, noAnswer:0, booked:0, avgDuration:0 } }, 401);
+    }
+    const userId = user.id;
+
+    // Get all calls from KV — then filter to this user. We scan up to 5000
+    // recent call records; older entries don't affect today's stats anyway.
+    const allCallsRaw = await kv.getByPrefixLimited('call:', 5000, 0);
+    const allCalls = allCallsRaw.filter((c: any) => c && typeof c === 'object' && (c.user_id === userId || c.ai_config?.user_id === userId));
     // getByPrefix returns values directly
     const now = Date.now();
     const activeCalls = allCalls
@@ -1658,15 +1908,32 @@ app.get('/active-calls', async (c) => {
     const todayTimestamp = today.toISOString();
 
     const todayCalls = allCalls.filter(c => c && c.started_at && c.started_at >= todayTimestamp);
-    
+
+    // ── Connected = the prospect actually picked up at any point ──
+    // We use `answered_at` (set by the webhook on call.answered) as the
+    // authoritative signal because `status` flips through many values
+    // (speaking/listening/processing/ended) during the call lifecycle and
+    // ends at 'ended' rather than 'connected'. Falling back to status
+    // checks keeps legacy records that predate the answered_at field.
+    const isConnected = (c: any) => !!c.answered_at
+      || ['answered', 'speaking', 'listening', 'processing', 'completed', 'ended', 'voicemail'].includes(c.status);
+
+    // Avg duration over completed calls today (in seconds)
+    const completedToday = todayCalls.filter(c => c.ended_at && c.started_at);
+    const totalDurationSec = completedToday.reduce((sum: number, c: any) => {
+      const d = (new Date(c.ended_at).getTime() - new Date(c.started_at).getTime()) / 1000;
+      return sum + Math.max(0, d);
+    }, 0);
+    const avgDuration = completedToday.length > 0 ? Math.round(totalDurationSec / completedToday.length) : 0;
+
     const stats = {
       activeNow: activeCalls.length,
       totalToday: todayCalls.length,
-      connected: todayCalls.filter(c => c.status === 'answered' || c.status === 'completed').length,
+      connected: todayCalls.filter(isConnected).length,
       voicemail: todayCalls.filter(c => c.status === 'voicemail').length,
-      noAnswer: todayCalls.filter(c => c.status === 'no-answer').length,
-      booked: todayCalls.filter(c => c.outcome === 'booked').length,
-      avgDuration: 0 // Calculate if duration is tracked
+      noAnswer: todayCalls.filter(c => c.status === 'no-answer' || c.status === 'busy').length,
+      booked: todayCalls.filter(c => c.outcome === 'booked' || c.booked === true).length,
+      avgDuration,
     };
 
     console.log('📞 [Active Calls] Stats calculated:', stats);

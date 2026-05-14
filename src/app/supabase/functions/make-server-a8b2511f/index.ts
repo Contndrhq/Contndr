@@ -19175,6 +19175,68 @@ app.post("/make-server-a8b2511f/agent-mode/run", async (c) => {
 });
 
 // ============================================================================
+// AI CALL PLAYBOOK ROUTES
+// ============================================================================
+// The playbook is a per-user sales script that drives the AI agent on every
+// call — qualifying questions, value props, objection handlers, meeting
+// options. Stored at `ai_call_playbook:${user.id}` and loaded by both the
+// manual /telnyx/initiate-call path and the AI call campaign processor.
+
+function sanitizeAICallPlaybook(input: any): any {
+  const x = input && typeof input === 'object' ? input : {};
+  const arr = (v: any, max: number, maxLen: number): string[] =>
+    Array.isArray(v) ? v.filter((s: any) => typeof s === 'string' && s.trim()).slice(0, max).map((s: string) => s.trim().slice(0, maxLen)) : [];
+  const objections = Array.isArray(x.objections)
+    ? x.objections
+        .filter((o: any) => o && typeof o.trigger === 'string' && typeof o.response === 'string' && o.trigger.trim() && o.response.trim())
+        .slice(0, 12)
+        .map((o: any) => ({
+          trigger: String(o.trigger).trim().slice(0, 80),
+          response: String(o.response).trim().slice(0, 300),
+          label: typeof o.label === 'string' ? o.label.slice(0, 40) : undefined,
+        }))
+    : [];
+  return {
+    qualifying_questions: arr(x.qualifying_questions, 5, 200),
+    value_props: arr(x.value_props, 5, 200),
+    meeting_options: typeof x.meeting_options === 'string' ? x.meeting_options.trim().slice(0, 120) : '',
+    booking_link: typeof x.booking_link === 'string' ? x.booking_link.trim().slice(0, 300) : '',
+    objections,
+    close_style: x.close_style === 'direct' ? 'direct' : 'soft',
+  };
+}
+
+app.get("/make-server-a8b2511f/ai-call-playbook", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const playbook = await kv.get(`ai_call_playbook:${user.id}`);
+    c.header('Cache-Control', 'no-store');
+    return c.json({ success: true, playbook: playbook || sanitizeAICallPlaybook(null) });
+  } catch (error: any) {
+    console.error('[AI CALL PLAYBOOK] Load failed:', error);
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+app.put("/make-server-a8b2511f/ai-call-playbook", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json().catch(() => ({}));
+    const playbook = sanitizeAICallPlaybook(body);
+    await kv.set(`ai_call_playbook:${user.id}`, {
+      ...playbook,
+      updated_at: new Date().toISOString(),
+      updated_by: user.email || user.id,
+    });
+    c.header('Cache-Control', 'no-store');
+    return c.json({ success: true, playbook });
+  } catch (error: any) {
+    console.error('[AI CALL PLAYBOOK] Save failed:', error);
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+// ============================================================================
 // AI AGENT PROFILES CRUD ROUTES
 // ============================================================================
 
