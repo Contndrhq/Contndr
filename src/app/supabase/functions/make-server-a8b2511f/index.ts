@@ -19474,6 +19474,7 @@ app.post("/make-server-a8b2511f/ai-call/test-call", async (c) => {
       // Don't error out — fall through to Telnyx path below.
       console.log(`[TEST CALL] Skipping Convai → ${!agentModeConfig.useElevenLabsConvai ? 'toggle is OFF' : 'phone_number_id is empty'}`);
     }
+    let convaiFailureReason: string | null = null;
     if (agentModeConfig.useElevenLabsConvai && agentModeConfig.elevenLabsPhoneNumberId) {
       console.log(`[TEST CALL · CONVAI] Routing through ElevenLabs Convai with phone_number_id=${agentModeConfig.elevenLabsPhoneNumberId}`);
       try {
@@ -19528,7 +19529,8 @@ app.post("/make-server-a8b2511f/ai-call/test-call", async (c) => {
           message: `ElevenLabs is dialing ${toNumber} now. Sub-second response latency. Conversation: ${convaiJson.conversation_id || '?'}.`,
         });
       } catch (convaiErr: any) {
-        console.error('[TEST CALL · CONVAI] Failed, falling back to Telnyx path:', convaiErr?.message || convaiErr);
+        convaiFailureReason = String(convaiErr?.message || convaiErr).slice(0, 300);
+        console.error('[TEST CALL · CONVAI] Failed, falling back to Telnyx path:', convaiFailureReason);
         // Fall through to legacy Telnyx path below
       }
     }
@@ -19595,7 +19597,7 @@ app.post("/make-server-a8b2511f/ai-call/test-call", async (c) => {
       ? 'toggle is OFF'
       : !agentModeConfig.elevenLabsPhoneNumberId
         ? 'phone number ID is empty'
-        : 'unknown';
+        : convaiFailureReason || 'Convai attempt failed silently (check function logs)';
     return c.json({
       success: true,
       route: 'telnyx_legacy',
