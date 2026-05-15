@@ -3006,6 +3006,7 @@ app.get("/make-server-a8b2511f/admin/waitlist", async (c) => {
       console.warn('[ADMIN] Waitlist list cleanup failed:', listErr?.message || listErr);
     }
 
+    c.header('Cache-Control', 'private, max-age=20, stale-while-revalidate=60');
     return c.json({ entries });
   } catch (error) {
     console.error('[ADMIN] Error fetching waitlist:', error);
@@ -3188,7 +3189,9 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
     
     // Compute total leads across all users for admin summary
     const totalLeads = Object.values(leadCountMap).reduce((sum: number, c: number) => sum + c, 0);
-    
+
+    // Short browser cache so rapid tab switches don't re-fetch the same list
+    c.header('Cache-Control', 'private, max-age=20, stale-while-revalidate=60');
     return c.json({ users: usersWithSubs, totalLeads });
   } catch (error) {
     console.error('[ADMIN] Error fetching users:', error);
@@ -20743,6 +20746,7 @@ app.get("/make-server-a8b2511f/admin/affiliates", async (c) => {
     };
 
     console.log(`[ADMIN] Loaded ${affiliates.length} affiliates`);
+    c.header('Cache-Control', 'private, max-age=30, stale-while-revalidate=120');
     return c.json({ success: true, affiliates, totals });
   } catch (error) {
     console.error('[ADMIN] Error fetching affiliates:', error);
@@ -21416,6 +21420,7 @@ app.get("/make-server-a8b2511f/admin/revenue", async (c) => {
     };
 
     console.log(`[ADMIN] Revenue: ${payingActiveCount} paying subscribers (${activeCount} total active), MRR=$${Math.round(totalMrr * 100) / 100}${healedCount > 0 ? `, healed ${healedCount} KV records` : ''}`);
+    c.header('Cache-Control', 'private, max-age=30, stale-while-revalidate=120');
     return c.json({ success: true, summary, subscribers, healed: healedCount });
   } catch (error) {
     console.error('[ADMIN] Error fetching revenue data:', error);

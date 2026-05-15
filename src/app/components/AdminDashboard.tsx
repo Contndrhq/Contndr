@@ -1170,12 +1170,24 @@ export function AdminDashboard() {
     }
   }, [editingUser?.id]);
 
+  // Stale-while-revalidate cache: track which tabs have loaded at least once.
+  // First visit fetches fresh; subsequent visits show cached data instantly
+  // and quietly refetch in the background so admins never wait on tab switch.
+  const [loadedTabs] = useState(() => new Set<string>());
+
   useEffect(() => {
-    loadData();
+    const isFirstLoad = !loadedTabs.has(activeTab);
+    if (isFirstLoad) loadedTabs.add(activeTab);
+    loadData({ silent: !isFirstLoad });
   }, [activeTab]);
 
-  async function loadData() {
-    setRefreshing(true);
+  async function loadData(opts: { silent?: boolean } = {}) {
+    if (opts.silent) {
+      // Background refresh — don't show full-page loader, just the spinner
+      setRefreshing(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
       if (activeTab === 'waitlist') {
         await fetchWaitlist();
@@ -1187,7 +1199,7 @@ export function AdminDashboard() {
         await fetchOrgReps();
       }
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
       setRefreshing(false);
     }
   }
