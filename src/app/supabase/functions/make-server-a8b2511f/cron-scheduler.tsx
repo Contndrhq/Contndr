@@ -178,60 +178,61 @@ async function activateScheduledCampaigns(): Promise<{
   };
 
   try {
-    const now = new Date().toISOString();
+    const nowMs = Date.now();
 
-    // The campaigns table has historically used both `scheduled_time` and
-    // `scheduled_at` in different migrations. Query with select('*') and
-    // a status filter, then check either column in code. The previous
-    // approach hard-coded `scheduled_time` in the SELECT/WHERE clauses
-    // and silently failed when the production schema only had
-    // `scheduled_at` — scheduled campaigns never activated as a result.
-    const { data: scheduledCampaigns, error } = await supabase
-      .from('campaigns')
-      .select('*')
-      .eq('status', 'scheduled');
+    // KV is the source of truth — the SQL `campaigns` table is a best-effort
+    // shadow that has historically failed to write (the INSERT used
+    // `scheduled_time`, a column missing in production schema). Scan KV
+    // for all campaigns and find scheduled ones that are past due.
+    const allCampaigns = await kv.getByPrefixLimited('campaign:', 5000, 0).catch((e: any) => {
+      result.errors.push(`KV scan failed: ${e?.message || e}`);
+      return [] as any[];
+    });
 
-    if (error) {
-      result.errors.push(`DB query failed: ${error.message}`);
+    if (!allCampaigns || allCampaigns.length === 0) {
       return result;
     }
 
-    if (!scheduledCampaigns || scheduledCampaigns.length === 0) {
-      return result;
-    }
-
-    // Filter past-due in JS so we tolerate either column name
-    const dueCampaigns = scheduledCampaigns.filter((c: any) => {
+    const dueCampaigns = (allCampaigns as any[]).filter((c) => {
+      if (!c || c.status !== 'scheduled') return false;
       const t = c.scheduled_at || c.scheduled_time;
-      return !!t && new Date(t) <= new Date(now);
+      if (!t) return false;
+      const ts = new Date(t).getTime();
+      return Number.isFinite(ts) && ts <= nowMs;
     });
 
     if (dueCampaigns.length === 0) {
-      console.log(`[CRON-SCHEDULE] ${scheduledCampaigns.length} scheduled campaign(s) found, none past due yet`);
+      const totalScheduled = (allCampaigns as any[]).filter((c) => c?.status === 'scheduled').length;
+      if (totalScheduled > 0) {
+        console.log(`[CRON-SCHEDULE] ${totalScheduled} scheduled campaign(s) found in KV, none past due yet`);
+      }
       return result;
     }
 
-    console.log(`[CRON-SCHEDULE] Found ${dueCampaigns.length} scheduled campaign(s) ready to activate`);
+    console.log(`[CRON-SCHEDULE] Found ${dueCampaigns.length} scheduled campaign(s) ready to activate (from KV scan)`);
 
     for (const campaign of dueCampaigns) {
       try {
         const scheduledTime = campaign.scheduled_at || campaign.scheduled_time;
-        // Update status to 'active' in both KV and DB
-        const kvCampaign = await kv.get(`campaign:${campaign.user_id}:${campaign.id}`);
-        if (kvCampaign) {
-          kvCampaign.status = 'active';
-          kvCampaign.updated_at = new Date().toISOString();
-          await kv.set(`campaign:${campaign.user_id}:${campaign.id}`, kvCampaign);
+        const nowIso = new Date().toISOString();
+
+        // Update KV (source of truth)
+        campaign.status = 'active';
+        campaign.updated_at = nowIso;
+        await kv.set(`campaign:${campaign.user_id}:${campaign.id}`, campaign);
+
+        // Best-effort DB update (may not exist if INSERT silently failed)
+        try {
+          await supabase
+            .from('campaigns')
+            .update({ status: 'active', updated_at: nowIso })
+            .eq('id', campaign.id);
+        } catch (dbErr) {
+          // Non-fatal; KV is source of truth
         }
 
-        // Update DB
-        await supabase
-          .from('campaigns')
-          .update({ status: 'active', updated_at: new Date().toISOString() })
-          .eq('id', campaign.id);
-
         result.campaignsActivated++;
-        console.log(`[CRON-SCHEDULE] Activated campaign "${campaign.name}" (scheduled for ${scheduledTime})`);
+        console.log(`[CRON-SCHEDULE] Activated campaign "${campaign.name}" (scheduled for ${scheduledTime}, user ${campaign.user_id})`);
       } catch (err: any) {
         console.error(`[CRON-SCHEDULE] Error activating campaign ${campaign.id}:`, err);
         result.errors.push(`${campaign.name}: ${err.message}`);
@@ -280,20 +281,25 @@ export async function resumeAllUsersCampaigns(): Promise<{
   await kv.set(CRON_RESUME_LOCK_KEY, { lockedAt: new Date().toISOString() });
 
   try {
-    // Find all campaigns that are active/sending with leads
-    const { data: campaigns, error } = await supabase
-      .from('campaigns')
-      .select('id, user_id, name, status')
-      .in('status', ['active', 'sending'])
-      .order('updated_at', { ascending: true }); // oldest first (most likely stuck)
+    // Find all active/sending campaigns from KV (source of truth — the SQL
+    // `campaigns` table is a best-effort shadow that has historically failed
+    // to write because the INSERT used a non-existent column).
+    const allCampaignsKV = await kv.getByPrefixLimited('campaign:', 5000, 0).catch((e: any) => {
+      result.errors.push(`KV scan failed: ${e?.message || e}`);
+      return [] as any[];
+    });
 
-    if (error) {
-      result.errors.push(`DB query failed: ${error.message}`);
-      return result;
-    }
+    const campaigns = (allCampaignsKV as any[])
+      .filter((c) => c && (c.status === 'active' || c.status === 'sending') && c.user_id && c.id)
+      .sort((a, b) => {
+        // oldest updated first (most likely stuck)
+        const ta = new Date(a.updated_at || 0).getTime();
+        const tb = new Date(b.updated_at || 0).getTime();
+        return ta - tb;
+      });
 
-    if (!campaigns || campaigns.length === 0) {
-      console.log('[CRON-RESUME] No active/sending campaigns found');
+    if (campaigns.length === 0) {
+      console.log('[CRON-RESUME] No active/sending campaigns found in KV');
       return result;
     }
 

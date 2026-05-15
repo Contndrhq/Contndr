@@ -12674,7 +12674,7 @@ app.post("/make-server-a8b2511f/campaigns", async (c) => {
         sender_name: campaign.sender_name,
         sender_title: campaign.sender_title,
         campaign_knowledge: campaign.campaign_knowledge || '',
-        scheduled_time: campaign.scheduled_time || null,
+        scheduled_at: campaign.scheduled_at || campaign.scheduled_time || null,
         created_at: campaign.created_at
       });
     } catch (dbError) {
@@ -18944,72 +18944,84 @@ app.post("/make-server-a8b2511f/campaigns/:id/diagnose-scheduled", async (c) => 
     if (authError || !user) return c.json({ error: 'Unauthorized' }, 401);
 
     const campaignId = c.req.param('id');
-    // Use select('*') so we don't error when one of the schema's columns
-    // doesn't exist (the previous version errored on scheduled_time which
-    // turned out to be missing in production, blocking diagnosis entirely).
-    const { data: dbCampaign, error: dbErr } = await supabase
+    // KV is the source of truth — the SQL `campaigns` table is a best-effort
+    // shadow that often fails to write (e.g. the historical INSERT used
+    // `scheduled_time`, a column that doesn't exist in production schema).
+    // Read KV first; treat DB row as supplementary if present.
+    const kvCampaign = await kv.get(`campaign:${user.id}:${campaignId}`);
+    const { data: dbCampaign } = await supabase
       .from('campaigns')
       .select('*')
       .eq('id', campaignId)
-      .single();
+      .maybeSingle();
 
-    if (dbErr || !dbCampaign) {
-      return c.json({ ok: false, reason: 'Campaign not found in DB', error: dbErr?.message }, 404);
+    if (!kvCampaign && !dbCampaign) {
+      return c.json({ ok: false, reason: 'Campaign not found in KV or DB' }, 404);
     }
-    if (dbCampaign.user_id !== user.id) {
+    if ((kvCampaign && kvCampaign.user_id && kvCampaign.user_id !== user.id) ||
+        (dbCampaign && dbCampaign.user_id !== user.id)) {
       return c.json({ ok: false, reason: 'Campaign belongs to a different user' }, 403);
     }
 
+    // Prefer KV values, fall back to DB
+    const source = kvCampaign || dbCampaign;
     const now = new Date();
-    // Tolerate either column name — different migration histories used
-    // different schemas. scheduled_at is the canonical going forward; if
-    // an older row has scheduled_time, honor that as a fallback.
-    const scheduledRaw = dbCampaign.scheduled_at || dbCampaign.scheduled_time || null;
+    const scheduledRaw =
+      source.scheduled_at ||
+      source.scheduled_time ||
+      (dbCampaign?.scheduled_at) ||
+      (dbCampaign?.scheduled_time) ||
+      null;
     const scheduledTime = scheduledRaw ? new Date(scheduledRaw) : null;
     const isPastDue = scheduledTime ? scheduledTime <= now : false;
-    const kvCampaign = await kv.get(`campaign:${user.id}:${campaignId}`);
 
+    const status = source.status;
     const diagnosis = {
       campaign_id: campaignId,
-      name: dbCampaign.name,
-      db_status: dbCampaign.status,
+      name: source.name,
       kv_status: kvCampaign?.status || '(missing in KV)',
-      scheduled_at_column: dbCampaign.scheduled_at ?? null,
-      scheduled_time_column: dbCampaign.scheduled_time ?? null,
+      db_status: dbCampaign?.status || '(missing in DB)',
+      kv_scheduled_at: kvCampaign?.scheduled_at ?? null,
+      kv_scheduled_time: kvCampaign?.scheduled_time ?? null,
+      db_scheduled_at: dbCampaign?.scheduled_at ?? null,
+      db_scheduled_time: dbCampaign?.scheduled_time ?? null,
       scheduled_resolved: scheduledRaw,
       scheduled_local: scheduledTime ? scheduledTime.toLocaleString() : null,
       now: now.toISOString(),
       is_past_due: isPastDue,
-      total_recipients: dbCampaign.total_recipients,
-      sent_count: dbCampaign.sent_count,
-      from_email: dbCampaign.from_email,
-      brand: dbCampaign.brand,
+      total_recipients: source.total_recipients,
+      sent_count: source.sent_count,
+      from_email: source.from_email,
+      brand: source.brand,
+      leads_count: Array.isArray(kvCampaign?.leads) ? kvCampaign.leads.length : 0,
     };
 
     // Reason it didn't fire
     let reason: string;
     let actionTaken: string | null = null;
-    if (dbCampaign.status !== 'scheduled' && dbCampaign.status !== 'active') {
-      reason = `Status is "${dbCampaign.status}" — only 'scheduled' or 'active' campaigns fire. (Maybe it was paused or completed?)`;
+    if (status !== 'scheduled' && status !== 'active') {
+      reason = `Status is "${status}" — only 'scheduled' or 'active' campaigns fire. (Maybe it was paused or completed?)`;
     } else if (!scheduledTime) {
-      reason = 'scheduled_time is NULL — campaign was never given a launch time.';
+      reason = 'scheduled_at is NULL — campaign was never given a launch time.';
     } else if (!isPastDue) {
-      reason = `Not past due yet. scheduled_time is ${scheduledTime.toLocaleString()}, now is ${now.toLocaleString()}.`;
+      reason = `Not past due yet. scheduled_at is ${scheduledTime.toLocaleString()}, now is ${now.toLocaleString()}.`;
     } else {
       // Status='scheduled' + past due → cron job should have activated it.
-      // Force-activate now.
+      // Force-activate now in BOTH KV (source of truth) and DB.
       try {
-        await supabase
-          .from('campaigns')
-          .update({ status: 'active', updated_at: now.toISOString() })
-          .eq('id', campaignId);
         if (kvCampaign) {
           kvCampaign.status = 'active';
           kvCampaign.updated_at = now.toISOString();
           await kv.set(`campaign:${user.id}:${campaignId}`, kvCampaign);
         }
-        actionTaken = 'Forced status: scheduled → active. The next send-batch poll (within ~60s) should pick it up.';
-        reason = 'Was stuck at status=scheduled past its trigger time — likely the cron job didn\'t run when expected. Activated manually.';
+        if (dbCampaign) {
+          await supabase
+            .from('campaigns')
+            .update({ status: 'active', updated_at: now.toISOString() })
+            .eq('id', campaignId);
+        }
+        actionTaken = 'Forced status: scheduled → active in KV (and DB if present). The next send-batch poll (within ~60s) should pick it up.';
+        reason = 'Was stuck at status=scheduled past its trigger time — likely the cron job didn\'t see this row (it was scanning the SQL `campaigns` table while data lives in KV). Activated manually.';
       } catch (e: any) {
         reason = `Past due but failed to force-activate: ${e.message}`;
       }
