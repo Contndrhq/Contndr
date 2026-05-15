@@ -227,18 +227,18 @@ export function WebsiteConnector() {
   return (
     <div className="space-y-6 text-sm">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Globe className="w-5 h-5" /> Website Connector
+            <Globe className="w-5 h-5 flex-shrink-0" /> Website Connector
           </h2>
-          <p className="text-zinc-500 mt-1">Connect your website so hot visitors become identified leads and trigger AI calls automatically.</p>
+          <p className="text-zinc-500 mt-1 text-sm">Connect your website so hot visitors become identified leads and trigger AI calls automatically.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={fireTestEvent} className="px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs flex items-center gap-1">
-            <Send className="w-3.5 h-3.5" /> Fire test event
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button onClick={fireTestEvent} className="px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs flex items-center gap-1 whitespace-nowrap">
+            <Send className="w-3.5 h-3.5" /> Fire test
           </button>
-          <button onClick={load} className="px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs flex items-center gap-1">
+          <button onClick={load} className="px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs flex items-center gap-1 whitespace-nowrap">
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
           </button>
         </div>
@@ -251,20 +251,23 @@ export function WebsiteConnector() {
           <button onClick={rotateKey} className="text-xs text-zinc-500 hover:text-red-600">Rotate key</button>
         </div>
         <p className="text-zinc-500 mb-3">Paste this inside the <code>&lt;head&gt;</code> of every page on your site.</p>
-        <div className="relative">
-          <pre className="bg-zinc-950 text-zinc-100 rounded-lg p-3 overflow-x-auto text-xs whitespace-pre-wrap break-all">{install.script_tag}</pre>
-          <button onClick={() => copy('script', install.script_tag)} className="absolute top-2 right-2 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-100 flex items-center gap-1">
-            {copied === 'script' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />} {copied === 'script' ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-        <div className="grid grid-cols-2 gap-3 mt-3 text-xs">
-          <div className="rounded-md bg-zinc-50 dark:bg-zinc-900 p-3">
-            <div className="text-zinc-400 mb-1">Workspace ID</div>
-            <code className="text-zinc-900 dark:text-zinc-100">{workspace.workspace_id}</code>
+        <div className="relative bg-zinc-950 rounded-lg">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+            <span className="text-[10px] uppercase tracking-wide text-zinc-500">Script tag</span>
+            <button onClick={() => copy('script', install.script_tag)} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-100 flex items-center gap-1">
+              {copied === 'script' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />} {copied === 'script' ? 'Copied' : 'Copy'}
+            </button>
           </div>
-          <div className="rounded-md bg-zinc-50 dark:bg-zinc-900 p-3">
+          <pre className="text-zinc-100 p-3 overflow-x-auto text-[11px] sm:text-xs whitespace-pre-wrap break-all">{install.script_tag}</pre>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 text-xs">
+          <div className="rounded-md bg-zinc-50 dark:bg-zinc-900 p-3 min-w-0">
+            <div className="text-zinc-400 mb-1">Workspace ID</div>
+            <code className="text-zinc-900 dark:text-zinc-100 break-all block">{workspace.workspace_id}</code>
+          </div>
+          <div className="rounded-md bg-zinc-50 dark:bg-zinc-900 p-3 min-w-0">
             <div className="text-zinc-400 mb-1">Public key</div>
-            <code className="text-zinc-900 dark:text-zinc-100">{workspace.public_key}</code>
+            <code className="text-zinc-900 dark:text-zinc-100 break-all block">{workspace.public_key}</code>
           </div>
         </div>
       </section>
@@ -326,11 +329,14 @@ export function WebsiteConnector() {
           <p className="text-amber-700"><b>Consent is required for AI calls/SMS.</b> Include a checkbox named <code>consent</code> with visible disclosure text (we capture the text, timestamp, URL, IP, and user-agent for compliance).</p>
         </div>
         {showForm && (
-          <div className="relative mt-3">
-            <pre className="bg-zinc-950 text-zinc-100 rounded-lg p-3 overflow-x-auto text-xs">{formEmbed}</pre>
-            <button onClick={() => copy('form', formEmbed)} className="absolute top-2 right-2 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-100 flex items-center gap-1">
-              {copied === 'form' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />} {copied === 'form' ? 'Copied' : 'Copy'}
-            </button>
+          <div className="mt-3 bg-zinc-950 rounded-lg">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+              <span className="text-[10px] uppercase tracking-wide text-zinc-500">Form snippet</span>
+              <button onClick={() => copy('form', formEmbed)} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-100 flex items-center gap-1">
+                {copied === 'form' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />} {copied === 'form' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <pre className="text-zinc-100 p-3 overflow-x-auto text-[11px] sm:text-xs">{formEmbed}</pre>
           </div>
         )}
       </section>
@@ -338,7 +344,7 @@ export function WebsiteConnector() {
       {/* AI call settings */}
       <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
         <h3 className="font-semibold flex items-center gap-2 mb-3"><Zap className="w-4 h-4" /> Step 4 · AI call trigger rules</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <label className="flex items-center justify-between gap-2 rounded-md bg-zinc-50 dark:bg-zinc-900 px-3 py-2">
             <span className="text-zinc-600 dark:text-zinc-300">AI calling enabled</span>
             <input
