@@ -313,7 +313,7 @@ function TeamLeaderboard() {
   if (!loading && members.length === 0 && teamSize <= 1) {
     return (
       <div className="h-full flex flex-col items-center justify-center px-6 py-20">
-        <div className="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center mb-5">
+        <div className="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center mb-5">
           <Users className="w-6 h-6 text-zinc-300 dark:text-zinc-600" />
         </div>
         <h2 className="text-lg font-semibold text-zinc-800 dark:text-zinc-200 mb-1.5">
@@ -360,7 +360,7 @@ function TeamLeaderboard() {
 
       {/* ── Summary strip ──────────────────────────────────────── */}
       {totals && (
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-px rounded-xl overflow-hidden border border-zinc-200/80 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-200/80 dark:bg-zinc-100 dark:bg-zinc-900 mb-8">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-px rounded-xl overflow-hidden border border-zinc-200/80 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-200/80 dark:bg-zinc-900 mb-8">
           {([
             { labelKey: 'teamLeaderboard.colLeads',    value: totals.leads.toLocaleString() },
             { labelKey: 'teamLeaderboard.colEmails',   value: totals.emails_sent.toLocaleString() },
@@ -541,7 +541,7 @@ function TeamLeaderboard() {
                     )}
                   </div>
                   {/* Bar */}
-                  <div className="mt-1.5 h-1 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
+                  <div className="mt-1.5 h-1 bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-500 ease-out"
                       style={{ width: `${pct}%`, backgroundColor: activeCol.color, opacity: 0.5 }}

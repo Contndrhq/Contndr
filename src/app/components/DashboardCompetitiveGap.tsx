@@ -326,7 +326,7 @@ export function DashboardCompetitiveGap({ onNavigate }: { onNavigate: (view: str
           return (
             <div
               key={competitor.id}
-              className="rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 p-3 hover:border-zinc-300 dark:hover:border-zinc-200 dark:border-zinc-800 transition-colors cursor-pointer"
+              className="rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3 hover:border-zinc-300 dark:hover:border-zinc-200 dark:border-zinc-800 transition-colors cursor-pointer"
               onClick={() => onNavigate('social')}
             >
               <div className="flex items-center justify-between mb-2">
@@ -358,14 +358,14 @@ export function DashboardCompetitiveGap({ onNavigate }: { onNavigate: (view: str
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-[9px] text-[#1ED4A7] font-medium w-6 shrink-0">{t('dashboard.competitiveGap.you', 'You')}</span>
-                  <div className="flex-1 h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
+                  <div className="flex-1 h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
                     <div className="h-full rounded-full bg-[#1ED4A7] transition-all duration-700" style={{ width: `${Math.min(100, (ownFollowers / Math.max(ownFollowers, compFollowers, 1)) * 100)}%` }} />
                   </div>
                   <span className="text-[9px] font-semibold text-zinc-600 dark:text-zinc-400 w-10 text-right">{compactNum(ownFollowers)}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[9px] text-rose-500 font-medium w-6 shrink-0 truncate">{(competitor.displayName || competitor.handle).slice(0, 4)}</span>
-                  <div className="flex-1 h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
+                  <div className="flex-1 h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
                     <div className="h-full rounded-full bg-rose-500 transition-all duration-700" style={{ width: `${Math.min(100, (compFollowers / Math.max(ownFollowers, compFollowers, 1)) * 100)}%` }} />
                   </div>
                   <span className="text-[9px] font-semibold text-zinc-600 dark:text-zinc-400 w-10 text-right">{compactNum(compFollowers)}</span>

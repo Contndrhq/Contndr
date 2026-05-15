@@ -2483,7 +2483,7 @@ export function AdminDashboard() {
                 Update plan for <span className="font-semibold text-white">{editingUser.email}</span>
               </p>
 
-              <div className="bg-zinc-100 dark:bg-zinc-50 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 mb-4 space-y-3">
+              <div className="bg-zinc-100 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 mb-4 space-y-3">
                 {editingUser.subscription?.stripe_sub_id ? (
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] font-mono text-zinc-500">
@@ -2662,7 +2662,7 @@ export function AdminDashboard() {
             {inspectData ? (
               <div className="overflow-auto flex-1 space-y-3">
                 {Object.entries(inspectData).filter(([k]) => k !== 'userId').map(([key, value]) => (
-                  <div key={key} className="bg-gray-50 dark:bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-gray-200 dark:border-zinc-200 dark:border-zinc-800 p-3">
+                  <div key={key} className="bg-gray-50 dark:bg-zinc-950 rounded-xl border border-gray-200 dark:border-zinc-200 dark:border-zinc-800 p-3">
                     <div className="text-[10px] font-mono font-bold text-gray-700 dark:text-zinc-300 mb-1.5 uppercase tracking-wider">{key}</div>
                     {value === null || value === undefined ? (
                       <div className="text-[11px] text-gray-400 dark:text-zinc-600 italic">null</div>

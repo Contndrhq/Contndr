@@ -144,14 +144,14 @@ export function EnhancedSearchProgress({ phase, count, params, onCancel }: {
       </div>
 
       {/* Progress indicator */}
-      <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-150 dark:border-zinc-200 dark:border-zinc-800 shadow-sm">
+      <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-150 dark:border-zinc-200 dark:border-zinc-800 shadow-sm">
         <div className="relative w-5 h-5 shrink-0">
           <div className="absolute inset-0 rounded-full border-2 border-zinc-200 dark:border-zinc-700" />
           <div className="absolute inset-0 rounded-full border-2 border-zinc-800 dark:border-white border-t-transparent animate-spin" />
         </div>
         
         <div className="flex-1 min-w-0">
-          <div className="h-2 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
+          <div className="h-2 rounded-full bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
             <div 
               className="h-full rounded-full bg-gradient-to-r from-zinc-700 via-zinc-800 to-zinc-900 dark:from-zinc-300 dark:via-zinc-200 dark:to-white transition-all duration-700 ease-out"
               style={{ width: `${progress}%` }}

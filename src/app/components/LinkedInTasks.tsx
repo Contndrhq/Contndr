@@ -163,7 +163,7 @@ export function LinkedInTasks() {
 
                     {/* Message preview */}
                     {task.message && (
-                      <div className="mt-2 p-2.5 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-white/5 rounded-lg">
+                      <div className="mt-2 p-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-white/5 rounded-lg">
                         <p className="text-xs text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap line-clamp-3">
                           {task.message}
                         </p>

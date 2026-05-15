@@ -52,7 +52,7 @@ export function MobileNav({ currentView, setCurrentView }: MobileNavProps) {
               className="relative flex-1 flex flex-col items-center justify-center h-[52px] rounded-[20px] transition-all duration-300 tap-target-override group"
             >
               {isActive && (
-                <div className="absolute inset-0 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-[20px] -z-10" />
+                <div className="absolute inset-0 bg-zinc-100 dark:bg-zinc-900 rounded-[20px] -z-10" />
               )}
               <div className="relative flex flex-col items-center gap-[3px]">
                 <Icon 

@@ -626,7 +626,7 @@ export function Revenue({ onNavigate }: RevenueProps = {}) {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Stripe card */}
-              <div className="bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 text-left space-y-4">
+              <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 text-left space-y-4">
                 <div className="w-14 h-14 rounded-xl bg-[#635BFF]/10 flex items-center justify-center">
                   <StripeLogo className="w-7 h-7" />
                 </div>
@@ -649,7 +649,7 @@ export function Revenue({ onNavigate }: RevenueProps = {}) {
               </div>
 
               {/* QuickBooks card */}
-              <div className="bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 text-left space-y-4">
+              <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 text-left space-y-4">
                 <div className="w-14 h-14 rounded-xl bg-[#2CA01C]/10 flex items-center justify-center">
                   <QuickBooksLogo className="w-7 h-7" />
                 </div>
@@ -701,7 +701,7 @@ export function Revenue({ onNavigate }: RevenueProps = {}) {
             <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{t('revenuePage.title')}</h1>
             <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
               {t('revenuePage.trackPerformance')}
-              {isDemoAccount && <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 text-zinc-500">Demo</span>}
+              {isDemoAccount && <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-900 text-zinc-500">Demo</span>}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -1162,7 +1162,7 @@ export function Revenue({ onNavigate }: RevenueProps = {}) {
 
         {/* ─── Upsell card for the missing source ──────────────────────── */}
         {!bothConnected && !isDemoAccount && (
-          <div className="bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-dashed border-zinc-300 dark:border-zinc-700 rounded-xl p-5 flex items-center gap-4">
+          <div className="bg-white dark:bg-zinc-950 border border-dashed border-zinc-300 dark:border-zinc-700 rounded-xl p-5 flex items-center gap-4">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: !stripeConnected ? 'rgba(99,91,255,0.1)' : 'rgba(44,160,28,0.1)' }}>
               {!stripeConnected ? <StripeLogo className="w-5 h-5" /> : <QuickBooksLogo className="w-5 h-5" />}
             </div>

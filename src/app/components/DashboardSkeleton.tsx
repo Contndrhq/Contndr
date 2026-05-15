@@ -25,15 +25,15 @@ export function DashboardListSkeleton({ rows = 4, withIcon = true }: ListProps) 
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex items-center gap-2.5 py-2 px-2.5 rounded-lg">
           {withIcon && (
-            <div className="w-7 h-7 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 skeleton-shimmer flex-shrink-0" />
+            <div className="w-7 h-7 rounded-lg bg-zinc-100 dark:bg-zinc-900 skeleton-shimmer flex-shrink-0" />
           )}
           <div className="flex-1 min-w-0 space-y-1.5">
             <div
-              className="h-3 rounded bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 skeleton-shimmer"
+              className="h-3 rounded bg-zinc-100 dark:bg-zinc-900 skeleton-shimmer"
               style={{ width: `${60 + ((i * 7) % 30)}%` }}
             />
             <div
-              className="h-2.5 rounded bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 skeleton-shimmer"
+              className="h-2.5 rounded bg-zinc-100 dark:bg-zinc-900 skeleton-shimmer"
               style={{ width: `${40 + ((i * 11) % 25)}%` }}
             />
           </div>
@@ -52,7 +52,7 @@ export function DashboardChartSkeleton() {
       {heights.map((h, i) => (
         <div
           key={i}
-          className="flex-1 rounded-t bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 skeleton-shimmer"
+          className="flex-1 rounded-t bg-zinc-100 dark:bg-zinc-900 skeleton-shimmer"
           style={{ height: `${h}%` }}
         />
       ))}

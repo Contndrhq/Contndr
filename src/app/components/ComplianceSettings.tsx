@@ -135,21 +135,21 @@ export function ComplianceSettings() {
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-xl p-4">
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <Ban className="w-4 h-4 text-red-500 shrink-0" />
               <span className="text-xs font-medium text-zinc-500">{t('complianceView.unsubscribed')}</span>
             </div>
             <p className="text-2xl font-semibold text-black dark:text-white">{stats.unsubscribedCount}</p>
           </div>
-          <div className="bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-xl p-4">
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <Mail className="w-4 h-4 text-amber-500 shrink-0" />
               <span className="text-xs font-medium text-zinc-500">{t('complianceView.blockedEmails')}</span>
             </div>
             <p className="text-2xl font-semibold text-black dark:text-white">{stats.blacklistedEmails}</p>
           </div>
-          <div className="bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-xl p-4">
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <Globe className="w-4 h-4 text-indigo-500 shrink-0" />
               <span className="text-xs font-medium text-zinc-500">{t('complianceView.blockedDomains')}</span>
@@ -204,7 +204,7 @@ export function ComplianceSettings() {
             </div>
           ) : (
             filteredUnsubs.map(email => (
-              <div key={email} className="flex items-center justify-between px-4 py-2.5 bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-lg">
+              <div key={email} className="flex items-center justify-between px-4 py-2.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-lg">
                 <div className="flex items-center gap-2">
                   <Ban className="w-3.5 h-3.5 text-red-400" />
                   <span className="text-sm text-black dark:text-white font-mono">{email}</span>
@@ -249,7 +249,7 @@ export function ComplianceSettings() {
               </h4>
               <div className="space-y-1">
                 {filteredBlEmails.slice(0, 50).map(email => (
-                  <div key={email} className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-lg">
+                  <div key={email} className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-lg">
                     <span className="text-sm text-black dark:text-white font-mono">{email}</span>
                     <button onClick={() => removeFromBlacklist(email, 'email')} className="p-1 hover:bg-red-50 dark:hover:bg-red-500/10 rounded transition-colors">
                       <Trash2 className="w-3.5 h-3.5 text-red-400" />
@@ -271,7 +271,7 @@ export function ComplianceSettings() {
               </h4>
               <div className="space-y-1">
                 {filteredBlDomains.slice(0, 50).map(domain => (
-                  <div key={domain} className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-lg">
+                  <div key={domain} className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-lg">
                     <span className="text-sm text-black dark:text-white font-mono">{domain}</span>
                     <button onClick={() => removeFromBlacklist(domain, 'domain')} className="p-1 hover:bg-red-50 dark:hover:bg-red-500/10 rounded transition-colors">
                       <Trash2 className="w-3.5 h-3.5 text-red-400" />

@@ -350,7 +350,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
 
         {/* Digest Settings Dropdown */}
         {showDigestSettings && (
-          <div className="px-4 sm:px-6 py-4 border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 print:hidden">
+          <div className="px-4 sm:px-6 py-4 border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 print:hidden">
             <h3 className="text-xs font-semibold text-zinc-900 dark:text-white mb-3">{t('socialHub.report.digestSettings', 'Email Digest Settings')}</h3>
             <div className="flex flex-wrap items-end gap-4">
               <div>
@@ -474,7 +474,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
                         {row.gap <= 0 ? `${Math.abs(row.gap)}% ahead` : `${row.gap}% behind`}
                       </td>
                       <td className="py-2.5 px-3">
-                        <div className="h-2 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 overflow-hidden flex">
+                        <div className="h-2 rounded-full bg-zinc-100 dark:bg-zinc-900 overflow-hidden flex">
                           <div className="h-full bg-[#1ED4A7]" style={{ width: `${(row.ownF / Math.max(row.ownF + row.compF, 1)) * 100}%` }} />
                           <div className="h-full bg-rose-500" style={{ width: `${(row.compF / Math.max(row.ownF + row.compF, 1)) * 100}%` }} />
                         </div>

@@ -374,7 +374,7 @@ export function SequenceBuilder({ onClose, embedded = false }: SequenceBuilderPr
                 { label: 'Bounced', value: stats.bounced, icon: AlertCircle, color: 'text-red-500' },
                 { label: 'Unsub', value: stats.unsubscribed, icon: X, color: 'text-amber-500' },
               ].map(stat => (
-                <div key={stat.label} className="bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-xl p-3 text-center">
+                <div key={stat.label} className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/5 rounded-xl p-3 text-center">
                   <stat.icon className={`w-4 h-4 mx-auto mb-1 ${stat.color}`} />
                   <p className="text-lg font-semibold text-black dark:text-white">{stat.value}</p>
                   <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{stat.label}</p>
@@ -468,7 +468,7 @@ export function SequenceBuilder({ onClose, embedded = false }: SequenceBuilderPr
                     )}
 
                     <div className={`border rounded-xl transition-colors ${
-                      isEditing ? 'border-zinc-400 dark:border-white/20 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950' : 'border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0a0a0a]'
+                      isEditing ? 'border-zinc-400 dark:border-white/20 bg-zinc-50 dark:bg-zinc-950' : 'border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0a0a0a]'
                     }`}>
                       {/* Step Header */}
                       <div className="flex items-center gap-3 px-4 py-3">
@@ -667,7 +667,7 @@ export function SequenceBuilder({ onClose, embedded = false }: SequenceBuilderPr
 
       {/* New Sequence Form */}
       {showNewForm && (
-        <div className="mx-6 mt-4 p-5 border border-zinc-200 dark:border-white/10 rounded-xl bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950">
+        <div className="mx-6 mt-4 p-5 border border-zinc-200 dark:border-white/10 rounded-xl bg-zinc-50 dark:bg-zinc-950">
           <h3 className="text-sm font-semibold text-black dark:text-white mb-3">Create New Sequence</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>

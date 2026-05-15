@@ -204,7 +204,7 @@ export function AdminEventCenter() {
                       className={`w-full text-left px-4 py-2.5 text-xs font-medium transition-colors ${
                         typeFilter === opt.value
                           ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]'
-                          : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-100 dark:bg-zinc-900'
+                          : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
                       }`}
                     >
                       {opt.label}

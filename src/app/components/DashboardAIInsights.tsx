@@ -226,7 +226,7 @@ export function DashboardAIInsights() {
         </div>
 
         {/* Divider */}
-        <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-100 dark:bg-zinc-900 flex-shrink-0" />
+        <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-900 flex-shrink-0" />
 
         {/* Insights inline */}
         <div className="flex items-center gap-5 overflow-x-auto scrollbar-hide flex-1 min-w-0">

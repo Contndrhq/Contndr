@@ -239,14 +239,14 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
         <div className="flex gap-2 flex-shrink-0">
           <button
             onClick={downloadRevenueCSV}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors shadow-sm dark:shadow-none"
+            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors shadow-sm dark:shadow-none"
           >
             <Download className="w-3 h-3" /> Export CSV
           </button>
           <button
             onClick={fetchRevenue}
             disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors disabled:opacity-50 shadow-sm dark:shadow-none"
+            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors disabled:opacity-50 shadow-sm dark:shadow-none"
           >
             <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh

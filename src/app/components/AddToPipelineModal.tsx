@@ -34,7 +34,7 @@ interface Lead {
 // ── Memoized lead row for performance ──
 const LeadPickerRow = memo(function LeadPickerRow({ lead, selected, onToggle }: { lead: Lead; selected: boolean; onToggle: (id: string) => void }) {
   return (
-    <label className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-all ${selected ? 'bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950' : 'hover:bg-zinc-50/60 dark:hover:bg-zinc-900'}`}>
+    <label className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-all ${selected ? 'bg-zinc-50 dark:bg-zinc-950' : 'hover:bg-zinc-50/60 dark:hover:bg-zinc-900'}`}>
       <div className={`w-[18px] h-[18px] rounded-md border-2 flex items-center justify-center transition-all shrink-0 ${
         selected
           ? 'bg-zinc-900 dark:bg-white border-zinc-900 dark:border-white'

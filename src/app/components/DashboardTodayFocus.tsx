@@ -175,7 +175,7 @@ export function DashboardTodayFocus({ onNavigate }: { onNavigate: (view: string)
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-[11px] font-semibold transition-all ${
                   action.primary
                     ? 'bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20 hover:bg-[#1ED4A7]/20'
-                    : 'bg-zinc-100 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-100 dark:bg-zinc-900 hover:text-zinc-900 dark:hover:text-zinc-300'
+                    : 'bg-zinc-100 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-300'
                 }`}
               >
                 <action.icon className="w-3 h-3" />

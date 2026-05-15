@@ -618,7 +618,7 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
                 <div className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors flex-shrink-0
                   ${engagement
                     ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]'
-                    : 'bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900'
+                    : 'bg-zinc-100 dark:bg-zinc-900'
                   }`}
                 >
                   {getIcon(activity.type)}

@@ -36,7 +36,7 @@ function MetricRow({
       }`}
       onClick={onClick}
     >
-      <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center flex-shrink-0">
+      <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center flex-shrink-0">
         <Icon className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 group-hover:text-[#1ED4A7] transition-colors" />
       </div>
       <div className="flex-1 min-w-0">
@@ -53,7 +53,7 @@ function MetricRow({
           </span>
         </div>
         {pct !== undefined && (
-          <div className="h-1 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
+          <div className="h-1 bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r from-[#1ED4A7]/60 to-[#1ED4A7]"
               style={{ width: `${Math.min(pct, 100)}%` }}
@@ -122,13 +122,13 @@ export function DashboardCampaignMetrics({ stats, onNavigate }: CampaignMetricsP
       <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 flex gap-2">
         <button
           onClick={() => onNavigate('campaigns')}
-          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-200 dark:border-zinc-800"
+          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-200 dark:border-zinc-800"
         >
           Campaigns
         </button>
         <button
           onClick={() => onNavigate('emails')}
-          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-200 dark:border-zinc-800"
+          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-200 dark:border-zinc-800"
         >
           Emails
         </button>

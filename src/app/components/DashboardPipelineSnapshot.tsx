@@ -161,7 +161,7 @@ export function DashboardPipelineSnapshot({ onNavigate }: { onNavigate: (view: s
                   <span className="text-[12px] font-medium text-zinc-400 dark:text-zinc-600">{t(`pipeline.stages.${stage.key}`, stage.label)}</span>
                   <span className="text-[11px] text-zinc-300 dark:text-zinc-700 tabular-nums">0 {t('dashboard.deals')}</span>
                 </div>
-                <div className="h-1.5 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden" />
+                <div className="h-1.5 bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden" />
               </div>
             ))}
           </div>
@@ -200,7 +200,7 @@ export function DashboardPipelineSnapshot({ onNavigate }: { onNavigate: (view: s
                     <span className="text-[12px] font-bold text-zinc-900 dark:text-white tabular-nums min-w-[20px] text-right">{stage.count}</span>
                   </div>
                 </div>
-                <div className="h-1.5 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
+                <div className="h-1.5 bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r from-[#1ED4A7]/50 to-[#1ED4A7]"
                     style={{ width: `${stage.count > 0 ? Math.max((stage.count / maxCount) * 100, 8) : 0}%` }}

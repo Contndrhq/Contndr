@@ -155,7 +155,7 @@ export function AffiliateSettings() {
       <div className="space-y-8">
         {/* Hero */}
         <div className="relative overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800 bg-gradient-to-br from-zinc-50 to-white dark:from-zinc-900/60 dark:to-black p-8">
-          <div className="absolute -top-20 -right-20 w-60 h-60 bg-white/5 dark:bg-zinc-50 dark:bg-zinc-950 rounded-full blur-3xl" />
+          <div className="absolute -top-20 -right-20 w-60 h-60 bg-white/5 dark:bg-zinc-950 rounded-full blur-3xl" />
           <div className="relative">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-full text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-5">
               <Gift className="w-3.5 h-3.5" />

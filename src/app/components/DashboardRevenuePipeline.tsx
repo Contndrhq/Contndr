@@ -174,7 +174,7 @@ export function DashboardRevenuePipeline({ onNavigate }: { onNavigate: (view: st
             {data.closeRate.toFixed(1)}%
           </span>
         </div>
-        <div className="h-1.5 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
+        <div className="h-1.5 bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r from-[#1ED4A7] to-[#159c7b]"
             style={{ width: `${Math.min(data.closeRate, 100)}%` }}
@@ -186,13 +186,13 @@ export function DashboardRevenuePipeline({ onNavigate }: { onNavigate: (view: st
       <div className="mt-5 flex gap-2">
         <button
           onClick={() => onNavigate('pipeline')}
-          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-200 dark:border-zinc-800"
+          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-200 dark:border-zinc-800"
         >
           {t('sidebar.pipeline')}
         </button>
         <button
           onClick={() => onNavigate('revenue')}
-          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-200 dark:border-zinc-800"
+          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-200 dark:border-zinc-800"
         >
           {t('sidebar.revenue')}
         </button>

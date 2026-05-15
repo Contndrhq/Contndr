@@ -20507,7 +20507,10 @@ app.post("/make-server-a8b2511f/writing-presets", async (c) => {
       createdAt: new Date().toISOString(),
       createdBy: user.id,
     };
-    await kv.set(`writing_preset:${teamId}:${id}`, JSON.stringify(preset));
+    // kv.set already serializes — pass the object directly. The previous
+    // JSON.stringify double-encoded the value, which made stored presets
+    // unparseable for the legacy KV-layer that auto-deserializes on get.
+    await kv.set(`writing_preset:${teamId}:${id}`, preset);
     return c.json({ success: true, preset });
   } catch (error: any) {
     console.log("[WRITING-PRESETS] POST error:", error.message);

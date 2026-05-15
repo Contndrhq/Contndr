@@ -158,7 +158,7 @@ export function BillingSettings() {
         <div className="px-5 sm:px-6 py-4 sm:py-5 border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-lg bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center">
                 <CreditCard className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
               </div>
               <div>
@@ -171,7 +171,7 @@ export function BillingSettings() {
 
             {/* Status Badge */}
             {billing.isWhitelisted ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
                 <Shield className="w-3 h-3" />
                 {t('billingSettings.complimentary')}
               </span>
@@ -265,7 +265,7 @@ export function BillingSettings() {
             </div>
           ) : (
             <div className="text-center py-6">
-              <div className="w-10 h-10 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center mx-auto mb-3">
+              <div className="w-10 h-10 rounded-full bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center mx-auto mb-3">
                 <CreditCard className="w-4 h-4 text-zinc-400 dark:text-zinc-600" />
               </div>
               <p className="text-sm text-zinc-600 dark:text-zinc-400 font-medium">{t('billingSettings.noActivePlan')}</p>
@@ -345,7 +345,7 @@ export function BillingSettings() {
                 <label
                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
                     cancelType === 'end_of_period'
-                      ? 'border-zinc-300 dark:border-white/[0.12] bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950'
+                      ? 'border-zinc-300 dark:border-white/[0.12] bg-zinc-50 dark:bg-zinc-950'
                       : 'border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-200 dark:border-zinc-800'
                   }`}
                 >
@@ -370,7 +370,7 @@ export function BillingSettings() {
                 <label
                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
                     cancelType === 'immediate'
-                      ? 'border-zinc-300 dark:border-white/[0.12] bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950'
+                      ? 'border-zinc-300 dark:border-white/[0.12] bg-zinc-50 dark:bg-zinc-950'
                       : 'border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-200 dark:border-zinc-800'
                   }`}
                 >

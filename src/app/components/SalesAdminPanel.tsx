@@ -237,7 +237,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
         <button
           onClick={refresh}
           disabled={refreshing}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-100 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 text-xs font-medium hover:bg-zinc-200 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-100 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 text-xs font-medium hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
         </button>
@@ -263,7 +263,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
                     value={newDeal.sales_rep_email}
                     onChange={e => setNewDeal(p => ({ ...p, sales_rep_email: e.target.value }))}
                     placeholder="ax@contndr.com"
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
                   />
                 </div>
                 <div>
@@ -272,7 +272,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
                     value={newDeal.sales_rep_name}
                     onChange={e => setNewDeal(p => ({ ...p, sales_rep_name: e.target.value }))}
                     placeholder="AXE"
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
                   />
                 </div>
               </div>
@@ -284,7 +284,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
                     value={newDeal.customer_name}
                     onChange={e => setNewDeal(p => ({ ...p, customer_name: e.target.value }))}
                     placeholder="John Smith"
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
                   />
                 </div>
                 <div>
@@ -293,7 +293,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
                     value={newDeal.customer_email}
                     onChange={e => setNewDeal(p => ({ ...p, customer_email: e.target.value }))}
                     placeholder="john@company.com"
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
                   />
                 </div>
               </div>
@@ -306,7 +306,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
                     value={newDeal.amount}
                     onChange={e => setNewDeal(p => ({ ...p, amount: e.target.value }))}
                     placeholder="199"
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
                   />
                 </div>
                 <div>
@@ -314,7 +314,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
                   <select
                     value={newDeal.plan_interval}
                     onChange={e => setNewDeal(p => ({ ...p, plan_interval: e.target.value as any }))}
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-[#1ED4A7]/50"
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-[#1ED4A7]/50"
                   >
                     <option value="monthly">Monthly</option>
                     <option value="yearly">Yearly</option>
@@ -326,7 +326,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
                   <select
                     value={newDeal.status}
                     onChange={e => setNewDeal(p => ({ ...p, status: e.target.value as any }))}
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-[#1ED4A7]/50"
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-[#1ED4A7]/50"
                   >
                     <option value="active">Active</option>
                     <option value="trialing">Trialing</option>
@@ -341,7 +341,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
                   value={newDeal.notes}
                   onChange={e => setNewDeal(p => ({ ...p, notes: e.target.value }))}
                   placeholder="Pro plan — $199/mo"
-                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-[#1ED4A7]/50"
                 />
               </div>
             </div>
@@ -399,7 +399,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
                               type="number"
                               value={meetingInput}
                               onChange={e => setMeetingInput(e.target.value)}
-                              className="w-12 px-1.5 py-0.5 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded text-xs text-zinc-900 dark:text-white text-center focus:outline-none focus:border-[#1ED4A7]/50"
+                              className="w-12 px-1.5 py-0.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded text-xs text-zinc-900 dark:text-white text-center focus:outline-none focus:border-[#1ED4A7]/50"
                               autoFocus
                               onKeyDown={e => { if (e.key === 'Enter') updateMeetings(rep.email); if (e.key === 'Escape') setEditingMeetings(null); }}
                             />
@@ -448,7 +448,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
                             type="number"
                             value={editDealAmount}
                             onChange={e => setEditDealAmount(e.target.value)}
-                            className="w-16 px-1.5 py-0.5 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded text-xs text-zinc-900 dark:text-white text-right focus:outline-none focus:border-[#1ED4A7]/50"
+                            className="w-16 px-1.5 py-0.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded text-xs text-zinc-900 dark:text-white text-right focus:outline-none focus:border-[#1ED4A7]/50"
                             autoFocus
                             onKeyDown={e => { if (e.key === 'Enter') updateDeal(deal.id); if (e.key === 'Escape') setEditingDeal(null); }}
                           />

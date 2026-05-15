@@ -260,7 +260,7 @@ export default function AffiliatePortal() {
                   type="email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-white text-sm placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none"
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-white text-sm placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none"
                   placeholder="your@email.com"
                   required
                 />
@@ -272,7 +272,7 @@ export default function AffiliatePortal() {
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    className="w-full px-3.5 py-2.5 pr-10 bg-white dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-white text-sm placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none"
+                    className="w-full px-3.5 py-2.5 pr-10 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-white text-sm placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none"
                     placeholder="Enter password"
                     required
                   />
@@ -341,7 +341,7 @@ export default function AffiliatePortal() {
             <ThemeToggleButton themeMode={themeMode} onCycle={cycleTheme} />
             <button
               onClick={handleLogout}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-white bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-white bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg transition-colors"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Sign Out</span>
@@ -355,7 +355,7 @@ export default function AffiliatePortal() {
         {/* Welcome + referral link row */}
         <div className="flex flex-col lg:flex-row gap-4">
           {/* Welcome */}
-          <div className="flex-1 bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-4 sm:p-5">
+          <div className="flex-1 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-4 sm:p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h1 className="text-lg sm:text-xl font-semibold text-zinc-900 dark:text-white">Welcome, {affiliate.name.split(' ')[0]}</h1>
@@ -374,13 +374,13 @@ export default function AffiliatePortal() {
           </div>
 
           {/* Referral link */}
-          <div className="lg:w-[420px] xl:w-[480px] bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-4 sm:p-5">
+          <div className="lg:w-[420px] xl:w-[480px] bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-4 sm:p-5">
             <div className="flex items-center gap-1.5 mb-2.5">
               <Link2 className="w-3.5 h-3.5 text-zinc-400" />
               <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Your Referral Link</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="flex-1 min-w-0 px-3 py-2 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-700 dark:text-zinc-300 text-xs sm:text-sm font-mono truncate">
+              <div className="flex-1 min-w-0 px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-700 dark:text-zinc-300 text-xs sm:text-sm font-mono truncate">
                 {referralLink}
               </div>
               <button
@@ -388,7 +388,7 @@ export default function AffiliatePortal() {
                 className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 shrink-0 border ${
                   copied
                     ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20'
-                    : 'bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:bg-zinc-200 dark:hover:bg-white/[0.08]'
+                    : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:bg-zinc-200 dark:hover:bg-white/[0.08]'
                 }`}
               >
                 {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -407,7 +407,7 @@ export default function AffiliatePortal() {
             { icon: DollarSign, label: 'Total Earned', value: fmtUSDCents(stats.total_earned) },
             { icon: TrendingUp, label: 'Monthly Recurring', value: fmtUSDCents(stats.monthly_recurring) },
           ].map(s => (
-            <div key={s.label} className="bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-3.5 sm:p-4">
+            <div key={s.label} className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-3.5 sm:p-4">
               <s.icon className="w-4 h-4 text-zinc-400 dark:text-zinc-500 mb-2" />
               <div className="text-lg sm:text-xl font-semibold text-zinc-900 dark:text-white tabular-nums">{s.value}</div>
               <div className="text-[10px] sm:text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">{s.label}</div>
@@ -417,7 +417,7 @@ export default function AffiliatePortal() {
 
         {/* Commission + Payout row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          <div className="bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-4 sm:p-5">
+          <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-4 sm:p-5">
             <div className="flex items-center gap-1.5 mb-3">
               <Percent className="w-3.5 h-3.5 text-zinc-400" />
               <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Commission Rate</span>
@@ -428,7 +428,7 @@ export default function AffiliatePortal() {
             </p>
           </div>
 
-          <div className="bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-4 sm:p-5">
+          <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-4 sm:p-5">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-1.5">
                 <Wallet className="w-3.5 h-3.5 text-zinc-400" />
@@ -446,7 +446,7 @@ export default function AffiliatePortal() {
                   type="email"
                   value={paypalEmail}
                   onChange={e => setPaypalEmail(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-white text-sm placeholder:text-zinc-400 focus:outline-none"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-white text-sm placeholder:text-zinc-400 focus:outline-none"
                   placeholder="PayPal email for payouts"
                 />
                 <div className="flex gap-2">
@@ -458,7 +458,7 @@ export default function AffiliatePortal() {
                     {savingPayout ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
                     Save
                   </button>
-                  <button onClick={() => setEditingPayout(false)} className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 text-xs font-medium rounded-lg transition-colors hover:bg-zinc-200 dark:hover:bg-white/[0.08]">
+                  <button onClick={() => setEditingPayout(false)} className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 text-xs font-medium rounded-lg transition-colors hover:bg-zinc-200 dark:hover:bg-white/[0.08]">
                     Cancel
                   </button>
                 </div>
@@ -473,7 +473,7 @@ export default function AffiliatePortal() {
         </div>
 
         {/* Referrals table */}
-        <div className="bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
           <div className="px-4 sm:px-5 py-3.5 border-b border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <BarChart3 className="w-3.5 h-3.5 text-zinc-400" />
@@ -557,10 +557,10 @@ export default function AffiliatePortal() {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    signup: { label: 'Signed Up', cls: 'bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 text-zinc-500 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800' },
+    signup: { label: 'Signed Up', cls: 'bg-zinc-100 dark:bg-zinc-900 text-zinc-500 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800' },
     converted: { label: 'Converted', cls: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20' },
     active: { label: 'Active', cls: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20' },
-    churned: { label: 'Churned', cls: 'bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 text-zinc-400 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800' },
+    churned: { label: 'Churned', cls: 'bg-zinc-100 dark:bg-zinc-900 text-zinc-400 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800' },
   };
   const m = map[status] || map.signup;
   return <span className={`inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded border ${m.cls}`}>{m.label}</span>;
@@ -573,7 +573,7 @@ function ThemeToggleButton({ themeMode, onCycle }: { themeMode: ThemeMode; onCyc
     <button
       onClick={onCycle}
       title={`${label} — click to switch`}
-      className="p-1.5 rounded-lg text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors"
+      className="p-1.5 rounded-lg text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
     >
       <Icon className="w-4 h-4" />
     </button>

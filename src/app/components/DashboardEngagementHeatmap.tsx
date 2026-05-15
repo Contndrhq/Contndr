@@ -151,7 +151,7 @@ export function DashboardEngagementHeatmap({ brandFilter = 'all', dateRange }: D
         <DashboardChartSkeleton />
       ) : (
         <div className="flex-1 min-h-0 flex flex-col justify-center">
-          <div className="rounded-2xl border border-zinc-200/70 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-50 dark:bg-zinc-950 p-3 sm:p-4">
+          <div className="rounded-2xl border border-zinc-200/70 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950 p-3 sm:p-4">
           <div className="grid grid-cols-[32px_repeat(12,minmax(0,1fr))] gap-1 sm:gap-1.5 mb-2 px-0.5">
             <div />
             {HOURS.map((hour) => (
