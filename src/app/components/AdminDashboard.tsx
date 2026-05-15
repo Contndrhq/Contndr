@@ -324,21 +324,12 @@ function normalizePlanLabel(raw?: string | null): string {
   return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
-// Deterministic avatar color from a seed string
-const AVATAR_PALETTE = [
-  'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
-  'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30',
-  'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/30',
-  'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30',
-  'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30',
-  'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30',
-];
+// Neutral monochrome avatar — single zinc tone, no color hashing
+const AVATAR_CLS = 'bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800';
 function avatarFor(seed?: string | null) {
   const s = String(seed || '?').trim();
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
   return {
-    cls: AVATAR_PALETTE[hash % AVATAR_PALETTE.length],
+    cls: AVATAR_CLS,
     initials: (s.match(/[A-Za-z0-9]/g) || ['?']).slice(0, 2).join('').toUpperCase() || '?',
   };
 }
@@ -2299,7 +2290,7 @@ export function AdminDashboard() {
                               {planLabel}
                             </span>
                             {user.subscription?.isWhitelisted && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20">Whitelist</span>
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800">Whitelist</span>
                             )}
                             {planActive && !user.subscription?.stripe_sub_id && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20" title="No Stripe subscription linked">Unlinked</span>

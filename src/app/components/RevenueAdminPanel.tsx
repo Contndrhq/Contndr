@@ -319,7 +319,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                           {fmtUSD(sub.mrr ?? sub.plan_price)}<span className="text-[9px] font-normal text-zinc-400 dark:text-zinc-600">/mo</span>
                         </span>
                         {sub.billing_interval === 'yearly' ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border bg-violet-50 text-violet-600 border-violet-200 dark:bg-violet-500/10 dark:text-violet-400 dark:border-violet-500/20">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border bg-zinc-50 text-zinc-700 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
                             Yearly — {fmtUSD(sub.billing_amount || 0)}/yr
                           </span>
                         ) : (
@@ -428,7 +428,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                 </div>
                 {isPaying && sub.billing_interval === 'yearly' && (
                   <div className="mt-2">
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border bg-violet-50 text-violet-600 border-violet-200 dark:bg-violet-500/10 dark:text-violet-400 dark:border-violet-500/20">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border bg-zinc-50 text-zinc-700 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
                       Yearly — ${sub.billing_amount?.toLocaleString()}/yr
                     </span>
                   </div>
