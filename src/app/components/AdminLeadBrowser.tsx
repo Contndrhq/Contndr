@@ -487,7 +487,7 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
           <button
             onClick={() => !disabled && setIsOpen(!isOpen)}
             disabled={disabled}
-            className={`w-full flex items-center justify-between ${Icon ? 'pl-8' : 'pl-3'} pr-8 py-2 bg-zinc-50 dark:bg-[#111] border border-zinc-200 dark:border-white/5 rounded-lg text-xs text-zinc-900 dark:text-zinc-200 focus:outline-none focus:border-teal-500 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            className={`w-full flex items-center justify-between ${Icon ? 'pl-8' : 'pl-3'} pr-8 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs text-zinc-900 dark:text-zinc-200 focus:outline-none focus:border-teal-500 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
           >
             <span className={selected.length === 0 ? 'text-zinc-500' : ''}>
               {selected.length === 0 ? `All ${label}` : `${selected.length} selected`}
@@ -575,7 +575,7 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
 
       {/* Assign Panel */}
       {showAssignPanel && (
-        <div className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl p-3 sm:p-4 shadow-sm dark:shadow-none">
+        <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 sm:p-4 shadow-sm dark:shadow-none">
           <div className="flex flex-col gap-3">
             {/* User selector */}
             <div className="flex-1 min-w-0">
@@ -684,7 +684,7 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
 
       {/* Filters */}
       {showFilters && (
-        <div className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl p-3 sm:p-4 shadow-sm dark:shadow-none">
+        <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 sm:p-4 shadow-sm dark:shadow-none">
           <div className="flex flex-col gap-3">
             {/* Search */}
             <div className="flex flex-col gap-1">
@@ -696,7 +696,7 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
                   value={localSearch}
                   onChange={e => setLocalSearch(e.target.value)}
                   placeholder="Name, email, business, industry..."
-                  className="w-full pl-8 pr-3 py-2 bg-zinc-50 dark:bg-[#111] border border-zinc-200 dark:border-white/5 rounded-lg text-xs text-zinc-900 dark:text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-teal-500 transition-colors"
+                  className="w-full pl-8 pr-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs text-zinc-900 dark:text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-teal-500 transition-colors"
                 />
                 {localSearch && (
                   <button onClick={() => setLocalSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2">
@@ -716,7 +716,7 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
           </div>
 
           {/* Quick toggles */}
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-3 pt-3 border-t border-zinc-200 dark:border-white/5">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-800">
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={hasEmail} onChange={e => setHasEmail(e.target.checked)} className="rounded border-zinc-600 text-teal-500 focus:ring-teal-500 w-3.5 h-3.5" />
               <span className="text-xs text-zinc-400 flex items-center gap-1">
@@ -750,9 +750,9 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
       )}
 
       {/* Table */}
-      <div className="flex-1 min-h-0 md:overflow-hidden bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl flex flex-col shadow-sm dark:shadow-none">
+      <div className="flex-1 min-h-0 md:overflow-hidden bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl flex flex-col shadow-sm dark:shadow-none">
         {/* Desktop Table header — hidden on mobile */}
-        <div className="hidden md:grid grid-cols-[40px_1.3fr_1.2fr_0.8fr_0.8fr_0.8fr_0.7fr_0.6fr] gap-2 px-4 py-2.5 border-b border-zinc-200 dark:border-white/5 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">
+        <div className="hidden md:grid grid-cols-[40px_1.3fr_1.2fr_0.8fr_0.8fr_0.8fr_0.7fr_0.6fr] gap-2 px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-800 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">
           <div className="flex items-center justify-center">
             <button onClick={toggleSelectAll} className="text-zinc-400 hover:text-teal-500 transition-colors">
               {selectAll ? <CheckSquare className="w-4 h-4 text-teal-500" /> : <Square className="w-4 h-4" />}
@@ -769,7 +769,7 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
 
         {/* Selection Status Bar (Desktop and Mobile) */}
         {(selectedIds.size > 0 || selectAllResults) && (
-          <div className="px-3 sm:px-4 py-2.5 border-b border-zinc-200 dark:border-white/5 bg-teal-500/5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+          <div className="px-3 sm:px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-800 bg-teal-500/5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
             <div className="flex items-center gap-2 flex-1">
               <CheckSquare className="w-4 h-4 text-teal-500 shrink-0" />
               <span className="text-xs text-zinc-300 font-medium">
@@ -934,7 +934,7 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
 
         {/* Pagination */}
         {!loading && totalPages > 1 && (
-          <div className="flex items-center justify-between px-3 sm:px-4 py-3 border-t border-zinc-200 dark:border-white/5">
+          <div className="flex items-center justify-between px-3 sm:px-4 py-3 border-t border-zinc-200 dark:border-zinc-800">
             <div className="text-[11px] text-zinc-500">
               Page {page} of {totalPages}
             </div>

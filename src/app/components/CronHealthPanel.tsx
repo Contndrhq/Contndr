@@ -124,7 +124,7 @@ export function CronHealthPanel() {
   return (
     <div className="flex flex-col gap-4 h-full overflow-y-auto pb-6">
       {/* ── Status card ──────────────────────────────────────────── */}
-      <div className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl p-5 shadow-sm dark:shadow-none">
+      <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 shadow-sm dark:shadow-none">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           {/* Left: indicator */}
           <div className="flex items-center gap-3.5">
@@ -193,7 +193,7 @@ export function CronHealthPanel() {
             accent: (hb?.errors ?? 0) > 0,
           },
         ].map((card) => (
-          <div key={card.label} className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl p-3.5 shadow-sm dark:shadow-none">
+          <div key={card.label} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3.5 shadow-sm dark:shadow-none">
             <div className="flex items-center gap-2 mb-2">
               <card.icon className={`w-3.5 h-3.5 ${card.accent ? 'text-red-400' : 'text-zinc-400 dark:text-zinc-500'}`} />
               <span className="text-[10px] text-zinc-500 dark:text-zinc-500 font-medium uppercase tracking-wider">{card.label}</span>
@@ -205,7 +205,7 @@ export function CronHealthPanel() {
       </div>
 
       {/* ── Raw heartbeat JSON (collapsible) ─────────────────────── */}
-      <details className="group bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl shadow-sm dark:shadow-none">
+      <details className="group bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm dark:shadow-none">
         <summary className="flex items-center gap-2 px-5 py-3 cursor-pointer text-xs font-medium text-zinc-500 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors select-none">
           <Server className="w-3.5 h-3.5" />
           Raw Heartbeat Payload

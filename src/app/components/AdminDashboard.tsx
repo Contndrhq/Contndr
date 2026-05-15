@@ -98,11 +98,11 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
       <div
-        className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden"
+        className="bg-white dark:bg-black rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-zinc-200 dark:border-white/[0.06] flex items-center justify-between shrink-0">
+        <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
               <Zap className="w-4 h-4 text-amber-400" />
@@ -186,7 +186,7 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="e.g. 100 or -50"
-                    className="flex-1 bg-zinc-50 dark:bg-[#111] border border-zinc-200 dark:border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-teal-500/30 dark:focus:border-[#1ED4A7]/30 tabular-nums"
+                    className="flex-1 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-teal-500/30 dark:focus:border-[#1ED4A7]/30 tabular-nums"
                   />
                   <button
                     onClick={() => handleAdjust(parsedAmount)}
@@ -201,7 +201,7 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="Reason (optional) — e.g. Comp for issue, bonus, etc."
-                  className="w-full bg-zinc-50 dark:bg-[#111] border border-zinc-200 dark:border-white/[0.08] rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-teal-500/30 dark:focus:border-[#1ED4A7]/30"
+                  className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-teal-500/30 dark:focus:border-[#1ED4A7]/30"
                 />
                 {parsedAmount < 0 && (
                   <div className="flex items-center gap-1.5 text-[10px] text-amber-400/80">
@@ -485,7 +485,7 @@ function AffiliateAdminPanel({
             { label: 'Monthly Commission', value: fmtUSDCents(totals.total_monthly_recurring), icon: DollarSign, color: 'text-[#1ED4A7]' },
             { label: 'Lifetime Owed', value: fmtUSDCents(totals.total_earned), icon: Wallet, color: '' },
           ].map(s => (
-            <div key={s.label} className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl p-3.5 shadow-sm dark:shadow-none">
+            <div key={s.label} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3.5 shadow-sm dark:shadow-none">
               <div className="flex items-center gap-2 mb-2">
                 <s.icon className="w-3.5 h-3.5 text-zinc-500" />
                 <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">{s.label}</span>
@@ -512,7 +512,7 @@ function AffiliateAdminPanel({
           <button
             onClick={onRefresh}
             disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-1.5 bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 rounded-lg text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors"
           >
             <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
@@ -687,14 +687,14 @@ function AffiliateAdminPanel({
       {/* Mobile Affiliate Cards */}
       <div className="flex-1 overflow-auto md:hidden space-y-2">
         {filtered.length === 0 ? (
-          <div className="text-center py-12 bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl shadow-sm dark:shadow-none">
+          <div className="text-center py-12 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm dark:shadow-none">
             <p className="text-zinc-600 text-sm">
               {affiliates.length === 0 ? 'No affiliates enrolled yet.' : 'No affiliates matching your search.'}
             </p>
           </div>
         ) : (
           filtered.map((aff: any) => (
-            <div key={aff.userId} className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl p-4 shadow-sm dark:shadow-none">
+            <div key={aff.userId} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm dark:shadow-none">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -748,9 +748,9 @@ function AffiliateAdminPanel({
       </div>
 
       {/* Desktop Affiliates Table */}
-      <div className="flex-1 overflow-auto bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl hidden md:block shadow-sm dark:shadow-none">
+      <div className="flex-1 overflow-auto bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl hidden md:block shadow-sm dark:shadow-none">
         <table className="w-full text-left border-collapse">
-          <thead className="bg-zinc-50 dark:bg-[#111] sticky top-0 z-10 border-b border-zinc-200 dark:border-white/5">
+          <thead className="bg-zinc-50 dark:bg-zinc-950 sticky top-0 z-10 border-b border-zinc-200 dark:border-zinc-800">
             <tr>
               <th className="px-5 py-3.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Affiliate</th>
               <th className="px-5 py-3.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Slug / Link</th>
@@ -897,7 +897,7 @@ function AffiliateRow({
       {isExpanded && (
         <tr>
           <td colSpan={9} className="px-5 py-0">
-            <div className="bg-zinc-50 dark:bg-[#111] rounded-lg border border-zinc-200 dark:border-white/5 my-2 overflow-hidden">
+            <div className="bg-zinc-50 dark:bg-zinc-950 rounded-lg border border-zinc-200 dark:border-zinc-800 my-2 overflow-hidden">
               {/* Expanded header with earnings summary */}
               <div className="px-4 py-3 border-b border-white/5">
                 <div className="flex items-center justify-between mb-2">
@@ -1617,7 +1617,7 @@ export function AdminDashboard() {
       <div className="px-4 sm:px-6 py-4 sm:py-6 z-20 flex flex-col gap-4">
         {/* Two-tier Tabs: top groups + secondary tabs within the active group */}
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-[#111] rounded-lg w-full sm:w-fit border border-zinc-200 dark:border-white/5 overflow-x-auto scrollbar-hide">
+          <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-950 rounded-lg w-full sm:w-fit border border-zinc-200 dark:border-zinc-800 overflow-x-auto scrollbar-hide">
             {GROUPS.map((g) => {
               const isActive = TAB_GROUP[activeTab] === g.id;
               return (
@@ -1666,8 +1666,8 @@ export function AdminDashboard() {
         )}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 min-h-0 overflow-hidden px-4 sm:px-6 pb-4 sm:pb-6 flex flex-col">
+      {/* Content — page scrolls naturally; panels manage their own width */}
+      <div className="px-4 sm:px-6 pb-6 flex flex-col">
        <AdminPanelErrorBoundary resetKey={activeTab}>
         {activeTab === 'leads' ? (
           <AdminLeadBrowser searchTerm={searchTerm} />
@@ -1698,7 +1698,7 @@ export function AdminDashboard() {
           <div className="flex flex-col gap-4 h-full overflow-hidden">
             {/* Setup Banner */}
             {!orgSetupDone && (
-              <div className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/10 rounded-xl p-5 shadow-sm dark:shadow-none">
+              <div className="bg-white dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl p-5 shadow-sm dark:shadow-none">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <h3 className="text-sm font-semibold text-white mb-1">Contndr Org Account</h3>
@@ -1727,7 +1727,7 @@ export function AdminDashboard() {
                   { label: 'Plan', value: (orgConfig.plan || 'growth').charAt(0).toUpperCase() + (orgConfig.plan || 'growth').slice(1), icon: Zap },
                   { label: 'Sales Reps', value: String(orgReps.length), icon: UsersIcon },
                 ].map(s => (
-                  <div key={s.label} className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl p-3.5 shadow-sm dark:shadow-none">
+                  <div key={s.label} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3.5 shadow-sm dark:shadow-none">
                     <div className="flex items-center gap-2 mb-2">
                       <s.icon className="w-3.5 h-3.5 text-zinc-500" />
                       <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">{s.label}</span>
@@ -1764,7 +1764,7 @@ export function AdminDashboard() {
 
             {/* Add Rep Form */}
             {showAddRep && (
-              <div className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/10 rounded-xl p-5 shadow-sm dark:shadow-none">
+              <div className="bg-white dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl p-5 shadow-sm dark:shadow-none">
                 <h4 className="text-sm font-semibold text-zinc-900 dark:text-white mb-4">Onboard New Sales Rep</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                   <div>
@@ -1824,7 +1824,7 @@ export function AdminDashboard() {
             )}
 
             {/* Reps Table */}
-            <div className="flex-1 overflow-auto rounded-xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0A0A0A] shadow-sm dark:shadow-none">
+            <div className="flex-1 overflow-auto rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black shadow-sm dark:shadow-none">
               {orgReps.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
                   <UsersIcon className="w-8 h-8 text-zinc-700 mb-3" />
@@ -1947,12 +1947,12 @@ export function AdminDashboard() {
             <div className="flex-1 overflow-auto md:hidden space-y-2">
               {activeTab === 'waitlist' ? (
                 filteredWaitlist.length === 0 ? (
-                  <div className="text-center py-12 bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl shadow-sm dark:shadow-none">
+                  <div className="text-center py-12 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm dark:shadow-none">
                     <p className="text-zinc-600 text-sm">No applications found.</p>
                   </div>
                 ) : (
                   filteredWaitlist.map((entry) => (
-                    <div key={entry.id} className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl p-4 shadow-sm dark:shadow-none">
+                    <div key={entry.id} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm dark:shadow-none">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-zinc-900 dark:text-zinc-200">{entry.name}</p>
@@ -2020,7 +2020,7 @@ export function AdminDashboard() {
                 )
               ) : (
                 filteredUsers.length === 0 ? (
-                  <div className="text-center py-12 bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl shadow-sm dark:shadow-none">
+                  <div className="text-center py-12 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm dark:shadow-none">
                     <p className="text-zinc-600 text-sm">No users found.</p>
                   </div>
                 ) : (
@@ -2029,7 +2029,7 @@ export function AdminDashboard() {
                     const limit = user.leadLimit || 0;
                     const isUnlimited = limit === -1;
                     return (
-                      <div key={user.id} className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl p-4 shadow-sm dark:shadow-none">
+                      <div key={user.id} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm dark:shadow-none">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium text-zinc-900 dark:text-zinc-200">{user.user_metadata?.name || 'User'}</p>
@@ -2392,7 +2392,7 @@ export function AdminDashboard() {
       {/* Change Plan Modal */}
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#0A0A0A] p-6 rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl w-full max-w-sm relative overflow-hidden">
+          <div className="bg-white dark:bg-black p-6 rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl w-full max-w-sm relative overflow-hidden">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-bold text-white">Change Plan</h3>
               <button onClick={() => setEditingUser(null)} className="text-zinc-400 hover:text-white transition-colors">
@@ -2492,7 +2492,7 @@ export function AdminDashboard() {
                   disabled={!!processingId}
                   className={`p-4 rounded-xl border text-left flex items-center justify-between transition-all ${
                     editingUser.subscription?.plan === plan
-                      ? 'bg-zinc-800 dark:bg-zinc-800 border-zinc-500 dark:border-white/50 text-white'
+                      ? 'bg-zinc-800 dark:bg-zinc-800 border-zinc-500 dark:border-zinc-8000 text-white'
                       : 'hover:bg-zinc-100 dark:hover:bg-white/5 border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-zinc-300'
                   }`}
                 >
@@ -2504,10 +2504,10 @@ export function AdminDashboard() {
               {/* Divider */}
               <div className="relative my-1">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-zinc-200 dark:border-white/5" />
+                  <div className="w-full border-t border-zinc-200 dark:border-zinc-800" />
                 </div>
                 <div className="relative flex justify-center">
-                  <span className="px-2 text-[9px] uppercase tracking-widest text-zinc-500 dark:text-zinc-600 bg-white dark:bg-[#0A0A0A]">or</span>
+                  <span className="px-2 text-[9px] uppercase tracking-widest text-zinc-500 dark:text-zinc-600 bg-white dark:bg-black">or</span>
                 </div>
               </div>
 
@@ -2520,7 +2520,7 @@ export function AdminDashboard() {
                 disabled={!!processingId || (!editingUser.subscription?.plan || editingUser.subscription?.plan === 'none')}
                 className={`p-4 rounded-xl border text-left flex items-center justify-between transition-all ${
                   !editingUser.subscription?.plan || editingUser.subscription?.plan === 'none'
-                    ? 'border-zinc-200 dark:border-white/5 text-zinc-400 dark:text-zinc-700 cursor-not-allowed'
+                    ? 'border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-700 cursor-not-allowed'
                     : 'hover:bg-red-50 dark:hover:bg-zinc-500/5 border-red-100 dark:border-zinc-500/20 text-red-600 dark:text-zinc-400 hover:border-red-200 dark:hover:border-zinc-500/40'
                 }`}
               >
@@ -2569,7 +2569,7 @@ export function AdminDashboard() {
       {/* Inspect KV Data Modal */}
       {inspectingUserId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#0A0A0A] p-6 rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl w-full max-w-lg relative overflow-hidden max-h-[80vh] flex flex-col">
+          <div className="bg-white dark:bg-black p-6 rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl w-full max-w-lg relative overflow-hidden max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
                 <Eye className="w-5 h-5 text-zinc-500" /> Inspect User KV

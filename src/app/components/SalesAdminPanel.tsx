@@ -207,7 +207,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-4 h-full overflow-hidden">
+    <div className="flex flex-col gap-4">
       {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-shrink-0">
         {[
@@ -216,7 +216,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
           { label: 'Sales Reps', value: String(reps.length), icon: Users },
           { label: 'Total Meetings', value: String(Object.values(meetings).reduce((s, v) => s + v, 0)), icon: Calendar },
         ].map(s => (
-          <div key={s.label} className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl p-3.5 shadow-sm dark:shadow-none">
+          <div key={s.label} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3.5 shadow-sm dark:shadow-none">
             <div className="flex items-center gap-2 mb-2">
               <s.icon className={`w-3.5 h-3.5 ${s.teal ? 'text-[#1ED4A7]' : 'text-zinc-400 dark:text-zinc-500'}`} />
               <span className="text-[10px] text-zinc-500 dark:text-zinc-500 font-medium uppercase tracking-wider">{s.label}</span>
@@ -247,7 +247,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
       {showAddDeal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAddDeal(false)} />
-          <div className="relative w-full max-w-lg bg-white dark:bg-[#0A0A0A] rounded-2xl shadow-2xl border border-zinc-200 dark:border-white/10 p-6">
+          <div className="relative w-full max-w-lg bg-white dark:bg-black rounded-2xl shadow-2xl border border-zinc-200 dark:border-white/10 p-6">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider">New Sales Deal</h3>
               <button onClick={() => setShowAddDeal(false)} className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-white transition-colors">
@@ -375,9 +375,9 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
           </div>
         ) : (
           filteredReps.map(rep => (
-            <div key={rep.email} className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/10 rounded-xl overflow-hidden shadow-sm dark:shadow-none">
+            <div key={rep.email} className="bg-white dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl overflow-hidden shadow-sm dark:shadow-none">
               {/* Rep Header */}
-              <div className="p-4 border-b border-zinc-100 dark:border-white/5">
+              <div className="p-4 border-b border-zinc-100 dark:border-zinc-800">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-zinc-700/40 to-zinc-800/30 border border-white/[0.08] flex items-center justify-center text-zinc-300 font-bold text-sm">
@@ -426,7 +426,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
               </div>
 
               {/* Deals Table */}
-              <div className="divide-y divide-zinc-50 dark:divide-white/[0.03]">
+              <div className="divide-y divide-zinc-50 dark:divide-zinc-900">
                 {rep.deals.map(deal => (
                   <div key={deal.id} className="px-4 py-2.5 flex items-center gap-3 hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group">
                     <div className="flex-1 min-w-0">

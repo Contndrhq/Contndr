@@ -139,7 +139,7 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
   ) || [];
 
   return (
-    <div className={adminMode ? "flex flex-col gap-6 h-full overflow-hidden" : "glass-card p-6 h-full flex flex-col"}>
+    <div className={adminMode ? "flex flex-col gap-6" : "glass-card p-6 h-full flex flex-col"}>
       {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2.5">
@@ -238,7 +238,7 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
 
       {/* Main content */}
       {!loading && !error && hasData && (
-        <div className="flex-1 flex flex-col gap-6 min-h-0 overflow-y-auto">
+        <div className="flex flex-col gap-6">
           {/* Admin Summary Stats */}
           {adminMode && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 flex-shrink-0">
@@ -250,7 +250,7 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
                 { label: 'Open Rate', value: `${data!.totals.openRate.toFixed(1)}%`, icon: Activity, color: data!.totals.openRate >= 20 ? 'text-emerald-600 dark:text-emerald-400' : '' },
                 { label: 'Click Rate', value: `${data!.totals.clickRate.toFixed(1)}%`, icon: Activity, color: data!.totals.clickRate >= 3 ? 'text-emerald-600 dark:text-emerald-400' : '' },
               ].map(s => (
-                <div key={s.label} className="bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-white/5 rounded-xl p-3.5 shadow-sm dark:shadow-none">
+                <div key={s.label} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3.5 shadow-sm dark:shadow-none">
                   <div className="flex items-center gap-2 mb-2">
                     <s.icon className="w-3.5 h-3.5 text-gray-400 dark:text-zinc-500" />
                     <span className="text-[10px] text-gray-500 dark:text-zinc-500 font-medium uppercase tracking-wider">{s.label}</span>
@@ -340,7 +340,7 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
                   {Object.entries(data!.providers).filter(([name]) => name).map(([name, stats]) => (
                     <div
                       key={name}
-                      className={`px-3 py-3 rounded-xl border ${adminMode ? 'bg-white dark:bg-[#0A0A0A] border-gray-200 dark:border-white/5' : 'bg-zinc-50 dark:bg-zinc-900/50 border-zinc-100 dark:border-zinc-800'}`}
+                      className={`px-3 py-3 rounded-xl border ${adminMode ? 'bg-white dark:bg-black border-zinc-200 dark:border-zinc-800' : 'bg-zinc-50 dark:bg-zinc-900/50 border-zinc-100 dark:border-zinc-800'}`}
                     >
                       <div className="flex items-center gap-2.5 mb-2">
                         <div
@@ -374,7 +374,7 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
                     </p>
                   </div>
 
-                  <div className={`flex items-center gap-4 px-3 py-3 rounded-xl border ${adminMode ? 'bg-white dark:bg-[#0A0A0A] border-gray-200 dark:border-white/5' : 'bg-zinc-50 dark:bg-zinc-900/50 border-zinc-100 dark:border-zinc-800'}`}>
+                  <div className={`flex items-center gap-4 px-3 py-3 rounded-xl border ${adminMode ? 'bg-white dark:bg-black border-zinc-200 dark:border-zinc-800' : 'bg-zinc-50 dark:bg-zinc-900/50 border-zinc-100 dark:border-zinc-800'}`}>
                     {/* Mini pie chart */}
                     <div className="w-[72px] h-[72px] flex-shrink-0">
                       <ResponsiveContainer width="100%" height="100%">
@@ -436,8 +436,8 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
 
           {/* Admin-only: Per-User Breakdown Table */}
           {adminMode && data!.userBreakdown && data!.userBreakdown.length > 0 && (
-            <div className="flex flex-col flex-1 min-h-0">
-              <div className="flex items-center justify-between mb-3 flex-shrink-0">
+            <div className="flex flex-col">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 gap-2">
                 <div className="flex items-center gap-2">
                   <Users className="w-3.5 h-3.5 text-zinc-500" />
                   <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-wider">
@@ -452,13 +452,13 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
                   placeholder="Filter by email..."
                   value={userSearch}
                   onChange={(e) => setUserSearch(e.target.value)}
-                  className="w-48 px-3 py-1.5 bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-white/5 rounded-lg text-xs text-gray-900 dark:text-zinc-300 placeholder-gray-400 dark:placeholder-zinc-600 focus:outline-none focus:border-gray-300 dark:focus:border-white/10 transition-all"
+                  className="w-full sm:w-48 px-3 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-700 transition-colors"
                 />
               </div>
 
-              <div className="flex-1 overflow-auto bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-white/5 rounded-xl shadow-sm dark:shadow-none">
+              <div className="overflow-x-auto bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm">
                 <table className="w-full text-left border-collapse">
-                  <thead className="bg-gray-50 dark:bg-[#111] sticky top-0 z-10 border-b border-gray-200 dark:border-white/5">
+                  <thead className="bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
                     <tr>
                       <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest">User</th>
                       <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-center">Sent</th>
@@ -471,7 +471,7 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
                       <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-right">Delivery</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-white/[0.03]">
+                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
                     {filteredUsers.map((u) => (
                       <tr key={u.userId} className="hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
                         <td className="px-5 py-3">

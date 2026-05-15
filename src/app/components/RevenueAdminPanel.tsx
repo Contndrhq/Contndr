@@ -110,7 +110,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-4 h-full overflow-hidden">
+    <div className="flex flex-col gap-4">
       {/* Revenue Summary Cards */}
       {summary && (
         <>
@@ -154,7 +154,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                 accent: false,
               },
             ].map(card => (
-              <div key={card.label} className="bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-white/[0.06] rounded-xl p-4 shadow-sm dark:shadow-none">
+              <div key={card.label} className="bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm dark:shadow-none">
                 <div className="flex items-center gap-2 mb-2">
                   <card.icon className="w-3.5 h-3.5 text-gray-400 dark:text-zinc-600" />
                   <span className="text-[10px] text-gray-500 dark:text-zinc-500 font-medium uppercase tracking-wider">{card.label}</span>
@@ -171,9 +171,9 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
               const pb = summary.plan_breakdown?.[plan] || { count: 0, mrr: 0 };
               const price = plan === 'growth' ? 499 : plan === 'scale' ? 999 : 2500;
               return (
-                <div key={plan} className="bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-white/[0.06] rounded-xl p-3.5 shadow-sm dark:shadow-none">
+                <div key={plan} className="bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 rounded-xl p-3.5 shadow-sm dark:shadow-none">
                   <div className="flex items-center justify-between mb-3">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-white/[0.06] dark:text-zinc-300 dark:border-white/[0.08]">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
                       {plan}
                     </span>
                     <span className="text-[10px] text-gray-400 dark:text-zinc-600 font-mono">
@@ -204,7 +204,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
             All Subscribers
           </div>
           <div className="flex items-center gap-2 overflow-x-auto">
-            <div className="flex items-center gap-0.5 p-0.5 bg-gray-100 dark:bg-white/[0.03] rounded-lg border border-gray-200 dark:border-white/[0.06]">
+            <div className="flex items-center gap-0.5 p-0.5 bg-gray-100 dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
               {(['all', 'active', 'canceled'] as const).map(f => (
                 <button
                   key={f}
@@ -219,7 +219,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-0.5 p-0.5 bg-gray-100 dark:bg-white/[0.03] rounded-lg border border-gray-200 dark:border-white/[0.06]">
+            <div className="flex items-center gap-0.5 p-0.5 bg-gray-100 dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
               {(['all_types', 'stripe', 'team', 'bypass', 'internal'] as const).map(f => (
                 <button
                   key={f}
@@ -239,14 +239,14 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
         <div className="flex gap-2 flex-shrink-0">
           <button
             onClick={downloadRevenueCSV}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.06] rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors shadow-sm dark:shadow-none"
+            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-zinc-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors shadow-sm dark:shadow-none"
           >
             <Download className="w-3 h-3" /> Export CSV
           </button>
           <button
             onClick={fetchRevenue}
             disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.06] rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors disabled:opacity-50 shadow-sm dark:shadow-none"
+            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-zinc-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors disabled:opacity-50 shadow-sm dark:shadow-none"
           >
             <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
@@ -256,9 +256,9 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
 
       {/* Subscribers — Desktop table / Mobile cards */}
       {/* Desktop table */}
-      <div className="flex-1 overflow-auto bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-white/[0.06] rounded-xl hidden md:block shadow-sm dark:shadow-none">
+      <div className="flex-1 overflow-auto bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 rounded-xl hidden md:block shadow-sm dark:shadow-none">
         <table className="w-full text-left border-collapse">
-          <thead className="bg-gray-50 dark:bg-white/[0.02] sticky top-0 z-10 border-b border-gray-200 dark:border-white/[0.06]">
+          <thead className="bg-gray-50 dark:bg-zinc-950 sticky top-0 z-10 border-b border-gray-200 dark:border-zinc-800">
             <tr>
               <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-widest">Subscriber</th>
               <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-widest">Plan</th>
@@ -279,7 +279,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                 <tr key={sub.user_id} className={`hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors ${rowOpacity}`}>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-white/[0.06] flex items-center justify-center text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase flex-shrink-0">
+                      <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-zinc-900 flex items-center justify-center text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase flex-shrink-0">
                         {sub.email?.[0] || '?'}
                       </div>
                       <div className="min-w-0">
@@ -294,7 +294,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex flex-col gap-1">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-white/[0.06] dark:text-zinc-300 dark:border-white/[0.08] w-fit">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800 w-fit">
                         {sub.plan || 'none'}
                       </span>
                       {sub.payment_type && (
@@ -388,7 +388,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
       {/* Mobile cards */}
       <div className="flex-1 overflow-auto md:hidden space-y-2">
         {filtered.length === 0 ? (
-          <div className="text-center py-12 bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-white/[0.06] rounded-xl shadow-sm dark:shadow-none">
+          <div className="text-center py-12 bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 rounded-xl shadow-sm dark:shadow-none">
             <p className="text-gray-500 dark:text-zinc-600 text-sm">
               {subscribers.length === 0 ? 'No subscribers found.' : 'No subscribers matching your filters.'}
             </p>
@@ -398,10 +398,10 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
             const isActive = sub.status === 'active';
             const isPaying = sub.is_paying;
             return (
-              <div key={sub.user_id} className="bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-white/[0.06] rounded-xl p-4 shadow-sm dark:shadow-none">
+              <div key={sub.user_id} className="bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm dark:shadow-none">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/[0.06] flex items-center justify-center text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-zinc-900 flex items-center justify-center text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase flex-shrink-0">
                       {sub.email?.[0] || '?'}
                     </div>
                     <div className="min-w-0 flex-1">
@@ -417,7 +417,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                   </div>
                 </div>
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-white/[0.06] dark:text-zinc-300 dark:border-white/[0.08]">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
                     {sub.plan || 'none'}
                   </span>
                   {sub.payment_type && (

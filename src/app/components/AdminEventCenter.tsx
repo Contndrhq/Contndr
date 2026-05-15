@@ -179,14 +179,14 @@ export function AdminEventCenter() {
   const activeFilterLabel = FILTER_OPTIONS.find(f => f.value === typeFilter)?.label || 'All Events';
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col">
       {/* Header Row */}
       <div className="flex items-center justify-between gap-3 mb-4 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="relative">
             <button
               onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-              className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/[0.08] rounded-lg hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors"
+              className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors"
             >
               <Filter className="w-3.5 h-3.5 text-zinc-500" />
               <span className="text-zinc-700 dark:text-zinc-300">{activeFilterLabel}</span>
@@ -196,7 +196,7 @@ export function AdminEventCenter() {
             {showFilterDropdown && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowFilterDropdown(false)} />
-                <div className="absolute top-full left-0 mt-1 z-50 w-48 bg-white dark:bg-[#111] border border-zinc-200 dark:border-white/[0.08] rounded-xl shadow-lg dark:shadow-2xl overflow-hidden">
+                <div className="absolute top-full left-0 mt-1 z-50 w-48 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg dark:shadow-2xl overflow-hidden">
                   {FILTER_OPTIONS.map(opt => (
                     <button
                       key={opt.value}
@@ -229,7 +229,7 @@ export function AdminEventCenter() {
           <button
             onClick={() => fetchEvents(0)}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/[0.08] rounded-lg hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -237,7 +237,7 @@ export function AdminEventCenter() {
           <button
             onClick={handleClear}
             disabled={clearing || events.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-zinc-500 bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/[0.08] rounded-lg hover:text-red-500 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-500/20 transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-zinc-500 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg hover:text-red-500 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-500/20 transition-colors disabled:opacity-40"
           >
             <Trash2 className="w-3.5 h-3.5" />
             Clear
@@ -259,7 +259,7 @@ export function AdminEventCenter() {
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-all ${
                   typeFilter === type
                     ? 'bg-[#1ED4A7]/10 border-[#1ED4A7]/20 text-[#1ED4A7]'
-                    : 'bg-white dark:bg-white/[0.03] border-zinc-200 dark:border-white/[0.06] text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-white/[0.05]'
+                    : 'bg-white dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-white/[0.05]'
                 }`}
               >
                 <Icon className="w-3 h-3" />
@@ -337,7 +337,7 @@ export function AdminEventCenter() {
                 <button
                   onClick={() => fetchEvents(page + 1, true)}
                   disabled={loadingMore}
-                  className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-zinc-500 bg-white dark:bg-white/[0.03] border border-zinc-200 dark:border-white/[0.06] rounded-lg hover:bg-zinc-50 dark:hover:bg-white/[0.05] transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-zinc-500 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-50 dark:hover:bg-white/[0.05] transition-colors disabled:opacity-50"
                 >
                   {loadingMore ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
