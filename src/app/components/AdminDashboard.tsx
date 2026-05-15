@@ -1654,13 +1654,13 @@ export function AdminDashboard() {
 
         {activeTab !== 'roles' && activeTab !== 'system' && activeTab !== 'sales' && activeTab !== 'events' && activeTab !== 'leads' && (
           <div className="relative max-w-full">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 dark:text-zinc-500" />
             <input
               type="text"
               placeholder={activeTab === 'waitlist' ? "Search applicants..." : activeTab === 'affiliates' ? "Search affiliates..." : activeTab === 'revenue' ? "Search subscribers..." : activeTab === 'tracking' ? "Search tracking data..." : activeTab === 'org' ? "Search sales reps..." : "Search users..."}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl text-sm text-zinc-900 dark:text-zinc-300 placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-zinc-300 dark:focus:border-white/10 focus:ring-1 focus:ring-zinc-300 dark:focus:ring-white/10 transition-all shadow-sm dark:shadow-none"
+              className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-700 transition-colors shadow-sm"
             />
           </div>
         )}
@@ -1902,22 +1902,22 @@ export function AdminDashboard() {
           <>
             {/* Actions Bar */}
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-              <div className="text-xs text-zinc-500 font-mono uppercase tracking-widest">
-                {activeTab === 'waitlist' ? 'Pending Applications' : 'Platform Users'}
+              <div className="text-sm font-medium text-zinc-900 dark:text-white">
+                {activeTab === 'waitlist' ? 'Pending applications' : 'Platform users'}
               </div>
-              <div className="flex gap-2 sm:gap-3">
+              <div className="flex gap-2">
                 <button
                   onClick={downloadCSV}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition-colors"
                 >
-                  <Download className="w-3 h-3" /> Export CSV
+                  <Download className="w-3.5 h-3.5" /> Export CSV
                 </button>
                 <button
                   onClick={loadData}
                   disabled={refreshing}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition-colors disabled:opacity-60"
                 >
-                  <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
                   Refresh
                 </button>
               </div>
@@ -1932,12 +1932,12 @@ export function AdminDashboard() {
                   { label: 'Avg Leads / User', value: users.length > 0 ? Math.round(totalLeads / users.length).toLocaleString() : '0', icon: BarChart3 },
                   { label: 'At Limit', value: users.filter(u => u.leadLimit && u.leadLimit !== -1 && (u.leadCount || 0) >= u.leadLimit).length.toString(), icon: TrendingUp },
                 ].map(s => (
-                  <div key={s.label} className="bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl p-3.5 shadow-sm dark:shadow-none">
-                    <div className="flex items-center gap-2 mb-2">
-                      <s.icon className="w-3.5 h-3.5 text-zinc-500" />
-                      <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">{s.label}</span>
+                  <div key={s.label} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2 text-zinc-500 dark:text-zinc-400">
+                      <s.icon className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-medium uppercase tracking-wider">{s.label}</span>
                     </div>
-                    <p className="text-lg font-bold text-zinc-900 dark:text-white">{s.value}</p>
+                    <p className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{s.value}</p>
                   </div>
                 ))}
               </div>
@@ -2109,9 +2109,9 @@ export function AdminDashboard() {
             </div>
 
             {/* Desktop Table Container */}
-            <div className="flex-1 overflow-auto bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/5 rounded-xl hidden md:block shadow-sm dark:shadow-none">
+            <div className="flex-1 overflow-auto bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl hidden md:block shadow-sm">
               <table className="w-full text-left border-collapse">
-                <thead className="bg-zinc-50 dark:bg-[#111] sticky top-0 z-10 border-b border-zinc-200 dark:border-white/5">
+                <thead className="bg-zinc-50 dark:bg-zinc-950 sticky top-0 z-10 border-b border-zinc-200 dark:border-zinc-800">
                   <tr>
                     {activeTab === 'waitlist' ? (
                       <>
