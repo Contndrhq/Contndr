@@ -18944,11 +18944,26 @@ app.post("/make-server-a8b2511f/campaigns/:id/diagnose-scheduled", async (c) => 
     if (authError || !user) return c.json({ error: 'Unauthorized' }, 401);
 
     const campaignId = c.req.param('id');
+    const isAdmin = isAdminEmail(user.email, user.id);
+
     // KV is the source of truth — the SQL `campaigns` table is a best-effort
     // shadow that often fails to write (e.g. the historical INSERT used
     // `scheduled_time`, a column that doesn't exist in production schema).
-    // Read KV first; treat DB row as supplementary if present.
-    const kvCampaign = await kv.get(`campaign:${user.id}:${campaignId}`);
+    // Look up the campaign by id. For the owner this is a direct KV get.
+    // For admins (cross-user diagnostics) we have to scan KV by suffix
+    // because the user_id is part of the key.
+    let kvCampaign: any = await kv.get(`campaign:${user.id}:${campaignId}`);
+    let ownerUserId: string | null = kvCampaign ? user.id : null;
+
+    if (!kvCampaign && isAdmin) {
+      const allCampaigns = await kv.getByPrefixLimited('campaign:', 5000, 0).catch(() => [] as any[]);
+      const found = (allCampaigns as any[]).find((c) => c?.id === campaignId);
+      if (found) {
+        kvCampaign = found;
+        ownerUserId = found.user_id;
+      }
+    }
+
     const { data: dbCampaign } = await supabase
       .from('campaigns')
       .select('*')
@@ -18958,9 +18973,13 @@ app.post("/make-server-a8b2511f/campaigns/:id/diagnose-scheduled", async (c) => 
     if (!kvCampaign && !dbCampaign) {
       return c.json({ ok: false, reason: 'Campaign not found in KV or DB' }, 404);
     }
-    if ((kvCampaign && kvCampaign.user_id && kvCampaign.user_id !== user.id) ||
-        (dbCampaign && dbCampaign.user_id !== user.id)) {
-      return c.json({ ok: false, reason: 'Campaign belongs to a different user' }, 403);
+    if (!ownerUserId) ownerUserId = dbCampaign?.user_id || null;
+
+    if (!isAdmin) {
+      if ((kvCampaign && kvCampaign.user_id && kvCampaign.user_id !== user.id) ||
+          (dbCampaign && dbCampaign.user_id !== user.id)) {
+        return c.json({ ok: false, reason: 'Campaign belongs to a different user' }, 403);
+      }
     }
 
     // Prefer KV values, fall back to DB
@@ -19012,7 +19031,9 @@ app.post("/make-server-a8b2511f/campaigns/:id/diagnose-scheduled", async (c) => 
         if (kvCampaign) {
           kvCampaign.status = 'active';
           kvCampaign.updated_at = now.toISOString();
-          await kv.set(`campaign:${user.id}:${campaignId}`, kvCampaign);
+          // Write back under the OWNER's uid (may differ from caller when admin)
+          const writeUid = ownerUserId || kvCampaign.user_id || user.id;
+          await kv.set(`campaign:${writeUid}:${campaignId}`, kvCampaign);
         }
         if (dbCampaign) {
           await supabase
