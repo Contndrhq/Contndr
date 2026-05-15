@@ -168,7 +168,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
           {/* Plan breakdown cards */}
           <div className="grid grid-cols-3 gap-3 flex-shrink-0">
             {(['growth', 'scale', 'enterprise'] as const).map(plan => {
-              const pb = summary.plan_breakdown[plan];
+              const pb = summary.plan_breakdown?.[plan] || { count: 0, mrr: 0 };
               const price = plan === 'growth' ? 499 : plan === 'scale' ? 999 : 2500;
               return (
                 <div key={plan} className="bg-white dark:bg-[#0A0A0A] border border-gray-200 dark:border-white/[0.06] rounded-xl p-3.5 shadow-sm dark:shadow-none">
@@ -182,11 +182,11 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                   </div>
                   <div className="flex items-end justify-between">
                     <div>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">{pb.count}</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">{pb.count || 0}</p>
                       <p className="text-[10px] text-gray-400 dark:text-zinc-600">subscribers</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">${pb.mrr.toLocaleString()}</p>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">${(pb.mrr || 0).toLocaleString()}</p>
                       <p className="text-[10px] text-gray-400 dark:text-zinc-600">MRR</p>
                     </div>
                   </div>

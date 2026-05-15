@@ -21229,8 +21229,11 @@ app.get("/make-server-a8b2511f/admin/revenue", async (c) => {
 
     const subscribers: any[] = [];
     // Revenue counters — ONLY count Stripe-paid subscribers
-    const planCounts: Record<string, number> = { starter: 0, professional: 0, growth: 0 };
-    const planMrr: Record<string, number> = { starter: 0, professional: 0, growth: 0 };
+    // Current tiers (growth/scale/enterprise) + legacy buckets so we don't
+    // drop subscribers on old price IDs. Legacy values get rolled into the
+    // closest current tier when emitted so the UI only sees current plans.
+    const planCounts: Record<string, number> = { growth: 0, scale: 0, enterprise: 0, starter: 0, professional: 0 };
+    const planMrr: Record<string, number> = { growth: 0, scale: 0, enterprise: 0, starter: 0, professional: 0 };
     let totalMrr = 0;
     let activeCount = 0;         // total active (including non-paying)
     let payingActiveCount = 0;   // only Stripe-paid active
@@ -21394,10 +21397,21 @@ app.get("/make-server-a8b2511f/admin/revenue", async (c) => {
       canceled_count: canceledCount,
       trialing_count: trialingCount,
       non_paying_breakdown: { team: teamCount, internal: internalCount, bypass: bypassCount },
+      // Map legacy plans into current tiers for display: starter→growth,
+      // professional→scale. Current tiers passthrough unchanged.
       plan_breakdown: {
-        starter: { count: planCounts.starter, mrr: Math.round(planMrr.starter * 100) / 100 },
-        professional: { count: planCounts.professional, mrr: Math.round(planMrr.professional * 100) / 100 },
-        growth: { count: planCounts.growth, mrr: Math.round(planMrr.growth * 100) / 100 },
+        growth: {
+          count: planCounts.growth + planCounts.starter,
+          mrr: Math.round((planMrr.growth + planMrr.starter) * 100) / 100,
+        },
+        scale: {
+          count: planCounts.scale + planCounts.professional,
+          mrr: Math.round((planMrr.scale + planMrr.professional) * 100) / 100,
+        },
+        enterprise: {
+          count: planCounts.enterprise,
+          mrr: Math.round(planMrr.enterprise * 100) / 100,
+        },
       },
     };
 
