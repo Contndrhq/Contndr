@@ -22,6 +22,7 @@ import { AdminLeadBrowser } from './AdminLeadBrowser';
 import { UserDetailSheet } from './UserDetailSheet';
 import { AdminPanelErrorBoundary } from './AdminPanelErrorBoundary';
 import { AdminCallsPanel } from './AdminCallsPanel';
+import { AuditLogPanel } from './AuditLogPanel';
 
 // ─── Admin Credit Management Modal ──────────────────────────────────
 function AdminCreditModal({ user, onClose }: { user: { id: string; email: string; user_metadata: any; subscription: any }; onClose: () => void }) {
@@ -1096,12 +1097,12 @@ function AffiliateRow({
 
 // ─── Main Admin Dashboard ───────────────────────────────────────────
 export function AdminDashboard() {
-  type AdminTab = 'waitlist' | 'users' | 'affiliates' | 'revenue' | 'sales' | 'tracking' | 'org' | 'roles' | 'events' | 'system' | 'leads' | 'calls';
+  type AdminTab = 'waitlist' | 'users' | 'affiliates' | 'revenue' | 'sales' | 'tracking' | 'org' | 'roles' | 'events' | 'system' | 'leads' | 'calls' | 'audit';
   type AdminGroup = 'people' | 'business' | 'system';
   const TAB_GROUP: Record<AdminTab, AdminGroup> = {
     waitlist: 'people', users: 'people', affiliates: 'people', org: 'people', roles: 'people',
     revenue: 'business', sales: 'business', leads: 'business', tracking: 'business', calls: 'business',
-    events: 'system', system: 'system',
+    events: 'system', system: 'system', audit: 'system',
   };
   const GROUPS: Array<{ id: AdminGroup; label: string; tabs: Array<{ id: AdminTab; label: string }> }> = [
     { id: 'people', label: 'People', tabs: [
@@ -1120,6 +1121,7 @@ export function AdminDashboard() {
     ]},
     { id: 'system', label: 'System', tabs: [
       { id: 'events', label: 'Event Feed' },
+      { id: 'audit', label: 'Audit Log' },
       { id: 'system', label: 'Health' },
     ]},
   ];
@@ -1692,7 +1694,7 @@ export function AdminDashboard() {
           </div>
         </div>
 
-        {activeTab !== 'roles' && activeTab !== 'system' && activeTab !== 'sales' && activeTab !== 'events' && activeTab !== 'leads' && activeTab !== 'calls' && (
+        {activeTab !== 'roles' && activeTab !== 'system' && activeTab !== 'sales' && activeTab !== 'events' && activeTab !== 'leads' && activeTab !== 'calls' && activeTab !== 'audit' && (
           <div className="relative max-w-full">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 dark:text-zinc-500" />
             <input
@@ -1711,6 +1713,8 @@ export function AdminDashboard() {
        <AdminPanelErrorBoundary resetKey={activeTab}>
         {activeTab === 'calls' ? (
           <AdminCallsPanel searchTerm={searchTerm} />
+        ) : activeTab === 'audit' ? (
+          <AuditLogPanel />
         ) : activeTab === 'leads' ? (
           <AdminLeadBrowser searchTerm={searchTerm} />
         ) : activeTab === 'events' ? (

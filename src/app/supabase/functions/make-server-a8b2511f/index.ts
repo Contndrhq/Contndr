@@ -3346,7 +3346,13 @@ app.post("/make-server-a8b2511f/admin/users/plan", async (c) => {
     };
 
     await kv.set(subKey, newSub);
-    
+    await recordAuditEvent(c, {
+      action: charge ? 'admin.user.plan_charge' : 'admin.user.plan_bypass',
+      resource: 'user',
+      resourceId: userId,
+      metadata: { plan, interval: requestedInterval, stripe_sub_id: stripeSubId, target_email: userEmail },
+    });
+
     // NOTE: Team propagation removed. Admin plan bypass should ONLY affect the
     // targeted user. Team members already inherit the owner's plan automatically
     // via getUserSubscriptionStatus(). Propagating here caused unintended side
@@ -3401,6 +3407,179 @@ app.post("/make-server-a8b2511f/admin/users/sync-stripe", async (c) => {
 // having two registered routes for the same path caused Hono to dispatch
 // to the older one and the UI silently received an unexpected payload
 // shape, which made "Run GC" appear to do nothing.)
+
+// GET /admin/audit-log - Paginated list of admin/privileged actions from the
+// audit_log table (SOC2 trail). Admin Only.
+app.get("/make-server-a8b2511f/admin/audit-log", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) return c.json({ error: 'Unauthorized' }, 403);
+
+    const page = parseInt(c.req.query('page') || '0', 10);
+    const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
+    const action = c.req.query('action') || null;
+    const target = c.req.query('target_id') || null;
+
+    let q = supabase.from('audit_log')
+      .select('id, created_at, actor_id, actor_email, action, resource, resource_id, metadata, ip', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(page * limit, page * limit + limit - 1);
+    if (action) q = q.eq('action', action);
+    if (target) q = q.eq('resource_id', target);
+
+    const { data, error, count } = await q;
+    if (error) {
+      console.error('[ADMIN] audit-log query failed:', error);
+      return c.json({ error: error.message }, 500);
+    }
+    c.header('Cache-Control', 'private, max-age=10, stale-while-revalidate=60');
+    return c.json({ entries: data || [], total: count || 0, page, hasMore: (page + 1) * limit < (count || 0) });
+  } catch (error: any) {
+    console.error('[ADMIN] audit-log error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/users/:userId/impersonate - Generate a magic-link token so the
+// admin can sign in as the target user (Admin Only). The frontend swaps the
+// active Supabase session for the target user's session and stores the
+// admin's original session for later restore. A persistent banner makes the
+// impersonation state obvious.
+app.post("/make-server-a8b2511f/admin/users/:userId/impersonate", async (c) => {
+  try {
+    const { user: admin, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email, admin.id)) return c.json({ error: 'Unauthorized' }, 403);
+
+    const userId = c.req.param('userId');
+    const { data: target } = await supabase.auth.admin.getUserById(userId);
+    if (!target?.user?.email) return c.json({ error: 'Target user not found' }, 404);
+
+    // Generate a magiclink — the frontend will exchange it for a session
+    const origin = c.req.header('origin') || 'https://contndr.com';
+    const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email: target.user.email,
+      options: { redirectTo: `${origin}/?impersonated=1` },
+    });
+    if (linkErr || !linkData) {
+      console.error('[IMPERSONATE] generateLink failed:', linkErr);
+      return c.json({ error: linkErr?.message || 'Failed to generate impersonation link' }, 500);
+    }
+
+    await recordAuditEvent(c, {
+      action: 'admin.user.impersonate',
+      resource: 'user',
+      resourceId: userId,
+      metadata: { target_email: target.user.email },
+    });
+
+    return c.json({
+      success: true,
+      target_email: target.user.email,
+      target_id: target.user.id,
+      action_link: (linkData as any).properties?.action_link || null,
+      hashed_token: (linkData as any).properties?.hashed_token || null,
+      email_otp: (linkData as any).properties?.email_otp || null,
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] impersonate error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /admin/users/:userId/timeline - Chronological history of every notable
+// event for a user (signup, subscriptions, campaigns, calls, admin actions).
+app.get("/make-server-a8b2511f/admin/users/:userId/timeline", async (c) => {
+  try {
+    const { user: admin, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email, admin.id)) return c.json({ error: 'Unauthorized' }, 403);
+
+    const userId = c.req.param('userId');
+    const { data: target } = await supabase.auth.admin.getUserById(userId);
+    if (!target?.user) return c.json({ error: 'User not found' }, 404);
+
+    const events: Array<{ at: string; type: string; title: string; detail?: string; meta?: any }> = [];
+
+    // Account events
+    if (target.user.created_at) {
+      events.push({ at: target.user.created_at, type: 'signup', title: 'Account created' });
+    }
+    if (target.user.email_confirmed_at) {
+      events.push({ at: target.user.email_confirmed_at, type: 'email_verified', title: 'Email verified' });
+    }
+    if (target.user.last_sign_in_at) {
+      events.push({ at: target.user.last_sign_in_at, type: 'login', title: 'Last login' });
+    }
+
+    // Subscription (single current state — we don't keep history, so just
+    // surface the last update timestamp)
+    const sub: any = await kv.get(`contndr_sub:${userId}`).catch(() => null);
+    if (sub?.checkout_started_at) {
+      events.push({ at: sub.checkout_started_at, type: 'checkout', title: 'Started checkout', detail: sub.chosen_plan ? `Chose ${sub.chosen_plan}` : undefined });
+    }
+    if (sub?.recommendation_saved_at) {
+      events.push({ at: sub.recommendation_saved_at, type: 'recommendation', title: 'Plan recommendation saved', detail: sub.recommended_plan ? `Recommended ${sub.recommended_plan}` : undefined });
+    }
+    if (sub?.updated_at && sub?.status) {
+      events.push({ at: sub.updated_at, type: `sub_${sub.status}`, title: `Subscription ${sub.status}`, detail: sub.plan ? `Plan: ${sub.plan}` : undefined, meta: { by: sub.updated_by } });
+    }
+
+    // Campaigns this user has run
+    try {
+      const { data: campaigns } = await supabase
+        .from('campaigns')
+        .select('id, name, status, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      for (const ca of campaigns || []) {
+        events.push({ at: ca.created_at, type: 'campaign', title: 'Campaign created', detail: `${ca.name || 'Untitled'} (${ca.status})` });
+      }
+    } catch {}
+
+    // AI calls
+    try {
+      const callKeys = await kv.getByPrefixLimited('call:', 500, 0).catch(() => []);
+      for (const call of (callKeys as any[])) {
+        if (!call || call.user_id !== userId || !call.started_at) continue;
+        events.push({
+          at: call.started_at,
+          type: 'call',
+          title: `AI call → ${call.lead_name || call.business_name || call.to_number || 'unknown'}`,
+          detail: call.outcome || call.status,
+          meta: { duration: call.duration_seconds, route: call.route },
+        });
+      }
+    } catch {}
+
+    // Admin audit entries targeting this user (SQL audit_log table)
+    try {
+      const { data: auditRows } = await supabase
+        .from('audit_log')
+        .select('action, actor_email, created_at, metadata')
+        .eq('resource', 'user')
+        .eq('resource_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      for (const a of (auditRows || [])) {
+        events.push({
+          at: a.created_at,
+          type: `audit_${a.action}`,
+          title: `Admin: ${a.action.replace(/^admin\./, '')}`,
+          detail: a.actor_email ? `by ${a.actor_email}` : undefined,
+          meta: a.metadata,
+        });
+      }
+    } catch {}
+
+    events.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+    return c.json({ user_id: userId, email: target.user.email, events: events.slice(0, 200) });
+  } catch (error: any) {
+    console.error('[ADMIN] timeline error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
 
 // GET /admin/ai-calls - List all AI calls across users with transcripts (Admin Only)
 app.get("/make-server-a8b2511f/admin/ai-calls", async (c) => {

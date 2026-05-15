@@ -58,6 +58,7 @@ import { Home, Users, Mail, BarChart3, TrendingUp, Settings as SettingsIcon, Pho
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LazyLoadErrorBoundary } from './components/LazyLoadErrorBoundary';
 import { AuthScreen } from './components/AuthScreen';
+import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { PendingAccessScreen } from './components/PendingAccessScreen';
 import { OAuthOnboardingScreen } from './components/OAuthOnboardingScreen';
 import { ApprovedAccessScreen } from './components/ApprovedAccessScreen';
@@ -754,6 +755,7 @@ export default function App() {
     <BrowserRouter>
       <BroadcastProvider>
         <ImportBroadcastProvider>
+          <ImpersonationBanner />
           <AppContent />
         </ImportBroadcastProvider>
       </BroadcastProvider>

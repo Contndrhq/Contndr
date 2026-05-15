@@ -36,6 +36,7 @@ import {
 import { toast } from 'sonner';
 import { projectId } from '../utils/supabase/info';
 import { authenticatedFetch } from '../lib/auth';
+import { supabase } from '../lib/supabase';
 
 interface UserDetailSheetProps {
   userId: string;
@@ -203,6 +204,49 @@ export function UserDetailSheet({
       toast.error(e?.message || 'Charge failed');
     } finally {
       setCharging(false);
+    }
+  };
+
+  const impersonate = async () => {
+    if (!confirm(`Sign in as ${userEmail || 'this user'}? Your admin session will be backed up locally and you can exit at any time using the banner at the top of the screen.`)) return;
+    try {
+      // 1. Back up admin's current session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        localStorage.setItem('contndr_impersonation_admin_backup', JSON.stringify({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        }));
+      }
+      // 2. Ask backend for an impersonation magic link
+      const r = await authenticatedFetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/${userId}/impersonate`,
+        { method: 'POST' },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+
+      // 3. Exchange the token_hash for a real session
+      if (!j.hashed_token) throw new Error('Backend did not return an impersonation token');
+      const { error: verifyErr } = await supabase.auth.verifyOtp({
+        token_hash: j.hashed_token,
+        type: 'magiclink',
+      });
+      if (verifyErr) throw verifyErr;
+
+      // 4. Stamp the impersonation flag and reload
+      const adminEmail = session?.user?.email || 'admin';
+      localStorage.setItem('contndr_impersonation', JSON.stringify({
+        email: j.target_email || userEmail,
+        admin_email: adminEmail,
+        user_id: j.target_id || userId,
+      }));
+      window.dispatchEvent(new CustomEvent('contndr:impersonation-changed'));
+      toast.success(`Now impersonating ${j.target_email || userEmail}`);
+      window.location.href = '/';
+    } catch (e: any) {
+      localStorage.removeItem('contndr_impersonation_admin_backup');
+      toast.error(e?.message || 'Impersonation failed');
     }
   };
 
@@ -506,6 +550,9 @@ export function UserDetailSheet({
                   <KV label="Team link" value={<span className="text-[11px] font-mono">{JSON.stringify(data.team_link).slice(0, 80)}</span>} />
                 )}
               </Section>
+
+              {/* Timeline */}
+              <TimelineSection userId={userId} />
             </>
           )}
         </div>
@@ -514,6 +561,7 @@ export function UserDetailSheet({
         <div className="flex-shrink-0 border-t border-zinc-200 dark:border-white/10 px-4 sm:px-6 py-3">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             <ActionBtn onClick={onEditPlan} icon={<Edit3 className="w-3.5 h-3.5" />}>Edit plan</ActionBtn>
+            <ActionBtn onClick={impersonate} icon={<Users className="w-3.5 h-3.5" />}>Sign in as</ActionBtn>
             <ActionBtn onClick={onManageCredits} icon={<Zap className="w-3.5 h-3.5" />}>Credits</ActionBtn>
             <ActionBtn onClick={onInspectKv} icon={<Database className="w-3.5 h-3.5" />}>Inspect KV</ActionBtn>
             {onPromoteAdmin && (
@@ -533,6 +581,71 @@ export function UserDetailSheet({
 }
 
 /* ─── helpers ─────────────────────────────────────────── */
+
+interface TimelineEvent {
+  at: string;
+  type: string;
+  title: string;
+  detail?: string;
+  meta?: any;
+}
+
+function TimelineSection({ userId }: { userId: string }) {
+  const [events, setEvents] = useState<TimelineEvent[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const r = await authenticatedFetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/${userId}/timeline`,
+        );
+        const j = await r.json();
+        if (active) setEvents(j.events || []);
+      } catch {
+        if (active) setEvents([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [userId]);
+
+  if (loading) {
+    return (
+      <Section title="Timeline">
+        <div className="flex items-center gap-2 text-xs text-zinc-500"><Loader2 className="w-3 h-3 animate-spin" /> Loading…</div>
+      </Section>
+    );
+  }
+  if (!events || events.length === 0) {
+    return (
+      <Section title="Timeline">
+        <div className="text-xs text-zinc-500 italic">No events yet.</div>
+      </Section>
+    );
+  }
+
+  return (
+    <Section title={`Timeline · ${events.length}`}>
+      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+        {events.map((e, i) => (
+          <div key={i} className="flex items-start gap-3 text-xs py-1.5 border-b border-zinc-100 dark:border-white/5 last:border-0">
+            <div className="w-1.5 h-1.5 rounded-full bg-zinc-400 dark:bg-zinc-600 mt-1.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-zinc-900 dark:text-zinc-100 font-medium truncate">{e.title}</div>
+              {e.detail && <div className="text-zinc-500 text-[11px] truncate">{e.detail}</div>}
+            </div>
+            <div className="text-[10px] text-zinc-400 dark:text-zinc-600 flex-shrink-0 whitespace-nowrap">
+              {fmtDate(e.at)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
