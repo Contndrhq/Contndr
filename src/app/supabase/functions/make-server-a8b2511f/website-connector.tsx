@@ -25,6 +25,24 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
 );
 
+// ─── Plan gate: Scale + Enterprise only (whitelisted users always allowed) ─
+
+const ENTITLED_PLANS = new Set(['scale', 'enterprise']);
+
+async function isEntitled(user: any): Promise<{ allowed: boolean; plan: string }> {
+  try {
+    // Use the same gate logic as AI-call intent triggers so plans stay in sync.
+    const { getUserSubscriptionStatus } = await import('./contndr-billing.tsx');
+    const sub = await getUserSubscriptionStatus(user);
+    const plan = String(sub?.plan || '').toLowerCase();
+    const allowed = ENTITLED_PLANS.has(plan) || sub?.isWhitelisted === true;
+    return { allowed, plan: plan || 'none' };
+  } catch (err) {
+    console.warn('[WC] entitlement check failed (fail-closed):', err?.message || err);
+    return { allowed: false, plan: 'none' };
+  }
+}
+
 // ─── Workspace shape ───────────────────────────────────────────────────
 
 interface Workspace {
@@ -477,11 +495,17 @@ async function placeWebsiteIntentCall(userId: string, queueRec: any) {
 wc.get('/workspace', async (c) => {
   const user = await getAuthUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const ent = await isEntitled(user);
+  if (!ent.allowed) {
+    return c.json({ entitled: false, plan: ent.plan, required_plans: ['scale', 'enterprise'] });
+  }
   const ws = await getOrCreateWorkspace(user.id);
   const origin = (c.req.header('origin') || '').replace(/\/$/, '');
   const cdnBase = origin || Deno.env.get('SUPABASE_URL') || '';
   const trackerUrl = `${(Deno.env.get('SUPABASE_URL') || '').replace(/\/$/, '')}/functions/v1/make-server-a8b2511f/wc/tracker.js?k=${ws.public_key}`;
   return c.json({
+    entitled: true,
+    plan: ent.plan,
     workspace: ws,
     install: {
       script_tag: `<script async src="${trackerUrl}" data-workspace-id="${ws.workspace_id}" data-public-key="${ws.public_key}"></script>`,
