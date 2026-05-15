@@ -324,6 +324,43 @@ function normalizePlanLabel(raw?: string | null): string {
   return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
+// Deterministic avatar color from a seed string
+const AVATAR_PALETTE = [
+  'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+  'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30',
+  'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/30',
+  'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30',
+  'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30',
+  'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30',
+];
+function avatarFor(seed?: string | null) {
+  const s = String(seed || '?').trim();
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+  return {
+    cls: AVATAR_PALETTE[hash % AVATAR_PALETTE.length],
+    initials: (s.match(/[A-Za-z0-9]/g) || ['?']).slice(0, 2).join('').toUpperCase() || '?',
+  };
+}
+
+// Relative time short label
+function relTime(iso?: string | null) {
+  if (!iso) return 'Never';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0 || !Number.isFinite(ms)) return '—';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return 'Just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  return `${Math.floor(mo / 12)}y ago`;
+}
+
 function isMissingValue(value?: string | null) {
   const normalized = String(value || '').trim().toLowerCase();
   return !normalized || ['unknown', 'n/a', 'na', 'none', 'null', 'undefined'].includes(normalized);
@@ -2109,262 +2146,206 @@ export function AdminDashboard() {
             </div>
 
             {/* Desktop Table Container */}
-            <div className="flex-1 overflow-auto bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl hidden md:block shadow-sm">
+            <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl hidden md:block shadow-sm overflow-hidden">
               <table className="w-full text-left border-collapse">
-                <thead className="bg-zinc-50 dark:bg-zinc-950 sticky top-0 z-10 border-b border-zinc-200 dark:border-zinc-800">
+                <thead className="bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
                   <tr>
                     {activeTab === 'waitlist' ? (
                       <>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Applicant</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Details</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Size / Revenue</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Status</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Action</th>
+                        <th className="px-5 py-3 text-[11px] font-medium text-zinc-500">Applicant</th>
+                        <th className="px-5 py-3 text-[11px] font-medium text-zinc-500">Profile</th>
+                        <th className="px-5 py-3 text-[11px] font-medium text-zinc-500">Suggested</th>
+                        <th className="px-5 py-3 text-[11px] font-medium text-zinc-500">Status</th>
+                        <th className="px-5 py-3 text-[11px] font-medium text-zinc-500 text-right">Action</th>
                       </>
                     ) : (
                       <>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">User</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Plan</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Leads</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Activity</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Manage</th>
+                        <th className="px-5 py-3 text-[11px] font-medium text-zinc-500">User</th>
+                        <th className="px-5 py-3 text-[11px] font-medium text-zinc-500">Plan</th>
+                        <th className="px-5 py-3 text-[11px] font-medium text-zinc-500">Leads</th>
+                        <th className="px-5 py-3 text-[11px] font-medium text-zinc-500">Last seen</th>
+                        <th className="px-5 py-3 text-[11px] font-medium text-zinc-500 text-right">Manage</th>
                       </>
                     )}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-200 dark:divide-white/5">
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
                   {activeTab === 'waitlist' ? (
-                    filteredWaitlist.map((entry) => (
-                      <tr key={entry.id} className="hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group">
-                        <td className="px-6 py-4">
-                          <div className="font-medium text-sm text-zinc-900 dark:text-zinc-200">{entry.name}</div>
-                          <div className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5">{entry.email}</div>
-                          {entry.phone && <div className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5">{entry.phone}</div>}
-                          <div className="text-[10px] text-zinc-500 dark:text-zinc-700 mt-1">{new Date(entry.created_at).toLocaleDateString()}</div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-col gap-1">
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 w-fit">
-                              {formatBusinessType(entry.businessType) || 'Profile pending'}
-                            </span>
-                            {formatLeadVolume(entry.monthlyLeadVolume) ? (
-                              <span className="text-xs text-zinc-400">
-                                {formatLeadVolume(entry.monthlyLeadVolume)} leads/mo
+                    filteredWaitlist.map((entry) => {
+                      const av = avatarFor(entry.name || entry.email);
+                      const sized = !isMissingValue(entry.teamSize) ? `${TEAM_SIZE_LABELS[entry.teamSize] || entry.teamSize} ppl` : null;
+                      const rev = !isMissingValue(entry.annualRevenue) ? REVENUE_LABELS[entry.annualRevenue] || entry.annualRevenue : null;
+                      const volume = formatLeadVolume(entry.monthlyLeadVolume);
+                      const biz = formatBusinessType(entry.businessType);
+                      return (
+                        <tr key={entry.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors">
+                          <td className="px-5 py-3.5">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-semibold border flex-shrink-0 ${av.cls}`}>
+                                {av.initials}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-medium text-sm text-zinc-900 dark:text-zinc-100 truncate">{entry.name || '—'}</div>
+                                <div className="text-xs text-zinc-500 truncate">{entry.email}</div>
+                                <div className="text-[10px] text-zinc-400 dark:text-zinc-600 mt-0.5">{new Date(entry.created_at).toLocaleDateString()}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <div className="flex flex-col gap-1 text-xs">
+                              <span className="text-zinc-700 dark:text-zinc-300">{biz || <span className="text-zinc-400">Profile pending</span>}</span>
+                              <span className="text-zinc-500 dark:text-zinc-500">
+                                {[sized, rev && `${rev}/yr`, volume && `${volume} leads/mo`].filter(Boolean).join(' · ') || '—'}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            {entry.recommended_plan ? (
+                              <span
+                                title={entry.recommendation_reasons?.join(', ')}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                              >
+                                {normalizePlanLabel(entry.recommended_plan)}
                               </span>
                             ) : (
-                              <span className="text-xs text-zinc-500 dark:text-zinc-600">Lead volume pending</span>
+                              <span className="text-xs text-zinc-400">—</span>
                             )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-col gap-1">
-                            <span className="text-xs text-zinc-300">
-                              {!isMissingValue(entry.teamSize) ? `${TEAM_SIZE_LABELS[entry.teamSize] || entry.teamSize} employees` : 'Not provided'}
-                            </span>
-                            <span className="text-xs text-zinc-400">
-                              {!isMissingValue(entry.annualRevenue) ? (REVENUE_LABELS[entry.annualRevenue] || entry.annualRevenue) + ' /yr' : 'Not provided'}
-                            </span>
-                            {entry.recommended_plan && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20 w-fit mt-0.5" title={entry.recommendation_reasons?.join(', ')}>
-                                Suggested: <span>{normalizePlanLabel(entry.recommended_plan)}</span>
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border ${
-                            entry.status === 'approved'
-                              ? 'bg-[#1ED4A7]/10 text-[#1ED4A7] border-[#1ED4A7]/20'
-                              : entry.status === 'rejected'
-                              ? 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
-                              : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
-                          }`}>
-                            <div className={`w-1 h-1 rounded-full ${
-                              entry.status === 'approved' ? 'bg-[#1ED4A7]' :
-                              entry.status === 'rejected' ? 'bg-zinc-400' : 'bg-zinc-400'
-                            }`} />
-                            <span className="capitalize">{entry.status.replace(/_/g, ' ')}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            {(entry.status === 'pending' || entry.status === 'pending_signup') && (
-                              <>
-                                <button onClick={() => handleReject(entry.id)} disabled={!!processingId} className="p-1.5 rounded-lg hover:bg-zinc-500/20 text-zinc-500 hover:text-zinc-300 transition-colors" title="Decline">
-                                  <X className="w-4 h-4" />
-                                </button>
-                                <button onClick={() => handleApprove(entry.id, entry.email)} disabled={!!processingId} className="p-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 transition-all flex items-center gap-1.5" title="Approve & Invite">
-                                  <Check className="w-3 h-3" />
-                                  <span className="text-[10px] font-bold uppercase">Approve</span>
-                                </button>
-                              </>
-                            )}
-                            {entry.status === 'approved' && <span className="text-[10px] text-[#1ED4A7] font-medium mr-2">Invited</span>}
-                            {entry.status === 'rejected' && <span className="text-[10px] text-zinc-400 font-medium mr-2">Declined</span>}
-                            <button onClick={() => handleDeleteWaitlistEntry(entry.id)} disabled={!!processingId} className="p-1.5 rounded-lg hover:bg-zinc-500/20 text-zinc-500 hover:text-zinc-300 transition-colors" title="Delete Permanently">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    filteredUsers.map((user) => (
-                      <tr key={user.id} className="hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group">
-                        <td className="px-6 py-4">
-                          <div className="font-medium text-sm text-zinc-900 dark:text-zinc-200">{user.user_metadata?.name || 'User'}</div>
-                          <div className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5">{user.email}</div>
-                          {user.user_metadata?.phone && <div className="text-xs text-zinc-500 dark:text-zinc-600 mt-0.5">{user.user_metadata.phone}</div>}
-                          {(user.user_metadata?.businessType || user.user_metadata?.teamSize || user.user_metadata?.annualRevenue) && (
-                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                              {user.user_metadata?.businessType && user.user_metadata.businessType !== 'Unknown' && (
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
-                                  {user.user_metadata.businessType}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            {(() => {
+                              const cls = entry.status === 'approved'
+                                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                                : entry.status === 'rejected'
+                                ? 'bg-rose-500/10 text-rose-500 border-rose-500/20'
+                                : 'bg-amber-500/10 text-amber-500 border-amber-500/20';
+                              return (
+                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium border ${cls}`}>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+                                  <span className="capitalize">{entry.status.replace(/_/g, ' ')}</span>
                                 </span>
-                              )}
-                              {user.user_metadata?.teamSize && user.user_metadata.teamSize !== 'Unknown' && (
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
-                                  {TEAM_SIZE_LABELS[user.user_metadata.teamSize] || user.user_metadata.teamSize} ppl
-                                </span>
-                              )}
-                              {user.user_metadata?.annualRevenue && user.user_metadata.annualRevenue !== 'Unknown' && (
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
-                                  {REVENUE_LABELS[user.user_metadata.annualRevenue] || user.user_metadata.annualRevenue}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          {user.subscription?.isTeamMember && (
-                            <div className="inline-flex items-center gap-1.5 mt-1 px-2 py-0.5 rounded-full bg-zinc-500/10 border border-zinc-500/20">
-                              <UsersIcon className="w-3 h-3 text-zinc-400" />
-                              <span className="text-[9px] text-zinc-400 font-medium truncate max-w-[200px]" title={`Team owner: ${user.subscription.teamOwnerEmail || user.subscription.teamOwnerId}`}>
-                                {user.subscription.teamOwnerOrg || user.subscription.teamOwnerName || user.subscription.teamOwnerEmail?.split('@')[0] || (user.subscription.teamOwnerId?.slice(0, 8) + '\u2026')}&apos;s team
-                              </span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-2">
-                              <div className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
-                                user.subscription?.status === 'active'
-                                  ? 'bg-[#1ED4A7]/10 text-[#1ED4A7] border-[#1ED4A7]/20'
-                                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700'
-                              }`}>
-                                {user.subscription?.plan || 'None'}
-                              </div>
-                              {user.subscription?.status === 'active' && (
-                                <div className="text-[9px] text-[#1ED4A7] font-medium">
-                                  Active
-                                </div>
-                              )}
-                              {user.subscription?.status === 'active' && user.subscription?.plan && user.subscription.plan !== 'none' && !user.subscription?.stripe_sub_id && (
-                                <div
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-zinc-500/20 bg-zinc-500/10 cursor-help"
-                                  title="No Stripe subscription linked — manually enrolled or stale mapping. Use Inspect (👁) to debug."
-                                >
-                                  <Wallet className="w-3 h-3 text-zinc-400" />
-                                  <span className="text-[9px] text-zinc-400 font-semibold">Unlinked</span>
-                                </div>
-                              )}
-                              {user.subscription?._inheritedPlan && user.subscription?.status !== 'active' && (
-                                <div className="text-[9px] text-zinc-400 font-medium">
-                                  Inherits: {user.subscription._inheritedPlan}
-                                </div>
-                              )}
-                            </div>
-                            {user.subscription?.updated_by && (
-                              <div className="text-[9px] text-zinc-600 truncate max-w-[180px]" title={`Set by ${user.subscription.updated_by} on ${user.subscription.updated_at ? new Date(user.subscription.updated_at).toLocaleString() : 'unknown'}`}>
-                                by {user.subscription.updated_by.split('@')[0]}@ · {user.subscription.updated_at ? new Date(user.subscription.updated_at).toLocaleDateString() : '?'}
-                              </div>
-                            )}
-                            {user.subscription?.recommended_plan && (
-                              <div className="flex items-center gap-1 mt-1">
-                                <span className="text-[9px] text-zinc-500">Suggested:</span>
-                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium capitalize ${
-                                  normalizePlanKey(user.subscription.recommended_plan) === (user.subscription?.plan || 'none').toLowerCase()
-                                    ? 'bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20'
-                                    : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
-                                }`} title={user.subscription.recommendation_reasons?.join(', ')}>
-                                  {normalizePlanLabel(user.subscription.recommended_plan)}
-                                </span>
-                                {user.subscription.chose_recommended === false && (
-                                  <span className="text-[8px] text-amber-500/70 font-medium">≠ chosen</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          {(() => {
-                            const count = user.leadCount || 0;
-                            const limit = user.leadLimit || 0;
-                            const isUnlimited = limit === -1;
-                            const pct = isUnlimited ? 0 : limit > 0 ? Math.min(100, Math.round((count / limit) * 100)) : 0;
-                            const isNearLimit = !isUnlimited && pct >= 80;
-                            const isAtLimit = !isUnlimited && pct >= 100;
-                            return (
-                              <div className="flex flex-col gap-1.5 min-w-[120px]">
-                                <div className="flex items-baseline gap-1">
-                                  <span className={`text-sm font-bold tabular-nums ${isAtLimit ? 'text-zinc-400' : isNearLimit ? 'text-zinc-400' : 'text-zinc-900 dark:text-zinc-200'}`}>
-                                    {count.toLocaleString()}
-                                  </span>
-                                  <span className="text-[10px] text-zinc-500 dark:text-zinc-600">
-                                    / {isUnlimited ? '∞' : limit.toLocaleString()}
-                                  </span>
-                                </div>
-                                {!isUnlimited && (
-                                  <div className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
-                                    <div
-                                      className={`h-full rounded-full transition-all ${isAtLimit ? 'bg-zinc-500' : isNearLimit ? 'bg-zinc-400' : 'bg-[#1ED4A7]'}`}
-                                      style={{ width: `${pct}%` }}
-                                    />
-                                  </div>
-                                )}
-                                {isUnlimited && (
-                                  <span className="text-[9px] text-[#1ED4A7] font-medium">Unlimited</span>
-                                )}
-                                {isAtLimit && (
-                                  <span className="text-[9px] text-zinc-400 font-semibold">Limit reached</span>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="text-[10px] text-zinc-500">
-                            Last Login: {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleDateString() : 'Never'}
-                          </div>
-                          <div className="text-[10px] text-zinc-600">
-                            Joined: {new Date(user.created_at).toLocaleDateString()}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button onClick={() => setDetailUser(user)} className="p-1.5 rounded-lg hover:bg-[#1ED4A7]/10 text-zinc-500 hover:text-[#1ED4A7] transition-colors" title="View full user detail">
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => setCreditUser(user)} className="p-1.5 rounded-lg hover:bg-amber-500/10 text-zinc-500 hover:text-amber-400 transition-colors" title="Manage AI Credits">
-                              <Zap className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => setEditingUser(user)} disabled={!!processingId} className="p-1.5 rounded-lg hover:bg-zinc-500/20 text-zinc-500 hover:text-zinc-300 transition-colors" title="Change Plan / Bypass Payment">
-                              <DollarSign className="w-4 h-4" />
-                            </button>
-                            {user.subscription?.status === 'active' && user.subscription?.plan && (
-                              <button onClick={() => handleRevokeSubscription(user.id, user.email, user.subscription.plan)} disabled={!!processingId} className="p-1.5 rounded-lg hover:bg-zinc-500/20 text-zinc-500 hover:text-zinc-300 transition-colors" title="Revoke Subscription Access">
-                                <UserX className="w-4 h-4" />
+                              );
+                            })()}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {(entry.status === 'pending' || entry.status === 'pending_signup') ? (
+                                <>
+                                  <button
+                                    onClick={() => handleReject(entry.id)}
+                                    disabled={!!processingId}
+                                    className="px-2.5 py-1 rounded-md text-[11px] font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
+                                  >
+                                    Decline
+                                  </button>
+                                  <button
+                                    onClick={() => handleApprove(entry.id, entry.email)}
+                                    disabled={!!processingId}
+                                    className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:opacity-90 transition-opacity"
+                                  >
+                                    Approve
+                                  </button>
+                                </>
+                              ) : null}
+                              <button
+                                onClick={() => handleDeleteWaitlistEntry(entry.id)}
+                                disabled={!!processingId}
+                                className="p-1.5 rounded-md text-zinc-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
+                                title="Delete permanently"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    filteredUsers.map((user) => {
+                      const name = user.user_metadata?.name || (user.email || '').split('@')[0] || 'User';
+                      const av = avatarFor(name);
+                      const planKey = normalizePlanKey(user.subscription?.plan);
+                      const planLabel = planKey ? planKey.charAt(0).toUpperCase() + planKey.slice(1) : 'None';
+                      const planActive = user.subscription?.status === 'active';
+                      const count = user.leadCount || 0;
+                      const limit = user.leadLimit || 0;
+                      const isUnlimited = limit === -1;
+                      const pct = isUnlimited ? 0 : limit > 0 ? Math.min(100, Math.round((count / limit) * 100)) : 0;
+                      const isAtLimit = !isUnlimited && pct >= 100;
+                      const isNearLimit = !isUnlimited && pct >= 80;
+                      const planChipCls = planActive
+                        ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                        : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800';
+                      return (
+                      <tr key={user.id} onClick={() => setDetailUser(user)} className="hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors cursor-pointer">
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-semibold border flex-shrink-0 ${av.cls}`}>
+                              {av.initials}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-medium text-sm text-zinc-900 dark:text-zinc-100 truncate">{name}</div>
+                              <div className="text-xs text-zinc-500 truncate">{user.email}</div>
+                            </div>
+                          </div>
+                          {user.subscription?.isTeamMember && (
+                            <div className="text-[10px] text-zinc-400 dark:text-zinc-600 mt-1 ml-12 truncate" title={`Team owner: ${user.subscription.teamOwnerEmail || ''}`}>
+                              on {user.subscription.teamOwnerOrg || user.subscription.teamOwnerName || user.subscription.teamOwnerEmail?.split('@')[0] || 'team'}&apos;s team
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium border ${planChipCls}`}>
+                              {planLabel}
+                            </span>
+                            {user.subscription?.isWhitelisted && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20">Whitelist</span>
                             )}
-                            <button onClick={() => handlePromoteAdmin(user.id)} disabled={!!processingId} className="p-1.5 rounded-lg hover:bg-[#1ED4A7]/10 text-zinc-500 hover:text-[#1ED4A7] transition-colors" title="Promote to Org Admin">
-                              <Shield className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => handleDeleteUser(user.id)} disabled={!!processingId} className="p-1.5 rounded-lg hover:bg-zinc-500/20 text-zinc-500 hover:text-zinc-300 transition-colors" title="Delete User">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {planActive && !user.subscription?.stripe_sub_id && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20" title="No Stripe subscription linked">Unlinked</span>
+                            )}
+                          </div>
+                          {user.subscription?.recommended_plan && normalizePlanKey(user.subscription.recommended_plan) !== planKey && (
+                            <div className="text-[10px] text-zinc-500 mt-1" title={user.subscription.recommendation_reasons?.join(', ')}>
+                              Suggested: <span className="text-amber-500 font-medium">{normalizePlanLabel(user.subscription.recommended_plan)}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <div className="flex flex-col gap-1 min-w-[110px]">
+                            <div className="flex items-baseline gap-1">
+                              <span className={`text-sm font-semibold tabular-nums ${isAtLimit ? 'text-rose-500' : isNearLimit ? 'text-amber-500' : 'text-zinc-900 dark:text-zinc-100'}`}>
+                                {count.toLocaleString()}
+                              </span>
+                              <span className="text-[10px] text-zinc-500">
+                                / {isUnlimited ? '∞' : limit.toLocaleString()}
+                              </span>
+                            </div>
+                            {!isUnlimited && limit > 0 && (
+                              <div className="w-full h-1 bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${isAtLimit ? 'bg-rose-500' : isNearLimit ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            )}
                           </div>
                         </td>
+                        <td className="px-5 py-3.5">
+                          <div className="text-xs text-zinc-700 dark:text-zinc-300">{relTime(user.last_sign_in_at)}</div>
+                          <div className="text-[10px] text-zinc-400 dark:text-zinc-600">joined {new Date(user.created_at).toLocaleDateString()}</div>
+                        </td>
+                        <td className="px-5 py-3.5 text-right">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDetailUser(user); }}
+                            className="px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition-colors"
+                          >
+                            Manage
+                          </button>
+                        </td>
                       </tr>
-                    ))
+                      );
+                    })
                   )}
 
                   {((activeTab === 'waitlist' && filteredWaitlist.length === 0) || (activeTab === 'users' && filteredUsers.length === 0)) && (
