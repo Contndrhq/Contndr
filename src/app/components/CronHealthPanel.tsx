@@ -246,10 +246,19 @@ function KvGarbageCollection() {
       const headers = await getAuthHeaders();
       const res = await fetch(`${API}/admin/kv-stats`, { headers });
       const data = await res.json();
-      // Backend returns { success, stats }; older versions returned counts.
+      // Backend returns { success, stats: { totalEntries, byPrefix } }.
+      // Flatten to { TOTAL: n, prefix1: n, prefix2: n } for the existing UI grid.
+      // Tolerate the older { counts } shape too.
       const payload = data.stats || data.counts;
-      if (res.ok && payload) setStats(payload);
-      else toast.error(data.error || 'Failed to load stats');
+      if (res.ok && payload) {
+        let flat: Record<string, number>;
+        if (payload && typeof payload === 'object' && 'byPrefix' in payload) {
+          flat = { TOTAL: payload.totalEntries || 0, ...(payload.byPrefix || {}) };
+        } else {
+          flat = payload;
+        }
+        setStats(flat);
+      } else toast.error(data.error || 'Failed to load stats');
     } catch (err: any) {
       toast.error(err.message);
     } finally {

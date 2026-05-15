@@ -14512,12 +14512,16 @@ app.get("/make-server-a8b2511f/cron/health", async (c) => {
 });
 
 // POST /cron/trigger - Manually trigger the full cron cycle (user-authenticated)
+// Fires fire-and-forget so the admin UI doesn't block on the 30-90s pipeline.
+// The heartbeat key updates as the cycle progresses; UI polls and shows fresh.
 app.post("/make-server-a8b2511f/cron/trigger", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
-    console.log(`[CRON] Manual trigger by ${user.email}`);
-    const result = await runFullCronCycle();
-    return c.json({ success: true, ...result });
+    console.log(`[CRON] Manual trigger by ${user.email} — running in background`);
+    runFullCronCycle().catch((err) => {
+      console.error('[CRON] background trigger error:', err?.message || err);
+    });
+    return c.json({ success: true, status: 'started', message: 'Cron cycle running in background — refresh in a moment to see results.' });
   } catch (error: any) {
     console.error('[CRON] manual trigger error:', error);
     return c.json({ error: error.message }, 500);
