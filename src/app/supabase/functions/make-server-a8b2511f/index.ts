@@ -18430,6 +18430,113 @@ app.post("/make-server-a8b2511f/admin/revoke-subscription", async (c) => {
   }
 });
 
+// GET /admin/users/detail/:userId - Comprehensive admin detail view (Admin Only)
+// Returns: user auth, subscription, payment method (card brand + last4 + exp),
+//          recent invoices, lead count, AI credit balance.
+app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
+  try {
+    const { user: caller, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(caller.email, caller.id)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    const userId = c.req.param('userId');
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+
+    // Fetch all data in parallel — admin view so we tolerate individual failures.
+    const [
+      authUserRes,
+      sub,
+      stripeCustomerIdRaw,
+      teamLink,
+      credits,
+      leadsCountRes,
+    ] = await Promise.all([
+      supabase.auth.admin.getUserById(userId).catch(() => null),
+      kv.get(`contndr_sub:${userId}`).catch(() => null),
+      kv.get(`stripe_customer:${userId}`).catch(() => null),
+      kv.get(`user:${userId}:team`).catch(() => null),
+      kv.get(`ai_credits:${userId}`).catch(() => null),
+      supabase.from('leads').select('id', { count: 'estimated', head: true }).eq('user_id', userId),
+    ]);
+
+    const authUser = authUserRes?.data?.user || null;
+    const stripeCustomerId = typeof stripeCustomerIdRaw === 'string' ? stripeCustomerIdRaw : null;
+
+    // Pull payment method + recent invoices from Stripe (best effort).
+    let paymentMethod: any = null;
+    let invoices: any[] = [];
+    if (stripeCustomerId) {
+      try {
+        const stripeClient = await getStripe();
+        if (stripeClient) {
+          const customer: any = await stripeClient.customers.retrieve(stripeCustomerId, {
+            expand: ['invoice_settings.default_payment_method'],
+          }).catch(() => null);
+
+          let pm: any = customer?.invoice_settings?.default_payment_method;
+          // If not expanded into an object yet, try listing
+          if (!pm || typeof pm === 'string') {
+            const methods = await stripeClient.paymentMethods.list({ customer: stripeCustomerId, type: 'card', limit: 1 }).catch(() => ({ data: [] }));
+            pm = methods.data[0] || null;
+          }
+          if (pm && pm.card) {
+            paymentMethod = {
+              brand: pm.card.brand || null,
+              last4: pm.card.last4 || null,
+              exp_month: pm.card.exp_month || null,
+              exp_year: pm.card.exp_year || null,
+              funding: pm.card.funding || null,
+              country: pm.card.country || null,
+            };
+          }
+
+          const invList = await stripeClient.invoices.list({ customer: stripeCustomerId, limit: 5 }).catch(() => ({ data: [] }));
+          invoices = (invList.data || []).map((inv: any) => ({
+            id: inv.id,
+            number: inv.number,
+            status: inv.status,
+            amount_paid: inv.amount_paid,
+            amount_due: inv.amount_due,
+            currency: inv.currency,
+            created: inv.created,
+            hosted_invoice_url: inv.hosted_invoice_url,
+            pdf: inv.invoice_pdf,
+          }));
+        }
+      } catch (stripeErr: any) {
+        console.warn('[ADMIN-DETAIL] Stripe lookup failed:', stripeErr?.message);
+      }
+    }
+
+    return c.json({
+      user: authUser ? {
+        id: authUser.id,
+        email: authUser.email,
+        full_name: authUser.user_metadata?.full_name || authUser.user_metadata?.name || null,
+        phone: authUser.user_metadata?.phone || authUser.phone || null,
+        company: authUser.user_metadata?.company || null,
+        role: authUser.user_metadata?.role || null,
+        created_at: authUser.created_at,
+        last_sign_in_at: authUser.last_sign_in_at,
+        email_confirmed_at: authUser.email_confirmed_at,
+        banned_until: (authUser as any).banned_until || null,
+      } : null,
+      subscription: sub || null,
+      stripe: {
+        customer_id: stripeCustomerId,
+        payment_method: paymentMethod,
+        recent_invoices: invoices,
+      },
+      team_link: teamLink,
+      ai_credits: credits || null,
+      leads_count: leadsCountRes?.count || 0,
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] user detail error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // GET /admin/users/inspect/:userId - Inspect raw KV data for a user (Admin Only)
 app.get("/make-server-a8b2511f/admin/users/inspect/:userId", async (c) => {
   try {

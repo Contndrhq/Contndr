@@ -19,6 +19,7 @@ import { CronHealthPanel } from './CronHealthPanel';
 import { SalesAdminPanel } from './SalesAdminPanel';
 import { AdminEventCenter } from './AdminEventCenter';
 import { AdminLeadBrowser } from './AdminLeadBrowser';
+import { UserDetailSheet } from './UserDetailSheet';
 
 // ─── Admin Credit Management Modal ──────────────────────────────────
 function AdminCreditModal({ user, onClose }: { user: { id: string; email: string; user_metadata: any; subscription: any }; onClose: () => void }) {
@@ -1080,6 +1081,7 @@ export function AdminDashboard() {
   const [syncing, setSyncing] = useState(false);
   const [inspectData, setInspectData] = useState<any>(null);
   const [inspectingUserId, setInspectingUserId] = useState<string | null>(null);
+  const [detailUser, setDetailUser] = useState<User | null>(null);
 
   // Lead tracking
   const [totalLeads, setTotalLeads] = useState(0);
@@ -2337,7 +2339,7 @@ export function AdminDashboard() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <button onClick={() => handleInspectUser(user.id)} className="p-1.5 rounded-lg hover:bg-zinc-500/20 text-zinc-500 hover:text-zinc-300 transition-colors" title="Inspect KV Data">
+                            <button onClick={() => setDetailUser(user)} className="p-1.5 rounded-lg hover:bg-[#1ED4A7]/10 text-zinc-500 hover:text-[#1ED4A7] transition-colors" title="View full user detail">
                               <Eye className="w-4 h-4" />
                             </button>
                             <button onClick={() => setCreditUser(user)} className="p-1.5 rounded-lg hover:bg-amber-500/10 text-zinc-500 hover:text-amber-400 transition-colors" title="Manage AI Credits">
@@ -2541,6 +2543,23 @@ export function AdminDashboard() {
       {/* Admin Credit Modal */}
       {creditUser && (
         <AdminCreditModal user={creditUser} onClose={() => setCreditUser(null)} />
+      )}
+
+      {/* User Detail Sheet (enterprise view) */}
+      {detailUser && (
+        <UserDetailSheet
+          userId={detailUser.id}
+          userEmail={detailUser.email}
+          onClose={() => setDetailUser(null)}
+          onEditPlan={() => { setEditingUser(detailUser); setDetailUser(null); }}
+          onManageCredits={() => { setCreditUser(detailUser); setDetailUser(null); }}
+          onInspectKv={() => { handleInspectUser(detailUser.id); setDetailUser(null); }}
+          onPromoteAdmin={() => { handlePromoteAdmin(detailUser.id); }}
+          onRevoke={detailUser.subscription?.status === 'active' && detailUser.subscription?.plan
+            ? () => { handleRevokeSubscription(detailUser.id, detailUser.email, detailUser.subscription!.plan); }
+            : undefined}
+          onDelete={() => { handleDeleteUser(detailUser.id); setDetailUser(null); }}
+        />
       )}
 
       {/* Inspect KV Data Modal */}
