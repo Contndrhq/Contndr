@@ -349,84 +349,80 @@ export function RoleManagement() {
   }
 
   return (
-    <div className="flex flex-col min-h-0 h-full">
-      {/* Header */}
-      <div className="flex-shrink-0 px-4 sm:px-6 py-4 border-b border-[var(--border-color)]">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-[var(--text-main)]">Role Management</h2>
-            <p className="text-xs text-zinc-500 mt-0.5">Manage user roles and permissions</p>
+    <div className="flex flex-col gap-4">
+      {/* Stats — matches Active Users style */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {[
+          { label: 'Total Users', count: stats.totalUsers },
+          { label: 'Master', count: stats.masterCount },
+          { label: 'Admin', count: stats.adminCount },
+          { label: 'Affiliate', count: stats.affiliateCount },
+          { label: 'User', count: stats.userCount },
+        ].map((stat, i) => (
+          <div key={i} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">
+              {stat.label}
+            </div>
+            <div className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">
+              {stat.count}
+            </div>
           </div>
+        ))}
+      </div>
+
+      {/* Actions bar */}
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+        <div className="text-sm font-medium text-zinc-900 dark:text-white">Roles &amp; permissions</div>
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setShowAddUser(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-900 dark:bg-white text-white dark:text-black text-sm font-medium rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:opacity-90 text-xs font-medium transition-opacity"
           >
-            <Plus className="w-4 h-4" />
-            <span>Add User</span>
+            <Plus className="w-3.5 h-3.5" />
+            Add user
           </button>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4">
-          {[
-            { label: 'Total', count: stats.totalUsers, color: 'text-zinc-600 dark:text-zinc-400' },
-            { label: 'Master', count: stats.masterCount, color: 'text-[#1ED4A7]' },
-            { label: 'Admin', count: stats.adminCount, color: 'text-zinc-300' },
-            { label: 'Affiliate', count: stats.affiliateCount, color: 'text-zinc-400' },
-            { label: 'User', count: stats.userCount, color: 'text-zinc-500' },
-          ].map((stat, i) => (
-            <div key={i} className="px-3 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)]">
-              <div className={`text-xl font-bold ${stat.color}`}>{stat.count}</div>
-              <div className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">{stat.label}</div>
-            </div>
-          ))}
+          <button
+            onClick={loadUsers}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Refresh
+          </button>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex-shrink-0 px-4 sm:px-6 py-3 border-b border-[var(--border-color)] bg-zinc-50/50 dark:bg-zinc-900/30">
-        <div className="flex flex-col sm:flex-row gap-2">
-          {/* Search */}
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-            <input
-              type="text"
-              placeholder="Search users..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg text-sm text-[var(--text-main)] placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white/20"
-            />
-          </div>
-
-          {/* Role Filter */}
-          <select
-            value={selectedRole}
-            onChange={(e) => setSelectedRole(e.target.value)}
-            className="px-3 py-2 bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg text-sm text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white/20"
-          >
-            <option value="all">All Roles</option>
-            <option value="master">Master</option>
-            <option value="admin">Admin</option>
-            <option value="affiliate">Affiliate</option>
-            <option value="user">User</option>
-            <option value="sales_rep">Sales Rep</option>
-            <option value="org_admin">Org Admin</option>
-            <option value="account_exec">Account Exec</option>
-            <option value="sdr">SDR</option>
-            <option value="team_lead">Team Lead</option>
-          </select>
-
-          <button
-            onClick={loadUsers}
-            className="p-2 hover:bg-white dark:hover:bg-zinc-800 border border-[var(--border-color)] rounded-lg transition-colors"
-          >
-            <RefreshCw className="w-4 h-4 text-zinc-500" />
-          </button>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 dark:text-zinc-500" />
+          <input
+            type="text"
+            placeholder="Search users..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-700 transition-colors shadow-sm"
+          />
         </div>
+        <select
+          value={selectedRole}
+          onChange={(e) => setSelectedRole(e.target.value)}
+          className="px-3 py-2.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-700 transition-colors shadow-sm"
+        >
+          <option value="all">All Roles</option>
+          <option value="master">Master</option>
+          <option value="admin">Admin</option>
+          <option value="affiliate">Affiliate</option>
+          <option value="user">User</option>
+          <option value="sales_rep">Sales Rep</option>
+          <option value="org_admin">Org Admin</option>
+          <option value="account_exec">Account Exec</option>
+          <option value="sdr">SDR</option>
+          <option value="team_lead">Team Lead</option>
+        </select>
       </div>
 
       {/* Users List */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 py-4">
+      <div>
         <div className="space-y-2">
           {filteredUsers.length === 0 ? (
             <div className="text-center py-12">
@@ -448,73 +444,62 @@ export function RoleManagement() {
               const isProcessing = processingId === user.id;
               const isMaster = user.role === 'master';
 
+              const displayName = user.user_metadata?.name || user.user_metadata?.full_name || user.email;
+              const initials = (displayName.match(/[A-Za-z0-9]/g) || ['?']).slice(0, 2).join('').toUpperCase();
               return (
                 <div
                   key={user.id}
-                  className="border border-[var(--border-color)] rounded-lg bg-white dark:bg-zinc-900/50 overflow-hidden"
+                  className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden shadow-sm"
                 >
                   {/* User Header */}
-                  <div className="p-3 sm:p-4">
-                    <div className="flex items-start gap-3">
-                      {/* Role Badge */}
-                      <div className={`flex-shrink-0 w-10 h-10 rounded-lg ${roleConfig.bg} border ${roleConfig.border} flex items-center justify-center`}>
-                        <RoleIcon className={`w-5 h-5 ${roleConfig.color}`} />
+                  <button
+                    onClick={() => setExpandedUser(isExpanded ? null : user.id)}
+                    disabled={isProcessing}
+                    className="w-full text-left p-3 sm:p-4 hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      {/* Neutral monochrome avatar */}
+                      <div className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-semibold border bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800">
+                        {initials}
                       </div>
 
                       {/* User Info */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="text-sm font-semibold text-[var(--text-main)] truncate">
-                            {user.user_metadata?.name || user.user_metadata?.full_name || user.email}
-                          </h3>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${roleConfig.bg} ${roleConfig.color} border ${roleConfig.border}`}>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{displayName}</h3>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 flex-shrink-0">
+                            <RoleIcon className="w-3 h-3" />
                             {roleConfig.label}
                           </span>
-                          {isMaster && (
-                            <Crown className="w-3.5 h-3.5 text-[#1ED4A7]" />
-                          )}
+                          {isMaster && <Crown className="w-3.5 h-3.5 text-[#1ED4A7] flex-shrink-0" />}
                         </div>
-                        <p className="text-xs text-zinc-500 truncate mb-1">{user.email}</p>
-                        <div className="flex flex-wrap items-center gap-2 text-[10px] text-zinc-400">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
-                            {new Date(user.created_at).toLocaleDateString()}
-                          </span>
+                        <p className="text-xs text-zinc-500 truncate">{user.email}</p>
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] text-zinc-400 dark:text-zinc-600 mt-1">
+                          <span>joined {new Date(user.created_at).toLocaleDateString()}</span>
                           {user.last_sign_in_at && (
-                            <span className="flex items-center gap-1">
-                              <UserCheck className="w-3 h-3" />
-                              Last: {new Date(user.last_sign_in_at).toLocaleDateString()}
-                            </span>
+                            <span>· last seen {new Date(user.last_sign_in_at).toLocaleDateString()}</span>
                           )}
-                          {user.can_signup !== undefined && (
-                            <span className={`flex items-center gap-1 ${user.can_signup ? 'text-[#1ED4A7]' : 'text-red-500'}`}>
-                              {user.can_signup ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                              Signup {user.can_signup ? 'Enabled' : 'Disabled'}
+                          {user.can_signup !== undefined && !user.can_signup && (
+                            <span className="text-rose-500 flex items-center gap-1">
+                              <Lock className="w-3 h-3" /> Signup disabled
                             </span>
                           )}
                         </div>
                       </div>
 
-                      {/* Actions */}
-                      <div className="flex-shrink-0 flex items-center gap-1">
-                        <button
-                          onClick={() => setExpandedUser(isExpanded ? null : user.id)}
-                          className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors"
-                          disabled={isProcessing}
-                        >
-                          {isExpanded ? (
-                            <ChevronUp className="w-4 h-4 text-zinc-500" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4 text-zinc-500" />
-                          )}
-                        </button>
+                      <div className="flex-shrink-0">
+                        {isExpanded ? (
+                          <ChevronUp className="w-4 h-4 text-zinc-500" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-zinc-500" />
+                        )}
                       </div>
                     </div>
-                  </div>
+                  </button>
 
                   {/* Expanded Details */}
                   {isExpanded && (
-                    <div className="border-t border-[var(--border-color)] p-4 bg-zinc-50/50 dark:bg-zinc-900/30 space-y-4">
+                    <div className="border-t border-zinc-200 dark:border-zinc-800 p-4 space-y-4">
                       {/* Role Change */}
                       {!isMaster && (
                         <div>
@@ -539,7 +524,7 @@ export function RoleManagement() {
                                   } disabled:opacity-50 disabled:cursor-not-allowed`}
                                 >
                                   <Icon className={`w-4 h-4 mb-1 ${isSelected ? config.color : 'text-zinc-400'}`} />
-                                  <div className="text-xs font-medium text-[var(--text-main)]">{config.label}</div>
+                                  <div className="text-xs font-medium text-zinc-900 dark:text-zinc-100">{config.label}</div>
                                 </button>
                               );
                             })}
@@ -596,7 +581,7 @@ export function RoleManagement() {
                                     ) : (
                                       <Check className="w-3.5 h-3.5 text-[#1ED4A7] flex-shrink-0" />
                                     )}
-                                    <span className="text-xs font-medium text-[var(--text-main)]">{feature.label}</span>
+                                    <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100">{feature.label}</span>
                                   </div>
                                 </button>
                               );
@@ -637,7 +622,7 @@ export function RoleManagement() {
 
                       {/* Danger Zone */}
                       {!isMaster && (
-                        <div className="pt-3 border-t border-[var(--border-color)]">
+                        <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800">
                           <button
                             onClick={() => deleteUser(user.id, user.email)}
                             disabled={isProcessing}
@@ -667,10 +652,10 @@ export function RoleManagement() {
       {/* Add User Modal */}
       {showAddUser && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-[var(--border-color)] max-w-md w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-[var(--text-main)]">Add New User</h3>
+                <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Add New User</h3>
                 <button
                   onClick={() => setShowAddUser(false)}
                   className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors"
@@ -686,7 +671,7 @@ export function RoleManagement() {
                     type="email"
                     value={newUser.email}
                     onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                    className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg text-sm text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white/20"
+                    className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white/20"
                     required
                   />
                 </div>
@@ -698,7 +683,7 @@ export function RoleManagement() {
                       type={showPassword ? 'text' : 'password'}
                       value={newUser.password}
                       onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                      className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg text-sm text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white/20"
+                      className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white/20"
                       required
                     />
                     <button
@@ -721,7 +706,7 @@ export function RoleManagement() {
                     type="text"
                     value={newUser.name}
                     onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                    className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg text-sm text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white/20"
+                    className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white/20"
                   />
                 </div>
 
@@ -745,7 +730,7 @@ export function RoleManagement() {
                           }`}
                         >
                           <Icon className={`w-4 h-4 mb-1 ${isSelected ? config.color : 'text-zinc-400'}`} />
-                          <div className="text-xs font-medium text-[var(--text-main)]">{config.label}</div>
+                          <div className="text-xs font-medium text-zinc-900 dark:text-zinc-100">{config.label}</div>
                         </button>
                       );
                     })}
@@ -761,7 +746,7 @@ export function RoleManagement() {
                       onChange={(e) => setNewUser({ ...newUser, can_signup: e.target.checked })}
                       className="w-4 h-4 rounded border-zinc-300 dark:border-zinc-700"
                     />
-                    <label htmlFor="can-signup" className="text-sm text-[var(--text-main)]">
+                    <label htmlFor="can-signup" className="text-sm text-zinc-900 dark:text-zinc-100">
                       Allow signup access
                     </label>
                   </div>
@@ -771,7 +756,7 @@ export function RoleManagement() {
                   <button
                     type="button"
                     onClick={() => setShowAddUser(false)}
-                    className="flex-1 px-4 py-2.5 border border-[var(--border-color)] rounded-lg text-sm font-medium text-[var(--text-main)] hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+                    className="flex-1 px-4 py-2.5 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm font-medium text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
                   >
                     Cancel
                   </button>
