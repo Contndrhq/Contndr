@@ -20,6 +20,7 @@ import { SalesAdminPanel } from './SalesAdminPanel';
 import { AdminEventCenter } from './AdminEventCenter';
 import { AdminLeadBrowser } from './AdminLeadBrowser';
 import { UserDetailSheet } from './UserDetailSheet';
+import { AdminPanelErrorBoundary } from './AdminPanelErrorBoundary';
 
 // ─── Admin Credit Management Modal ──────────────────────────────────
 function AdminCreditModal({ user, onClose }: { user: { id: string; email: string; user_metadata: any; subscription: any }; onClose: () => void }) {
@@ -1599,9 +1600,21 @@ export function AdminDashboard() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-zinc-50 dark:bg-[#050505] text-zinc-900 dark:text-white transition-colors duration-200">
+    <div className="flex flex-col h-full bg-transparent text-zinc-900 dark:text-white transition-colors duration-200 overflow-y-auto">
+      {/* Header — matches Settings page styling */}
+      <div className="flex-shrink-0 px-4 sm:px-6 py-3 sm:py-4 border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-black/80 backdrop-blur-md sticky top-0 z-30">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Admin</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 truncate">
+              {GROUPS.find((g) => g.id === TAB_GROUP[activeTab])?.tabs.find((t) => t.id === activeTab)?.label || 'Dashboard'}
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Top Bar */}
-      <div className="px-4 sm:px-6 py-4 sm:py-6 bg-zinc-50 dark:bg-[#050505] z-20 flex flex-col gap-4">
+      <div className="px-4 sm:px-6 py-4 sm:py-6 z-20 flex flex-col gap-4">
         {/* Two-tier Tabs: top groups + secondary tabs within the active group */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-[#111] rounded-lg w-full sm:w-fit border border-zinc-200 dark:border-white/5 overflow-x-auto scrollbar-hide">
@@ -1655,6 +1668,7 @@ export function AdminDashboard() {
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden px-4 sm:px-6 pb-4 sm:pb-6 flex flex-col">
+       <AdminPanelErrorBoundary resetKey={activeTab}>
         {activeTab === 'leads' ? (
           <AdminLeadBrowser searchTerm={searchTerm} />
         ) : activeTab === 'events' ? (
@@ -2372,6 +2386,7 @@ export function AdminDashboard() {
             </div>
           </>
         )}
+       </AdminPanelErrorBoundary>
       </div>
 
       {/* Change Plan Modal */}
