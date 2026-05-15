@@ -68,8 +68,11 @@ export function WebsiteConnector() {
   const [queue, setQueue] = useState<any[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts: { manual?: boolean } = {}) => {
+    if (opts.manual) setRefreshing(true);
     try {
       const [wsRes, evRes, ldRes] = await Promise.all([
         authenticatedFetch(`${BASE}/workspace`),
@@ -90,10 +93,16 @@ export function WebsiteConnector() {
       setEvents(ev.events || []);
       setLeads(ld.leads || []);
       setQueue(ld.queue || []);
+      setLastRefreshed(new Date());
+      if (opts.manual) {
+        const evCount = (ev.events || []).length;
+        toast.success(evCount > 0 ? `Refreshed — ${evCount} event${evCount === 1 ? '' : 's'}` : 'Refreshed');
+      }
     } catch (e: any) {
       console.error('[WC] load failed', e);
       toast.error('Failed to load Website Connector');
     } finally {
+      if (opts.manual) setRefreshing(false);
       setLoading(false);
     }
   }, []);
@@ -238,8 +247,13 @@ export function WebsiteConnector() {
           <button onClick={fireTestEvent} className="px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs flex items-center gap-1 whitespace-nowrap">
             <Send className="w-3.5 h-3.5" /> Fire test
           </button>
-          <button onClick={load} className="px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs flex items-center gap-1 whitespace-nowrap">
-            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          <button
+            onClick={() => load({ manual: true })}
+            disabled={refreshing}
+            className="px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs flex items-center gap-1 whitespace-nowrap disabled:opacity-60"
+            title={lastRefreshed ? `Last refreshed ${lastRefreshed.toLocaleTimeString()}` : 'Refresh now'}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} /> {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </div>
