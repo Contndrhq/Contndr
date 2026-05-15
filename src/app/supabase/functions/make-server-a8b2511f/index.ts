@@ -1174,6 +1174,8 @@ app.get("/make-server-a8b2511f/list-models", async (c) => {
   }
 });
 
+import websiteConnectorApp from "./website-connector.tsx";
+app.route("/make-server-a8b2511f/wc", websiteConnectorApp);
 app.route("/make-server-a8b2511f/telnyx", telnyxApp);
 app.route("/make-server-a8b2511f/quo", quoApp);
 app.route("/make-server-a8b2511f/quo-webrtc", quoWebrtcApp);
