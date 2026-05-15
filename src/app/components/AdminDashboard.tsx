@@ -21,6 +21,7 @@ import { AdminEventCenter } from './AdminEventCenter';
 import { AdminLeadBrowser } from './AdminLeadBrowser';
 import { UserDetailSheet } from './UserDetailSheet';
 import { AdminPanelErrorBoundary } from './AdminPanelErrorBoundary';
+import { AdminCallsPanel } from './AdminCallsPanel';
 
 // ─── Admin Credit Management Modal ──────────────────────────────────
 function AdminCreditModal({ user, onClose }: { user: { id: string; email: string; user_metadata: any; subscription: any }; onClose: () => void }) {
@@ -1095,11 +1096,11 @@ function AffiliateRow({
 
 // ─── Main Admin Dashboard ───────────────────────────────────────────
 export function AdminDashboard() {
-  type AdminTab = 'waitlist' | 'users' | 'affiliates' | 'revenue' | 'sales' | 'tracking' | 'org' | 'roles' | 'events' | 'system' | 'leads';
+  type AdminTab = 'waitlist' | 'users' | 'affiliates' | 'revenue' | 'sales' | 'tracking' | 'org' | 'roles' | 'events' | 'system' | 'leads' | 'calls';
   type AdminGroup = 'people' | 'business' | 'system';
   const TAB_GROUP: Record<AdminTab, AdminGroup> = {
     waitlist: 'people', users: 'people', affiliates: 'people', org: 'people', roles: 'people',
-    revenue: 'business', sales: 'business', leads: 'business', tracking: 'business',
+    revenue: 'business', sales: 'business', leads: 'business', tracking: 'business', calls: 'business',
     events: 'system', system: 'system',
   };
   const GROUPS: Array<{ id: AdminGroup; label: string; tabs: Array<{ id: AdminTab; label: string }> }> = [
@@ -1113,8 +1114,9 @@ export function AdminDashboard() {
     { id: 'business', label: 'Business', tabs: [
       { id: 'revenue', label: 'Revenue' },
       { id: 'sales', label: 'Sales' },
+      { id: 'calls', label: 'AI Calls' },
       { id: 'leads', label: 'Lead Database' },
-      { id: 'tracking', label: 'Tracking' },
+      { id: 'tracking', label: 'Email Tracking' },
     ]},
     { id: 'system', label: 'System', tabs: [
       { id: 'events', label: 'Event Feed' },
@@ -1690,7 +1692,7 @@ export function AdminDashboard() {
           </div>
         </div>
 
-        {activeTab !== 'roles' && activeTab !== 'system' && activeTab !== 'sales' && activeTab !== 'events' && activeTab !== 'leads' && (
+        {activeTab !== 'roles' && activeTab !== 'system' && activeTab !== 'sales' && activeTab !== 'events' && activeTab !== 'leads' && activeTab !== 'calls' && (
           <div className="relative max-w-full">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 dark:text-zinc-500" />
             <input
@@ -1707,7 +1709,9 @@ export function AdminDashboard() {
       {/* Content — page scrolls naturally; panels manage their own width */}
       <div className="px-4 sm:px-6 pb-6 flex flex-col">
        <AdminPanelErrorBoundary resetKey={activeTab}>
-        {activeTab === 'leads' ? (
+        {activeTab === 'calls' ? (
+          <AdminCallsPanel searchTerm={searchTerm} />
+        ) : activeTab === 'leads' ? (
           <AdminLeadBrowser searchTerm={searchTerm} />
         ) : activeTab === 'events' ? (
           <AdminEventCenter />

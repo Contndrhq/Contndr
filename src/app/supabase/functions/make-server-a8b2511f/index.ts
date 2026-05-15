@@ -3402,6 +3402,67 @@ app.post("/make-server-a8b2511f/admin/users/sync-stripe", async (c) => {
 // to the older one and the UI silently received an unexpected payload
 // shape, which made "Run GC" appear to do nothing.)
 
+// GET /admin/ai-calls - List all AI calls across users with transcripts (Admin Only)
+app.get("/make-server-a8b2511f/admin/ai-calls", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+
+    const limit = Math.min(parseInt(c.req.query('limit') || '100', 10), 500);
+    const allCalls = await kv.getByPrefixLimited('call:', 1000, 0).catch(() => []);
+    const calls = (allCalls as any[])
+      .filter((c) => c && c.id && !String(c.id).startsWith('test_') && c.user_id)
+      .map((c) => ({
+        id: c.id,
+        user_id: c.user_id,
+        route: c.route || 'telnyx',
+        status: c.status || 'unknown',
+        outcome: c.outcome || null,
+        lead_name: c.lead_name || c.ai_config?.lead_name || null,
+        business_name: c.business_name || c.ai_config?.business_name || null,
+        from_number: c.from_number || null,
+        to_number: c.to_number || null,
+        started_at: c.started_at || null,
+        ended_at: c.ended_at || null,
+        duration_seconds: c.duration_seconds || c.duration || null,
+        transcript: c.transcript || c.transcript_text || null,
+        summary: c.summary || null,
+        recording_url: c.recording_url || null,
+        convai_conversation_id: c.convai_conversation_id || null,
+      }))
+      .sort((a, b) => new Date(b.started_at || 0).getTime() - new Date(a.started_at || 0).getTime())
+      .slice(0, limit);
+
+    // Build user email lookup
+    const uniqueUserIds = [...new Set(calls.map((c) => c.user_id).filter(Boolean))];
+    const userEmails: Record<string, string> = {};
+    await Promise.all(uniqueUserIds.map(async (uid) => {
+      try {
+        const { data } = await supabase.auth.admin.getUserById(uid);
+        if (data?.user?.email) userEmails[uid] = data.user.email;
+      } catch {}
+    }));
+    const enriched = calls.map((c) => ({ ...c, user_email: userEmails[c.user_id] || c.user_id }));
+
+    // Stats
+    const stats = {
+      total: enriched.length,
+      completed: enriched.filter((c) => c.status === 'completed' || c.outcome === 'completed').length,
+      with_transcript: enriched.filter((c) => c.transcript).length,
+      via_convai: enriched.filter((c) => c.route === 'elevenlabs_convai').length,
+      total_minutes: Math.round(enriched.reduce((s, c) => s + (c.duration_seconds || 0), 0) / 60),
+    };
+
+    c.header('Cache-Control', 'private, max-age=30, stale-while-revalidate=120');
+    return c.json({ success: true, calls: enriched, stats });
+  } catch (error: any) {
+    console.error('[ADMIN] AI calls error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // POST /admin/circuit-reset - Manually reset the KV circuit breaker (Admin Only)
 app.post("/make-server-a8b2511f/admin/circuit-reset", async (c) => {
   try {

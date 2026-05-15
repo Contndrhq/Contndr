@@ -139,22 +139,21 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
   ) || [];
 
   return (
-    <div className={adminMode ? "flex flex-col gap-6" : "glass-card p-6 h-full flex flex-col"}>
+    <div className={adminMode ? "flex flex-col gap-4" : "glass-card p-6 h-full flex flex-col"}>
       {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2.5">
-          <Activity className="w-4 h-4 text-[#1ED4A7]" />
-          <h3 className={`text-sm font-bold uppercase tracking-wider ${adminMode ? 'text-gray-900 dark:text-white' : 'text-zinc-900 dark:text-white'}`}>
-            {adminMode ? 'Platform Tracking Analytics' : 'Tracking Parity'}
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className={`text-sm font-medium ${adminMode ? 'text-zinc-900 dark:text-white' : 'text-zinc-900 dark:text-white'}`}>
+            {adminMode ? 'Platform email tracking' : 'Tracking parity'}
           </h3>
           {data && hasData && (
-            <span className="text-[10px] text-zinc-400 font-medium bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">
+            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-2 py-0.5 rounded-full">
               {data.emailCount.toLocaleString()} emails
             </span>
           )}
           {adminMode && data && data.uniqueUsers && data.uniqueUsers > 0 && (
-            <span className="text-[10px] text-emerald-500 font-medium bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full">
-              {data.uniqueUsers} user{data.uniqueUsers !== 1 ? 's' : ''}
+            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-2 py-0.5 rounded-full">
+              {data.uniqueUsers} sender{data.uniqueUsers !== 1 ? 's' : ''}
             </span>
           )}
         </div>
@@ -164,7 +163,7 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
           <div className="relative">
             <button
               onClick={() => setShowDaysDropdown(!showDaysDropdown)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors border border-zinc-200 dark:border-zinc-700"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-900 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors border border-zinc-200 dark:border-zinc-800"
             >
               {days}d
               <ChevronDown className="w-3 h-3" />
