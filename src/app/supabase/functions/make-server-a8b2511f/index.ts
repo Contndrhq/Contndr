@@ -18944,9 +18944,12 @@ app.post("/make-server-a8b2511f/campaigns/:id/diagnose-scheduled", async (c) => 
     if (authError || !user) return c.json({ error: 'Unauthorized' }, 401);
 
     const campaignId = c.req.param('id');
+    // Use select('*') so we don't error when one of the schema's columns
+    // doesn't exist (the previous version errored on scheduled_time which
+    // turned out to be missing in production, blocking diagnosis entirely).
     const { data: dbCampaign, error: dbErr } = await supabase
       .from('campaigns')
-      .select('id, user_id, name, status, scheduled_time, created_at, updated_at, from_email, brand, total_recipients, sent_count')
+      .select('*')
       .eq('id', campaignId)
       .single();
 
@@ -18958,7 +18961,11 @@ app.post("/make-server-a8b2511f/campaigns/:id/diagnose-scheduled", async (c) => 
     }
 
     const now = new Date();
-    const scheduledTime = dbCampaign.scheduled_time ? new Date(dbCampaign.scheduled_time) : null;
+    // Tolerate either column name — different migration histories used
+    // different schemas. scheduled_at is the canonical going forward; if
+    // an older row has scheduled_time, honor that as a fallback.
+    const scheduledRaw = dbCampaign.scheduled_at || dbCampaign.scheduled_time || null;
+    const scheduledTime = scheduledRaw ? new Date(scheduledRaw) : null;
     const isPastDue = scheduledTime ? scheduledTime <= now : false;
     const kvCampaign = await kv.get(`campaign:${user.id}:${campaignId}`);
 
@@ -18967,8 +18974,10 @@ app.post("/make-server-a8b2511f/campaigns/:id/diagnose-scheduled", async (c) => 
       name: dbCampaign.name,
       db_status: dbCampaign.status,
       kv_status: kvCampaign?.status || '(missing in KV)',
-      scheduled_time: dbCampaign.scheduled_time,
-      scheduled_time_local: scheduledTime ? scheduledTime.toLocaleString() : null,
+      scheduled_at_column: dbCampaign.scheduled_at ?? null,
+      scheduled_time_column: dbCampaign.scheduled_time ?? null,
+      scheduled_resolved: scheduledRaw,
+      scheduled_local: scheduledTime ? scheduledTime.toLocaleString() : null,
       now: now.toISOString(),
       is_past_due: isPastDue,
       total_recipients: dbCampaign.total_recipients,

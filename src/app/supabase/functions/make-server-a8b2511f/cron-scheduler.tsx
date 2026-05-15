@@ -179,14 +179,17 @@ async function activateScheduledCampaigns(): Promise<{
 
   try {
     const now = new Date().toISOString();
-    
-    // Find all scheduled campaigns whose time has passed
+
+    // The campaigns table has historically used both `scheduled_time` and
+    // `scheduled_at` in different migrations. Query with select('*') and
+    // a status filter, then check either column in code. The previous
+    // approach hard-coded `scheduled_time` in the SELECT/WHERE clauses
+    // and silently failed when the production schema only had
+    // `scheduled_at` — scheduled campaigns never activated as a result.
     const { data: scheduledCampaigns, error } = await supabase
       .from('campaigns')
-      .select('id, user_id, name, scheduled_time')
-      .eq('status', 'scheduled')
-      .lte('scheduled_time', now)
-      .not('scheduled_time', 'is', null);
+      .select('*')
+      .eq('status', 'scheduled');
 
     if (error) {
       result.errors.push(`DB query failed: ${error.message}`);
@@ -197,10 +200,22 @@ async function activateScheduledCampaigns(): Promise<{
       return result;
     }
 
-    console.log(`[CRON-SCHEDULE] Found ${scheduledCampaigns.length} scheduled campaign(s) ready to activate`);
+    // Filter past-due in JS so we tolerate either column name
+    const dueCampaigns = scheduledCampaigns.filter((c: any) => {
+      const t = c.scheduled_at || c.scheduled_time;
+      return !!t && new Date(t) <= new Date(now);
+    });
 
-    for (const campaign of scheduledCampaigns) {
+    if (dueCampaigns.length === 0) {
+      console.log(`[CRON-SCHEDULE] ${scheduledCampaigns.length} scheduled campaign(s) found, none past due yet`);
+      return result;
+    }
+
+    console.log(`[CRON-SCHEDULE] Found ${dueCampaigns.length} scheduled campaign(s) ready to activate`);
+
+    for (const campaign of dueCampaigns) {
       try {
+        const scheduledTime = campaign.scheduled_at || campaign.scheduled_time;
         // Update status to 'active' in both KV and DB
         const kvCampaign = await kv.get(`campaign:${campaign.user_id}:${campaign.id}`);
         if (kvCampaign) {
@@ -216,7 +231,7 @@ async function activateScheduledCampaigns(): Promise<{
           .eq('id', campaign.id);
 
         result.campaignsActivated++;
-        console.log(`[CRON-SCHEDULE] Activated campaign "${campaign.name}" (scheduled for ${campaign.scheduled_time})`);
+        console.log(`[CRON-SCHEDULE] Activated campaign "${campaign.name}" (scheduled for ${scheduledTime})`);
       } catch (err: any) {
         console.error(`[CRON-SCHEDULE] Error activating campaign ${campaign.id}:`, err);
         result.errors.push(`${campaign.name}: ${err.message}`);
