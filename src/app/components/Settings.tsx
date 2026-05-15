@@ -14,7 +14,7 @@ import { LeadScoringTest } from './LeadScoringTest';
 import ApiDiagnostics from './ApiDiagnostics';
 import DemoDataManager from './DemoDataManager';
 import LeadScoringManager from './LeadScoringManager';
-import { TrackingSettings } from './TrackingSettings';
+import { WebsiteConnector } from './WebsiteConnector';
 import { PreferencesSettings } from './PreferencesSettings';
 import { ComplianceSettings } from './ComplianceSettings';
 import { AgentModeSettings } from './AgentModeSettings';
@@ -153,7 +153,7 @@ export function Settings() {
 
         {activeTab === 'integrations' && <IntegrationsTab />}
 
-        {activeTab === 'tracking' && <TrackingSettings />}
+        {activeTab === 'tracking' && <WebsiteConnector />}
 
         {activeTab === 'team' && <TeamSettings />}
         

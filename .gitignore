@@ -10,3 +10,4 @@ src/app/tmp/
 src/app/imports/*
 !src/app/imports/svg-*.tsx
 .vercel
+.claude/

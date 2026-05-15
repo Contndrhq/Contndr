@@ -164,11 +164,55 @@ export async function deleteNotification(userId: string, notificationId: string)
 
 // ─── Campaign Auto-Resume ────────────────────────────────────────────
 
+const SCHEDULED_TRIGGER_LAST_RUN_KEY = 'cron:scheduled_trigger_last_run';
+const SCHEDULED_TRIGGER_COOLDOWN_MS = 60 * 1000; // 1 minute
+
+/**
+ * Lightweight opportunistic trigger that activates due-scheduled campaigns
+ * and resumes active campaigns. Called from common user-facing endpoints
+ * (dashboard, today panel, auto-process) so scheduled campaigns fire even
+ * without an external cron service. Cheap KV scan + 60s cooldown so it
+ * doesn't tax request latency.
+ */
+export async function maybeRunScheduledTrigger(): Promise<boolean> {
+  try {
+    const last = await kv.get(SCHEDULED_TRIGGER_LAST_RUN_KEY) as { at: string } | null;
+    if (last?.at) {
+      const elapsed = Date.now() - new Date(last.at).getTime();
+      if (elapsed < SCHEDULED_TRIGGER_COOLDOWN_MS) return false;
+    }
+    // Stamp BEFORE running so concurrent requests don't double-fire
+    await kv.set(SCHEDULED_TRIGGER_LAST_RUN_KEY, { at: new Date().toISOString() });
+
+    // Fire and forget — don't block the user request
+    (async () => {
+      try {
+        console.log('[CRON-OPP] Opportunistic scheduled-campaign trigger firing');
+        const activation = await activateScheduledCampaigns();
+        if (activation.campaignsActivated > 0) {
+          console.log(`[CRON-OPP] Activated ${activation.campaignsActivated} scheduled campaign(s)`);
+          // If we activated any, immediately try to resume them so they start sending
+          const resume = await resumeAllUsersCampaigns();
+          console.log(`[CRON-OPP] Resume sent ${resume.totalSent} emails across ${resume.campaignsResumed} campaigns`);
+        }
+      } catch (err: any) {
+        console.error('[CRON-OPP] Background opportunistic trigger error:', err?.message || err);
+      }
+    })();
+
+    return true;
+  } catch (err) {
+    console.warn('[CRON-OPP] maybeRunScheduledTrigger check error:', err);
+    return false;
+  }
+}
+
+
 /**
  * Activate scheduled campaigns whose scheduled_time has passed.
  * Changes status from 'scheduled' to 'active' so they get picked up by resume logic.
  */
-async function activateScheduledCampaigns(): Promise<{
+export async function activateScheduledCampaigns(): Promise<{
   campaignsActivated: number;
   errors: string[];
 }> {
@@ -178,45 +222,61 @@ async function activateScheduledCampaigns(): Promise<{
   };
 
   try {
-    const now = new Date().toISOString();
-    
-    // Find all scheduled campaigns whose time has passed
-    const { data: scheduledCampaigns, error } = await supabase
-      .from('campaigns')
-      .select('id, user_id, name, scheduled_time')
-      .eq('status', 'scheduled')
-      .lte('scheduled_time', now)
-      .not('scheduled_time', 'is', null);
+    const nowMs = Date.now();
 
-    if (error) {
-      result.errors.push(`DB query failed: ${error.message}`);
+    // KV is the source of truth — the SQL `campaigns` table is a best-effort
+    // shadow that has historically failed to write (the INSERT used
+    // `scheduled_time`, a column missing in production schema). Scan KV
+    // for all campaigns and find scheduled ones that are past due.
+    const allCampaigns = await kv.getByPrefixLimited('campaign:', 5000, 0).catch((e: any) => {
+      result.errors.push(`KV scan failed: ${e?.message || e}`);
+      return [] as any[];
+    });
+
+    if (!allCampaigns || allCampaigns.length === 0) {
       return result;
     }
 
-    if (!scheduledCampaigns || scheduledCampaigns.length === 0) {
+    const dueCampaigns = (allCampaigns as any[]).filter((c) => {
+      if (!c || c.status !== 'scheduled') return false;
+      const t = c.scheduled_at || c.scheduled_time;
+      if (!t) return false;
+      const ts = new Date(t).getTime();
+      return Number.isFinite(ts) && ts <= nowMs;
+    });
+
+    if (dueCampaigns.length === 0) {
+      const totalScheduled = (allCampaigns as any[]).filter((c) => c?.status === 'scheduled').length;
+      if (totalScheduled > 0) {
+        console.log(`[CRON-SCHEDULE] ${totalScheduled} scheduled campaign(s) found in KV, none past due yet`);
+      }
       return result;
     }
 
-    console.log(`[CRON-SCHEDULE] Found ${scheduledCampaigns.length} scheduled campaign(s) ready to activate`);
+    console.log(`[CRON-SCHEDULE] Found ${dueCampaigns.length} scheduled campaign(s) ready to activate (from KV scan)`);
 
-    for (const campaign of scheduledCampaigns) {
+    for (const campaign of dueCampaigns) {
       try {
-        // Update status to 'active' in both KV and DB
-        const kvCampaign = await kv.get(`campaign:${campaign.user_id}:${campaign.id}`);
-        if (kvCampaign) {
-          kvCampaign.status = 'active';
-          kvCampaign.updated_at = new Date().toISOString();
-          await kv.set(`campaign:${campaign.user_id}:${campaign.id}`, kvCampaign);
+        const scheduledTime = campaign.scheduled_at || campaign.scheduled_time;
+        const nowIso = new Date().toISOString();
+
+        // Update KV (source of truth)
+        campaign.status = 'active';
+        campaign.updated_at = nowIso;
+        await kv.set(`campaign:${campaign.user_id}:${campaign.id}`, campaign);
+
+        // Best-effort DB update (may not exist if INSERT silently failed)
+        try {
+          await supabase
+            .from('campaigns')
+            .update({ status: 'active', updated_at: nowIso })
+            .eq('id', campaign.id);
+        } catch (dbErr) {
+          // Non-fatal; KV is source of truth
         }
 
-        // Update DB
-        await supabase
-          .from('campaigns')
-          .update({ status: 'active', updated_at: new Date().toISOString() })
-          .eq('id', campaign.id);
-
         result.campaignsActivated++;
-        console.log(`[CRON-SCHEDULE] Activated campaign "${campaign.name}" (scheduled for ${campaign.scheduled_time})`);
+        console.log(`[CRON-SCHEDULE] Activated campaign "${campaign.name}" (scheduled for ${scheduledTime}, user ${campaign.user_id})`);
       } catch (err: any) {
         console.error(`[CRON-SCHEDULE] Error activating campaign ${campaign.id}:`, err);
         result.errors.push(`${campaign.name}: ${err.message}`);
@@ -265,20 +325,25 @@ export async function resumeAllUsersCampaigns(): Promise<{
   await kv.set(CRON_RESUME_LOCK_KEY, { lockedAt: new Date().toISOString() });
 
   try {
-    // Find all campaigns that are active/sending with leads
-    const { data: campaigns, error } = await supabase
-      .from('campaigns')
-      .select('id, user_id, name, status')
-      .in('status', ['active', 'sending'])
-      .order('updated_at', { ascending: true }); // oldest first (most likely stuck)
+    // Find all active/sending campaigns from KV (source of truth — the SQL
+    // `campaigns` table is a best-effort shadow that has historically failed
+    // to write because the INSERT used a non-existent column).
+    const allCampaignsKV = await kv.getByPrefixLimited('campaign:', 5000, 0).catch((e: any) => {
+      result.errors.push(`KV scan failed: ${e?.message || e}`);
+      return [] as any[];
+    });
 
-    if (error) {
-      result.errors.push(`DB query failed: ${error.message}`);
-      return result;
-    }
+    const campaigns = (allCampaignsKV as any[])
+      .filter((c) => c && (c.status === 'active' || c.status === 'sending') && c.user_id && c.id)
+      .sort((a, b) => {
+        // oldest updated first (most likely stuck)
+        const ta = new Date(a.updated_at || 0).getTime();
+        const tb = new Date(b.updated_at || 0).getTime();
+        return ta - tb;
+      });
 
-    if (!campaigns || campaigns.length === 0) {
-      console.log('[CRON-RESUME] No active/sending campaigns found');
+    if (campaigns.length === 0) {
+      console.log('[CRON-RESUME] No active/sending campaigns found in KV');
       return result;
     }
 
