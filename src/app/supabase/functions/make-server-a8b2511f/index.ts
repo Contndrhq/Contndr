@@ -18934,6 +18934,86 @@ app.post("/make-server-a8b2511f/ai-call-campaigns/clear-test-calls", async (c) =
   }
 });
 
+// Diagnose why a scheduled email campaign didn't fire, and force-activate
+// it if everything looks valid. POST /campaigns/:id/diagnose-scheduled
+app.post("/make-server-a8b2511f/campaigns/:id/diagnose-scheduled", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "DIAGNOSE-CAMPAIGN");
+    if (authError || !user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const campaignId = c.req.param('id');
+    const { data: dbCampaign, error: dbErr } = await supabase
+      .from('campaigns')
+      .select('id, user_id, name, status, scheduled_time, created_at, updated_at, from_email, brand, total_recipients, sent_count')
+      .eq('id', campaignId)
+      .single();
+
+    if (dbErr || !dbCampaign) {
+      return c.json({ ok: false, reason: 'Campaign not found in DB', error: dbErr?.message }, 404);
+    }
+    if (dbCampaign.user_id !== user.id) {
+      return c.json({ ok: false, reason: 'Campaign belongs to a different user' }, 403);
+    }
+
+    const now = new Date();
+    const scheduledTime = dbCampaign.scheduled_time ? new Date(dbCampaign.scheduled_time) : null;
+    const isPastDue = scheduledTime ? scheduledTime <= now : false;
+    const kvCampaign = await kv.get(`campaign:${user.id}:${campaignId}`);
+
+    const diagnosis = {
+      campaign_id: campaignId,
+      name: dbCampaign.name,
+      db_status: dbCampaign.status,
+      kv_status: kvCampaign?.status || '(missing in KV)',
+      scheduled_time: dbCampaign.scheduled_time,
+      scheduled_time_local: scheduledTime ? scheduledTime.toLocaleString() : null,
+      now: now.toISOString(),
+      is_past_due: isPastDue,
+      total_recipients: dbCampaign.total_recipients,
+      sent_count: dbCampaign.sent_count,
+      from_email: dbCampaign.from_email,
+      brand: dbCampaign.brand,
+    };
+
+    // Reason it didn't fire
+    let reason: string;
+    let actionTaken: string | null = null;
+    if (dbCampaign.status !== 'scheduled' && dbCampaign.status !== 'active') {
+      reason = `Status is "${dbCampaign.status}" — only 'scheduled' or 'active' campaigns fire. (Maybe it was paused or completed?)`;
+    } else if (!scheduledTime) {
+      reason = 'scheduled_time is NULL — campaign was never given a launch time.';
+    } else if (!isPastDue) {
+      reason = `Not past due yet. scheduled_time is ${scheduledTime.toLocaleString()}, now is ${now.toLocaleString()}.`;
+    } else {
+      // Status='scheduled' + past due → cron job should have activated it.
+      // Force-activate now.
+      try {
+        await supabase
+          .from('campaigns')
+          .update({ status: 'active', updated_at: now.toISOString() })
+          .eq('id', campaignId);
+        if (kvCampaign) {
+          kvCampaign.status = 'active';
+          kvCampaign.updated_at = now.toISOString();
+          await kv.set(`campaign:${user.id}:${campaignId}`, kvCampaign);
+        }
+        actionTaken = 'Forced status: scheduled → active. The next send-batch poll (within ~60s) should pick it up.';
+        reason = 'Was stuck at status=scheduled past its trigger time — likely the cron job didn\'t run when expected. Activated manually.';
+      } catch (e: any) {
+        reason = `Past due but failed to force-activate: ${e.message}`;
+      }
+    }
+
+    console.log(`[DIAGNOSE-CAMPAIGN] ${campaignId}: ${reason} ${actionTaken ? '| Action: ' + actionTaken : ''}`);
+    return c.json({ ok: true, diagnosis, reason, actionTaken });
+  } catch (error: any) {
+    console.error('[DIAGNOSE-CAMPAIGN] error:', error);
+    return c.json({ ok: false, error: error.message }, 500);
+  }
+});
+
 app.delete("/make-server-a8b2511f/ai-call-campaigns/:id", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
