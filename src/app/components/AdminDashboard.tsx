@@ -300,6 +300,28 @@ const LEAD_VOLUME_LABELS: Record<string, string> = {
   '20000_plus': '20,000+',
 };
 
+// Current plan tiers: growth, scale, enterprise. Older waitlist/recommendation
+// records still carry legacy values (starter, professional, basic, pro) — map
+// them to the closest current tier for display so admins see real options.
+const LEGACY_PLAN_MAP: Record<string, string> = {
+  starter: 'growth',
+  basic: 'growth',
+  pro: 'scale',
+  professional: 'scale',
+  team: 'scale',
+  business: 'scale',
+};
+function normalizePlanKey(raw?: string | null): string {
+  const v = String(raw || '').trim().toLowerCase();
+  if (!v || v === 'none') return '';
+  return LEGACY_PLAN_MAP[v] || v;
+}
+function normalizePlanLabel(raw?: string | null): string {
+  const key = normalizePlanKey(raw);
+  if (!key) return '';
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
 function isMissingValue(value?: string | null) {
   const normalized = String(value || '').trim().toLowerCase();
   return !normalized || ['unknown', 'n/a', 'na', 'none', 'null', 'undefined'].includes(normalized);
@@ -1971,7 +1993,7 @@ export function AdminDashboard() {
                         )}
                         {entry.recommended_plan && (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20">
-                            Suggested: <span className="capitalize">{entry.recommended_plan}</span>
+                            Suggested: <span>{normalizePlanLabel(entry.recommended_plan)}</span>
                           </span>
                         )}
                       </div>
@@ -2041,11 +2063,11 @@ export function AdminDashboard() {
                           <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                             <span className="text-[9px] text-zinc-500">Suggested:</span>
                             <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium capitalize ${
-                              user.subscription.recommended_plan === (user.subscription?.plan || 'none')
+                              normalizePlanKey(user.subscription.recommended_plan) === (user.subscription?.plan || 'none').toLowerCase()
                                 ? 'bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20'
                                 : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
                             }`}>
-                              {user.subscription.recommended_plan}
+                              {normalizePlanLabel(user.subscription.recommended_plan)}
                             </span>
                             {user.subscription.chose_recommended === false && (
                               <span className="text-[8px] text-amber-500/70 font-medium">≠ chosen</span>
@@ -2140,7 +2162,7 @@ export function AdminDashboard() {
                             </span>
                             {entry.recommended_plan && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20 w-fit mt-0.5" title={entry.recommendation_reasons?.join(', ')}>
-                                Suggested: <span className="capitalize">{entry.recommended_plan}</span>
+                                Suggested: <span>{normalizePlanLabel(entry.recommended_plan)}</span>
                               </span>
                             )}
                           </div>
@@ -2256,11 +2278,11 @@ export function AdminDashboard() {
                               <div className="flex items-center gap-1 mt-1">
                                 <span className="text-[9px] text-zinc-500">Suggested:</span>
                                 <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium capitalize ${
-                                  user.subscription.recommended_plan === (user.subscription?.plan || 'none')
+                                  normalizePlanKey(user.subscription.recommended_plan) === (user.subscription?.plan || 'none').toLowerCase()
                                     ? 'bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20'
                                     : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
                                 }`} title={user.subscription.recommendation_reasons?.join(', ')}>
-                                  {user.subscription.recommended_plan}
+                                  {normalizePlanLabel(user.subscription.recommended_plan)}
                                 </span>
                                 {user.subscription.chose_recommended === false && (
                                   <span className="text-[8px] text-amber-500/70 font-medium">≠ chosen</span>
