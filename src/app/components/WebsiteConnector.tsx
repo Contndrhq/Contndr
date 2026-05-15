@@ -294,24 +294,31 @@ export function WebsiteConnector() {
           {workspace.domains.length === 0 ? (
             <div className="text-zinc-500 text-xs italic">No domains yet.</div>
           ) : workspace.domains.map((d) => (
-            <div key={d.host} className="flex items-center justify-between px-3 py-2 rounded-md bg-zinc-50 dark:bg-zinc-900">
-              <div className="flex items-center gap-2">
-                <Globe className="w-4 h-4 text-zinc-400" />
-                <span className="font-mono text-xs">{d.host}</span>
-                {d.verified ? (
-                  <span className="text-emerald-600 text-xs flex items-center gap-1"><Check className="w-3 h-3" /> Verified</span>
-                ) : (
-                  <span className="text-amber-600 text-xs">Pending</span>
-                )}
+            <div key={d.host} className="px-3 py-2 rounded-md bg-zinc-50 dark:bg-zinc-900">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Globe className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                  <span className="font-mono text-xs truncate">{d.host}</span>
+                  {d.verified ? (
+                    <span className="text-emerald-600 text-xs flex items-center gap-1 flex-shrink-0"><Check className="w-3 h-3" /> Verified</span>
+                  ) : (
+                    <span className="text-amber-600 text-xs flex-shrink-0">Pending</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {!d.verified && (
+                    <button onClick={() => verifyDomain(d.host)} className="text-xs text-emerald-600 hover:underline">Check now</button>
+                  )}
+                  <button onClick={() => removeDomain(d.host)} className="text-xs text-zinc-400 hover:text-red-600">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                {!d.verified && (
-                  <button onClick={() => verifyDomain(d.host)} className="text-xs text-emerald-600 hover:underline">Verify</button>
-                )}
-                <button onClick={() => removeDomain(d.host)} className="text-xs text-zinc-400 hover:text-red-600">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
+              {!d.verified && (
+                <div className="text-[11px] text-zinc-500 mt-1 ml-6">
+                  Waiting for first ping from <code>{d.host}</code>. Make sure the script is pasted in your site's <code>&lt;head&gt;</code>, then load any page — we'll auto-verify within ~5 seconds.
+                </div>
+              )}
             </div>
           ))}
         </div>

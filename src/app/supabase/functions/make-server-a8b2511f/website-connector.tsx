@@ -157,9 +157,27 @@ wc.post('/event', async (c) => {
     if (!ws) return new Response(JSON.stringify({ error: 'Unknown workspace' }), { status: 401, headers: PUBLIC_CORS });
 
     const host = originHost(c.req.raw);
+    // Try the body URL too — some browsers strip Referer/Origin on third-party POSTs
+    let eventHost: string | null = host;
+    if (!eventHost && body.url) {
+      try { eventHost = new URL(String(body.url)).hostname.toLowerCase(); } catch {}
+    }
     const verifiedHosts = ws.domains.filter((d) => d.verified).map((d) => d.host);
-    if (verifiedHosts.length > 0 && !domainMatches(verifiedHosts, host)) {
+    if (verifiedHosts.length > 0 && !domainMatches(verifiedHosts, eventHost)) {
       return new Response(JSON.stringify({ error: 'Domain not approved' }), { status: 403, headers: PUBLIC_CORS });
+    }
+
+    // Auto-verify pending domains on first matching event so customers don't
+    // have to click Verify manually. Match by exact host or by suffix.
+    if (eventHost) {
+      const pending = ws.domains.find((d) => !d.verified && (eventHost === d.host || eventHost.endsWith(`.${d.host}`)));
+      if (pending) {
+        pending.verified = true;
+        pending.verified_at = new Date().toISOString();
+        ws.updated_at = new Date().toISOString();
+        await kv.set(`wc:ws:${ws.user_id}`, ws);
+        console.log(`[WC] Auto-verified domain ${pending.host} for user ${ws.user_id}`);
+      }
     }
 
     const visitorId = String(body.visitor_id || '').slice(0, 64) || crypto.randomUUID();
