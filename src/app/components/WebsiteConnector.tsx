@@ -247,7 +247,7 @@ export function WebsiteConnector() {
       {/* Install snippet */}
       <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold flex items-center gap-2"><Code2 className="w-4 h-4" /> Step 1 · Install the script</h3>
+          <h3 className="font-semibold flex items-center gap-2"><Code2 className="w-4 h-4" /> Step 1 · Paste this on your website</h3>
           <button onClick={rotateKey} className="text-xs text-zinc-500 hover:text-red-600">Rotate key</button>
         </div>
         <p className="text-zinc-500 mb-3">Paste this inside the <code>&lt;head&gt;</code> of every page on your site.</p>
@@ -271,15 +271,16 @@ export function WebsiteConnector() {
 
       {/* Domain verification */}
       <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-        <h3 className="font-semibold flex items-center gap-2 mb-2"><Shield className="w-4 h-4" /> Step 2 · Approve your domains</h3>
-        <p className="text-zinc-500 mb-3">Only events from approved domains are accepted. Add each site host (e.g. <code>example.com</code>), then load any page after installing the script and click Verify.</p>
+        <h3 className="font-semibold flex items-center gap-2 mb-1"><Shield className="w-4 h-4" /> Step 2 · Connect your website</h3>
+        <p className="text-zinc-500 mb-1">Add the domain of <b>your</b> website — the one where you just pasted the script (e.g. <code>acme.com</code>). Most customers only add one.</p>
+        <p className="text-zinc-400 text-xs mb-3">Why? Your public key is visible in the script. We only accept events from domains you've approved, so nobody else can pretend to be your site. After adding, load any page on your site and click <b>Verify</b> — it confirms our script is live there.</p>
         <div className="flex gap-2 mb-3">
           <input
             type="text"
             value={newDomain}
             onChange={(e) => setNewDomain(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addDomain()}
-            placeholder="example.com"
+            placeholder="acme.com (your website)"
             className="flex-1 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm"
           />
           <button onClick={addDomain} className="px-3 py-1.5 rounded-md bg-black text-white dark:bg-white dark:text-black text-xs flex items-center gap-1">
