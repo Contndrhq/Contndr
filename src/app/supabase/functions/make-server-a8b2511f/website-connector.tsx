@@ -253,11 +253,20 @@ wc.post('/event', async (c) => {
     // ── Bridge to legacy Analytics Live Traffic ──
     // Mirror the event into the recent_visit_v2 key format so the existing
     // Analytics → Live Traffic page shows these visits without any frontend
-    // change. Cheap; runs as a fire-and-forget so it never blocks the response.
+    // change. Enriches with Cloudflare geo headers so the visitor pin lands
+    // on the correct city — same source the legacy /tracking endpoint uses.
+    // Fire-and-forget so it never blocks the response.
     (async () => {
       try {
         const ts = Date.now();
         const visitId = crypto.randomUUID();
+        const cfLatRaw = c.req.header('cf-iplatitude');
+        const cfLonRaw = c.req.header('cf-iplongitude');
+        const cfCity = c.req.header('cf-ipcity') || null;
+        const cfRegion = c.req.header('cf-region-code') || c.req.header('cf-region') || null;
+        const cfCountry = c.req.header('cf-ipcountry') || null;
+        const cfLat = cfLatRaw ? parseFloat(cfLatRaw) : null;
+        const cfLon = cfLonRaw ? parseFloat(cfLonRaw) : null;
         const visitData = {
           id: visitId,
           user_id: ws.user_id,
@@ -270,15 +279,15 @@ wc.post('/event', async (c) => {
           element_text: body.cta_label || null,
           element_href: null,
           url,
-          title: '',
+          title: body.title || '',
           timestamp: new Date(now).toISOString(),
           user_agent: c.req.header('User-Agent') || '',
-          city: null,
-          country: c.req.header('cf-ipcountry') || null,
-          countryCode: c.req.header('cf-ipcountry') || null,
-          region: null,
-          latitude: null,
-          longitude: null,
+          city: cfCity,
+          country: cfCountry,
+          countryCode: cfCountry,
+          region: cfRegion,
+          latitude: Number.isFinite(cfLat) ? cfLat : null,
+          longitude: Number.isFinite(cfLon) ? cfLon : null,
           isp: null,
           affiliate_ref: null,
           kv_key: `recent_visit_v2:${ws.user_id}:${ts}:${visitId}`,
