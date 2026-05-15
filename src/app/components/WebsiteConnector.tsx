@@ -79,6 +79,12 @@ export function WebsiteConnector() {
       const ws = await wsRes.json();
       const ev = await evRes.json();
       const ld = await ldRes.json();
+      if (ws.entitled === false) {
+        // Shouldn't normally hit this — TrackingTab gates before mounting us.
+        // Bail out cleanly if a non-entitled user somehow lands here.
+        setLoading(false);
+        return;
+      }
       setWorkspace(ws.workspace);
       setInstall(ws.install);
       setEvents(ev.events || []);
