@@ -350,7 +350,7 @@ export function AutomationManager() {
       </div>
 
       {/* Tabs */}
-      <div className="flex bg-zinc-100 dark:bg-zinc-900/50 p-1 rounded-lg w-full sm:w-fit overflow-x-auto scrollbar-hide border border-zinc-200 dark:border-zinc-800/50 backdrop-blur-sm">
+      <div className="flex bg-zinc-100 dark:bg-zinc-950 p-1 rounded-lg w-full sm:w-fit overflow-x-auto scrollbar-hide border border-zinc-200 dark:border-zinc-800/50 backdrop-blur-sm">
         <button
           onClick={() => setActiveTab('rules')}
           className={`px-4 py-2 rounded-md text-xs sm:text-[13px] font-medium transition-all whitespace-nowrap flex-1 sm:flex-none ${

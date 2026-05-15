@@ -257,7 +257,7 @@ function StageColumn({ stage, deals, onAddDeal, onEditDeal, onDeleteDeal, onDrag
   const isLost = stage.key === 'closed_lost';
   return (
     <div onDragOver={onDragOver} onDrop={(e) => onDrop(e, stage.key)}
-      className={`flex-shrink-0 w-[240px] sm:w-[280px] flex flex-col rounded-xl border transition-all duration-200 ${isDragOver ? 'border-emerald-400/50 dark:border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-500/5' : isBottleneck ? 'border-amber-300/60 dark:border-amber-500/30 bg-amber-50/20 dark:bg-amber-500/5' : 'border-zinc-200 dark:border-zinc-800/60 bg-zinc-50/50 dark:bg-zinc-900/30'}`}>
+      className={`flex-shrink-0 w-[240px] sm:w-[280px] flex flex-col rounded-xl border transition-all duration-200 ${isDragOver ? 'border-emerald-400/50 dark:border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-500/5' : isBottleneck ? 'border-amber-300/60 dark:border-amber-500/30 bg-amber-50/20 dark:bg-amber-500/5' : 'border-zinc-200 dark:border-zinc-800/60 bg-zinc-50 dark:bg-zinc-950'}`}>
       <div className="px-3.5 py-3 border-b border-zinc-200/60 dark:border-zinc-800/60">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
@@ -425,14 +425,14 @@ function DealModal({ deal, stage, onSave, onClose }: { deal: PipelineDeal | null
   return createPortal(
     <div className="fixed inset-0 z-[99999] flex items-end sm:items-center justify-center px-0 pb-0 sm:p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/25 dark:bg-black/50 backdrop-blur-[8px]" />
-      <div className="relative w-full sm:max-w-md flex flex-col bg-white dark:bg-[#111111] modal-as-bottom-sheet sm:rounded-2xl border border-zinc-200/80 dark:border-white/[0.08] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.18)] dark:shadow-[0_24px_80px_-12px_rgba(0,0,0,0.6)] overflow-hidden max-h-[85vh] sm:max-h-[calc(100dvh-64px)]" onClick={(e) => e.stopPropagation()}>
+      <div className="relative w-full sm:max-w-md flex flex-col bg-white dark:bg-[#111111] modal-as-bottom-sheet sm:rounded-2xl border border-zinc-200/80 dark:border-zinc-200 dark:border-zinc-800 shadow-[0_24px_80px_-12px_rgba(0,0,0,0.18)] dark:shadow-[0_24px_80px_-12px_rgba(0,0,0,0.6)] overflow-hidden max-h-[85vh] sm:max-h-[calc(100dvh-64px)]" onClick={(e) => e.stopPropagation()}>
         {/* Mobile drag handle */}
         <div className="sm:hidden flex justify-center pt-2 pb-0 shrink-0" onClick={onClose}>
           <div className="w-9 h-1 rounded-full bg-zinc-300 dark:bg-zinc-600" />
         </div>
 
         {/* Header — compact, inline close like AI assistant */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-2.5 sm:py-3 shrink-0 border-b border-zinc-100 dark:border-white/[0.06] sm:border-0">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-2.5 sm:py-3 shrink-0 border-b border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 sm:border-0">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <div className="w-6 h-6 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
               <TrendingUp className="w-3 h-3 text-zinc-500 dark:text-zinc-400" />
@@ -484,7 +484,7 @@ function DealModal({ deal, stage, onSave, onClose }: { deal: PipelineDeal | null
         </form>
 
         {/* Sticky footer */}
-        <div className="px-4 sm:px-6 py-3 border-t border-zinc-100 dark:border-white/[0.06] shrink-0 flex gap-2.5 sm:gap-3 bg-white dark:bg-[#111111] keyboard-aware-footer">
+        <div className="px-4 sm:px-6 py-3 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 shrink-0 flex gap-2.5 sm:gap-3 bg-white dark:bg-[#111111] keyboard-aware-footer">
           <button type="button" onClick={onClose} className="flex-1 px-4 py-3 min-h-[52px] sm:min-h-[44px] text-[14px] sm:text-[13px] font-medium text-zinc-600 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 rounded-[14px] sm:rounded-xl hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors">{t('pipeline.cancel')}</button>
           <button type="button" onClick={() => handleSubmit()} className="flex-1 px-4 py-3 min-h-[52px] sm:min-h-[44px] text-[14px] sm:text-[13px] font-medium text-white bg-zinc-900 dark:bg-white dark:text-black rounded-[14px] sm:rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors">{deal ? t('pipeline.saveChanges') : t('pipeline.createDeal')}</button>
         </div>

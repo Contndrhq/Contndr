@@ -284,7 +284,7 @@ export function DeliverabilityGuide() {
       </div>
 
       {/* Best Practices */}
-      <div className="p-5 bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+      <div className="p-5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
         <h3 className="text-[14px] font-semibold mb-3 text-gray-900 dark:text-white">
           Additional Best Practices
         </h3>

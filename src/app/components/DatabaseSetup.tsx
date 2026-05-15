@@ -434,7 +434,7 @@ CREATE POLICY "Allow all on signatures" ON public.signatures FOR ALL USING (true
             </div>
 
             {/* What Gets Created */}
-            <div className="bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
+            <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
               <h3 className="text-zinc-900 dark:text-zinc-100 font-medium mb-3 text-[15px]">What gets created:</h3>
               <ul className="space-y-2 text-zinc-700 dark:text-zinc-300 text-[14px]">
                 <li className="flex items-center gap-2">

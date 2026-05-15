@@ -268,7 +268,7 @@ export function WritingPresetSelector({ currentValues, onApply }: WritingPresetS
 
           {/* Footer hint */}
           {!showSaveInput && hasCurrentValues && presets.length > 0 && (
-            <div className="px-3.5 py-2.5 border-t border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/[0.02]">
+            <div className="px-3.5 py-2.5 border-t border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950">
               <button
                 onClick={() => setShowSaveInput(true)}
                 className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors flex items-center gap-1"

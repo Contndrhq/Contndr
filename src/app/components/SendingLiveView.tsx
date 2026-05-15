@@ -116,7 +116,7 @@ function LiveEmailComposer({ entry }: { entry: SendingLogEntry }) {
       <div className="flex-shrink-0 border-b border-zinc-200 dark:border-zinc-800/60 px-3 sm:px-5 py-3 space-y-2.5">
         {/* To */}
         <div className="flex items-center gap-2 sm:gap-3">
-          <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest w-10 sm:w-12 flex-shrink-0">To</span>
+          <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider w-10 sm:w-12 flex-shrink-0">To</span>
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800/70 rounded-md px-2 py-1 min-w-0">
               <div className="w-4 h-4 rounded-full bg-zinc-200 dark:bg-white/10 flex items-center justify-center flex-shrink-0">
@@ -139,14 +139,14 @@ function LiveEmailComposer({ entry }: { entry: SendingLogEntry }) {
         {/* From */}
         {entry.fromEmail && (
           <div className="flex items-center gap-2 sm:gap-3">
-            <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest w-10 sm:w-12 flex-shrink-0">From</span>
+            <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider w-10 sm:w-12 flex-shrink-0">From</span>
             <span className="text-xs text-zinc-400 dark:text-zinc-500 font-mono truncate">{entry.fromEmail}</span>
           </div>
         )}
 
         {/* Subject */}
         <div className="flex items-start gap-2 sm:gap-3">
-          <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-widest w-10 sm:w-12 flex-shrink-0 pt-0.5">Subj</span>
+          <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider w-10 sm:w-12 flex-shrink-0 pt-0.5">Subj</span>
           <div className="flex-1 min-w-0">
             {!hasContent ? (
               <div className="flex items-center gap-2">
@@ -362,7 +362,7 @@ export function SendingLiveView({
             }}
           >
             <div className="flex-shrink-0 px-3 sm:px-4 py-2 bg-zinc-50 dark:bg-[#0c0c0c] border-b border-zinc-100 dark:border-zinc-800/30">
-              <span className="text-[10px] uppercase tracking-widest font-semibold text-zinc-400 dark:text-zinc-600">
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400 dark:text-zinc-600">
                 Sent ({completedEntries.filter(e => e.status === 'delivered').length})
                 {completedEntries.filter(e => e.status === 'bounced').length > 0 && (
                   <span className="ml-2 text-amber-500 dark:text-amber-400/80">

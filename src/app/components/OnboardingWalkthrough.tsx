@@ -187,7 +187,7 @@ export function OnboardingWalkthrough({ onComplete, currentView, onNavigate }: O
         <div 
           className={`backdrop-blur-xl rounded-full shadow-2xl overflow-hidden flex items-center gap-3 px-3 py-2 cursor-pointer transition-all hover:scale-[1.02] ${
             isDarkMode 
-              ? 'bg-[#050505]/95 border border-white/[0.08] shadow-black/60' 
+              ? 'bg-[#050505]/95 border border-zinc-200 dark:border-zinc-800 shadow-black/60' 
               : 'bg-white/95 border border-zinc-200 shadow-zinc-400/20'
           }`}
           onClick={() => setMinimized(false)}
@@ -237,14 +237,14 @@ export function OnboardingWalkthrough({ onComplete, currentView, onNavigate }: O
     <div className="fixed bottom-6 right-6 z-[60] w-[340px] max-w-[calc(100vw-2rem)] animate-fade-in">
       <div className={`backdrop-blur-xl rounded-2xl shadow-2xl overflow-hidden ${
         isDarkMode 
-          ? 'bg-[#050505]/95 border border-white/[0.08] shadow-black/60' 
+          ? 'bg-[#050505]/95 border border-zinc-200 dark:border-zinc-800 shadow-black/60' 
           : 'bg-white/95 border border-zinc-200 shadow-zinc-400/20'
       }`}>
         {/* Header */}
         <div className="px-5 pt-4 pb-0">
           <div className="flex items-start justify-between">
             <div>
-              <p className={`text-[10px] font-semibold uppercase tracking-widest ${
+              <p className={`text-[10px] font-semibold uppercase tracking-wider ${
                 isDarkMode ? 'text-zinc-600' : 'text-zinc-500'
               }`}>{t('onboardingWalkthrough.accountSetup')}</p>
               <h3 className={`text-[17px] font-bold mt-0.5 ${
@@ -312,7 +312,7 @@ export function OnboardingWalkthrough({ onComplete, currentView, onNavigate }: O
                   step.completed
                     ? 'bg-[#1ED4A7]/[0.04] border border-[#1ED4A7]/[0.12]'
                     : isDarkMode
-                      ? 'bg-white/[0.03] border border-white/[0.06]'
+                      ? 'bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800'
                       : 'bg-zinc-50 border border-zinc-200'
                 }`}
               >
@@ -381,7 +381,7 @@ export function OnboardingWalkthrough({ onComplete, currentView, onNavigate }: O
             onClick={() => fetchReadiness(true)}
             className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors flex-shrink-0 border ${
               isDarkMode
-                ? 'bg-white/[0.03] hover:bg-white/[0.06] border-white/[0.06]'
+                ? 'bg-zinc-50 dark:bg-zinc-950 hover:bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800'
                 : 'bg-zinc-50 hover:bg-zinc-100 border-zinc-200'
             } ${refreshing ? 'animate-spin' : ''}`}
             title={t('onboardingWalkthrough.refreshStatus')}
@@ -394,7 +394,7 @@ export function OnboardingWalkthrough({ onComplete, currentView, onNavigate }: O
             onClick={onComplete}
             className={`flex-1 flex items-center justify-center gap-2 text-[13px] font-semibold rounded-lg py-2.5 transition-colors border ${
               isDarkMode
-                ? 'text-zinc-500 hover:text-zinc-300 bg-white/[0.03] hover:bg-white/[0.06] border-white/[0.06]'
+                ? 'text-zinc-500 hover:text-zinc-300 bg-zinc-50 dark:bg-zinc-950 hover:bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800'
                 : 'text-zinc-600 hover:text-zinc-900 bg-zinc-50 hover:bg-zinc-100 border-zinc-200'
             }`}
           >

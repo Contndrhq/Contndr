@@ -307,7 +307,7 @@ export function CalendlyAnalytics({ brand = 'all', compactMode = false }: Calend
         {/* Brand Breakdown */}
         {brand === 'all' && (
           <div className="mb-8">
-            <h4 className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-4">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-4">
               Meetings by Brand
             </h4>
             <div className="grid grid-cols-3 gap-4">
@@ -324,7 +324,7 @@ export function CalendlyAnalytics({ brand = 'all', compactMode = false }: Calend
         {/* Campaign Performance */}
         {stats.meetingsByCampaign.length > 0 && (
           <div>
-            <h4 className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-4">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-4">
               Top Performance
             </h4>
             <div className="space-y-3">

@@ -386,8 +386,8 @@ function LeadCard({ lead, selected, onToggle, onSave, saved, saving, onSendEmail
     <div
       className={`group relative p-3 rounded-xl border transition-all duration-200 cursor-pointer
         ${selected
-          ? 'bg-zinc-900/[0.03] dark:bg-white/[0.04] border-zinc-300 dark:border-white/15'
-          : 'bg-white dark:bg-white/[0.02] border-zinc-100 dark:border-white/[0.06] hover:border-zinc-200 dark:hover:border-white/10 hover:bg-zinc-50/50 dark:hover:bg-white/[0.03]'
+          ? 'bg-zinc-900/[0.03] dark:bg-zinc-100 dark:bg-zinc-900 border-zinc-300 dark:border-white/15'
+          : 'bg-white dark:bg-zinc-50 dark:bg-zinc-950 border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 hover:border-zinc-200 dark:hover:border-white/10 hover:bg-zinc-50 dark:hover:bg-zinc-900'
         }`}
       onClick={onToggle}
     >
@@ -399,7 +399,7 @@ function LeadCard({ lead, selected, onToggle, onSave, saved, saving, onSendEmail
         </div>
 
         {/* Avatar — hidden on mobile to save space */}
-        <div className="hidden md:flex w-9 h-9 rounded-lg bg-zinc-100 dark:bg-white/[0.06] items-center justify-center shrink-0">
+        <div className="hidden md:flex w-9 h-9 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 items-center justify-center shrink-0">
           <span className="text-[11px] font-bold text-zinc-500 dark:text-zinc-400">{initials}</span>
         </div>
 
@@ -536,7 +536,7 @@ function LeadResultsToolbar({ leads, selectedIds, onSelectAll, onSaveSelected, s
       <div className="flex items-center gap-1.5">
         <button
           onClick={onSelectAll}
-          className="px-2 md:px-2.5 py-1 rounded-lg text-[10px] md:text-[10.5px] font-medium bg-zinc-50 dark:bg-white/[0.04] border border-zinc-150 dark:border-white/[0.07] text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-white/[0.07] transition-colors"
+          className="px-2 md:px-2.5 py-1 rounded-lg text-[10px] md:text-[10.5px] font-medium bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-150 dark:border-white/[0.07] text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-white/[0.07] transition-colors"
         >
           {allSelected ? t('aiAssistant.toolbar.deselectAll') : t('aiAssistant.toolbar.selectAll')}
         </button>
@@ -792,9 +792,9 @@ function CampaignPreviewCard({ draft, state, onEdit, onLaunch, onRefreshAudience
   }
 
   return (
-    <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.02] overflow-hidden" style={{ animation: 'aiMsgIn .25s ease-out' }}>
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 overflow-hidden" style={{ animation: 'aiMsgIn .25s ease-out' }}>
       {/* ── Header: name + audience pill ── */}
-      <div className="px-4 py-3 bg-zinc-50/80 dark:bg-white/[0.02] border-b border-zinc-100 dark:border-white/[0.06]">
+      <div className="px-4 py-3 bg-zinc-50/80 dark:bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-lg bg-zinc-900 dark:bg-white flex items-center justify-center shrink-0">
             <Rocket className="w-3.5 h-3.5 text-white dark:text-zinc-900" />
@@ -819,7 +819,7 @@ function CampaignPreviewCard({ draft, state, onEdit, onLaunch, onRefreshAudience
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${
               audienceReady
                 ? 'bg-[#1ED4A7]/5 dark:bg-[#1ED4A7]/10 text-[#1ED4A7] dark:text-[#1ED4A7] border border-[#1ED4A7]/15 dark:border-[#1ED4A7]/15'
-                : 'bg-zinc-100 dark:bg-white/[0.06] text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-white/10 hover:border-zinc-300 dark:hover:border-white/15'
+                : 'bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-white/10 hover:border-zinc-300 dark:hover:border-white/15'
             }`}
           >
             {audienceLoading ? (
@@ -842,7 +842,7 @@ function CampaignPreviewCard({ draft, state, onEdit, onLaunch, onRefreshAudience
 
       {/* ── Audience Picker (inline dropdown) ── */}
       {showAudiencePicker && (
-        <div className="px-4 py-2.5 border-b border-zinc-100 dark:border-white/[0.06] bg-zinc-50/50 dark:bg-white/[0.01]" style={{ animation: 'aiContentUp .15s ease-out' }}>
+        <div className="px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-white/[0.01]" style={{ animation: 'aiContentUp .15s ease-out' }}>
           {/* AI suggestion hint */}
           {draft.leadFilter && !audienceReady && (
             <p className="text-[10.5px] text-zinc-500 dark:text-zinc-400 mb-2 flex items-center gap-1.5">
@@ -867,10 +867,10 @@ function CampaignPreviewCard({ draft, state, onEdit, onLaunch, onRefreshAudience
                 <button key={g.id} onClick={() => handleSelectGroup(g.id, g.name)}
                   className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-all ${
                     selected
-                      ? 'bg-zinc-900/5 dark:bg-white/[0.06] ring-1 ring-zinc-300 dark:ring-white/10'
+                      ? 'bg-zinc-900/5 dark:bg-zinc-100 dark:bg-zinc-900 ring-1 ring-zinc-300 dark:ring-white/10'
                       : isSuggested
                         ? 'bg-[#1ED4A7]/[0.04] dark:bg-[#1ED4A7]/[0.06] ring-1 ring-[#1ED4A7]/15 dark:ring-[#1ED4A7]/15 hover:bg-[#1ED4A7]/[0.06] dark:hover:bg-[#1ED4A7]/[0.08]'
-                        : 'hover:bg-zinc-100 dark:hover:bg-white/[0.04]'
+                        : 'hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900'
                   }`}>
                   <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: g.color || '#a1a1aa' }} />
                   <span className={`text-[11.5px] flex-1 truncate ${selected ? 'font-semibold text-zinc-900 dark:text-white' : isSuggested ? 'font-medium text-[#1ED4A7] dark:text-[#1ED4A7]/80' : 'text-zinc-600 dark:text-zinc-300'}`}>{g.name}</span>
@@ -885,8 +885,8 @@ function CampaignPreviewCard({ draft, state, onEdit, onLaunch, onRefreshAudience
             )}
           </div>
           <button onClick={handleSelectAll}
-            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-all mt-1 border-t border-zinc-100 dark:border-white/[0.06] pt-2 ${
-              draft.audienceType === 'all' && !draft.groupId ? 'bg-zinc-900/5 dark:bg-white/[0.06]' : 'hover:bg-zinc-100 dark:hover:bg-white/[0.04]'
+            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-all mt-1 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 pt-2 ${
+              draft.audienceType === 'all' && !draft.groupId ? 'bg-zinc-900/5 dark:bg-zinc-100 dark:bg-zinc-900' : 'hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900'
             }`}>
             <Users className="w-2.5 h-2.5 text-zinc-400 shrink-0" />
             <span className="text-[11.5px] text-zinc-500 dark:text-zinc-400 flex-1">{t('aiAssistant.campaign.allCrmLeads')}</span>
@@ -910,7 +910,7 @@ function CampaignPreviewCard({ draft, state, onEdit, onLaunch, onRefreshAudience
           {editingField === 'subject' ? (
             <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
               onBlur={commitEdit} onKeyDown={e => e.key === 'Enter' && commitEdit()}
-              className="w-full text-[12.5px] font-medium text-zinc-800 dark:text-zinc-100 bg-white dark:bg-white/[0.04] border border-zinc-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors" />
+              className="w-full text-[12.5px] font-medium text-zinc-800 dark:text-zinc-100 bg-white dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 rounded-lg px-2.5 py-1.5 outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors" />
           ) : (
             <p className="text-[12.5px] font-medium text-zinc-800 dark:text-zinc-100 cursor-pointer hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
               onClick={() => startEdit('subject', draft.subject)}>{draft.subject || <span className="text-zinc-300 dark:text-zinc-600 italic">{t('aiAssistant.campaign.noSubject')}</span>}</p>
@@ -931,7 +931,7 @@ function CampaignPreviewCard({ draft, state, onEdit, onLaunch, onRefreshAudience
             <div>
               <textarea autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
                 rows={8}
-                className="w-full text-[12px] text-zinc-700 dark:text-zinc-200 bg-white dark:bg-white/[0.04] border border-zinc-200 dark:border-white/10 rounded-lg px-2.5 py-2 outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors resize-none leading-relaxed" />
+                className="w-full text-[12px] text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 rounded-lg px-2.5 py-2 outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors resize-none leading-relaxed" />
               <div className="flex justify-end gap-1.5 mt-1">
                 <button onClick={() => setEditingField(null)} className="text-[10.5px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 px-2 py-0.5 transition-colors">{t('aiAssistant.campaign.cancel')}</button>
                 <button onClick={commitEdit} className="text-[10.5px] font-medium text-zinc-700 dark:text-zinc-200 bg-zinc-100 dark:bg-white/[0.08] hover:bg-zinc-200 dark:hover:bg-white/[0.12] px-2.5 py-0.5 rounded transition-colors">{t('aiAssistant.campaign.save')}</button>
@@ -954,7 +954,7 @@ function CampaignPreviewCard({ draft, state, onEdit, onLaunch, onRefreshAudience
 
         {/* Signature - subtle inline */}
         {userSettings?.hasSignature && userSettings.signatureText ? (
-          <div className="pt-1.5 border-t border-dashed border-zinc-100 dark:border-white/[0.06]">
+          <div className="pt-1.5 border-t border-dashed border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
             <pre className="text-[10.5px] text-zinc-400 dark:text-zinc-500 font-sans whitespace-pre-line leading-relaxed">{userSettings.signatureText}</pre>
           </div>
         ) : userSettings?.loaded && !userSettings?.hasSignature ? (
@@ -982,7 +982,7 @@ function CampaignPreviewCard({ draft, state, onEdit, onLaunch, onRefreshAudience
         </button>
 
         {expandDetails && (
-          <div className="space-y-2 pt-1.5 border-t border-zinc-100 dark:border-white/[0.06]" style={{ animation: 'aiContentUp .15s ease-out' }}>
+          <div className="space-y-2 pt-1.5 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800" style={{ animation: 'aiContentUp .15s ease-out' }}>
             <div className="grid grid-cols-2 gap-2">
               <EditableField label={t('aiAssistant.campaign.senderName')} value={senderName} onCommit={v => onEdit('senderName', v)} placeholder="Your name..." singleLine />
               <EditableField label={t('aiAssistant.campaign.fromEmail')} value={fromEmail} onCommit={v => onEdit('fromEmail', v)} placeholder="you@company.com" singleLine />
@@ -2453,7 +2453,7 @@ export function AIAssistant({ onNavigate, onOpenCampaignBuilder, userName, exter
             ref={panelRef}
             onClick={(e) => e.stopPropagation()}
             className={`relative w-full md:max-w-[780px] flex flex-col bg-white dark:bg-[#111111] rounded-t-2xl md:rounded-2xl
-              border border-zinc-200/80 dark:border-white/[0.08]
+              border border-zinc-200/80 dark:border-zinc-200 dark:border-zinc-800
               shadow-[0_24px_80px_-12px_rgba(0,0,0,0.18)] dark:shadow-[0_24px_80px_-12px_rgba(0,0,0,0.6)]
               overflow-hidden
               ${(hasMessages || showHistory) ? 'ai-panel-fullmobile' : 'ai-panel-capped'}`}
@@ -2519,7 +2519,7 @@ export function AIAssistant({ onNavigate, onOpenCampaignBuilder, userName, exter
                     <div className="space-y-1">
                       {sessions.map(s => (
                         <div key={s.id}
-                          className="group flex items-start gap-3 px-3.5 py-3 rounded-xl border border-zinc-100 dark:border-white/[0.06] hover:border-zinc-200 dark:hover:border-white/10 hover:bg-zinc-50/50 dark:hover:bg-white/[0.02] transition-all duration-200 cursor-pointer"
+                          className="group flex items-start gap-3 px-3.5 py-3 rounded-xl border border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 hover:border-zinc-200 dark:hover:border-white/10 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-all duration-200 cursor-pointer"
                           onClick={() => loadSession(s.id)}
                         >
                           <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.05] flex items-center justify-center shrink-0">
@@ -2572,7 +2572,7 @@ export function AIAssistant({ onNavigate, onOpenCampaignBuilder, userName, exter
                       key={s.labelKey}
                       onClick={() => sendMessage(t(s.promptKey))}
                       className="flex items-center gap-1.5 px-3 py-2.5 md:py-2 rounded-xl md:rounded-full text-left
-                        bg-zinc-50 dark:bg-white/[0.04] border border-zinc-150 dark:border-white/[0.07]
+                        bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-150 dark:border-white/[0.07]
                         hover:bg-zinc-100 dark:hover:bg-white/[0.07] hover:border-zinc-250 dark:hover:border-white/[0.12]
                         transition-all duration-200 group/c active:scale-[0.98]"
                     >
@@ -2608,7 +2608,7 @@ export function AIAssistant({ onNavigate, onOpenCampaignBuilder, userName, exter
 
                             {/* Text content */}
                             {msg.content && (
-                              <div className="px-4 py-3 rounded-2xl rounded-tl-md bg-zinc-50 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/[0.06]">
+                              <div className="px-4 py-3 rounded-2xl rounded-tl-md bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
                                 <FormatMessage content={msg.content} />
                               </div>
                             )}
@@ -2672,7 +2672,7 @@ export function AIAssistant({ onNavigate, onOpenCampaignBuilder, userName, exter
 
                                 {/* Search complete summary */}
                                 {msg.searchState === 'complete' && (
-                                  <div className="flex items-center gap-2 px-3 py-2 mt-1 rounded-lg bg-zinc-50 dark:bg-white/[0.02]">
+                                  <div className="flex items-center gap-2 px-3 py-2 mt-1 rounded-lg bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950">
                                     <CheckCircle className="w-3.5 h-3.5 text-[#1ED4A7] shrink-0" />
                                     <span className="text-[11.5px] text-zinc-500 dark:text-zinc-400">
                                       {t('aiAssistant.search.foundLeads')} <strong className="text-zinc-900 dark:text-white">{msg.leads.length}</strong> {t('aiAssistant.search.leads')}
@@ -2684,7 +2684,7 @@ export function AIAssistant({ onNavigate, onOpenCampaignBuilder, userName, exter
 
                                 {/* Local search done — offer to expand */}
                                 {msg.searchState === 'local-done' && (
-                                  <div className="flex items-center gap-3 px-3 py-2.5 mt-1 rounded-xl bg-zinc-50 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/[0.06]" style={{ animation: 'aiMsgIn .25s ease-out' }}>
+                                  <div className="flex items-center gap-3 px-3 py-2.5 mt-1 rounded-xl bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-200 dark:border-zinc-800" style={{ animation: 'aiMsgIn .25s ease-out' }}>
                                     <CheckCircle className="w-3.5 h-3.5 text-[#1ED4A7] shrink-0" />
                                     <span className="text-[11.5px] text-zinc-500 dark:text-zinc-400 flex-1">
                                       {t('aiAssistant.search.foundLeads')} <strong className="text-zinc-900 dark:text-white">{msg.leads.length}</strong> {t('aiAssistant.search.foundFromLocal')}
@@ -2725,7 +2725,7 @@ export function AIAssistant({ onNavigate, onOpenCampaignBuilder, userName, exter
 
                             {/* Local search done with 0 results — show expand button */}
                             {msg.searchState === 'local-done' && (!msg.leads || msg.leads.length === 0) && (
-                              <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-50 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/[0.06]" style={{ animation: 'aiMsgIn .25s ease-out' }}>
+                              <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-200 dark:border-zinc-800" style={{ animation: 'aiMsgIn .25s ease-out' }}>
                                 <Search className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                                 <span className="text-[11.5px] text-zinc-500 dark:text-zinc-400 flex-1">
                                   {t('aiAssistant.search.noMatchesLocal')}
@@ -2778,7 +2778,7 @@ export function AIAssistant({ onNavigate, onOpenCampaignBuilder, userName, exter
                             </div>
                             <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Contndr AI</span>
                           </div>
-                          <div className="px-4 py-3 rounded-2xl rounded-tl-md bg-zinc-50 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/[0.06]">
+                          <div className="px-4 py-3 rounded-2xl rounded-tl-md bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
                             <div className="flex items-center gap-2">
                               <div className="flex gap-1">
                                 <span className="w-1.5 h-1.5 rounded-full bg-zinc-300 dark:bg-zinc-600 animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -2809,7 +2809,7 @@ export function AIAssistant({ onNavigate, onOpenCampaignBuilder, userName, exter
             {/* ── Input bar — pinned to bottom, keyboard-aware ── */}
             {!showHistory && (
             <div
-              className={`shrink-0 px-4 md:px-5 md:pb-4 bg-white dark:bg-[#111111] ${hasMessages ? 'pt-2 border-t border-zinc-100 dark:border-white/[0.06]' : 'pt-4'}`}
+              className={`shrink-0 px-4 md:px-5 md:pb-4 bg-white dark:bg-[#111111] ${hasMessages ? 'pt-2 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800' : 'pt-4'}`}
               style={{
                 paddingBottom: isKeyboardOpen
                   ? '8px'
@@ -2817,7 +2817,7 @@ export function AIAssistant({ onNavigate, onOpenCampaignBuilder, userName, exter
                 transition: 'padding-bottom 0.15s ease-out',
               }}
             >
-              <div className="flex items-end gap-2.5 bg-zinc-50/80 dark:bg-white/[0.03] border border-zinc-200/80 dark:border-white/[0.08] rounded-xl px-4 py-2.5
+              <div className="flex items-end gap-2.5 bg-zinc-50/80 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-2.5
                 focus-within:border-zinc-300 dark:focus-within:border-white/[0.15] focus-within:bg-white dark:focus-within:bg-white/[0.05]
                 transition-all duration-200 shadow-sm shadow-black/[0.02] dark:shadow-none">
                 <textarea

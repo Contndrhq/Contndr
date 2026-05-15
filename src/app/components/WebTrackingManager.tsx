@@ -187,7 +187,7 @@ export function WebTrackingManager() {
       case 'pending':
         return { label: t('tracking.pendingSetup'), dot: 'bg-amber-500', text: 'text-amber-700 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950/30' };
       default:
-        return { label: t('tracking.statusInactive'), dot: 'bg-zinc-400', text: 'text-zinc-600 dark:text-zinc-400', bg: 'bg-zinc-50 dark:bg-zinc-900/50' };
+        return { label: t('tracking.statusInactive'), dot: 'bg-zinc-400', text: 'text-zinc-600 dark:text-zinc-400', bg: 'bg-zinc-50 dark:bg-zinc-950' };
     }
   }
 
@@ -342,7 +342,7 @@ export function WebTrackingManager() {
                 {/* Expanded Setup Instructions */}
                 {isExpanded && (
                   <div className="px-4 pb-4 border-t border-zinc-100 dark:border-zinc-800">
-                    <div className="mt-3 p-4 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg">
+                    <div className="mt-3 p-4 bg-zinc-50 dark:bg-zinc-950 rounded-lg">
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
                           {t('tracking.addToHead')} <code className="px-1 py-0.5 bg-zinc-200 dark:bg-zinc-700 rounded text-[11px]">&lt;head&gt;</code>
@@ -428,7 +428,7 @@ export function WebTrackingManager() {
 
               {/* Domain Preview */}
               {urlInput.trim() && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg">
+                <div className="flex items-center gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-950 rounded-lg">
                   <Globe className="w-3.5 h-3.5 text-zinc-400" />
                   <span className="text-xs text-zinc-600 dark:text-zinc-400">
                     {t('tracking.willTrack')} <strong className="text-zinc-900 dark:text-white">{extractDomain(urlInput)}</strong>

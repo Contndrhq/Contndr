@@ -754,7 +754,7 @@ export function CompanyCSVImportModal({ isOpen, onClose, onImport, isImporting =
         </div>
 
         {/* ── Step indicator ───────────────────────────────────────────────── */}
-        <div className="flex-shrink-0 flex items-center gap-2 px-5 py-2.5 bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800">
+        <div className="flex-shrink-0 flex items-center gap-2 px-5 py-2.5 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
           {stepLabels.map((s, i) => (
             <div key={s.key} className="flex items-center gap-2">
               {i > 0 && <ChevronRight className="w-3 h-3 text-zinc-300 dark:text-zinc-600 flex-shrink-0" />}
@@ -791,7 +791,7 @@ export function CompanyCSVImportModal({ isOpen, onClose, onImport, isImporting =
                     ? 'border-[#1ED4A7] bg-[#1ED4A7]/5'
                     : parseError
                     ? 'border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-500/5'
-                    : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/30'
+                    : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 bg-zinc-50 dark:bg-zinc-950'
                 }`}
               >
                 <input
@@ -826,7 +826,7 @@ export function CompanyCSVImportModal({ isOpen, onClose, onImport, isImporting =
                 )}
               </div>
 
-              <div className="flex items-start gap-2.5 p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-start gap-2.5 p-3 bg-zinc-50 dark:bg-zinc-950 rounded-lg border border-zinc-200 dark:border-zinc-800">
                 <Info className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0 mt-0.5" />
                 <div className="space-y-1.5">
                   <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">{t('companiesView.importSupportedFormats')}</p>

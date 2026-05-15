@@ -635,7 +635,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
         <button
           type="button"
           onClick={() => setShowFullDashboard(v => !v)}
-          className="self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-[12.5px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/[0.04] transition-colors"
+          className="self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-[12.5px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors"
           aria-expanded={showFullDashboard}
         >
           <BarChart3 className="w-3.5 h-3.5" />
@@ -653,7 +653,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
               onClick={() => onNavigate('crm')}
             >
               <div className="flex items-start justify-between mb-2 sm:mb-3">
-                <span className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-widest">{t('dashboard.totalLeads', 'Total Leads')}</span>
+                <span className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider">{t('dashboard.totalLeads', 'Total Leads')}</span>
                 <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-zinc-400 group-hover:text-[#1ED4A7] transition-colors" />
               </div>
               <div className="flex flex-wrap items-baseline gap-1 mb-3 sm:mb-4">
@@ -859,7 +859,7 @@ function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRan
 
   return (
     <details className="relative hidden sm:block group">
-      <summary className="list-none inline-flex cursor-pointer items-center gap-2 px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50/80 dark:bg-white/[0.03] text-xs font-medium text-zinc-600 dark:text-zinc-300 shadow-sm hover:border-zinc-300 dark:hover:border-white/20 transition-colors">
+      <summary className="list-none inline-flex cursor-pointer items-center gap-2 px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50/80 dark:bg-zinc-50 dark:bg-zinc-950 text-xs font-medium text-zinc-600 dark:text-zinc-300 shadow-sm hover:border-zinc-300 dark:hover:border-white/20 transition-colors">
         <CalendarDays className="w-3.5 h-3.5 text-zinc-500" />
         <span className="tabular-nums">{formatDashboardDateRange(value)}</span>
         <ChevronDown className="w-3.5 h-3.5 text-zinc-500 transition-transform group-open:rotate-180" />
@@ -881,7 +881,7 @@ function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRan
                 className={`h-8 rounded-lg border text-xs font-semibold transition-colors ${
                   active
                     ? 'border-[#1ED4A7]/50 bg-[#1ED4A7]/12 text-[#1ED4A7]'
-                    : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/[0.06]'
+                    : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900'
                 }`}
               >
                 {preset.label}
@@ -891,21 +891,21 @@ function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRan
         </div>
         <div className="grid grid-cols-2 gap-2">
           <label className="space-y-1">
-            <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Start</span>
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Start</span>
             <input
               type="date"
               value={draft.start}
               onChange={(event) => setDraft((current) => ({ ...current, start: event.target.value }))}
-              className="w-full h-9 rounded-lg border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-white/[0.04] px-2 text-xs text-zinc-900 dark:text-white outline-none focus:border-[#1ED4A7]/60"
+              className="w-full h-9 rounded-lg border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 px-2 text-xs text-zinc-900 dark:text-white outline-none focus:border-[#1ED4A7]/60"
             />
           </label>
           <label className="space-y-1">
-            <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">End</span>
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">End</span>
             <input
               type="date"
               value={draft.end}
               onChange={(event) => setDraft((current) => ({ ...current, end: event.target.value }))}
-              className="w-full h-9 rounded-lg border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-white/[0.04] px-2 text-xs text-zinc-900 dark:text-white outline-none focus:border-[#1ED4A7]/60"
+              className="w-full h-9 rounded-lg border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 px-2 text-xs text-zinc-900 dark:text-white outline-none focus:border-[#1ED4A7]/60"
             />
           </label>
         </div>
@@ -923,7 +923,7 @@ function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRan
           <button
             type="button"
             onClick={(event) => { setDraft({ start: '', end: '' }); applyRange({ start: '', end: '' }, event); }}
-            className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-white/10 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/[0.06] transition-colors"
+            className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-white/10 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors"
             title="Clear and show all time"
           >
             Clear
@@ -954,7 +954,7 @@ function StatCard({ title, value, icon: Icon, onClick, teal, trend, trendUp, met
       onClick={onClick}
     >
       <div className="flex items-start justify-between mb-2 sm:mb-4">
-        <span className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-widest">{title}</span>
+        <span className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider">{title}</span>
         <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-zinc-400 group-hover:text-[#1ED4A7] transition-colors duration-300" />
       </div>
       <p className={`text-lg sm:text-2xl font-bold ${teal ? 'text-[#1ED4A7]' : 'text-zinc-900 dark:text-white'} tracking-tight`}>{value}</p>
@@ -976,7 +976,7 @@ function MetricMeter({ value, label }: { value: number; label?: string }) {
   const bounded = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
   return (
     <div className="mt-auto pt-3">
-      <div className="h-1.5 rounded-full bg-zinc-200/70 dark:bg-white/[0.06] overflow-hidden">
+      <div className="h-1.5 rounded-full bg-zinc-200/70 dark:bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
         <div
           className="h-full rounded-full bg-[#1ED4A7] shadow-[0_0_12px_rgba(30,212,167,0.22)] transition-[width] duration-500"
           style={{ width: `${bounded}%` }}

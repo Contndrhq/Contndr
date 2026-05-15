@@ -578,7 +578,7 @@ export function LeadImporter({ onClose, onImportComplete }: LeadImporterProps) {
         </div>
 
         {/* Group Selection - Always visible */}
-        <div className="p-4 border-2 border-zinc-200 dark:border-zinc-700 rounded-lg bg-zinc-50 dark:bg-zinc-900/50">
+        <div className="p-4 border-2 border-zinc-200 dark:border-zinc-700 rounded-lg bg-zinc-50 dark:bg-zinc-950">
           <div className="flex items-center justify-between mb-3">
             <label className="block text-zinc-900 dark:text-white font-medium">
               <Folder className="w-4 h-4 inline mr-1.5" />

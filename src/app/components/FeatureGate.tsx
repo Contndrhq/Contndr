@@ -26,7 +26,7 @@ export function FeatureGate({ feature, children, fallback, showRestricted = fals
         <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-zinc-900/80 backdrop-blur-sm rounded-lg border-2 border-zinc-300 dark:border-zinc-700">
           <div className="text-center p-6">
             <Lock className="w-8 h-8 mx-auto mb-3 text-zinc-400" />
-            <p className="text-sm font-semibold text-[var(--text-main)] mb-1">
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-1">
               Feature Restricted
             </p>
             <p className="text-xs text-zinc-500">

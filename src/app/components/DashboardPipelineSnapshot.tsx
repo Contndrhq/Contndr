@@ -149,7 +149,7 @@ export function DashboardPipelineSnapshot({ onNavigate }: { onNavigate: (view: s
       ) : totalDeals === 0 ? (
         <div className="flex-1 flex flex-col min-h-0">
           {/* Motivating header */}
-          <div className="mb-3 pb-2 border-b border-zinc-100 dark:border-white/[0.06]">
+          <div className="mb-3 pb-2 border-b border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
             <p className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{t('dashboard.startTracking')}</p>
           </div>
 
@@ -161,13 +161,13 @@ export function DashboardPipelineSnapshot({ onNavigate }: { onNavigate: (view: s
                   <span className="text-[12px] font-medium text-zinc-400 dark:text-zinc-600">{t(`pipeline.stages.${stage.key}`, stage.label)}</span>
                   <span className="text-[11px] text-zinc-300 dark:text-zinc-700 tabular-nums">0 {t('dashboard.deals')}</span>
                 </div>
-                <div className="h-1.5 bg-zinc-100 dark:bg-white/[0.04] rounded-full overflow-hidden" />
+                <div className="h-1.5 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden" />
               </div>
             ))}
           </div>
 
           {/* CTA */}
-          <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-white/[0.06] flex-shrink-0">
+          <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 flex-shrink-0">
             <button
               onClick={() => onNavigate('pipeline')}
               className="w-full text-[12px] font-semibold text-center py-2 rounded-lg bg-[#1ED4A7]/10 text-[#1ED4A7] hover:bg-[#1ED4A7]/20 transition-colors border border-[#1ED4A7]/20"
@@ -179,7 +179,7 @@ export function DashboardPipelineSnapshot({ onNavigate }: { onNavigate: (view: s
       ) : (
         <>
           {/* Total value */}
-          <div className="mb-4 pb-3 border-b border-zinc-100 dark:border-white/[0.06]">
+          <div className="mb-4 pb-3 border-b border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">{fmtCurrency(totalValue)}</span>
               <span className="text-xs text-zinc-400 dark:text-zinc-500 font-medium">{t('dashboard.openDeals')}</span>
@@ -200,7 +200,7 @@ export function DashboardPipelineSnapshot({ onNavigate }: { onNavigate: (view: s
                     <span className="text-[12px] font-bold text-zinc-900 dark:text-white tabular-nums min-w-[20px] text-right">{stage.count}</span>
                   </div>
                 </div>
-                <div className="h-1.5 bg-zinc-100 dark:bg-white/[0.04] rounded-full overflow-hidden">
+                <div className="h-1.5 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r from-[#1ED4A7]/50 to-[#1ED4A7]"
                     style={{ width: `${stage.count > 0 ? Math.max((stage.count / maxCount) * 100, 8) : 0}%` }}

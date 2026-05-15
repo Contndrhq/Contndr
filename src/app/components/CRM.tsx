@@ -2924,7 +2924,7 @@ export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds
                      </div>
                   </div>
                   
-                  <div className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400 mb-4 bg-zinc-50 dark:bg-zinc-900/50 p-3 rounded-lg">
+                  <div className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400 mb-4 bg-zinc-50 dark:bg-zinc-950 p-3 rounded-lg">
                      {lead.contact_name ? (
                        <div className="flex items-center gap-2">
                          <User className="w-4 h-4 text-zinc-400 flex-shrink-0" /> 
@@ -2976,7 +2976,7 @@ export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds
                   
                   <button 
                       data-mobile-view onClick={(e) => { e.stopPropagation(); setSelectedLeadId(lead.id); }}
-                      className="mobile-view-btn px-3 py-1.5 bg-zinc-100 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1.5"
+                      className="mobile-view-btn px-3 py-1.5 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1.5"
                     >
                       <Eye className="w-3.5 h-3.5" />
                       {t('crm.view', 'View')}
@@ -3097,7 +3097,7 @@ export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds
                 {paginatedLeads.map((lead) => (
                   <tr 
                     key={lead.id} 
-                    className="group hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 transition-colors cursor-pointer"
+                    className="group hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors cursor-pointer"
                     onClick={(e) => {
                       // Don't open detail if clicking checkbox or links
                       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'A' || (e.target as HTMLElement).closest('a')) {
@@ -3229,7 +3229,7 @@ export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds
                               e.stopPropagation();
                               setSelectedLeadId(lead.id);
                             }}
-                            className="px-3 py-1.5 text-xs bg-zinc-100 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                            className="px-3 py-1.5 text-xs bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap"
                           >
                             <Eye className="w-3 h-3" />
                             {t('crm.view', 'View')}

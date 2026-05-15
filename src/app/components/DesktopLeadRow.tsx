@@ -130,7 +130,7 @@ export function DesktopLeadRow({
 
   return (
     <tr
-      className={`group hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 transition-colors cursor-pointer border-b border-zinc-100 dark:border-zinc-800/50 last:border-0 relative ${
+      className={`group hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors cursor-pointer border-b border-zinc-100 dark:border-zinc-800/50 last:border-0 relative ${
         isHotLead ? 'bg-[#1ED4A7]/[0.03] dark:bg-[#1ED4A7]/[0.02]' : ''
       }`}
       onClick={(e) => {

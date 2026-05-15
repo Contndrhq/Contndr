@@ -51,7 +51,7 @@ export function Security({ onNavigate, onLogin, onGetStarted }: PageProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.6 }}
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10"
+              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10"
             >
               <Shield className="w-3 h-3 text-emerald-500/70" /> Security First
             </motion.div>
@@ -90,11 +90,11 @@ export function Security({ onNavigate, onLogin, onGetStarted }: PageProps) {
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {features.map((feature, i) => (
                 <ScrollReveal key={feature.title} delay={0.06 + i * 0.06}>
-                  <div className="group h-full rounded-[2rem] border border-white/[0.06] bg-[#0A0A0A] p-10 md:p-12 hover:border-white/[0.12] transition-all duration-500 relative overflow-hidden">
+                  <div className="group h-full rounded-[2rem] border border-zinc-200 dark:border-zinc-800 bg-[#0A0A0A] p-10 md:p-12 hover:border-white/[0.12] transition-all duration-500 relative overflow-hidden">
                     <div className="absolute inset-0 bg-[radial-gradient(300px_circle_at_50%_0%,rgba(255,255,255,0.02),transparent_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
                     <div className="relative z-10">
-                      <div className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-7 group-hover:border-white/[0.12] transition-colors">
+                      <div className="w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex items-center justify-center mb-7 group-hover:border-white/[0.12] transition-colors">
                         <feature.icon className="w-4 h-4 text-zinc-400" />
                       </div>
                       <h3 className="text-base font-semibold text-white mb-3 tracking-tight">{feature.title}</h3>
@@ -111,8 +111,8 @@ export function Security({ onNavigate, onLogin, onGetStarted }: PageProps) {
         <section className="py-20 px-6 border-t border-white/5">
           <div className="max-w-[1200px] mx-auto">
             <ScrollReveal>
-              <div className="rounded-[2rem] bg-[#0A0A0A] border border-white/[0.06] p-10 md:p-14 flex flex-col md:flex-row items-center justify-between gap-8 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-80 h-80 bg-white/[0.02] rounded-full blur-[100px] pointer-events-none" />
+              <div className="rounded-[2rem] bg-[#0A0A0A] border border-zinc-200 dark:border-zinc-800 p-10 md:p-14 flex flex-col md:flex-row items-center justify-between gap-8 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-80 h-80 bg-zinc-50 dark:bg-zinc-950 rounded-full blur-[100px] pointer-events-none" />
 
                 <div className="relative z-10 text-center md:text-left">
                   <h3 className="text-xl md:text-2xl font-semibold text-white tracking-tight mb-2">

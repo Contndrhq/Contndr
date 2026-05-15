@@ -167,14 +167,14 @@ export function DashboardRevenuePipeline({ onNavigate }: { onNavigate: (view: st
       </div>
 
       {/* Close Rate Bar */}
-      <div className="mt-6 pt-5 border-t border-zinc-100 dark:border-white/[0.06]">
+      <div className="mt-6 pt-5 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">{t('dashboard.closeRate')}</span>
           <span className={`text-sm font-bold tabular-nums ${data.closeRate > 30 ? 'text-[#1ED4A7]' : 'text-zinc-900 dark:text-white'}`}>
             {data.closeRate.toFixed(1)}%
           </span>
         </div>
-        <div className="h-1.5 bg-zinc-100 dark:bg-white/[0.04] rounded-full overflow-hidden">
+        <div className="h-1.5 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r from-[#1ED4A7] to-[#159c7b]"
             style={{ width: `${Math.min(data.closeRate, 100)}%` }}
@@ -186,13 +186,13 @@ export function DashboardRevenuePipeline({ onNavigate }: { onNavigate: (view: st
       <div className="mt-5 flex gap-2">
         <button
           onClick={() => onNavigate('pipeline')}
-          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-white/[0.03] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/[0.06] transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-white/[0.08]"
+          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-200 dark:border-zinc-800"
         >
           {t('sidebar.pipeline')}
         </button>
         <button
           onClick={() => onNavigate('revenue')}
-          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-white/[0.03] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/[0.06] transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-white/[0.08]"
+          className="flex-1 text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-200 dark:border-zinc-800"
         >
           {t('sidebar.revenue')}
         </button>

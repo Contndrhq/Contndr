@@ -193,7 +193,7 @@ export function SignatureSettings() {
         </div>
 
         {!useCustom ? (
-          <div className="bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 space-y-4">
+          <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 space-y-4">
             {/* Closing Line */}
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">{t('signature.closingLine', 'Closing Line')}</label>
@@ -307,7 +307,7 @@ export function SignatureSettings() {
             </div>
           </div>
         ) : (
-          <div className="bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6">
+          <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6">
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">{t('signature.customSignature', 'Custom Signature')}</label>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
               {t('signature.customSignatureHelp', 'Write your full signature exactly as you want it to appear in outgoing emails. This replaces all structured fields above.')}
@@ -326,7 +326,7 @@ export function SignatureSettings() {
         )}
 
         {/* Live Preview */}
-        <div className="bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5">
+        <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5">
           <div className="flex items-center gap-2 mb-3">
             <Eye className="w-4 h-4 text-zinc-400" />
             <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">{t('signature.livePreview', 'Live Preview')}</span>

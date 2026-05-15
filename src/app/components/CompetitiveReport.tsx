@@ -322,9 +322,9 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 print:p-0 print:bg-white">
-      <div className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-zinc-200 dark:border-white/[0.08] w-full max-w-4xl max-h-[90vh] overflow-y-auto print:max-h-none print:overflow-visible print:border-0 print:rounded-none print:max-w-none" ref={printRef}>
+      <div className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 w-full max-w-4xl max-h-[90vh] overflow-y-auto print:max-h-none print:overflow-visible print:border-0 print:rounded-none print:max-w-none" ref={printRef}>
         {/* Header — hidden in print */}
-        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-zinc-200 dark:border-white/[0.06] print:hidden">
+        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 print:hidden">
           <div className="flex items-center gap-3">
             <Swords className="w-5 h-5 text-rose-500" />
             <div>
@@ -333,10 +333,10 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setShowDigestSettings(!showDigestSettings)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 border border-zinc-200 dark:border-white/[0.06] transition-colors">
+            <button onClick={() => setShowDigestSettings(!showDigestSettings)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 transition-colors">
               <Mail className="w-3.5 h-3.5" /> {t('socialHub.report.digest', 'Digest')} <ChevronDown className="w-3 h-3" />
             </button>
-            <button onClick={handleSendDigest} disabled={sendingDigest} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 border border-zinc-200 dark:border-white/[0.06] transition-colors disabled:opacity-40">
+            <button onClick={handleSendDigest} disabled={sendingDigest} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 transition-colors disabled:opacity-40">
               {sendingDigest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} {t('socialHub.report.sendNow', 'Send Now')}
             </button>
             <button onClick={handlePrint} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100 transition-colors">
@@ -350,7 +350,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
 
         {/* Digest Settings Dropdown */}
         {showDigestSettings && (
-          <div className="px-4 sm:px-6 py-4 border-b border-zinc-200 dark:border-white/[0.06] bg-zinc-50 dark:bg-white/[0.02] print:hidden">
+          <div className="px-4 sm:px-6 py-4 border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 print:hidden">
             <h3 className="text-xs font-semibold text-zinc-900 dark:text-white mb-3">{t('socialHub.report.digestSettings', 'Email Digest Settings')}</h3>
             <div className="flex flex-wrap items-end gap-4">
               <div>
@@ -361,7 +361,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
                       className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
                         digestPrefs.frequency === freq
                           ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 border-zinc-900 dark:border-white'
-                          : 'text-zinc-500 border-zinc-200 dark:border-white/[0.06] hover:border-zinc-300'
+                          : 'text-zinc-500 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:border-zinc-300'
                       }`}>
                       {t(`socialHub.report.freq.${freq}`, freq === 'off' ? 'Off' : freq === 'daily' ? 'Daily' : 'Weekly')}
                     </button>
@@ -372,7 +372,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
                 <label className="block text-[10px] text-zinc-500 font-medium mb-1">{t('socialHub.report.email', 'Email')}</label>
                 <input type="email" value={digestEmail} onChange={(e) => setDigestEmail(e.target.value)}
                   placeholder="you@company.com"
-                  className="w-full px-3 py-1.5 rounded-lg text-[11px] bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/[0.06] text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none"
+                  className="w-full px-3 py-1.5 rounded-lg text-[11px] bg-white dark:bg-[#0A0A0A] border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:ring-1 focus:ring-zinc-400 outline-none"
                 />
               </div>
               <button onClick={handleSaveDigestPrefs} disabled={savingDigest}
@@ -396,7 +396,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
 
           {/* Summary Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] p-4 text-center">
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 p-4 text-center">
               <Shield className="w-5 h-5 text-[#1ED4A7] mx-auto mb-2" />
               <div className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">{t('socialHub.report.yourProfiles', 'Your Profiles')}</div>
               <div className="text-2xl font-bold text-zinc-900 dark:text-white mt-1">{ownAccounts.length}</div>
@@ -406,7 +406,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
               <div className="text-[10px] text-rose-500/70 font-semibold uppercase tracking-wider">{t('socialHub.report.competitors', 'Competitors')}</div>
               <div className="text-2xl font-bold text-zinc-900 dark:text-white mt-1">{competitorAccounts.length}</div>
             </div>
-            <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] p-4 text-center">
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 p-4 text-center">
               <Users className="w-5 h-5 text-[#1ED4A7] mx-auto mb-2" />
               <div className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">{t('socialHub.report.yourFollowers', 'Your Followers')}</div>
               <div className="text-2xl font-bold text-[#1ED4A7] mt-1">{compactNum(totalOwnFollowers)}</div>
@@ -420,7 +420,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
 
           {/* Alerts */}
           {alerts.filter(a => !a.dismissed).length > 0 && (
-            <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] p-4 sm:p-5">
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 p-4 sm:p-5">
               <div className="flex items-center gap-2 mb-3">
                 <Bell className="w-4 h-4 text-red-500" />
                 <h3 className="text-xs font-semibold text-zinc-900 dark:text-white">{t('socialHub.report.recentAlerts', 'Recent Alerts')}</h3>
@@ -446,7 +446,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
           )}
 
           {/* Gap Analysis Table */}
-          <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] p-4 sm:p-5">
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 p-4 sm:p-5">
             <div className="flex items-center gap-2 mb-4">
               <Swords className="w-4 h-4 text-rose-500" />
               <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">{t('socialHub.report.gapAnalysis', 'Competitive Gap Analysis')}</h3>
@@ -454,7 +454,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
             <div className="overflow-x-auto">
               <table className="w-full text-[11px]">
                 <thead>
-                  <tr className="border-b-2 border-zinc-200 dark:border-white/[0.06]">
+                  <tr className="border-b-2 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
                     <th className="text-left py-2 px-3 text-zinc-500 font-semibold uppercase tracking-wider text-[9px]">{t('socialHub.report.competitor', 'Competitor')}</th>
                     <th className="text-left py-2 px-3 text-zinc-500 font-semibold uppercase tracking-wider text-[9px]">{t('socialHub.report.platform', 'Platform')}</th>
                     <th className="text-right py-2 px-3 text-zinc-500 font-semibold uppercase tracking-wider text-[9px]">{t('socialHub.report.you', 'You')}</th>
@@ -474,7 +474,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
                         {row.gap <= 0 ? `${Math.abs(row.gap)}% ahead` : `${row.gap}% behind`}
                       </td>
                       <td className="py-2.5 px-3">
-                        <div className="h-2 rounded-full bg-zinc-100 dark:bg-white/[0.04] overflow-hidden flex">
+                        <div className="h-2 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 overflow-hidden flex">
                           <div className="h-full bg-[#1ED4A7]" style={{ width: `${(row.ownF / Math.max(row.ownF + row.compF, 1)) * 100}%` }} />
                           <div className="h-full bg-rose-500" style={{ width: `${(row.compF / Math.max(row.ownF + row.compF, 1)) * 100}%` }} />
                         </div>
@@ -488,7 +488,7 @@ export function CompetitiveReport({ onClose }: { onClose: () => void }) {
 
           {/* Gap Trend Charts */}
           {gapHistory.length >= 2 && (
-            <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] p-4 sm:p-5">
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 p-4 sm:p-5">
               <div className="flex items-center gap-2 mb-4">
                 <TrendingUp className="w-4 h-4 text-zinc-500" />
                 <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">{t('socialHub.report.gapTrends', 'Gap Trends (Last 30 Days)')}</h3>

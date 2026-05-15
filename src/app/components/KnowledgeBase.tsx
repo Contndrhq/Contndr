@@ -487,7 +487,7 @@ export function KnowledgeBase() {
                 <select
                   value={entry.brand}
                   onChange={e => setEntry({ brand: e.target.value as any })}
-                  className="w-full px-3 py-2.5 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-white/[0.03] text-zinc-900 dark:text-white rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
+                  className="w-full px-3 py-2.5 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
                 >
                   <option value="global">Global (All Brands)</option>
                   <option value="roadr">Roadr</option>
@@ -507,7 +507,7 @@ export function KnowledgeBase() {
                 value={entry.category}
                 onChange={e => setEntry({ category: e.target.value })}
                 placeholder="e.g., Payment Options, Services, Pricing"
-                className="w-full px-3 py-2.5 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-white/[0.03] text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
+                className="w-full px-3 py-2.5 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
               />
             </div>
           </div>
@@ -521,7 +521,7 @@ export function KnowledgeBase() {
               value={entry.title}
               onChange={e => setEntry({ title: e.target.value })}
               placeholder="e.g., Flexible Payment Plans"
-              className="w-full px-3 py-2.5 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-white/[0.03] text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
+              className="w-full px-3 py-2.5 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
             />
           </div>
 
@@ -534,12 +534,12 @@ export function KnowledgeBase() {
               onChange={e => setEntry({ content: e.target.value })}
               placeholder="Enter the detailed information that AI should use when generating emails..."
               rows={5}
-              className="w-full px-4 py-3 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-white/[0.03] text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all resize-none"
+              className="w-full px-4 py-3 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all resize-none"
             />
           </div>
 
           {/* ═══ WRITING CONTROL CENTER — synced with CampaignBuilder ═══ */}
-          <div className="space-y-4 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 bg-zinc-50/50 dark:bg-white/[0.01]">
+          <div className="space-y-4 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 bg-zinc-50 dark:bg-white/[0.01]">
             <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
@@ -581,7 +581,7 @@ export function KnowledgeBase() {
                     onChange={e => setEntry({ custom_instructions: e.target.value })}
                     placeholder={"Tell the AI exactly how you want your emails written. Be specific.\n\nExamples:\n\u2022 \"Write like a normal person. No fancy words. Keep sentences short. Don't sound like a salesperson.\"\n\u2022 \"Be blunt and direct. One question, one value prop, one CTA. That's it.\"\n\u2022 \"Match my voice \u2014 I'm a founder, not a marketing team. Write like I'd actually talk.\""}
                     rows={4}
-                    className="w-full px-4 py-3 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-white/[0.03] text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all resize-none"
+                    className="w-full px-4 py-3 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all resize-none"
                   />
                   <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
                     These instructions override all defaults. The AI will follow them word for word.
@@ -598,7 +598,7 @@ export function KnowledgeBase() {
                     onChange={e => setEntry({ example_email: e.target.value })}
                     placeholder={"Paste an email that sounds like YOU. The AI will match this style, tone, and vocabulary.\n\nExample:\n\"Hey [name], quick question \u2014 are you guys still doing [X] manually?\n\nWe built something that handles it automatically. A few companies in [industry] are testing it.\n\nWorth a look? [link]\""}
                     rows={3}
-                    className="w-full px-4 py-3 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-white/[0.03] text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all resize-none"
+                    className="w-full px-4 py-3 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all resize-none"
                   />
                 </div>
 
@@ -631,7 +631,7 @@ export function KnowledgeBase() {
                     <select
                       value={entry.tone || ''}
                       onChange={e => setEntry({ tone: e.target.value })}
-                      className="w-full px-3 py-2.5 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-white/[0.03] text-zinc-900 dark:text-white rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
+                      className="w-full px-3 py-2.5 text-[13px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-zinc-600 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
                     >
                       <option value="">Use campaign default</option>
                       {TONE_OPTIONS.map(opt => (
@@ -692,7 +692,7 @@ export function KnowledgeBase() {
                   return (
                   <div
                     key={entry.id}
-                    className="bg-white dark:bg-white/[0.02] border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all"
+                    className="bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">

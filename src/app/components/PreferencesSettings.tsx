@@ -93,7 +93,7 @@ export function PreferencesSettings() {
     <div className="max-w-2xl space-y-8">
       {/* Section header */}
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-white/[0.08] dark:to-white/[0.03] flex items-center justify-center border border-zinc-200/80 dark:border-white/[0.06]">
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-white/[0.08] dark:to-white/[0.03] flex items-center justify-center border border-zinc-200/80 dark:border-zinc-200 dark:border-zinc-800">
           <Sparkles className="w-4.5 h-4.5 text-zinc-600 dark:text-zinc-300" />
         </div>
         <div>
@@ -106,7 +106,7 @@ export function PreferencesSettings() {
       <div>
         <div className="flex items-center gap-2 mb-4">
           <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">{t('preferences.appearance', 'Appearance')}</h3>
-          <div className="flex-1 h-px bg-zinc-100 dark:bg-white/[0.06]" />
+          <div className="flex-1 h-px bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900" />
         </div>
 
         <div className="grid grid-cols-3 gap-3">
@@ -120,7 +120,7 @@ export function PreferencesSettings() {
                 className={`group relative rounded-2xl border-2 transition-all duration-200 overflow-hidden ${
                   active
                     ? 'border-zinc-900 dark:border-white shadow-lg shadow-zinc-900/5 dark:shadow-white/5'
-                    : 'border-zinc-200 dark:border-white/[0.08] hover:border-zinc-300 dark:hover:border-white/[0.15] hover:shadow-md'
+                    : 'border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-white/[0.15] hover:shadow-md'
                 }`}
               >
                 {/* Mini preview */}
@@ -131,12 +131,12 @@ export function PreferencesSettings() {
                   {opt.id !== 'system' ? (
                     <div className="absolute inset-2 flex gap-1.5">
                       {/* Sidebar */}
-                      <div className={`w-[28%] rounded-lg ${opt.id === 'dark' ? 'bg-white/[0.06]' : 'bg-zinc-200/60'}`}>
+                      <div className={`w-[28%] rounded-lg ${opt.id === 'dark' ? 'bg-zinc-100 dark:bg-zinc-900' : 'bg-zinc-200/60'}`}>
                         <div className="p-1.5 space-y-1">
                           <div className={`h-1 w-[70%] rounded-full ${opt.id === 'dark' ? 'bg-white/10' : 'bg-zinc-300/80'}`} />
-                          <div className={`h-1 w-[50%] rounded-full ${opt.id === 'dark' ? 'bg-white/[0.06]' : 'bg-zinc-200/80'}`} />
-                          <div className={`h-1 w-[60%] rounded-full ${opt.id === 'dark' ? 'bg-white/[0.06]' : 'bg-zinc-200/80'}`} />
-                          <div className={`h-1 w-[40%] rounded-full ${opt.id === 'dark' ? 'bg-white/[0.06]' : 'bg-zinc-200/80'}`} />
+                          <div className={`h-1 w-[50%] rounded-full ${opt.id === 'dark' ? 'bg-zinc-100 dark:bg-zinc-900' : 'bg-zinc-200/80'}`} />
+                          <div className={`h-1 w-[60%] rounded-full ${opt.id === 'dark' ? 'bg-zinc-100 dark:bg-zinc-900' : 'bg-zinc-200/80'}`} />
+                          <div className={`h-1 w-[40%] rounded-full ${opt.id === 'dark' ? 'bg-zinc-100 dark:bg-zinc-900' : 'bg-zinc-200/80'}`} />
                         </div>
                       </div>
                       {/* Main content */}
@@ -144,8 +144,8 @@ export function PreferencesSettings() {
                         <div className={`h-1.5 w-[60%] rounded-full ${opt.id === 'dark' ? 'bg-white/10' : 'bg-zinc-300'}`} />
                         <div className={`h-6 rounded-md ${opt.id === 'dark' ? 'bg-white/[0.05]' : 'bg-zinc-100'}`} />
                         <div className="flex gap-1">
-                          <div className={`h-3 flex-1 rounded ${opt.id === 'dark' ? 'bg-white/[0.04]' : 'bg-zinc-100/80'}`} />
-                          <div className={`h-3 flex-1 rounded ${opt.id === 'dark' ? 'bg-white/[0.04]' : 'bg-zinc-100/80'}`} />
+                          <div className={`h-3 flex-1 rounded ${opt.id === 'dark' ? 'bg-zinc-100 dark:bg-zinc-900' : 'bg-zinc-100/80'}`} />
+                          <div className={`h-3 flex-1 rounded ${opt.id === 'dark' ? 'bg-zinc-100 dark:bg-zinc-900' : 'bg-zinc-100/80'}`} />
                         </div>
                       </div>
                     </div>
@@ -166,10 +166,10 @@ export function PreferencesSettings() {
                       </div>
                       {/* Right half - dark */}
                       <div className="absolute inset-y-2 right-2 left-[50%] ml-0.5 flex gap-1">
-                        <div className="w-[30%] rounded-l-lg bg-white/[0.06]">
+                        <div className="w-[30%] rounded-l-lg bg-zinc-100 dark:bg-zinc-900">
                           <div className="p-1 space-y-1">
                             <div className="h-1 w-[70%] rounded-full bg-white/10" />
-                            <div className="h-1 w-[50%] rounded-full bg-white/[0.06]" />
+                            <div className="h-1 w-[50%] rounded-full bg-zinc-100 dark:bg-zinc-900" />
                           </div>
                         </div>
                         <div className="flex-1 p-1 space-y-1">
@@ -190,7 +190,7 @@ export function PreferencesSettings() {
 
                 {/* Label */}
                 <div className={`px-3 py-2.5 flex items-center gap-2 transition-colors ${
-                  active ? 'bg-zinc-50 dark:bg-white/[0.04]' : 'bg-white dark:bg-transparent'
+                  active ? 'bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900' : 'bg-white dark:bg-transparent'
                 }`}>
                   <Icon className={`w-3.5 h-3.5 ${active ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-zinc-500'}`} />
                   <div className="text-left">
@@ -215,14 +215,14 @@ export function PreferencesSettings() {
       <div>
         <div className="flex items-center gap-2 mb-4">
           <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">{t('preferences.interface', 'Interface')}</h3>
-          <div className="flex-1 h-px bg-zinc-100 dark:bg-white/[0.06]" />
+          <div className="flex-1 h-px bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900" />
         </div>
 
         <div className="space-y-1">
           {/* Density */}
-          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group">
+          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors group">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.06] flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
+              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
                 <Columns3 className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
               </div>
               <div>
@@ -230,7 +230,7 @@ export function PreferencesSettings() {
                 <p className="text-[11.5px] text-zinc-400 dark:text-zinc-500">{t('preferences.displayDensityDesc', 'Adjust spacing and sizing of interface elements')}</p>
               </div>
             </div>
-            <div className="flex bg-zinc-100 dark:bg-white/[0.06] rounded-lg p-0.5 border border-zinc-200/60 dark:border-white/[0.06]">
+            <div className="flex bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-lg p-0.5 border border-zinc-200/60 dark:border-zinc-200 dark:border-zinc-800">
               {(['comfortable', 'compact'] as DensityOption[]).map(d => (
                 <button
                   key={d}
@@ -248,9 +248,9 @@ export function PreferencesSettings() {
           </div>
 
           {/* Default view */}
-          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group">
+          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors group">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.06] flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
+              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
                 <Layout className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
               </div>
               <div>
@@ -261,7 +261,7 @@ export function PreferencesSettings() {
             <select
               value={defaultView}
               onChange={(e) => handleDefaultView(e.target.value)}
-              className="text-[12px] font-medium bg-zinc-100 dark:bg-white/[0.06] border border-zinc-200/60 dark:border-white/[0.06] text-zinc-700 dark:text-zinc-300 rounded-lg px-3 py-1.5 cursor-pointer hover:bg-zinc-200/60 dark:hover:bg-white/[0.08] transition-colors appearance-none pr-8 bg-[url('data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2371717A%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[center_right_0.5rem]"
+              className="text-[12px] font-medium bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-lg px-3 py-1.5 cursor-pointer hover:bg-zinc-200/60 dark:hover:bg-white/[0.08] transition-colors appearance-none pr-8 bg-[url('data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2371717A%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[center_right_0.5rem]"
             >
               <option value="dashboard">{t('sidebar.dashboard', 'Dashboard')}</option>
               <option value="crm">{t('sidebar.leads', 'Leads')}</option>
@@ -272,9 +272,9 @@ export function PreferencesSettings() {
           </div>
 
           {/* Animations */}
-          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group">
+          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors group">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.06] flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
+              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
                 <Eye className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
               </div>
               <div>
@@ -294,14 +294,14 @@ export function PreferencesSettings() {
       <div>
         <div className="flex items-center gap-2 mb-4">
           <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">{t('preferences.notifications', 'Notifications')}</h3>
-          <div className="flex-1 h-px bg-zinc-100 dark:bg-white/[0.06]" />
+          <div className="flex-1 h-px bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900" />
         </div>
 
         <div className="space-y-1">
           {/* Notification sounds */}
-          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group">
+          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors group">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.06] flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
+              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
                 {notifSound ? <Bell className="w-4 h-4 text-zinc-500 dark:text-zinc-400" /> : <BellOff className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />}
               </div>
               <div>
@@ -316,9 +316,9 @@ export function PreferencesSettings() {
           </div>
 
           {/* Desktop notifications */}
-          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group">
+          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors group">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.06] flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
+              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
                 <Bell className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
               </div>
               <div>
@@ -345,9 +345,9 @@ export function PreferencesSettings() {
           </div>
 
           {/* AI suggestions */}
-          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group">
+          <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors group">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.06] flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
+              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors">
                 <Sparkles className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
               </div>
               <div>

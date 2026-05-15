@@ -267,7 +267,7 @@ export function MobileLeadCard({
 
             {/* ── Team Outreach Banner (inline) ── */}
             {showOutreach && hasOutreach && (
-              <div className="mb-2 p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800">
+              <div className="mb-2 p-2 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
                 <div className="flex items-center gap-1.5 mb-1">
                   <Send className="w-3 h-3 text-zinc-400" />
                   <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">{t('mobileLeadCard.contacted')}</span>
@@ -414,7 +414,7 @@ export function MobileLeadCard({
                 ) : (
                   <button
                     onClick={(e) => { e.stopPropagation(); setSelectedLeadId(lead.id); }}
-                    className="px-2.5 py-1 bg-zinc-100 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg text-[11px] font-medium transition-colors inline-flex items-center gap-1"
+                    className="px-2.5 py-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg text-[11px] font-medium transition-colors inline-flex items-center gap-1"
                   >
                     <Eye className="w-3 h-3" />
                     {t('mobileLeadCard.view')}

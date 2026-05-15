@@ -98,7 +98,7 @@ CREATE POLICY "Allow all on automation_rules" ON public.automation_rules FOR ALL
     <div className="space-y-5 animate-fade-in">
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
         {/* Header */}
-        <div className="bg-zinc-50 dark:bg-zinc-900/50 p-6 border-b border-zinc-200 dark:border-zinc-800">
+        <div className="bg-zinc-50 dark:bg-zinc-950 p-6 border-b border-zinc-200 dark:border-zinc-800">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-zinc-100 dark:bg-zinc-800 rounded-xl flex items-center justify-center">
               <Zap className="w-6 h-6 text-zinc-500 dark:text-zinc-400" strokeWidth={2} />

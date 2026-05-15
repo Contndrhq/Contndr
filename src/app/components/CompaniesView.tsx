@@ -330,7 +330,7 @@ function CompanyDetailDrawer({ company, onClose, onStatusChange, onEnrich, enric
               {company.decision_makers && company.decision_makers.length > 0 ? (
                 <div className="space-y-2">
                   {company.decision_makers.map((dm, i) => (
-                    <div key={dm.id || i} className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
+                    <div key={dm.id || i} className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950">
                       <div className="flex items-start gap-3">
                         <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center flex-shrink-0 text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
                           {dm.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
@@ -376,7 +376,7 @@ function CompanyDetailDrawer({ company, onClose, onStatusChange, onEnrich, enric
               ) : !enriching ? (
                 /* Primary contact fallback (from CSV import) */
                 company.contact_name ? (
-                  <div className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
+                  <div className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950">
                     <div className="flex items-start gap-3">
                       <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center flex-shrink-0 text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
                         {company.contact_name.split(' ').map(n => n[0]).join('').slice(0, 2)}
@@ -464,7 +464,7 @@ function DrawerSection({ title, children }: { title: string; children: ReactNode
   return (
     <div>
       <h4 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-2">{title}</h4>
-      <div className="bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-200 dark:border-zinc-800 px-3 py-1 space-y-0.5">
+      <div className="bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 px-3 py-1 space-y-0.5">
         {children}
       </div>
     </div>
@@ -1091,7 +1091,7 @@ export function CompaniesView({ onStartOutreach }: CompaniesViewProps) {
               <div
                 key={company.id}
                 onClick={() => setSelectedCompany(company)}
-                className={`p-3 rounded-xl border cursor-pointer transition-colors ${selectedSet.has(company.id) ? 'bg-[#1ED4A7]/5 border-[#1ED4A7]/20' : 'bg-white dark:bg-zinc-900/50 border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'}`}
+                className={`p-3 rounded-xl border cursor-pointer transition-colors ${selectedSet.has(company.id) ? 'bg-[#1ED4A7]/5 border-[#1ED4A7]/20' : 'bg-white dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'}`}
               >
                 <div className="flex items-start gap-3">
                   <div onClick={e => { e.stopPropagation(); toggleSelect(company.id); }}>

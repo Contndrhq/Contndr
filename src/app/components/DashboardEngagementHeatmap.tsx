@@ -151,7 +151,7 @@ export function DashboardEngagementHeatmap({ brandFilter = 'all', dateRange }: D
         <DashboardChartSkeleton />
       ) : (
         <div className="flex-1 min-h-0 flex flex-col justify-center">
-          <div className="rounded-2xl border border-zinc-200/70 dark:border-white/[0.06] bg-zinc-50/60 dark:bg-white/[0.02] p-3 sm:p-4">
+          <div className="rounded-2xl border border-zinc-200/70 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-50 dark:bg-zinc-950 p-3 sm:p-4">
           <div className="grid grid-cols-[32px_repeat(12,minmax(0,1fr))] gap-1 sm:gap-1.5 mb-2 px-0.5">
             <div />
             {HOURS.map((hour) => (
@@ -179,7 +179,7 @@ export function DashboardEngagementHeatmap({ brandFilter = 'all', dateRange }: D
           <div className="mt-3 flex items-center justify-end gap-2 text-[10px] font-medium text-zinc-500">
             <span>{t('dashboard.heatmapLess', 'Less')}</span>
             <div className="flex gap-1">
-              <div className="w-2.5 h-2.5 rounded-[4px] bg-white/[0.04] border border-white/[0.04]" />
+              <div className="w-2.5 h-2.5 rounded-[4px] bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800" />
               <div className="w-2.5 h-2.5 rounded-[4px] bg-[#1ED4A7]/20 border border-[#1ED4A7]/10" />
               <div className="w-2.5 h-2.5 rounded-[4px] bg-[#1ED4A7]/50 border border-[#1ED4A7]/20" />
               <div className="w-2.5 h-2.5 rounded-[4px] bg-[#1ED4A7] border border-[#1ED4A7]" />

@@ -23,7 +23,7 @@ export function TermsOfService({ onNavigate, onLogin, onGetStarted }: LegalPageP
             animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
             transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10">
               Legal
             </div>
 
@@ -81,7 +81,7 @@ export function TermsOfService({ onNavigate, onLogin, onGetStarted }: LegalPageP
                 <p className="mb-3">When you connect your Google account, you grant Contndr permission to:</p>
                 <ul className="list-disc list-inside space-y-2 text-zinc-500">
                   <li>Access your email address and basic profile information</li>
-                  <li>Send emails on your behalf via the Gmail API (<code className="text-xs bg-white/[0.06] px-1.5 py-0.5 rounded font-mono text-zinc-400">gmail.send</code> scope)</li>
+                  <li>Send emails on your behalf via the Gmail API (<code className="text-xs bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 rounded font-mono text-zinc-400">gmail.send</code> scope)</li>
                   <li>Track delivery status and replies for campaigns you initiate</li>
                 </ul>
                 <p className="mt-3">We do <strong className="text-white">not</strong> read, scan, or index your inbox messages unless you explicitly authorize a specific feature that requires it.</p>
@@ -109,7 +109,7 @@ export function TermsOfService({ onNavigate, onLogin, onGetStarted }: LegalPageP
               </div>
 
               {/* Revocation */}
-              <div className="p-5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div className="p-5 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
                 <h4 className="text-white/90 font-medium text-[15px] mb-3">Revoking access</h4>
                 <p className="mb-3">You may disconnect any third-party integration at any time from your Contndr account settings. For Google specifically, you can also revoke access at:</p>
                 <p className="mb-3">

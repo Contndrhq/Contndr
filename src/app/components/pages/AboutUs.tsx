@@ -65,7 +65,7 @@ export function AboutUs({ onNavigate, onLogin, onGetStarted }: PageProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.6 }}
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10"
+              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70" />
               Our Story
@@ -96,7 +96,7 @@ export function AboutUs({ onNavigate, onLogin, onGetStarted }: PageProps) {
         {/* Stats */}
         <section className="px-6 md:px-12 pb-28 md:pb-44">
           <div className="max-w-[1200px] mx-auto">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-px rounded-[2rem] overflow-hidden bg-white/[0.04]">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-px rounded-[2rem] overflow-hidden bg-zinc-100 dark:bg-zinc-900">
               {stats.map((stat, i) => (
                 <ScrollReveal key={stat.label} delay={i * 0.08}>
                   <div className="bg-[#080808] p-10 md:p-14 text-center h-full">
@@ -152,7 +152,7 @@ export function AboutUs({ onNavigate, onLogin, onGetStarted }: PageProps) {
             <div className="grid md:grid-cols-3 gap-6">
               {values.map((value, i) => (
                 <ScrollReveal key={value.title} delay={0.1 + i * 0.1}>
-                  <div className="group h-full rounded-[2rem] border border-white/[0.06] bg-[#0A0A0A] p-10 md:p-12 hover:border-white/[0.12] transition-all duration-500 relative overflow-hidden">
+                  <div className="group h-full rounded-[2rem] border border-zinc-200 dark:border-zinc-800 bg-[#0A0A0A] p-10 md:p-12 hover:border-white/[0.12] transition-all duration-500 relative overflow-hidden">
                     {/* Subtle hover glow */}
                     <div className="absolute inset-0 bg-[radial-gradient(300px_circle_at_50%_0%,rgba(255,255,255,0.02),transparent_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 

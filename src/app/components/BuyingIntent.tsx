@@ -1009,7 +1009,7 @@ export function BuyingIntent() {
           {/* Buying Now — hero card */}
           <div className="col-span-1 sm:col-span-2 lg:col-span-1 rounded-2xl bg-zinc-900 dark:bg-white p-4 sm:p-5 shadow-xl shadow-zinc-900/8 dark:shadow-black/10">
             <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">{t('buyingIntentView.buyingNow')}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">{t('buyingIntentView.buyingNow')}</span>
               {summary.buying_now > 0 && (
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#1ED4A7] opacity-40" />
@@ -1092,7 +1092,7 @@ export function BuyingIntent() {
 
         {/* ── Tabs ────────────────────────────────────────────────── */}
         <div className="relative">
-          <div className="flex items-center gap-0.5 bg-zinc-100/80 dark:bg-zinc-900/50 rounded-xl p-1">
+          <div className="flex items-center gap-0.5 bg-zinc-100/80 dark:bg-zinc-950 rounded-xl p-1">
             {tabs.map(tab => (
               <button
                 key={tab.id}
@@ -1253,7 +1253,7 @@ export function BuyingIntent() {
 
                                     {/* Recent Signals */}
                                     <div>
-                                      <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2.5">{t('buyingIntentView.recentSignals')}</p>
+                                      <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-2.5">{t('buyingIntentView.recentSignals')}</p>
                                       <div className="space-y-1">
                                         {(companyDetail.signals || []).slice(0, 8).map((sig: IntentSignal, i: number) => {
                                           const typeCfg = SIGNAL_TYPE_CONFIG[sig.signal_type];
@@ -1274,7 +1274,7 @@ export function BuyingIntent() {
                                     {/* People */}
                                     {companyDetail.people?.length > 0 && (
                                       <div>
-                                        <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2.5">{t('buyingIntentView.people')}</p>
+                                        <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-2.5">{t('buyingIntentView.people')}</p>
                                         <div className="flex flex-wrap gap-1.5">
                                           {companyDetail.people.map((person: any, i: number) => (
                                             <button
@@ -1413,7 +1413,7 @@ export function BuyingIntent() {
                   <div className="grid sm:grid-cols-2 gap-3">
                     <InputField label={t('buyingIntentView.ruleName')} value={newRule.name} onChange={v => setNewRule(p => ({ ...p, name: v }))} placeholder="e.g. High Intent Alert" />
                     <div>
-                      <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-1.5 block">{t('buyingIntentView.condition')}</label>
+                      <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5 block">{t('buyingIntentView.condition')}</label>
                       <select
                         value={newRule.condition_type}
                         onChange={e => setNewRule(p => ({ ...p, condition_type: e.target.value }))}
@@ -1426,7 +1426,7 @@ export function BuyingIntent() {
                       </select>
                     </div>
                     <div>
-                      <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-1.5 block">{t('buyingIntentView.value')}</label>
+                      <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5 block">{t('buyingIntentView.value')}</label>
                       {newRule.condition_type === 'status_is' ? (
                         <select value={newRule.condition_value} onChange={e => setNewRule(p => ({ ...p, condition_value: e.target.value }))} className="w-full h-9 px-3 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-white">
                           <option value="buying_now">{t('buyingIntentView.buyingNow')}</option>
@@ -1445,7 +1445,7 @@ export function BuyingIntent() {
                       )}
                     </div>
                     <div>
-                      <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-1.5 block">{t('buyingIntentView.action')}</label>
+                      <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5 block">{t('buyingIntentView.action')}</label>
                       <select value={newRule.action_type} onChange={e => setNewRule(p => ({ ...p, action_type: e.target.value }))} className="w-full h-9 px-3 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-white">
                         <option value="add_to_list">{t('buyingIntentView.actionAddToList')}</option>
                         <option value="assign_owner">{t('buyingIntentView.actionAssignOwner')}</option>
@@ -1571,7 +1571,7 @@ export function BuyingIntent() {
                 <div className="space-y-3">
                   <InputField label={t('buyingIntentView.company')} value={newSignal.company_name} onChange={v => setNewSignal(p => ({ ...p, company_name: v }))} placeholder="Acme Corp" />
                   <div>
-                    <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-1.5 block">{t('buyingIntentView.signalType')}</label>
+                    <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5 block">{t('buyingIntentView.signalType')}</label>
                     <select value={newSignal.signal_type} onChange={e => setNewSignal(p => ({ ...p, signal_type: e.target.value }))} className="w-full h-9 px-3 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-white">
                       <option value="website">{t('buyingIntentView.website')}</option>
                       <option value="email">{t('buyingIntentView.email')}</option>
@@ -1580,7 +1580,7 @@ export function BuyingIntent() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-1.5 block">{t('buyingIntentView.signalDetail')}</label>
+                    <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5 block">{t('buyingIntentView.signalDetail')}</label>
                     <select
                       value={newSignal.signal_detail}
                       onChange={e => {
@@ -1707,7 +1707,7 @@ function InputField({ label, value, onChange, placeholder, type = 'text' }: {
 }) {
   return (
     <div>
-      <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-1.5 block">{label}</label>
+      <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5 block">{label}</label>
       <input
         type={type}
         value={value}

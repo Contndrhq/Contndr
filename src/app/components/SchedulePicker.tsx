@@ -164,13 +164,13 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
   return (
     <div className="space-y-3">
       {/* Mode Selector */}
-      <div className="flex gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.06]">
+      <div className="flex gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
         <button
           type="button"
           onClick={() => onChange({ mode: 'now' })}
           className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[13px] font-semibold transition-all ${
             value.mode === 'now'
-              ? 'bg-white dark:bg-white/[0.08] text-zinc-900 dark:text-white shadow-sm border border-zinc-200/80 dark:border-white/[0.08]'
+              ? 'bg-white dark:bg-white/[0.08] text-zinc-900 dark:text-white shadow-sm border border-zinc-200/80 dark:border-zinc-200 dark:border-zinc-800'
               : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
           }`}
         >
@@ -186,7 +186,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
           }}
           className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[13px] font-semibold transition-all ${
             value.mode === 'scheduled'
-              ? 'bg-white dark:bg-white/[0.08] text-zinc-900 dark:text-white shadow-sm border border-zinc-200/80 dark:border-white/[0.08]'
+              ? 'bg-white dark:bg-white/[0.08] text-zinc-900 dark:text-white shadow-sm border border-zinc-200/80 dark:border-zinc-200 dark:border-zinc-800'
               : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
           }`}
         >
@@ -197,7 +197,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
 
       {/* Send Now Description */}
       {value.mode === 'now' && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-50/80 dark:bg-white/[0.02] border border-zinc-200 dark:border-white/[0.06]">
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-50/80 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
           <div className="w-8 h-8 rounded-lg bg-zinc-900 dark:bg-white flex items-center justify-center flex-shrink-0">
             <Send className="w-3.5 h-3.5 text-white dark:text-zinc-900" />
           </div>
@@ -214,7 +214,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
 
       {/* Schedule Picker — compact on desktop */}
       {value.mode === 'scheduled' && (
-        <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] overflow-hidden">
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 overflow-hidden">
           {/* Inner wrapper constrains calendar width on desktop */}
           <div className="max-w-[340px] mx-auto">
             {/* Calendar Header */}
@@ -223,7 +223,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
                 type="button"
                 onClick={prevMonth}
                 disabled={!canGoPrev}
-                className="p-1 rounded-md hover:bg-zinc-100 dark:hover:bg-white/[0.06] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="p-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronLeft className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
               </button>
@@ -233,7 +233,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
               <button
                 type="button"
                 onClick={nextMonth}
-                className="p-1 rounded-md hover:bg-zinc-100 dark:hover:bg-white/[0.06] transition-colors"
+                className="p-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors"
               >
                 <ChevronRight className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
               </button>
@@ -269,7 +269,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
                           ? 'text-zinc-300 dark:text-zinc-700 cursor-not-allowed'
                           : today
                             ? 'text-zinc-900 dark:text-white font-semibold hover:bg-zinc-100 dark:hover:bg-white/[0.08]'
-                            : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/[0.06]'
+                            : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900'
                     }`}
                   >
                     {date.getDate()}
@@ -283,7 +283,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
           </div>
 
           {/* Time Picker — full width */}
-          <div className="px-4 py-3 border-t border-zinc-100 dark:border-white/[0.04]">
+          <div className="px-4 py-3 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
             <div className="max-w-[340px] mx-auto">
               <div className="flex items-center gap-2 mb-2">
                 <Clock className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500" />
@@ -300,7 +300,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
                     let h24 = currentAmPm === 'AM' ? (h12 === 12 ? 0 : h12) : (h12 === 12 ? 12 : h12 + 12);
                     setTime(h24, selectedMinute);
                   }}
-                  className="flex-1 px-2 py-2 text-[13px] font-medium border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-white/[0.03] text-zinc-900 dark:text-white rounded-lg focus:outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors text-center"
+                  className="flex-1 px-2 py-2 text-[13px] font-medium border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white rounded-lg focus:outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors text-center"
                 >
                   {hours12.map(h => (
                     <option key={h} value={h}>{h}</option>
@@ -313,7 +313,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
                 <select
                   value={selectedMinute}
                   onChange={(e) => setTime(selectedHour, parseInt(e.target.value))}
-                  className="flex-1 px-2 py-2 text-[13px] font-medium border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-white/[0.03] text-zinc-900 dark:text-white rounded-lg focus:outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors text-center"
+                  className="flex-1 px-2 py-2 text-[13px] font-medium border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white rounded-lg focus:outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors text-center"
                 >
                   {minutes.map(m => (
                     <option key={m} value={m}>{pad(m)}</option>
@@ -321,7 +321,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
                 </select>
 
                 {/* AM/PM */}
-                <div className="flex rounded-lg border border-zinc-200 dark:border-white/[0.08] overflow-hidden">
+                <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 overflow-hidden">
                   {(['AM', 'PM'] as const).map(period => (
                     <button
                       key={period}
@@ -338,7 +338,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
                       className={`px-3 py-2 text-[12px] font-semibold transition-colors ${
                         currentAmPm === period
                           ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900'
-                          : 'bg-zinc-50 dark:bg-white/[0.03] text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
+                          : 'bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
                       }`}
                     >
                       {period}
@@ -351,7 +351,7 @@ export function SchedulePicker({ value, onChange, itemLabel = 'emails', itemCoun
 
           {/* Scheduled Summary */}
           {value.scheduledDate && (
-            <div className="px-4 py-2.5 border-t border-zinc-100 dark:border-white/[0.04] bg-zinc-50/60 dark:bg-white/[0.01]">
+            <div className="px-4 py-2.5 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-white/[0.01]">
               <div className="flex items-center gap-2.5 justify-center">
                 <div className="w-1.5 h-1.5 rounded-full bg-zinc-900 dark:bg-white animate-pulse" />
                 <p className="text-[12px] font-medium text-zinc-600 dark:text-zinc-300">

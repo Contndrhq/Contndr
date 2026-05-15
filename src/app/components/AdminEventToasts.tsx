@@ -34,7 +34,7 @@ function getEventStyle(type: EventType): { bg: string; border: string; icon: str
     case 'new_signup':
       return { bg: 'bg-[#1ED4A7]/[0.08]', border: 'border-[#1ED4A7]/20', icon: 'text-[#1ED4A7]' };
     case 'waitlist_join':
-      return { bg: 'bg-white/[0.03]', border: 'border-white/[0.08]', icon: 'text-zinc-400' };
+      return { bg: 'bg-zinc-50 dark:bg-zinc-950', border: 'border-zinc-200 dark:border-zinc-800', icon: 'text-zinc-400' };
     case 'subscription_created':
     case 'deal_closed':
       return { bg: 'bg-[#1ED4A7]/[0.12]', border: 'border-[#1ED4A7]/30', icon: 'text-[#1ED4A7]' };
@@ -42,7 +42,7 @@ function getEventStyle(type: EventType): { bg: string; border: string; icon: str
     case 'campaign_launched':
       return { bg: 'bg-[#1ED4A7]/[0.06]', border: 'border-[#1ED4A7]/15', icon: 'text-[#1ED4A7]' };
     default:
-      return { bg: 'bg-white/[0.03]', border: 'border-white/[0.06]', icon: 'text-zinc-400' };
+      return { bg: 'bg-zinc-50 dark:bg-zinc-950', border: 'border-zinc-200 dark:border-zinc-800', icon: 'text-zinc-400' };
   }
 }
 

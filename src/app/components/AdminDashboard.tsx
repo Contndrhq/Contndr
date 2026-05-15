@@ -114,7 +114,7 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
               <p className="text-[11px] text-zinc-500 truncate">{user.user_metadata?.name || user.email}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-50 dark:bg-zinc-950 transition-colors">
+          <button onClick={onClose} className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -1699,7 +1699,7 @@ export function AdminDashboard() {
                 className={`px-3 py-1.5 text-[12px] font-medium rounded-full transition-all whitespace-nowrap flex-shrink-0 border ${
                   activeTab === t.id
                     ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-transparent'
-                    : 'bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-50 dark:bg-zinc-950'
+                    : 'bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900'
                 }`}
               >
                 {t.label}
@@ -2571,7 +2571,7 @@ export function AdminDashboard() {
                   className={`p-4 rounded-xl border text-left flex items-center justify-between transition-all ${
                     editingUser.subscription?.plan === plan
                       ? 'bg-zinc-800 dark:bg-zinc-800 border-zinc-500 dark:border-zinc-8000 text-white'
-                      : 'hover:bg-zinc-100 dark:hover:bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
+                      : 'hover:bg-zinc-100 dark:hover:bg-zinc-900 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
                   }`}
                 >
                   <span className="capitalize font-medium">{plan}</span>

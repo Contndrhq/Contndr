@@ -243,7 +243,7 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
           {signals.map((signal) => (
             <div
               key={signal.id}
-              className="flex items-center gap-2.5 py-2 px-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors cursor-pointer group"
+              className="flex items-center gap-2.5 py-2 px-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors cursor-pointer group"
               onClick={() => {
                 if (signal.leadId) {
                   setSelectedLeadId(signal.leadId);
@@ -252,7 +252,7 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
                 }
               }}
             >
-              <div className="w-7 h-7 rounded-lg bg-zinc-100 dark:bg-white/[0.06] flex items-center justify-center flex-shrink-0 group-hover:bg-zinc-200 dark:group-hover:bg-white/[0.08] transition-colors">
+              <div className="w-7 h-7 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center flex-shrink-0 group-hover:bg-zinc-200 dark:group-hover:bg-white/[0.08] transition-colors">
                 <SignalIcon type={signal.icon} />
               </div>
               <div className="flex-1 min-w-0">
@@ -280,7 +280,7 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center gap-2.5 px-4">
-          <div className="w-10 h-10 rounded-xl bg-zinc-100 dark:bg-white/[0.04] flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center">
             <Zap className="w-5 h-5 text-zinc-300 dark:text-zinc-700" />
           </div>
           <div className="text-center">

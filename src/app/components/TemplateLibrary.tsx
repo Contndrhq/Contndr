@@ -223,7 +223,7 @@ export function TemplateLibrary({ open, onClose, onInsert, manageMode }: Templat
         <div className="flex-1 min-h-0 overflow-y-auto">
           {/* Create / Edit form */}
           {isFormOpen && (
-            <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
+            <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950">
               <h3 className="text-[14px] font-semibold text-zinc-900 dark:text-white mb-3">
                 {editing ? 'Edit Template' : 'New Template'}
               </h3>

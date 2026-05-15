@@ -612,13 +612,13 @@ export function RecentActivityFeed({ onNavigate }: RecentActivityFeedProps) {
             return (
               <div
                 key={activity.id}
-                className={`flex items-start gap-2.5 rounded-lg px-2 py-2 group hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors ${onNavigate ? 'cursor-pointer' : ''}`}
+                className={`flex items-start gap-2.5 rounded-lg px-2 py-2 group hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors ${onNavigate ? 'cursor-pointer' : ''}`}
                 onClick={() => handleActivityClick(activity)}
               >
                 <div className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors flex-shrink-0
                   ${engagement
                     ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]'
-                    : 'bg-zinc-100 dark:bg-white/[0.04]'
+                    : 'bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900'
                   }`}
                 >
                   {getIcon(activity.type)}

@@ -276,7 +276,7 @@ function CreatorAgentFeed({
             </div>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-[var(--text-main)] tracking-tight">{t('creatorFinder.creatorDiscoveryAgent')}</h3>
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 tracking-tight">{t('creatorFinder.creatorDiscoveryAgent')}</h3>
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
               {isSearching ? (stepLabel || t('creatorFinder.workingLabel')) : t('creatorFinder.completeOperations', { count: entries.length })}
             </p>
@@ -326,9 +326,9 @@ function CreatorAgentFeed({
               <div key={phase.name} className="contents">
                 {i > 0 && <div className={`w-4 h-px flex-shrink-0 transition-colors duration-500 ${phase.done ? 'bg-[#1ED4A7]/40' : 'bg-zinc-200 dark:bg-zinc-800'}`} />}
                 <div className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg flex-shrink-0 text-[10px] font-medium transition-all duration-300 ${
-                  phase.active ? 'bg-[#1ED4A7]/[0.08] text-[var(--text-main)] ring-1 ring-[#1ED4A7]/25' :
-                  phase.done ? 'bg-zinc-50 dark:bg-zinc-900/50 text-[#1ED4A7]' :
-                  'bg-zinc-50 dark:bg-zinc-900/30 text-zinc-400 dark:text-zinc-600'
+                  phase.active ? 'bg-[#1ED4A7]/[0.08] text-zinc-900 dark:text-zinc-100 ring-1 ring-[#1ED4A7]/25' :
+                  phase.done ? 'bg-zinc-50 dark:bg-zinc-950 text-[#1ED4A7]' :
+                  'bg-zinc-50 dark:bg-zinc-950 text-zinc-400 dark:text-zinc-600'
                 }`}>
                   {phase.active && <Loader2 className="w-3 h-3 animate-spin" />}
                   {phase.done && <CheckCircle className="w-3 h-3" />}
@@ -360,7 +360,7 @@ function CreatorAgentFeed({
                 className={`flex items-start gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
                   isLatest
                     ? 'bg-[#1ED4A7]/[0.04] dark:bg-[#1ED4A7]/[0.04]'
-                    : 'hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20'
+                    : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/20'
                 }`}
                 style={{ animation: 'cfEntryIn 0.35s cubic-bezier(0.16,1,0.3,1) both' }}
               >
@@ -444,7 +444,7 @@ function CreatorEmptyState() {
         <div className="w-16 h-16 rounded-2xl bg-zinc-100 dark:bg-zinc-800/50 flex items-center justify-center mx-auto mb-5 shadow-sm border border-zinc-200 dark:border-zinc-700">
           <Radar className="w-7 h-7 text-zinc-400" />
         </div>
-        <h3 className="text-lg font-semibold text-[var(--text-main)] mb-1">{t('creatorFinder.findCreators')}</h3>
+        <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">{t('creatorFinder.findCreators')}</h3>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2">
           {t('creatorFinder.emptyDesc')}
         </p>
@@ -1084,7 +1084,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
 
       {/* ── Streaming Progress Strip ── */}
       {isRunning && results.length > 0 && currentRun && (
-        <div className="flex-shrink-0 mb-4 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-md border border-[var(--border-color)] rounded-xl overflow-hidden">
+        <div className="flex-shrink-0 mb-4 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-md border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
           <div className="h-1 bg-zinc-100 dark:bg-zinc-800">
             <div
               className="h-full bg-gradient-to-r from-[#1ED4A7] to-[#17a882] transition-all duration-700 ease-out"
@@ -1094,7 +1094,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
           <div className="px-4 md:px-6 py-2.5 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1ED4A7]" />
-              <span className="text-xs font-semibold text-[var(--text-main)]">{getStepLabel()}</span>
+              <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{getStepLabel()}</span>
             </div>
             <span className="text-[10px] font-mono text-zinc-400 tabular-nums">{progressPct}%</span>
           </div>
@@ -1102,10 +1102,10 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
       )}
 
       {/* ── Main Card ── */}
-      <div className="flex-1 overflow-hidden flex min-h-0 rounded-2xl border border-[var(--border-color)] bg-white dark:bg-[#050505]/80 dark:backdrop-blur-xl shadow-sm">
+      <div className="flex-1 overflow-hidden flex min-h-0 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#050505]/80 dark:backdrop-blur-xl shadow-sm">
 
         {/* ═══ Sidebar ═══ */}
-        <div className={`flex-shrink-0 border-r border-[var(--border-color)] transition-all duration-300 flex flex-col ${sidebarCollapsed ? 'w-0 md:w-12' : 'w-full md:w-[300px]'} ${results.length > 0 && !sidebarCollapsed ? 'hidden md:flex' : ''}`}>
+        <div className={`flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 transition-all duration-300 flex flex-col ${sidebarCollapsed ? 'w-0 md:w-12' : 'w-full md:w-[300px]'} ${results.length > 0 && !sidebarCollapsed ? 'hidden md:flex' : ''}`}>
           {!sidebarCollapsed ? (
             <div className="p-4 space-y-4 overflow-y-auto flex-1 min-h-0 custom-scrollbar pb-4">
               {/* Header */}
@@ -1114,19 +1114,19 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                   <div className="w-6 h-6 rounded-md bg-zinc-100 dark:bg-white/10 flex items-center justify-center">
                     <Radar className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
                   </div>
-                  <h2 className="text-sm font-semibold text-[var(--text-main)]">{t('creatorFinder.title')}</h2>
+                  <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('creatorFinder.title')}</h2>
                 </div>
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => { setShowSavedRuns(!showSavedRuns); if (!showSavedRuns) loadPastRuns(); }}
-                    className={`p-1.5 rounded-md transition-colors text-xs ${showSavedRuns ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]' : 'text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+                    className={`p-1.5 rounded-md transition-colors text-xs ${showSavedRuns ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]' : 'text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
                     title={t('creatorFinder.pastRuns')}
                   >
                     <Clock className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={() => setSidebarCollapsed(true)}
-                    className="p-1.5 rounded-md text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors hidden md:flex"
+                    className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors hidden md:flex"
                   >
                     <ChevronDown className="w-3.5 h-3.5 -rotate-90" />
                   </button>
@@ -1134,17 +1134,17 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
               </div>
 
               {/* Daily Quota */}
-              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)]">
+              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
                 <Radar className="w-3 h-3 text-[#1ED4A7] flex-shrink-0" />
                 <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                  <span className="font-semibold text-[var(--text-main)]">{dailyCount}</span> / {dailyLimit} {t('creatorFinder.runsToday')}
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">{dailyCount}</span> / {dailyLimit} {t('creatorFinder.runsToday')}
                 </span>
               </div>
 
               {/* Past Runs Panel */}
               {showSavedRuns && (
-                <div className="rounded-lg border border-[var(--border-color)] overflow-hidden">
-                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-900/50 border-b border-[var(--border-color)]">
+                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{t('creatorFinder.recentRuns')}</span>
                   </div>
                   <div className="max-h-48 overflow-y-auto custom-scrollbar">
@@ -1153,7 +1153,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                     ) : pastRuns.map((run) => (
                       <div
                         key={run.id}
-                        className="px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer flex items-center gap-2 group transition-colors border-b border-[var(--border-color)] last:border-b-0"
+                        className="px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer flex items-center gap-2 group transition-colors border-b border-zinc-200 dark:border-zinc-800 last:border-b-0"
                         onClick={() => loadRunResults(run.id)}
                       >
                         {run.status === 'completed' ? (
@@ -1164,7 +1164,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                           <Loader2 className="w-3 h-3 text-zinc-400 animate-spin flex-shrink-0" />
                         )}
                         <div className="flex-1 min-w-0">
-                          <div className="text-[11px] font-medium text-[var(--text-main)] truncate">
+                          <div className="text-[11px] font-medium text-zinc-900 dark:text-zinc-100 truncate">
                             {run.input_keywords.map(k => k.keyword).join(', ')}
                           </div>
                           <div className="text-[10px] text-zinc-400 dark:text-zinc-600 flex items-center gap-1">
@@ -1193,7 +1193,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border ${
                         selectedPlatforms.has(p)
                           ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-zinc-900 dark:border-white'
-                          : 'bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 border-[var(--border-color)] hover:border-zinc-400 dark:hover:border-zinc-600'
+                          : 'bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-600'
                       } disabled:opacity-40`}
                     >
                       <PlatformIcon platform={p} className="w-3 h-3" />
@@ -1211,17 +1211,17 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                   onChange={e => setKeywordText(e.target.value)}
                   placeholder={t('creatorFinder.keywordsPlaceholder')}
                   rows={5}
-                  className="w-full px-3 py-2 text-[12px] bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-lg outline-none resize-none font-mono text-[var(--text-main)] placeholder:text-zinc-400 dark:placeholder:text-zinc-600 transition-all"
+                  className="w-full px-3 py-2 text-[12px] bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg outline-none resize-none font-mono text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 transition-all"
                   disabled={isRunning}
                 />
                 <div className="flex items-center gap-2 mt-1.5">
                   <span className="text-[10px] text-zinc-400">
-                    <span className="font-semibold text-[var(--text-main)]">{keywordCount}</span>/50
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">{keywordCount}</span>/50
                   </span>
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isRunning}
-                    className="inline-flex items-center gap-1 text-[10px] text-zinc-400 hover:text-[var(--text-main)] transition-colors disabled:opacity-40"
+                    className="inline-flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 transition-colors disabled:opacity-40"
                   >
                     <Upload className="w-3 h-3" />
                     CSV
@@ -1242,7 +1242,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                     className="flex-1 accent-[#1ED4A7]"
                     disabled={isRunning}
                   />
-                  <span className="text-[12px] font-mono text-[var(--text-main)] w-8 text-right tabular-nums">{numPosts}</span>
+                  <span className="text-[12px] font-mono text-zinc-900 dark:text-zinc-100 w-8 text-right tabular-nums">{numPosts}</span>
                 </div>
                 <p className="text-[10px] text-zinc-400 mt-1 flex items-center gap-1">
                   <Info className="w-3 h-3" />
@@ -1268,7 +1268,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
             <div className="flex flex-col items-center py-3 gap-3">
               <button
                 onClick={() => setSidebarCollapsed(false)}
-                className="p-1.5 rounded-md text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                 title="Expand sidebar"
               >
                 <SlidersHorizontal className="w-4 h-4" />
@@ -1284,11 +1284,11 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Desktop results toolbar */}
           {results.length > 0 && (
-            <div className="flex-shrink-0 px-4 py-2.5 hidden md:flex flex-wrap items-center gap-3 border-b border-[var(--border-color)] bg-zinc-50/50 dark:bg-zinc-900/30">
+            <div className="flex-shrink-0 px-4 py-2.5 hidden md:flex flex-wrap items-center gap-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950">
               {/* Stats */}
               <div className="flex items-center gap-3 text-[11px]">
                 <span className="text-zinc-500 dark:text-zinc-400">
-                  <span className="font-semibold text-[var(--text-main)]">{results.length}</span> creators
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">{results.length}</span> creators
                 </span>
                 <span className="text-[#1ED4A7]">
                   <span className="font-semibold">{emailCount}</span> with email
@@ -1339,7 +1339,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                     placeholder="Filter…"
                     value={searchFilter}
                     onChange={e => setSearchFilter(e.target.value)}
-                    className="w-28 pl-6.5 pr-2 py-1.5 text-[11px] bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg outline-none text-[var(--text-main)] placeholder:text-zinc-400"
+                    className="w-28 pl-6.5 pr-2 py-1.5 text-[11px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg outline-none text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400"
                     style={{ paddingLeft: '1.625rem' }}
                   />
                 </div>
@@ -1347,7 +1347,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                   <select
                     value={filterPlatform}
                     onChange={e => setFilterPlatform(e.target.value)}
-                    className="px-2 py-1.5 text-[11px] bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg outline-none text-[var(--text-main)]"
+                    className="px-2 py-1.5 text-[11px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg outline-none text-zinc-900 dark:text-zinc-100"
                   >
                     <option value="all">All Platforms</option>
                     {Object.keys(platformStats).map(p => (
@@ -1358,7 +1358,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                 <select
                   value={filterStatus}
                   onChange={e => setFilterStatus(e.target.value)}
-                  className="px-2 py-1.5 text-[11px] bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg outline-none text-[var(--text-main)]"
+                  className="px-2 py-1.5 text-[11px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg outline-none text-zinc-900 dark:text-zinc-100"
                 >
                   <option value="all">All</option>
                   <option value="email_found">With Email</option>
@@ -1371,7 +1371,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                 {selectedIds.size > 0 ? (
                   <>
                     <span className="text-[10px] text-zinc-500 font-medium">{selectedIds.size} selected</span>
-                    <button onClick={clearSelection} className="text-[10px] text-zinc-400 hover:text-[var(--text-main)] transition-colors">Clear</button>
+                    <button onClick={clearSelection} className="text-[10px] text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 transition-colors">Clear</button>
                     <button
                       onClick={handleImport}
                       disabled={importing}
@@ -1382,7 +1382,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                     </button>
                   </>
                 ) : (
-                  <button onClick={selectAllWithEmail} className="text-[10px] text-zinc-400 hover:text-[var(--text-main)] transition-colors">
+                  <button onClick={selectAllWithEmail} className="text-[10px] text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 transition-colors">
                     Select all with email
                   </button>
                 )}
@@ -1399,10 +1399,10 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
 
           {/* Mobile compact stats bar */}
           {results.length > 0 && (
-            <div className="md:hidden flex-shrink-0 px-4 py-2 flex items-center gap-2 border-b border-[var(--border-color)] bg-zinc-50/50 dark:bg-zinc-900/30">
+            <div className="md:hidden flex-shrink-0 px-4 py-2 flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950">
               <div className="flex items-center gap-2.5 text-[11px] flex-1 min-w-0">
                 <span className="text-zinc-500 dark:text-zinc-400 tabular-nums">
-                  <span className="font-semibold text-[var(--text-main)]">{results.length}</span> creators
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">{results.length}</span> creators
                 </span>
                 <span className="text-[#1ED4A7] tabular-nums">
                   <span className="font-semibold">{emailCount}</span> email{emailCount !== 1 ? 's' : ''}
@@ -1422,7 +1422,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                   placeholder="Filter…"
                   value={searchFilter}
                   onChange={e => setSearchFilter(e.target.value)}
-                  className="w-24 pl-6 pr-2 py-1 text-[11px] bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg outline-none text-[var(--text-main)] placeholder:text-zinc-400"
+                  className="w-24 pl-6 pr-2 py-1 text-[11px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg outline-none text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400"
                 />
               </div>
             </div>
@@ -1430,7 +1430,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
 
           {/* Mobile filter chips */}
           {results.length > 0 && (
-            <div className="md:hidden flex-shrink-0 flex items-center gap-1 px-4 py-1.5 border-b border-[var(--border-color)]">
+            <div className="md:hidden flex-shrink-0 flex items-center gap-1 px-4 py-1.5 border-b border-zinc-200 dark:border-zinc-800">
               {(['all', 'email_found', 'no_email'] as const).map(opt => (
                 <button
                   key={opt}
@@ -1490,7 +1490,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                   <div className="w-12 h-12 rounded-2xl bg-red-50 dark:bg-red-950/20 flex items-center justify-center mx-auto mb-4">
                     <XCircle className="w-6 h-6 text-red-400" />
                   </div>
-                  <h3 className="text-[15px] font-semibold text-[var(--text-main)] mb-1">Search failed</h3>
+                  <h3 className="text-[15px] font-semibold text-zinc-900 dark:text-zinc-100 mb-1">Search failed</h3>
                   <p className="text-[12px] text-zinc-500 dark:text-zinc-400">{currentRun.error_text || 'An unknown error occurred.'}</p>
                   <button
                     onClick={handleRun}
@@ -1510,7 +1510,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                   <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800/50 flex items-center justify-center mx-auto mb-4">
                     <Search className="w-5 h-5 text-zinc-400" />
                   </div>
-                  <h3 className="text-[15px] font-semibold text-[var(--text-main)] mb-1">No creators found</h3>
+                  <h3 className="text-[15px] font-semibold text-zinc-900 dark:text-zinc-100 mb-1">No creators found</h3>
                   <p className="text-[12px] text-zinc-500 dark:text-zinc-400">Try different keywords, platforms, or increase results per keyword.</p>
                 </div>
               </div>
@@ -1520,7 +1520,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
               <div className="min-w-0">
                 {/* Compact agent strip while still searching */}
                 {isRunning && activityLog.length > 0 && (
-                  <div className="flex items-center gap-2.5 px-4 py-2 border-b border-[var(--border-color)] bg-zinc-50/60 dark:bg-zinc-900/30">
+                  <div className="flex items-center gap-2.5 px-4 py-2 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950">
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       <div className="w-1.5 h-1.5 rounded-full bg-[#1ED4A7] animate-pulse" />
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-600">Agent</span>
@@ -1537,7 +1537,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                 )}
 
                 {/* Table header */}
-                <div className="sticky top-0 z-10 bg-zinc-50/80 dark:bg-zinc-900/30 border-b border-[var(--border-color)] hidden md:grid md:grid-cols-[40px_36px_minmax(0,0.7fr)_minmax(0,1.1fr)_72px_minmax(0,1.1fr)_80px_50px_68px] items-center px-4 py-2 gap-1">
+                <div className="sticky top-0 z-10 bg-zinc-50/80 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 hidden md:grid md:grid-cols-[40px_36px_minmax(0,0.7fr)_minmax(0,1.1fr)_72px_minmax(0,1.1fr)_80px_50px_68px] items-center px-4 py-2 gap-1">
                   <div>
                     <input
                       type="checkbox"
@@ -1566,7 +1566,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                     }
                   >
                     {/* Desktop row */}
-                    <div className={`hidden md:grid md:grid-cols-[40px_36px_minmax(0,0.7fr)_minmax(0,1.1fr)_72px_minmax(0,1.1fr)_80px_50px_68px] items-center px-4 py-2.5 gap-1 border-b border-[var(--border-color)] hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors ${selectedIds.has(r.id) ? 'bg-[#1ED4A7]/[0.04]' : ''}`}>
+                    <div className={`hidden md:grid md:grid-cols-[40px_36px_minmax(0,0.7fr)_minmax(0,1.1fr)_72px_minmax(0,1.1fr)_80px_50px_68px] items-center px-4 py-2.5 gap-1 border-b border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors ${selectedIds.has(r.id) ? 'bg-[#1ED4A7]/[0.04]' : ''}`}>
                       <div>
                         <input
                           type="checkbox"
@@ -1597,7 +1597,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                       {/* Creator name + handle */}
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="min-w-0">
-                          <div className="text-[12px] font-medium text-[var(--text-main)] truncate">
+                          <div className="text-[12px] font-medium text-zinc-900 dark:text-zinc-100 truncate">
                             {getName(r)}
                           </div>
                           <button
@@ -1640,7 +1640,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                                   )}
                                   <button
                                     onClick={() => copyEmail(email, `${r.id}-${i}`)}
-                                    className="p-0.5 text-zinc-400 hover:text-[var(--text-main)] rounded transition-colors opacity-0 group-hover/email:opacity-100 flex-shrink-0"
+                                    className="p-0.5 text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 rounded transition-colors opacity-0 group-hover/email:opacity-100 flex-shrink-0"
                                     title="Copy email"
                                   >
                                     {copiedId === `${r.id}-${i}` ? (
@@ -1667,7 +1667,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                             <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 truncate">{r.phone_numbers[0]}</span>
                             <button
                               onClick={() => { navigator.clipboard.writeText(r.phone_numbers![0]); setCopiedId(`${r.id}-ph`); setTimeout(() => setCopiedId(null), 2000); }}
-                              className="p-0.5 text-zinc-400 hover:text-[var(--text-main)] rounded transition-colors opacity-0 group-hover/phone:opacity-100 flex-shrink-0"
+                              className="p-0.5 text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 rounded transition-colors opacity-0 group-hover/phone:opacity-100 flex-shrink-0"
                               title="Copy phone"
                             >
                               {copiedId === `${r.id}-ph` ? <Check className="w-3 h-3 text-[#1ED4A7]" /> : <Copy className="w-3 h-3" />}
@@ -1742,7 +1742,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                     </div>
 
                     {/* Mobile card */}
-                    <div className={`md:hidden px-4 py-2.5 border-b border-[var(--border-color)] ${selectedIds.has(r.id) ? 'bg-[#1ED4A7]/[0.04]' : ''}`}>
+                    <div className={`md:hidden px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-800 ${selectedIds.has(r.id) ? 'bg-[#1ED4A7]/[0.04]' : ''}`}>
                       <div className="flex items-center gap-2.5">
                         <input
                           type="checkbox"
@@ -1756,7 +1756,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-[13px] font-medium text-[var(--text-main)] truncate">{getName(r)}</span>
+                            <span className="text-[13px] font-medium text-zinc-900 dark:text-zinc-100 truncate">{getName(r)}</span>
                             {r.status === 'email_found' && (
                               <span className="w-1.5 h-1.5 rounded-full bg-[#1ED4A7] flex-shrink-0" />
                             )}
@@ -1804,7 +1804,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
 
                 {/* Loading more while searching */}
                 {isRunning && results.length > 0 && (
-                  <div className="flex items-center justify-center gap-2 py-4 border-t border-[var(--border-color)]">
+                  <div className="flex items-center justify-center gap-2 py-4 border-t border-zinc-200 dark:border-zinc-800">
                     <Loader2 className="w-4 h-4 animate-spin text-[#1ED4A7]" />
                     <span className="text-xs text-zinc-500">Loading more creators…</span>
                   </div>
@@ -1822,7 +1822,7 @@ export function CreatorFinder({ onUpgrade }: CreatorFinderProps) {
 
           {/* Mobile bottom bar */}
           {results.length > 0 && (
-            <div className="md:hidden flex-shrink-0 border-t border-[var(--border-color)] bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-xl px-4 py-2.5 pb-[max(0.625rem,calc(0.625rem+env(safe-area-inset-bottom,0px)))]">
+            <div className="md:hidden flex-shrink-0 border-t border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-xl px-4 py-2.5 pb-[max(0.625rem,calc(0.625rem+env(safe-area-inset-bottom,0px)))]">
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleExport}

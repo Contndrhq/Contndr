@@ -472,7 +472,7 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
                     {filteredUsers.map((u) => (
-                      <tr key={u.userId} className="hover:bg-gray-50 dark:hover:bg-zinc-50 dark:bg-zinc-950 transition-colors">
+                      <tr key={u.userId} className="hover:bg-gray-50 dark:hover:bg-zinc-900 transition-colors">
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-2.5 min-w-0">
                             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/20 flex items-center justify-center text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase flex-shrink-0">

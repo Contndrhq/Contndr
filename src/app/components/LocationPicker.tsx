@@ -715,12 +715,12 @@ function SearchableDropdown({
         type="button"
         disabled={disabled}
         onClick={() => { setOpen(!open); setSearch(''); }}
-        className={`w-full flex items-center gap-2 pl-8 pr-8 py-2 text-sm bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-lg transition-all text-left ${
+        className={`w-full flex items-center gap-2 pl-8 pr-8 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg transition-all text-left ${
           disabled ? 'opacity-40 cursor-not-allowed' : 'hover:border-zinc-500 cursor-pointer'
         } ${open ? 'ring-2 ring-[#1ED4A7]/30 border-[#1ED4A7]/50' : ''}`}
       >
         <Icon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
-        <span className={selectedLabel ? 'text-[var(--text-main)]' : 'text-zinc-400'}>
+        <span className={selectedLabel ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-400'}>
           {selectedLabel || placeholder}
         </span>
         <ChevronDown className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-400 pointer-events-none transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -735,8 +735,8 @@ function SearchableDropdown({
         </button>
       )}
       {open && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg shadow-xl overflow-hidden">
-          <div className="p-1.5 border-b border-[var(--border-color)]">
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl overflow-hidden">
+          <div className="p-1.5 border-b border-zinc-200 dark:border-zinc-800">
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-400" />
               <input
@@ -745,7 +745,7 @@ function SearchableDropdown({
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder={t('leadFinder.search', 'Search...')}
-                className="w-full pl-6 pr-2 py-1.5 text-xs bg-transparent outline-none text-[var(--text-main)] placeholder:text-zinc-500"
+                className="w-full pl-6 pr-2 py-1.5 text-xs bg-transparent outline-none text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500"
               />
             </div>
           </div>
@@ -759,7 +759,7 @@ function SearchableDropdown({
                   type="button"
                   onMouseDown={e => { e.preventDefault(); onChange(opt.value); setOpen(false); setSearch(''); }}
                   className={`w-full text-left px-3 py-2 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors ${
-                    value === opt.value ? 'text-[#1ED4A7] font-medium bg-[#1ED4A7]/5' : 'text-[var(--text-main)]'
+                    value === opt.value ? 'text-[#1ED4A7] font-medium bg-[#1ED4A7]/5' : 'text-zinc-900 dark:text-zinc-100'
                   }`}
                 >
                   {opt.label}
@@ -860,13 +860,13 @@ function CityMultiSelect({
     <div ref={ref} className="relative">
       <div
         onClick={() => { if (!disabled) { setOpen(true); setSearch(''); } }}
-        className={`w-full flex items-center gap-2 pl-8 pr-8 py-2 text-sm bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-lg transition-all text-left min-h-[38px] ${
+        className={`w-full flex items-center gap-2 pl-8 pr-8 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg transition-all text-left min-h-[38px] ${
           disabled ? 'opacity-40 cursor-not-allowed' : 'hover:border-zinc-500 cursor-pointer'
         } ${open ? 'ring-2 ring-[#1ED4A7]/30 border-[#1ED4A7]/50' : ''}`}
       >
         <Building2 className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
         {selected.length > 0 ? (
-          <span className="text-[var(--text-main)] truncate">
+          <span className="text-zinc-900 dark:text-zinc-100 truncate">
             {selected.length <= 3 ? selected.join(', ') : `${selected.slice(0, 2).join(', ')} +${selected.length - 2}`}
           </span>
         ) : (
@@ -884,8 +884,8 @@ function CityMultiSelect({
         </button>
       )}
       {open && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg shadow-xl overflow-hidden">
-          <div className="p-1.5 border-b border-[var(--border-color)]">
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl overflow-hidden">
+          <div className="p-1.5 border-b border-zinc-200 dark:border-zinc-800">
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-400" />
               <input
@@ -895,12 +895,12 @@ function CityMultiSelect({
                 onChange={e => setSearch(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={t('leadFinder.typeAnyCity', 'Type any city name...')}
-                className="w-full pl-6 pr-2 py-1.5 text-xs bg-transparent outline-none text-[var(--text-main)] placeholder:text-zinc-500"
+                className="w-full pl-6 pr-2 py-1.5 text-xs bg-transparent outline-none text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500"
               />
             </div>
           </div>
           {selected.length > 0 && (
-            <div className="px-2 py-1.5 border-b border-[var(--border-color)] flex flex-wrap gap-1">
+            <div className="px-2 py-1.5 border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap gap-1">
               {selected.map(city => (
                 <span
                   key={city}
@@ -923,7 +923,7 @@ function CityMultiSelect({
                   e.preventDefault();
                   addCustomCity();
                 }}
-                className="w-full text-left px-3 py-2.5 text-xs hover:bg-[#1ED4A7]/10 transition-colors flex items-center gap-2 text-[#1ED4A7] font-medium border-b border-[var(--border-color)]"
+                className="w-full text-left px-3 py-2.5 text-xs hover:bg-[#1ED4A7]/10 transition-colors flex items-center gap-2 text-[#1ED4A7] font-medium border-b border-zinc-200 dark:border-zinc-800"
               >
                 <Plus className="w-3.5 h-3.5" />
                 {t('leadFinder.addCity', 'Add')} "{searchNormalized}"
@@ -936,7 +936,7 @@ function CityMultiSelect({
             ) : (
               <>
                 {filtered.length > 0 && searchTrimmed.length > 0 && (
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 border-b border-[var(--border-color)]">
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 border-b border-zinc-200 dark:border-zinc-800">
                     {t('leadFinder.suggestions', 'Suggestions')}
                   </div>
                 )}
@@ -949,7 +949,7 @@ function CityMultiSelect({
                       toggle(city);
                     }}
                     className={`w-full text-left px-3 py-2 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors flex items-center gap-2 ${
-                      selected.includes(city) ? 'text-[#1ED4A7] font-medium bg-[#1ED4A7]/5' : 'text-[var(--text-main)]'
+                      selected.includes(city) ? 'text-[#1ED4A7] font-medium bg-[#1ED4A7]/5' : 'text-zinc-900 dark:text-zinc-100'
                     }`}
                   >
                     <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${

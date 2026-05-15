@@ -885,7 +885,7 @@ export function AdvancedAnalytics() {
                  <div className="overflow-x-auto">
                    <table className="w-full text-left text-sm">
                      <thead>
-                       <tr className="border-b border-[#EAEAEA] dark:border-white/10 bg-zinc-50/50 dark:bg-white/5">
+                       <tr className="border-b border-[#EAEAEA] dark:border-white/10 bg-zinc-50 dark:bg-white/5">
                          <th className="px-6 py-4 font-semibold text-zinc-500 text-xs uppercase tracking-wider">{t('analytics.colName')}</th>
                          <th className="px-6 py-4 font-semibold text-zinc-500 text-xs uppercase tracking-wider text-right">{t('analytics.colSent')}</th>
                          <th className="px-6 py-4 font-semibold text-zinc-500 text-xs uppercase tracking-wider text-right">{t('analytics.colOpen')}</th>
@@ -931,7 +931,7 @@ function StatCard({ label, value, icon: Icon, color }: { label: string, value: s
   return (
     <div className="glass-card p-5 cursor-pointer group hover:border-zinc-300 dark:hover:border-zinc-700 hover:-translate-y-1 transition-all">
       <div className="flex items-start justify-between mb-4">
-        <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">{label}</span>
+        <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">{label}</span>
         {Icon && <Icon className="w-4 h-4 text-zinc-400 group-hover:text-[#1ED4A7] transition-colors duration-300" />}
       </div>
       <p className="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">{value}</p>
@@ -1136,7 +1136,7 @@ function LiveTrafficDashboard() {
 
         {/* Right List - Clean styling */}
         <div className={`lg:col-span-1 h-full min-h-0 max-h-[500px] lg:max-h-none flex-col rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#050505] overflow-hidden shadow-sm ${mobileView === 'list' ? 'flex' : 'hidden lg:flex'}`}>
-           <div className="p-4 border-b border-zinc-100 dark:border-zinc-800 shrink-0 bg-zinc-50/50 dark:bg-[#050505]">
+           <div className="p-4 border-b border-zinc-100 dark:border-zinc-800 shrink-0 bg-zinc-50 dark:bg-[#050505]">
               <div className="flex items-center gap-2">
                  <div className="w-4 h-4 flex items-center justify-center">
                     <div className="w-3 h-3 border-2 border-zinc-400 rounded-full border-t-transparent animate-spin" style={{ animationDuration: '3s' }}></div>
@@ -1165,7 +1165,7 @@ function LiveTrafficDashboard() {
                          key={visit.id} 
                          onClick={() => setSelectedVisitorId(visit.id)}
                          className={`p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors flex items-start gap-3 cursor-pointer group ${
-                             selectedVisitorId === visit.id ? 'bg-zinc-50 dark:bg-zinc-900/50' : ''
+                             selectedVisitorId === visit.id ? 'bg-zinc-50 dark:bg-zinc-950' : ''
                          }`}
                       >
                          <div className="flex-shrink-0 mt-1">

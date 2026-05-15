@@ -609,13 +609,13 @@ export function UpgradeModal({ isOpen, onClose, currentPlan, forced = false, use
 
                       return (
                         <div className="px-4 md:px-8 pb-4 mt-2">
-                          <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl overflow-hidden">
+                          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
                             <table className="w-full text-left">
                               <thead>
-                                <tr className="border-b border-white/[0.06]">
-                                  <th className="px-4 md:px-5 py-3 text-[10px] font-bold text-zinc-500 uppercase tracking-widest w-[40%]">{t('upgradeModal.feature')}</th>
-                                  <th className="px-4 md:px-5 py-3 text-[10px] font-bold text-zinc-500 uppercase tracking-widest w-[30%]">{leftLabel}</th>
-                                  <th className="px-4 md:px-5 py-3 text-[10px] font-bold text-zinc-500 uppercase tracking-widest w-[30%]">{rightLabel}</th>
+                                <tr className="border-b border-zinc-200 dark:border-zinc-800">
+                                  <th className="px-4 md:px-5 py-3 text-[10px] font-bold text-zinc-500 uppercase tracking-wider w-[40%]">{t('upgradeModal.feature')}</th>
+                                  <th className="px-4 md:px-5 py-3 text-[10px] font-bold text-zinc-500 uppercase tracking-wider w-[30%]">{leftLabel}</th>
+                                  <th className="px-4 md:px-5 py-3 text-[10px] font-bold text-zinc-500 uppercase tracking-wider w-[30%]">{rightLabel}</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-white/[0.04]">

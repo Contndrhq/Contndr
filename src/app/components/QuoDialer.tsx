@@ -1160,7 +1160,7 @@ export function QuoDialer({ leadId, leadName, businessName, phones }: QuoDialerP
 
   if (apiConfigured === false) {
     return (
-      <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 bg-zinc-50 dark:bg-zinc-900/50">
+      <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 bg-zinc-50 dark:bg-zinc-950">
         <div className="flex items-center gap-2 text-zinc-500 text-sm">
           <PhoneOff className="w-4 h-4" />
           <span>Telnyx API not configured. Set TELNYX_API_KEY to enable calling.</span>
@@ -1176,7 +1176,7 @@ export function QuoDialer({ leadId, leadName, businessName, phones }: QuoDialerP
   const showCallControls = webrtcStatus === 'active' || webrtcStatus === 'held';
 
   return (
-    <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 overflow-hidden">
+    <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50 dark:bg-zinc-950 overflow-hidden">
       {/* ── Header ── */}
       <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -1222,7 +1222,7 @@ export function QuoDialer({ leadId, leadName, businessName, phones }: QuoDialerP
 
           {/* Error/reason banner when call ended with a cause */}
           {(webrtcStatus === 'done') && webrtcError && (
-            <div className="text-xs px-3 py-2 rounded-lg border text-zinc-500 bg-zinc-50 dark:bg-zinc-900/50 border-zinc-200 dark:border-zinc-800">
+            <div className="text-xs px-3 py-2 rounded-lg border text-zinc-500 bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800">
               {webrtcError}
             </div>
           )}
@@ -1316,7 +1316,7 @@ export function QuoDialer({ leadId, leadName, businessName, phones }: QuoDialerP
 
       {/* ── Post-Call AI Panel ── */}
       {showPostCall && !isInCall && (
-        <div className="p-4 space-y-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
+        <div className="p-4 space-y-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-zinc-500" />
@@ -1371,7 +1371,7 @@ export function QuoDialer({ leadId, leadName, businessName, phones }: QuoDialerP
 
           {/* AI Summary Section */}
           {aiSummary && (
-            <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 overflow-hidden">
+            <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
               <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center gap-1.5">
                 <Sparkles className="w-3 h-3 text-[#1ED4A7]" />
                 <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">AI Analysis</span>
@@ -1521,7 +1521,7 @@ export function QuoDialer({ leadId, leadName, businessName, phones }: QuoDialerP
             </div>
           )}
           {webrtcStatus === 'idle' && webrtcError && (
-            <div className="text-xs text-zinc-500 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2">
+            <div className="text-xs text-zinc-500 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2">
               {webrtcError}
             </div>
           )}

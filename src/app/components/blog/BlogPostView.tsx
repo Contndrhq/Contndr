@@ -116,16 +116,16 @@ export function BlogPostView({ post, onNavigate, onLogin, onGetStarted }: BlogPo
             {/* Social Share (Sticky) */}
             <div className="hidden lg:flex flex-col gap-2.5 absolute left-0 top-24 -translate-x-full pr-12">
               <div className="text-[10px] uppercase font-semibold text-zinc-600 tracking-wider mb-1">Share</div>
-              <button className="p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/[0.12] border border-white/[0.06] transition-all text-zinc-500 hover:text-white">
+              <button className="p-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-900 hover:bg-white/[0.08] hover:border-white/[0.12] border border-zinc-200 dark:border-zinc-800 transition-all text-zinc-500 hover:text-white">
                 <Facebook className="w-3.5 h-3.5" />
               </button>
-              <button className="p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/[0.12] border border-white/[0.06] transition-all text-zinc-500 hover:text-white">
+              <button className="p-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-900 hover:bg-white/[0.08] hover:border-white/[0.12] border border-zinc-200 dark:border-zinc-800 transition-all text-zinc-500 hover:text-white">
                 <Twitter className="w-3.5 h-3.5" />
               </button>
-              <button className="p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/[0.12] border border-white/[0.06] transition-all text-zinc-500 hover:text-white">
+              <button className="p-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-900 hover:bg-white/[0.08] hover:border-white/[0.12] border border-zinc-200 dark:border-zinc-800 transition-all text-zinc-500 hover:text-white">
                 <Linkedin className="w-3.5 h-3.5" />
               </button>
-              <button className="p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/[0.12] border border-white/[0.06] transition-all text-zinc-500 hover:text-white">
+              <button className="p-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-900 hover:bg-white/[0.08] hover:border-white/[0.12] border border-zinc-200 dark:border-zinc-800 transition-all text-zinc-500 hover:text-white">
                 <Share2 className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -136,8 +136,8 @@ export function BlogPostView({ post, onNavigate, onLogin, onGetStarted }: BlogPo
             />
 
             {/* CTA */}
-            <div className="mt-24 pt-12 border-t border-white/[0.06]">
-              <div className="rounded-[2rem] p-10 md:p-14 border border-white/[0.06] bg-[#0A0A0A] text-center relative overflow-hidden">
+            <div className="mt-24 pt-12 border-t border-zinc-200 dark:border-zinc-800">
+              <div className="rounded-[2rem] p-10 md:p-14 border border-zinc-200 dark:border-zinc-800 bg-[#0A0A0A] text-center relative overflow-hidden">
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.02),transparent_60%)] pointer-events-none" />
 
                 <div className="relative z-10">

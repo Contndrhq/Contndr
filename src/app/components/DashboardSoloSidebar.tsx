@@ -32,11 +32,11 @@ function MetricRow({
   return (
     <div
       className={`group flex items-center gap-3 px-3 py-1 rounded-xl transition-colors ${
-        onClick ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-white/[0.03]' : ''
+        onClick ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900' : ''
       }`}
       onClick={onClick}
     >
-      <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.04] flex items-center justify-center flex-shrink-0">
+      <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center flex-shrink-0">
         <Icon className="w-4 h-4 text-zinc-400 dark:text-zinc-500 group-hover:text-[#1ED4A7] transition-colors" />
       </div>
       <div className="flex-1 min-w-0">
@@ -53,7 +53,7 @@ function MetricRow({
           </span>
         </div>
         {pct !== undefined && (
-          <div className="h-1.5 bg-zinc-100 dark:bg-white/[0.04] rounded-full overflow-hidden mt-0.5">
+          <div className="h-1.5 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden mt-0.5">
             <div
               className="h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r from-[#1ED4A7]/60 to-[#1ED4A7]"
               style={{ width: `${Math.min(pct, 100)}%` }}

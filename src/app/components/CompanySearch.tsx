@@ -353,7 +353,7 @@ function CompanyAgentFeed({
             </div>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-[var(--text-main)] tracking-tight">{t('leadFinder.companyDiscoveryAgent')}</h3>
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 tracking-tight">{t('leadFinder.companyDiscoveryAgent')}</h3>
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
               {isSearching
                 ? (activePhase ? translatePhaseName(t, activePhase.name) : t('leadFinder.working'))
@@ -395,10 +395,10 @@ function CompanyAgentFeed({
                     <div className={`w-4 h-px flex-shrink-0 transition-colors duration-500 ${isDone ? 'bg-[#1ED4A7]/40' : 'bg-zinc-200 dark:bg-zinc-800'}`} />
                   )}
                   <div className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg flex-shrink-0 text-[10px] font-medium transition-all duration-300 ${
-                    isActive ? 'bg-[#1ED4A7]/8 text-[var(--text-main)] ring-1 ring-[#1ED4A7]/25' :
-                    isDone ? 'bg-zinc-50 dark:bg-zinc-900/50 text-[#1ED4A7]' :
-                    isSkipped ? 'bg-zinc-50 dark:bg-zinc-900/30 text-zinc-400 dark:text-zinc-600 line-through' :
-                    'bg-zinc-50 dark:bg-zinc-900/30 text-zinc-400 dark:text-zinc-600'
+                    isActive ? 'bg-[#1ED4A7]/8 text-zinc-900 dark:text-zinc-100 ring-1 ring-[#1ED4A7]/25' :
+                    isDone ? 'bg-zinc-50 dark:bg-zinc-950 text-[#1ED4A7]' :
+                    isSkipped ? 'bg-zinc-50 dark:bg-zinc-950 text-zinc-400 dark:text-zinc-600 line-through' :
+                    'bg-zinc-50 dark:bg-zinc-950 text-zinc-400 dark:text-zinc-600'
                   }`}>
                     {isActive && <Loader2 className="w-3 h-3 animate-spin" />}
                     {isDone && <CheckCircle className="w-3 h-3" />}
@@ -431,7 +431,7 @@ function CompanyAgentFeed({
                 className={`flex items-start gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
                   isLatest
                     ? 'bg-[#1ED4A7]/[0.04] dark:bg-[#1ED4A7]/[0.04]'
-                    : 'hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20'
+                    : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/20'
                 }`}
                 style={{ animation: 'companyEntryIn 0.35s cubic-bezier(0.16,1,0.3,1) both' }}
               >
@@ -1592,7 +1592,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
             value={companyName}
             onChange={e => setCompanyName(e.target.value)}
             placeholder={t('leadFinder.companySearchPlaceholder')}
-            className="w-full pl-8 pr-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400"
+            className="w-full pl-8 pr-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400"
           />
         </div>
       </div>
@@ -1615,7 +1615,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
             value={keywords}
             onChange={e => setKeywords(e.target.value)}
             placeholder={t('leadFinder.keywordsPlaceholder')}
-            className="w-full pl-8 pr-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400"
+            className="w-full pl-8 pr-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400"
           />
         </div>
       </div>
@@ -1628,9 +1628,9 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
         <button
           type="button"
           onClick={() => setShowIndustryPicker(!showIndustryPicker)}
-          className="w-full flex items-center justify-between px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-lg text-left transition-all hover:border-zinc-300 dark:hover:border-zinc-600"
+          className="w-full flex items-center justify-between px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-left transition-all hover:border-zinc-300 dark:hover:border-zinc-600"
         >
-          <span className={industries.size > 0 ? 'text-[var(--text-main)]' : 'text-zinc-400'}>
+          <span className={industries.size > 0 ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-400'}>
             {industries.size > 0 ? t('companySearch.nSelectedIndustries', { count: industries.size }) : t('companySearch.industryPlaceholder')}
           </span>
           <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 transition-transform ${showIndustryPicker ? 'rotate-180' : ''}`} />
@@ -1651,8 +1651,8 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
           </div>
         )}
         {showIndustryPicker && (
-          <div className="mt-1.5 border border-[var(--border-color)] rounded-lg bg-white dark:bg-zinc-900 shadow-lg overflow-hidden">
-            <div className="px-2 py-1.5 border-b border-[var(--border-color)]">
+          <div className="mt-1.5 border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 shadow-lg overflow-hidden">
+            <div className="px-2 py-1.5 border-b border-zinc-200 dark:border-zinc-800">
               <input
                 type="text"
                 value={industrySearch}
@@ -1701,7 +1701,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
               className={`px-3 py-1.5 md:px-2 md:py-1 min-h-[32px] md:min-h-0 text-[11px] md:text-[10px] font-medium rounded-lg md:rounded-md border transition-all ${
                 employeeRanges.has(opt.value)
                   ? 'border-[#1ED4A7]/40 bg-[#1ED4A7]/10 text-[#1ED4A7]'
-                  : 'border-[var(--border-color)] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
+                  : 'border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
               }`}
             >
               {opt.label}
@@ -1724,7 +1724,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
               className={`flex items-center justify-center py-1.5 min-h-[32px] md:min-h-0 text-[11px] md:text-[10px] font-medium rounded-lg md:rounded-md border transition-all ${
                 perPage === n
                   ? 'border-[#1ED4A7]/40 bg-[#1ED4A7]/10 text-[#1ED4A7]'
-                  : 'border-[var(--border-color)] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
+                  : 'border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
               }`}
             >
               {n}
@@ -1774,9 +1774,9 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
         </>
       )}
       {/* ── Main Layout ── */}
-      <div className="flex-1 overflow-hidden flex min-h-0 rounded-2xl border border-[var(--border-color)] bg-white dark:bg-[#050505]/80 dark:backdrop-blur-xl shadow-sm">
+      <div className="flex-1 overflow-hidden flex min-h-0 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#050505]/80 dark:backdrop-blur-xl shadow-sm">
         {/* ── Sidebar / Filters ── */}
-        <div className={`flex-shrink-0 border-r border-[var(--border-color)] transition-all duration-300 flex flex-col ${sidebarCollapsed ? 'w-0 md:w-12' : 'w-full md:w-[300px]'} ${results.length > 0 && !sidebarCollapsed ? 'hidden md:block md:flex' : ''}`}>
+        <div className={`flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 transition-all duration-300 flex flex-col ${sidebarCollapsed ? 'w-0 md:w-12' : 'w-full md:w-[300px]'} ${results.length > 0 && !sidebarCollapsed ? 'hidden md:block md:flex' : ''}`}>
           {!sidebarCollapsed ? (
             <div className="p-4 space-y-4 overflow-y-auto flex-1 min-h-0 pb-4">
               {/* Header */}
@@ -1785,19 +1785,19 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                   <div className="w-6 h-6 rounded-md bg-zinc-800 dark:bg-white/10 flex items-center justify-center text-white">
                     <Building2 className="w-3.5 h-3.5" />
                   </div>
-                  <h2 className="text-sm font-semibold text-[var(--text-main)]">{t('leadFinder.companySearchTitle')}</h2>
+                  <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('leadFinder.companySearchTitle')}</h2>
                 </div>
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => { setShowSavedLists(!showSavedLists); if (!showSavedLists) loadSavedLists(); }}
-                    className={`p-1.5 rounded-md transition-colors text-xs ${showSavedLists ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]' : 'text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+                    className={`p-1.5 rounded-md transition-colors text-xs ${showSavedLists ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]' : 'text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
                     title="Saved Searches"
                   >
                     <Bookmark className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={() => setSidebarCollapsed(true)}
-                    className="p-1.5 rounded-md text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors hidden md:flex"
+                    className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors hidden md:flex"
                   >
                     <ChevronDown className="w-3.5 h-3.5 -rotate-90" />
                   </button>
@@ -1806,8 +1806,8 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
 
               {/* Saved Lists Panel */}
               {showSavedLists && (
-                <div className="rounded-lg border border-[var(--border-color)] overflow-hidden">
-                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-900/50 border-b border-[var(--border-color)]">
+                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{t('leadFinder.savedSearches')}</span>
                   </div>
                   <div className="max-h-48 overflow-y-auto">
@@ -1818,13 +1818,13 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                     ) : savedLists.map((list: any) => (
                       <div
                         key={list.id}
-                        className="px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer flex items-center justify-between group transition-colors border-b border-[var(--border-color)] last:border-b-0"
+                        className="px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer flex items-center justify-between group transition-colors border-b border-zinc-200 dark:border-zinc-800 last:border-b-0"
                         onClick={() => handleLoadSavedList(list)}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <Bookmark className="w-3 h-3 text-zinc-400 flex-shrink-0" />
-                            <span className="text-xs font-medium text-[var(--text-main)] truncate">{list.name}</span>
+                            <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">{list.name}</span>
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] text-zinc-400">{list.leads?.length || 0} companies</span>
@@ -1867,8 +1867,8 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
 
               {/* Results Summary */}
               {hasSearched && !isSearching && (
-                <div className="rounded-lg border border-[var(--border-color)] overflow-hidden">
-                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-900/50 border-b border-[var(--border-color)]">
+                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{t('companySearch.resultsTitle')}</span>
                   </div>
                   <div className="p-3 space-y-1.5">
@@ -1896,19 +1896,19 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-xs text-zinc-500">{t('companySearch.withWebsite')}</span>
-                            <span className="text-xs font-semibold text-[var(--text-main)]">{withSite}</span>
+                            <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{withSite}</span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-xs text-zinc-500">{t('companySearch.withSizeData')}</span>
-                            <span className="text-xs font-semibold text-[var(--text-main)]">{withSize}</span>
+                            <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{withSize}</span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-xs text-zinc-500">{t('companySearch.withRevenue')}</span>
-                            <span className="text-xs font-semibold text-[var(--text-main)]">{withRevenue}</span>
+                            <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{withRevenue}</span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-xs text-zinc-500">{t('companySearch.industriesLabel')}</span>
-                            <span className="text-xs font-semibold text-[var(--text-main)]">{uniqueIndustries}</span>
+                            <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{uniqueIndustries}</span>
                           </div>
                           {(() => {
                             const crmMatchCount = Object.keys(crmContactsMap).length;
@@ -1925,7 +1925,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                       );
                     })()}
 
-                    <div className="pt-2 mt-2 border-t border-[var(--border-color)] space-y-1.5">
+                    <div className="pt-2 mt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1.5">
                       {isAutoEnriching && (
                         <div className="flex items-center gap-2 py-1.5 px-2 rounded-md bg-[#1ED4A7]/5 border border-[#1ED4A7]/20">
                           <Loader2 className="w-3 h-3 animate-spin text-[#1ED4A7] flex-shrink-0" />
@@ -1968,8 +1968,8 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
 
               {/* Recent Searches (sidebar widget) */}
               {searchHistory.length > 0 && (
-                <div className="rounded-lg border border-[var(--border-color)] overflow-hidden">
-                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-900/50 border-b border-[var(--border-color)] flex items-center justify-between">
+                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <Clock className="w-3 h-3 text-zinc-400" />
                       <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Recent</span>
@@ -1999,7 +1999,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                             className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors text-left min-w-0"
                           >
                             <Search className="w-2.5 h-2.5 text-zinc-400 flex-shrink-0" />
-                            <span className="text-[11px] text-[var(--text-main)] truncate flex-1">{label}</span>
+                            <span className="text-[11px] text-zinc-900 dark:text-zinc-100 truncate flex-1">{label}</span>
                             <span className={`text-[10px] flex-shrink-0 ${entry.resultCount === 0 ? 'text-red-400' : 'text-zinc-400'}`}>
                               {entry.resultCount}
                             </span>
@@ -2020,13 +2020,13 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
             </div>
           ) : (
             <div className="hidden md:flex flex-col items-center py-3 gap-2">
-              <button onClick={() => setSidebarCollapsed(false)} className="p-1.5 rounded-md text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
+              <button onClick={() => setSidebarCollapsed(false)} className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
                 <ChevronDown className="w-3.5 h-3.5 rotate-90" />
               </button>
-              <button onClick={() => setSidebarCollapsed(false)} className="p-1.5 rounded-md text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
+              <button onClick={() => setSidebarCollapsed(false)} className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
                 <Building2 className="w-3.5 h-3.5" />
               </button>
-              <button onClick={() => { setSidebarCollapsed(false); setShowSavedLists(true); loadSavedLists(); }} className="p-1.5 rounded-md text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title={t('companySearch.savedSearchesTitle')}>
+              <button onClick={() => { setSidebarCollapsed(false); setShowSavedLists(true); loadSavedLists(); }} className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title={t('companySearch.savedSearchesTitle')}>
                 <Bookmark className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -2037,13 +2037,13 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
           {/* Top Action Bar */}
           {results.length > 0 && (
-            <div className="flex-shrink-0 border-b border-[var(--border-color)]">
+            <div className="flex-shrink-0 border-b border-zinc-200 dark:border-zinc-800">
               <div className="px-4 py-2.5 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   {/* Mobile: back to filters */}
                   <button
                     onClick={() => setSidebarCollapsed(false)}
-                    className="md:hidden p-1.5 rounded-md text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex-shrink-0"
+                    className="md:hidden p-1.5 rounded-md text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex-shrink-0"
                     title={t('companySearch.searchFilters')}
                   >
                     <Building2 className="w-4 h-4" />
@@ -2071,7 +2071,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                       value={resultSearch}
                       onChange={e => setResultSearch(e.target.value)}
                       placeholder={t('companySearch.searchResultsPlaceholder')}
-                      className="w-full pl-7 pr-3 py-1.5 text-xs bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-md focus:ring-1 focus:ring-[#1ED4A7]/30 outline-none transition-all placeholder:text-zinc-400"
+                      className="w-full pl-7 pr-3 py-1.5 text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-md focus:ring-1 focus:ring-[#1ED4A7]/30 outline-none transition-all placeholder:text-zinc-400"
                     />
                   </div>
                 </div>
@@ -2079,14 +2079,14 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                 <div className="hidden md:flex items-center gap-1.5 flex-shrink-0">
                   <button
                     onClick={() => setShowSaveDialog(true)}
-                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-color)] text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:border-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all"
+                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:border-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all"
                     title={t('companySearch.saveDialogTitle', 'Save search results')}
                   >
                     <Bookmark className="w-3 h-3" /> {t('companySearch.saveLabel')}
                   </button>
                   <button
                     onClick={handleExportCSV}
-                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-color)] text-zinc-500 hover:text-[var(--text-main)] hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all"
+                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all"
                   >
                     <Download className="w-3 h-3" /> {t('companySearch.csvLabel', 'CSV')}
                   </button>
@@ -2167,7 +2167,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                   <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-zinc-100 dark:bg-zinc-800/50 flex items-center justify-center mx-auto mb-4 sm:mb-5 shadow-sm border border-zinc-200 dark:border-zinc-700">
                     <Building2 className="w-6 h-6 sm:w-7 sm:h-7 text-zinc-400 dark:text-zinc-500" />
                   </div>
-                  <h3 className="text-base sm:text-lg font-semibold text-[var(--text-main)] mb-1">{t('companySearch.noResults', 'No companies found')}</h3>
+                  <h3 className="text-base sm:text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">{t('companySearch.noResults', 'No companies found')}</h3>
                   <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mb-5 sm:mb-6 px-2">
                     {t('companySearch.tryDifferent', 'Your search didn\'t return results. Try a suggestion below or run a fresh search.')}
                   </p>
@@ -2245,13 +2245,13 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                             <button
                               key={i}
                               onClick={s.action}
-                              className="w-full group flex items-start gap-3 p-3.5 sm:p-3 rounded-xl border border-zinc-200 dark:border-zinc-700/60 bg-zinc-50/50 dark:bg-zinc-800/30 hover:bg-[#1ED4A7]/5 hover:border-[#1ED4A7]/30 dark:hover:bg-[#1ED4A7]/5 dark:hover:border-[#1ED4A7]/30 active:bg-[#1ED4A7]/10 transition-all duration-200 text-left"
+                              className="w-full group flex items-start gap-3 p-3.5 sm:p-3 rounded-xl border border-zinc-200 dark:border-zinc-700/60 bg-zinc-50 dark:bg-zinc-800/30 hover:bg-[#1ED4A7]/5 hover:border-[#1ED4A7]/30 dark:hover:bg-[#1ED4A7]/5 dark:hover:border-[#1ED4A7]/30 active:bg-[#1ED4A7]/10 transition-all duration-200 text-left"
                             >
                               <div className="flex-shrink-0 w-9 h-9 sm:w-8 sm:h-8 rounded-lg bg-zinc-100 dark:bg-zinc-700/50 flex items-center justify-center text-zinc-500 dark:text-zinc-400 group-hover:bg-[#1ED4A7]/10 group-hover:text-[#1ED4A7] transition-colors">
                                 {s.icon}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <div className="text-sm font-medium text-[var(--text-main)] group-hover:text-[#1ED4A7] transition-colors flex items-center gap-1.5">
+                                <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100 group-hover:text-[#1ED4A7] transition-colors flex items-center gap-1.5">
                                   {s.label}
                                   <ArrowRight className="w-3 h-3 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all hidden sm:block" />
                                 </div>
@@ -2267,7 +2267,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
 
                   {/* ── AI-Powered Suggestions ── */}
                   {loadingAiSuggestions ? (
-                    <div className="mb-5 sm:mb-6 p-4 rounded-xl border border-zinc-200 dark:border-zinc-700/60 bg-zinc-50/50 dark:bg-zinc-800/30">
+                    <div className="mb-5 sm:mb-6 p-4 rounded-xl border border-zinc-200 dark:border-zinc-700/60 bg-zinc-50 dark:bg-zinc-800/30">
                       <div className="flex items-center justify-center gap-2">
                         <Sparkles className="w-3.5 h-3.5 text-[#1ED4A7] animate-pulse" />
                         <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('companySearch.generatingAISuggestions')}</span>
@@ -2290,7 +2290,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                                 key={i}
                                 onClick={() => { setCompanyName(c.name); setKeywords(''); setPendingSuggestionSearch(true); }}
                                 title={c.reason}
-                                className="group inline-flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700/60 bg-white dark:bg-zinc-800/50 text-xs font-medium text-[var(--text-main)] hover:border-[#1ED4A7]/40 hover:bg-[#1ED4A7]/5 active:bg-[#1ED4A7]/10 transition-all"
+                                className="group inline-flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700/60 bg-white dark:bg-zinc-800/50 text-xs font-medium text-zinc-900 dark:text-zinc-100 hover:border-[#1ED4A7]/40 hover:bg-[#1ED4A7]/5 active:bg-[#1ED4A7]/10 transition-all"
                               >
                                 <Building2 className="w-3.5 h-3.5 sm:w-3 sm:h-3 text-zinc-400 group-hover:text-[#1ED4A7] transition-colors" />
                                 {c.name}
@@ -2310,7 +2310,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                                 key={i}
                                 onClick={() => { setKeywords(k.term); setCompanyName(''); setPendingSuggestionSearch(true); }}
                                 title={k.reason}
-                                className="group inline-flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700/60 bg-white dark:bg-zinc-800/50 text-xs font-medium text-[var(--text-main)] hover:border-[#1ED4A7]/40 hover:bg-[#1ED4A7]/5 active:bg-[#1ED4A7]/10 transition-all"
+                                className="group inline-flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700/60 bg-white dark:bg-zinc-800/50 text-xs font-medium text-zinc-900 dark:text-zinc-100 hover:border-[#1ED4A7]/40 hover:bg-[#1ED4A7]/5 active:bg-[#1ED4A7]/10 transition-all"
                               >
                                 <Hash className="w-3.5 h-3.5 sm:w-3 sm:h-3 text-zinc-400 group-hover:text-[#1ED4A7] transition-colors" />
                                 {k.term}
@@ -2330,7 +2330,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                                 key={i}
                                 onClick={() => { setKeywords(ind.industry); setCompanyName(''); setPendingSuggestionSearch(true); }}
                                 title={ind.reason}
-                                className="group inline-flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700/60 bg-white dark:bg-zinc-800/50 text-xs font-medium text-[var(--text-main)] hover:border-[#1ED4A7]/40 hover:bg-[#1ED4A7]/5 active:bg-[#1ED4A7]/10 transition-all"
+                                className="group inline-flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700/60 bg-white dark:bg-zinc-800/50 text-xs font-medium text-zinc-900 dark:text-zinc-100 hover:border-[#1ED4A7]/40 hover:bg-[#1ED4A7]/5 active:bg-[#1ED4A7]/10 transition-all"
                               >
                                 <Factory className="w-3.5 h-3.5 sm:w-3 sm:h-3 text-zinc-400 group-hover:text-[#1ED4A7] transition-colors" />
                                 {ind.industry}
@@ -2392,10 +2392,10 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                                   setEmployeeRanges(new Set(p.employeeRanges));
                                   setPendingSuggestionSearch(true);
                                 }}
-                                className="flex-1 flex items-center gap-2 sm:gap-2.5 px-3 py-2.5 sm:py-2 rounded-lg border border-zinc-200 dark:border-zinc-700/60 bg-zinc-50/50 dark:bg-zinc-800/30 hover:bg-[#1ED4A7]/5 hover:border-[#1ED4A7]/30 active:bg-[#1ED4A7]/10 transition-all text-left min-w-0"
+                                className="flex-1 flex items-center gap-2 sm:gap-2.5 px-3 py-2.5 sm:py-2 rounded-lg border border-zinc-200 dark:border-zinc-700/60 bg-zinc-50 dark:bg-zinc-800/30 hover:bg-[#1ED4A7]/5 hover:border-[#1ED4A7]/30 active:bg-[#1ED4A7]/10 transition-all text-left min-w-0"
                               >
                                 <Search className="w-3.5 h-3.5 sm:w-3 sm:h-3 text-zinc-400 flex-shrink-0" />
-                                <span className="text-xs font-medium text-[var(--text-main)] truncate flex-1">{label}</span>
+                                <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate flex-1">{label}</span>
                                 <span className={`text-[10px] flex-shrink-0 tabular-nums ${entry.resultCount === 0 ? 'text-red-400' : 'text-zinc-400'}`}>
                                   {entry.resultCount === 0 ? '0' : entry.resultCount}
                                 </span>
@@ -2426,11 +2426,11 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
               <div className="min-w-0">
                 {/* Agent Progress Banner (compact, shown during enrichment when results are visible) */}
                 {agentActive && searchPhases.length > 0 && (
-                  <div className="sticky top-0 z-20 bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-sm border-b border-[var(--border-color)] px-4 py-2.5">
+                  <div className="sticky top-0 z-20 bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-sm border-b border-zinc-200 dark:border-zinc-800 px-4 py-2.5">
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <Radar className="w-3.5 h-3.5 text-[#1ED4A7] animate-pulse" />
-                        <span className="text-[11px] font-semibold text-[var(--text-main)]">{t('leadFinder.companyDiscoveryAgent')}</span>
+                        <span className="text-[11px] font-semibold text-zinc-900 dark:text-zinc-100">{t('leadFinder.companyDiscoveryAgent')}</span>
                       </div>
                       {/* Compact phase chips */}
                       <div className="flex items-center gap-1 overflow-x-auto no-scrollbar flex-1">
@@ -2439,7 +2439,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                           const isDone = phase.status === 'complete';
                           return (
                             <div key={phase.phase} className={`flex items-center gap-1 px-2 py-1 rounded-md flex-shrink-0 text-[9px] font-medium transition-all duration-300 ${
-                              isActive ? 'bg-[#1ED4A7]/8 text-[var(--text-main)] ring-1 ring-[#1ED4A7]/25' :
+                              isActive ? 'bg-[#1ED4A7]/8 text-zinc-900 dark:text-zinc-100 ring-1 ring-[#1ED4A7]/25' :
                               isDone ? 'text-[#1ED4A7]' :
                               'text-zinc-400 dark:text-zinc-600'
                             }`}>
@@ -2466,7 +2466,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                   </div>
                 )}
                 {/* Table Header */}
-                <div className="sticky top-0 z-10 bg-zinc-50/80 dark:bg-zinc-900/30 border-b border-[var(--border-color)] hidden md:grid md:grid-cols-[40px_1.1fr_0.65fr_0.35fr_0.45fr_55px_0.75fr_80px] items-center px-4 py-2 gap-x-2">
+                <div className="sticky top-0 z-10 bg-zinc-50/80 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 hidden md:grid md:grid-cols-[40px_1.1fr_0.65fr_0.35fr_0.45fr_55px_0.75fr_80px] items-center px-4 py-2 gap-x-2">
                   <div /> {/* checkbox */}
                   <SortHeader label={t('companySearch.colCompany')} field="name" current={sortField} asc={sortAsc} onSort={toggleSort} />
                   <SortHeader label={t('companySearch.colIndustry')} field="industry" current={sortField} asc={sortAsc} onSort={toggleSort} />
@@ -2515,7 +2515,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                   const totalEntries = pagination.total_entries || filteredResults.length;
 
                   return (
-                    <div className="border-t border-[var(--border-color)] py-4 space-y-3">
+                    <div className="border-t border-zinc-200 dark:border-zinc-800 py-4 space-y-3">
                       {/* Load More button — primary action */}
                       {hasMore && (
                         <div className="flex justify-center">
@@ -2550,7 +2550,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                             <button
                               onClick={() => handleSearch(undefined, currentPage - 1)}
                               disabled={currentPage <= 1 || isSearching || isLoadingMore}
-                              className="px-2 py-1 text-[11px] font-medium rounded-md border border-[var(--border-color)] text-zinc-500 hover:text-[var(--text-main)] hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                              className="px-2 py-1 text-[11px] font-medium rounded-md border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                             >
                               {t('companySearch.prevLabel')}
                             </button>
@@ -2578,7 +2578,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                                     className={`w-7 h-7 text-[11px] font-medium rounded-md border transition-all disabled:cursor-not-allowed ${
                                       pn === currentPage
                                         ? 'bg-[#1ED4A7]/10 border-[#1ED4A7]/30 text-[#1ED4A7] font-semibold'
-                                        : 'border-[var(--border-color)] text-zinc-500 hover:text-[var(--text-main)] hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                                        : 'border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800'
                                     }`}
                                   >
                                     {pn}
@@ -2589,7 +2589,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                             <button
                               onClick={() => handleSearch(undefined, currentPage + 1)}
                               disabled={currentPage >= totalPages || isSearching || isLoadingMore}
-                              className="px-2 py-1 text-[11px] font-medium rounded-md border border-[var(--border-color)] text-zinc-500 hover:text-[var(--text-main)] hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                              className="px-2 py-1 text-[11px] font-medium rounded-md border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                             >
                               {t('companySearch.nextLabel')}
                             </button>
@@ -2600,7 +2600,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                       {/* Per-page selector */}
                       <div className="flex items-center justify-center gap-2">
                         <span className="text-[10px] text-zinc-400 uppercase tracking-wider font-medium">{t('leadFinder.perPage')}</span>
-                        <div className="flex items-center rounded-lg border border-[var(--border-color)] overflow-hidden">
+                        <div className="flex items-center rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
                           {[10, 25, 50, 100].map(n => (
                             <button
                               key={n}
@@ -2608,7 +2608,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                               className={`flex items-center justify-center px-2.5 py-1 text-[11px] font-medium transition-colors ${
                                 perPage === n
                                   ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900'
-                                  : 'text-zinc-500 hover:text-[var(--text-main)] hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                                  : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800'
                               }`}
                             >
                               {n}
@@ -2688,7 +2688,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
       {showSaveDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowSaveDialog(false)}>
           <div
-            className="bg-white dark:bg-zinc-900 rounded-xl border border-[var(--border-color)] shadow-xl p-5 w-full max-w-sm"
+            className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-xl p-5 w-full max-w-sm"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 mb-4">
@@ -2696,7 +2696,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                 <Bookmark className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-[var(--text-main)]">{t('leadFinder.saveSearchResults')}</h3>
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('leadFinder.saveSearchResults')}</h3>
                 <p className="text-[11px] text-zinc-500">{results.length} {t('leadFinder.companiesWillBeSaved')}</p>
               </div>
             </div>
@@ -2705,14 +2705,14 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
               value={saveListName}
               onChange={e => setSaveListName(e.target.value)}
               placeholder={`Company Search — ${new Date().toLocaleDateString()}`}
-              className="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-800 border border-[var(--border-color)] rounded-lg focus:ring-2 focus:ring-zinc-400/30 focus:border-zinc-400 outline-none transition-all placeholder:text-zinc-400 mb-4"
+              className="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-zinc-400/30 focus:border-zinc-400 outline-none transition-all placeholder:text-zinc-400 mb-4"
               autoFocus
               onKeyDown={e => { if (e.key === 'Enter') handleSaveSearchResults(); }}
             />
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowSaveDialog(false)}
-                className="flex-1 py-2 text-xs font-medium rounded-lg border border-[var(--border-color)] text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+                className="flex-1 py-2 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
               >
                 {t('companySearch.cancel')}
               </button>
@@ -2732,7 +2732,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
       {showPoolStats && poolStats && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowPoolStats(false)}>
           <div
-            className="bg-white dark:bg-zinc-900 rounded-xl border border-[var(--border-color)] shadow-xl p-5 w-full max-w-md"
+            className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-xl p-5 w-full max-w-md"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 mb-4">
@@ -2740,30 +2740,30 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                 <Database className="w-4 h-4 text-[#1ED4A7]" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-[var(--text-main)]">{t('leadFinder.intelligencePoolStats')}</h3>
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('leadFinder.intelligencePoolStats')}</h3>
                 <p className="text-[11px] text-zinc-500">{t('leadFinder.sharedEnrichmentData')}</p>
               </div>
             </div>
 
             <div className="space-y-3">
-              <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-[var(--border-color)]">
+              <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-800">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">{t('leadFinder.poolContents')}</div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <div className="text-xs text-zinc-500">Emails</div>
-                    <div className="text-lg font-bold text-[var(--text-main)]">{poolStats.emails_stored?.toLocaleString() || 0}</div>
+                    <div className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{poolStats.emails_stored?.toLocaleString() || 0}</div>
                   </div>
                   <div>
                     <div className="text-xs text-zinc-500">{t('leadFinder.profiles')}</div>
-                    <div className="text-lg font-bold text-[var(--text-main)]">{poolStats.people_stored?.toLocaleString() || 0}</div>
+                    <div className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{poolStats.people_stored?.toLocaleString() || 0}</div>
                   </div>
                   <div>
                     <div className="text-xs text-zinc-500">{t('leadFinder.companies')}</div>
-                    <div className="text-lg font-bold text-[var(--text-main)]">{poolStats.companies_stored?.toLocaleString() || 0}</div>
+                    <div className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{poolStats.companies_stored?.toLocaleString() || 0}</div>
                   </div>
                   <div>
                     <div className="text-xs text-zinc-500">{t('leadFinder.patterns')}</div>
-                    <div className="text-lg font-bold text-[var(--text-main)]">{poolStats.patterns_stored?.toLocaleString() || 0}</div>
+                    <div className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{poolStats.patterns_stored?.toLocaleString() || 0}</div>
                   </div>
                 </div>
               </div>
@@ -2781,9 +2781,9 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
                 )}
               </div>
 
-              <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-[var(--border-color)]">
+              <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-800">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">Total Entries</div>
-                <div className="text-lg font-bold text-[var(--text-main)]">{poolStats.total_pool_entries?.toLocaleString() || 0}</div>
+                <div className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{poolStats.total_pool_entries?.toLocaleString() || 0}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">Cached enrichment data</div>
               </div>
 
@@ -2801,7 +2801,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
               </button>
               <button
                 onClick={() => { setShowPoolStats(false); fetchPoolStats(); toast.success(t('leadFinder.toastPoolStatsRefreshed')); }}
-                className="px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border-color)] text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors flex items-center gap-1.5"
+                className="px-3 py-2 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors flex items-center gap-1.5"
               >
                 <RefreshCw className="w-3 h-3" /> Refresh
               </button>
@@ -3205,7 +3205,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
   }, [bulkPeopleData, hasFetchedPeople]);
 
   return (
-    <div className={`border-b border-[var(--border-color)] transition-colors relative ${selected ? 'bg-[#1ED4A7]/[0.03]' : isHotCompany ? 'bg-[#1ED4A7]/[0.03] dark:bg-[#1ED4A7]/[0.02]' : 'hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30'}`}>
+    <div className={`border-b border-zinc-200 dark:border-zinc-800 transition-colors relative ${selected ? 'bg-[#1ED4A7]/[0.03]' : isHotCompany ? 'bg-[#1ED4A7]/[0.03] dark:bg-[#1ED4A7]/[0.02]' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/30'}`}>
       {/* Hot company left accent bar */}
       {isHotCompany && <div className="absolute left-0 top-1 bottom-1 w-[3px] rounded-full bg-[#1ED4A7]/70" />}
       {/* Desktop */}
@@ -3233,7 +3233,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
           />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-medium text-[var(--text-main)] truncate">{toTitleCase(company.name) || '—'}</span>
+              <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{toTitleCase(company.name) || '—'}</span>
               {isHotCompany && (
                 <span className="flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20" title="Hot Company (Score > 80)">
                   <Flame className="w-2.5 h-2.5" />Hot
@@ -3321,7 +3321,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
             </a>
           )}
           {company.website_url && (
-            <a href={company.website_url.startsWith('http') ? company.website_url : `https://${company.website_url}`} target="_blank" rel="noreferrer" className="p-1 text-zinc-400 hover:text-[var(--text-main)] rounded transition-colors">
+            <a href={company.website_url.startsWith('http') ? company.website_url : `https://${company.website_url}`} target="_blank" rel="noreferrer" className="p-1 text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 rounded transition-colors">
               <Globe className="w-3.5 h-3.5" />
             </a>
           )}
@@ -3331,7 +3331,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
       {/* Desktop Expanded Detail */}
       {expanded && (
         <div className="px-3 md:px-4 pb-3">
-          <div className="md:ml-[40px] p-3 md:p-4 rounded-xl bg-zinc-50/80 dark:bg-zinc-900/30 border border-[var(--border-color)] space-y-3">
+          <div className="md:ml-[40px] p-3 md:p-4 rounded-xl bg-zinc-50/80 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-3">
             {/* Brand header with logo + colors */}
             {brandData && (brandData.logo_url || brandData.colors) && (
               <div className="flex items-center gap-3 pb-2 border-b border-zinc-100 dark:border-zinc-800/50">
@@ -3344,7 +3344,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                   size={40}
                 />
                 <div className="min-w-0 flex-1">
-                  {brandData.name && <span className="text-xs font-semibold text-[var(--text-main)] block truncate">{brandData.name}</span>}
+                  {brandData.name && <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 block truncate">{brandData.name}</span>}
                   {brandData.colors && brandData.colors.length > 0 && (
                     <div className="flex items-center gap-1 mt-0.5">
                       {brandData.colors.slice(0, 5).map((c, i) => (
@@ -3507,12 +3507,12 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                   {crmContacts.slice(0, 6).map(contact => (
-                    <div key={contact.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-white/50 dark:bg-zinc-900/30 border border-[var(--border-color)]">
+                    <div key={contact.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-white/50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
                       <div className="w-6 h-6 rounded-full bg-[#1ED4A7]/10 flex items-center justify-center flex-shrink-0">
                         <UserCircle className="w-3.5 h-3.5 text-[#1ED4A7]" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="text-[11px] font-medium text-[var(--text-main)] truncate block">{contact.contact_name || '—'}</span>
+                        <span className="text-[11px] font-medium text-zinc-900 dark:text-zinc-100 truncate block">{contact.contact_name || '—'}</span>
                         <span className="text-[9px] text-zinc-400 truncate block">{contact.job_title || contact.email || '—'}</span>
                       </div>
                       {contact.email && (
@@ -3695,9 +3695,9 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
                               {person.linkedin_url ? (
-                                <a href={person.linkedin_url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[var(--text-main)] truncate hover:underline">{person.name}</a>
+                                <a href={person.linkedin_url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate hover:underline">{person.name}</a>
                               ) : (
-                                <span className="text-xs font-semibold text-[var(--text-main)] truncate">{person.name}</span>
+                                <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate">{person.name}</span>
                               )}
                               {isCrmPerson && (
                                 <span className="flex-shrink-0 text-[8px] font-bold px-1 py-0.5 rounded bg-[#1ED4A7]/15 text-[#1ED4A7]">CRM</span>
@@ -3881,7 +3881,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
           />
           <div className="flex-1 min-w-0" onClick={onToggleExpand}>
             <div className="flex items-start gap-1.5 mb-1 flex-wrap">
-              <h3 className="text-[14px] font-semibold text-[var(--text-main)] leading-tight break-words">{company.name}</h3>
+              <h3 className="text-[14px] font-semibold text-zinc-900 dark:text-zinc-100 leading-tight break-words">{company.name}</h3>
               {isHotCompany && (
                 <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20 flex-shrink-0 mt-0.5" title="Hot Company (Score > 80)">
                   <Flame className="w-2.5 h-2.5" />Hot
@@ -3961,7 +3961,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                 </a>
               )}
               {company.website_url && (
-                <a href={company.website_url.startsWith('http') ? company.website_url : `https://${company.website_url}`} target="_blank" rel="noreferrer" className="p-1 text-zinc-400 hover:text-[var(--text-main)]">
+                <a href={company.website_url.startsWith('http') ? company.website_url : `https://${company.website_url}`} target="_blank" rel="noreferrer" className="p-1 text-zinc-400 hover:text-zinc-900 dark:text-zinc-100">
                   <Globe className="w-3.5 h-3.5" />
                 </a>
               )}
@@ -4042,7 +4042,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                     >
                       <UserCircle className="w-4 h-4 text-zinc-400 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <a href={person.linkedin_url} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-[var(--text-main)] block truncate hover:underline">{person.name}</a>
+                        <a href={person.linkedin_url} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-zinc-900 dark:text-zinc-100 block truncate hover:underline">{person.name}</a>
                         <span className="text-[9px] text-zinc-400 block truncate">{person.title}</span>
                         {person.location && (
                           <span className={`flex items-center gap-0.5 text-[8px] ${inArea ? 'text-[#1ED4A7] font-semibold' : 'text-zinc-400'}`}>
@@ -4094,10 +4094,10 @@ function CompanyEmptyState() {
   return (
     <div className="h-full flex flex-col items-center justify-center p-8">
       <div className="max-w-sm text-center">
-        <div className="w-16 h-16 rounded-2xl bg-zinc-100 dark:bg-white/5 flex items-center justify-center mx-auto mb-5 shadow-sm border border-[var(--border-color)]">
-          <Building2 className="w-7 h-7 text-[var(--text-main)]" />
+        <div className="w-16 h-16 rounded-2xl bg-zinc-100 dark:bg-white/5 flex items-center justify-center mx-auto mb-5 shadow-sm border border-zinc-200 dark:border-zinc-800">
+          <Building2 className="w-7 h-7 text-zinc-900 dark:text-zinc-100" />
         </div>
-        <h3 className="text-lg font-semibold text-[var(--text-main)] mb-1">{t('companySearch.emptyStateTitle')}</h3>
+        <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">{t('companySearch.emptyStateTitle')}</h3>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
           {t('companySearch.emptyStateDesc')}
         </p>

@@ -86,7 +86,7 @@ export function Careers({ onNavigate, onLogin, onGetStarted }: PageProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.6 }}
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10"
+              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70" />
               We're Hiring
@@ -126,7 +126,7 @@ export function Careers({ onNavigate, onLogin, onGetStarted }: PageProps) {
             <div className="grid sm:grid-cols-2 gap-6">
               {perks.map((perk, i) => (
                 <ScrollReveal key={perk.title} delay={0.08 + i * 0.08}>
-                  <div className="group rounded-[2rem] border border-white/[0.06] bg-[#0A0A0A] p-10 md:p-12 hover:border-white/[0.12] transition-all duration-500 relative overflow-hidden h-full">
+                  <div className="group rounded-[2rem] border border-zinc-200 dark:border-zinc-800 bg-[#0A0A0A] p-10 md:p-12 hover:border-white/[0.12] transition-all duration-500 relative overflow-hidden h-full">
                     <div className="absolute inset-0 bg-[radial-gradient(300px_circle_at_50%_0%,rgba(255,255,255,0.02),transparent_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
                     <div className="relative z-10">
                       <h3 className="text-lg font-semibold text-white mb-3 tracking-tight">{perk.title}</h3>
@@ -157,7 +157,7 @@ export function Careers({ onNavigate, onLogin, onGetStarted }: PageProps) {
                 <ScrollReveal key={idx} delay={0.08 + idx * 0.08}>
                   <div
                     onClick={() => setSelectedRole(role.title)}
-                    className="group flex flex-col md:flex-row md:items-center justify-between rounded-2xl border border-white/[0.06] bg-[#0A0A0A] p-6 md:p-8 hover:border-white/[0.15] hover:bg-[#0E0E0E] transition-all duration-300 cursor-pointer"
+                    className="group flex flex-col md:flex-row md:items-center justify-between rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-[#0A0A0A] p-6 md:p-8 hover:border-white/[0.15] hover:bg-[#0E0E0E] transition-all duration-300 cursor-pointer"
                   >
                     <div>
                       <h4 className="text-lg font-semibold text-white mb-2.5 tracking-tight group-hover:text-zinc-200 transition-colors">

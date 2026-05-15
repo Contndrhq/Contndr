@@ -1056,7 +1056,7 @@ function Step3AIConfiguration({
 
       {/* Custom Agent Selection */}
       {(customAgents.length > 0 || loadingCustomAgents) && (
-        <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 sm:p-4 space-y-3">
+        <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 sm:p-4 space-y-3">
           <div className="flex items-center gap-2">
             <Bot className="w-3.5 h-3.5 text-[#1ED4A7]" />
             <span className="text-xs font-semibold text-zinc-900 dark:text-white">Use Custom Agent</span>
@@ -1154,7 +1154,7 @@ function Step3AIConfiguration({
       )}
 
       {/* Voice Settings */}
-      <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 sm:p-4 space-y-3 sm:space-y-4">
+      <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 sm:p-4 space-y-3 sm:space-y-4">
         <div className="flex items-center gap-2">
           <Volume2 className="w-3.5 h-3.5 text-[#1ED4A7]" />
           <span className="text-xs font-semibold text-zinc-900 dark:text-white">Voice Settings</span>
@@ -1385,7 +1385,7 @@ function Step5ScriptBuilder({ data, update }: { data: Partial<CampaignData>; upd
           className={TEXTAREA_CLS} />
       </div>
 
-      <div className="flex items-start gap-2.5 p-3 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg">
+      <div className="flex items-start gap-2.5 p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg">
         <AlertCircle className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0 mt-0.5" />
         <p className="text-[10px] text-zinc-500 leading-relaxed">
           Your AI will adapt these scripts naturally. Actual dialogue varies based on prospect responses.
@@ -1510,7 +1510,7 @@ function Step6Scheduling({ data, update, scheduleValue, onScheduleChange, canUse
       <div className={`rounded-lg border p-3 sm:p-4 space-y-4 ${
         trigger.enabled && canUseIntentTriggers
           ? 'border-[#1ED4A7]/50 bg-[#1ED4A7]/5'
-          : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40'
+          : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950'
       }`}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-2.5 min-w-0">
@@ -1664,7 +1664,7 @@ function Step6Scheduling({ data, update, scheduleValue, onScheduleChange, canUse
       </div>
 
       {/* Compliance */}
-      <div className="flex items-start gap-2.5 p-3 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg">
+      <div className="flex items-start gap-2.5 p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg">
         <Shield className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0 mt-0.5" />
         <div>
           <p className="text-[10px] sm:text-xs font-medium text-zinc-700 dark:text-zinc-300">Compliance</p>
@@ -1673,7 +1673,7 @@ function Step6Scheduling({ data, update, scheduleValue, onScheduleChange, canUse
       </div>
 
       {/* Summary */}
-      <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 sm:p-4">
+      <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 sm:p-4">
         <h4 className="text-[10px] sm:text-xs font-semibold text-zinc-900 dark:text-white mb-2 uppercase tracking-wide">Summary</h4>
         <div className="space-y-1.5 text-[10px] sm:text-xs">
           {[

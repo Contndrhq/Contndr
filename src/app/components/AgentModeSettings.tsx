@@ -322,7 +322,7 @@ export function AgentModeSettings() {
     <div className="max-w-3xl space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-white/[0.08] dark:to-white/[0.03] flex items-center justify-center border border-zinc-200/80 dark:border-white/[0.06]">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-white/[0.08] dark:to-white/[0.03] flex items-center justify-center border border-zinc-200/80 dark:border-zinc-200 dark:border-zinc-800">
             <Bot className="w-4.5 h-4.5 text-zinc-600 dark:text-zinc-300" />
           </div>
           <div>
@@ -334,7 +334,7 @@ export function AgentModeSettings() {
           <button
             onClick={runNow}
             disabled={!canUseAgent || running || saving}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-zinc-200 dark:border-white/[0.08] text-[12.5px] font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-white/[0.04] disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 text-[12.5px] font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-100 dark:bg-zinc-900 disabled:opacity-50"
           >
             {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
             Run
@@ -364,7 +364,7 @@ export function AgentModeSettings() {
           right={<ToggleSwitch checked={draft.enabled} disabled={!canUseAgent || saving} onChange={checked => setField('enabled', checked, true)} />}
         />
         <div className="py-3.5 px-4">
-          <div className="flex bg-zinc-100 dark:bg-white/[0.06] rounded-lg p-0.5 border border-zinc-200/60 dark:border-white/[0.06] w-full sm:w-fit">
+          <div className="flex bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-lg p-0.5 border border-zinc-200/60 dark:border-zinc-200 dark:border-zinc-800 w-full sm:w-fit">
             {[
               { id: 'supervised', title: 'Supervised' },
               { id: 'autopilot', title: 'Autopilot' },
@@ -413,7 +413,7 @@ export function AgentModeSettings() {
           }}
         />
         {/* ── Test call: dial yourself end-to-end ── */}
-        <div className="px-4 py-3.5 border-t border-zinc-100 dark:border-white/[0.06] flex items-center justify-between gap-3 flex-wrap">
+        <div className="px-4 py-3.5 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3 flex-wrap">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <PhoneCall className="w-4 h-4 text-zinc-500 dark:text-zinc-400 shrink-0" />
@@ -444,7 +444,7 @@ export function AgentModeSettings() {
         </div>
 
         {draft.useElevenLabsConvai && (
-          <div className="px-4 py-3 bg-zinc-50/60 dark:bg-white/[0.02] border-t border-zinc-100 dark:border-white/[0.06]">
+          <div className="px-4 py-3 bg-zinc-50/60 dark:bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="text-[12px] text-zinc-600 dark:text-zinc-400 space-y-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -466,7 +466,7 @@ export function AgentModeSettings() {
               </div>
               <div className="flex gap-2 shrink-0">
                 {!agentInfo?.agent_id && (
-                  <button onClick={ensureAgent} disabled={agentLoading} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800 text-[12px] font-medium hover:bg-zinc-100 dark:hover:bg-white/[0.04] disabled:opacity-50">
+                  <button onClick={ensureAgent} disabled={agentLoading} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800 text-[12px] font-medium hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 disabled:opacity-50">
                     {agentLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                     Provision agent
                   </button>
@@ -479,7 +479,7 @@ export function AgentModeSettings() {
             </div>
 
             {/* ── Phone number ID for SIP-routed calls ── */}
-            <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-white/[0.06]">
+            <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
               <p className="text-[11.5px] font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                 ElevenLabs phone number ID
               </p>
@@ -554,7 +554,7 @@ export function AgentModeSettings() {
         </div>
 
         {/* Value props */}
-        <div className="px-4 py-3 border-t border-zinc-100 dark:border-white/[0.06]">
+        <div className="px-4 py-3 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
           <p className="text-[12.5px] font-medium text-zinc-800 dark:text-zinc-200 mb-2">Value props <span className="text-zinc-400 dark:text-zinc-500 font-normal">— outcomes, not features</span></p>
           <div className="space-y-2">
             {playbook.value_props.map((v, i) => (
@@ -567,7 +567,7 @@ export function AgentModeSettings() {
         </div>
 
         {/* Close mechanics */}
-        <div className="px-4 py-3 border-t border-zinc-100 dark:border-white/[0.06] grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="px-4 py-3 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Meeting times the AI proposes">
             <input type="text" value={playbook.meeting_options} onChange={e => setPlaybook(p => ({ ...p, meeting_options: e.target.value }))} placeholder="Thursday at 2pm or Friday at 10am ET" className={inputClass} />
           </Field>
@@ -575,7 +575,7 @@ export function AgentModeSettings() {
             <input type="url" value={playbook.booking_link} onChange={e => setPlaybook(p => ({ ...p, booking_link: e.target.value }))} placeholder="https://cal.com/you/15min" className={inputClass} />
           </Field>
           <Field label="Close style">
-            <div className="flex bg-zinc-100 dark:bg-white/[0.06] rounded-lg p-0.5 border border-zinc-200/60 dark:border-white/[0.06] w-fit">
+            <div className="flex bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-lg p-0.5 border border-zinc-200/60 dark:border-zinc-200 dark:border-zinc-800 w-fit">
               {(['soft', 'direct'] as const).map(s => (
                 <button key={s} type="button" onClick={() => setPlaybook(p => ({ ...p, close_style: s }))} className={`px-3 py-1 rounded-md text-[11.5px] font-medium transition-all ${playbook.close_style === s ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-500 dark:text-zinc-400'}`}>
                   {s === 'soft' ? 'Soft' : 'Direct'}
@@ -586,14 +586,14 @@ export function AgentModeSettings() {
         </div>
 
         {/* Objections */}
-        <div className="px-4 py-3 border-t border-zinc-100 dark:border-white/[0.06]">
+        <div className="px-4 py-3 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
           <div className="flex items-center justify-between mb-2">
             <p className="text-[12.5px] font-medium text-zinc-800 dark:text-zinc-200">Objection library <span className="text-zinc-400 dark:text-zinc-500 font-normal">— up to 12</span></p>
             <button type="button" onClick={seedPbObjections} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"><Sparkles className="w-3 h-3" />Add 6 starters</button>
           </div>
           <div className="space-y-2">
             {playbook.objections.map((obj, i) => (
-              <div key={i} className="rounded-lg border border-zinc-200 dark:border-white/[0.08] p-2.5 space-y-2 bg-zinc-50/40 dark:bg-white/[0.02]">
+              <div key={i} className="rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 p-2.5 space-y-2 bg-zinc-50/40 dark:bg-zinc-50 dark:bg-zinc-950">
                 <div className="flex items-start gap-2">
                   <div className="flex-1 space-y-1.5">
                     <input type="text" value={obj.trigger} onChange={e => updatePbObjection(i, 'trigger', e.target.value)} placeholder='Trigger phrase, e.g. "too expensive"' className={`${inputClass} font-medium`} />
@@ -609,7 +609,7 @@ export function AgentModeSettings() {
           </div>
         </div>
 
-        <div className="px-4 py-3 border-t border-zinc-100 dark:border-white/[0.06] flex justify-end">
+        <div className="px-4 py-3 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 flex justify-end">
           <button type="button" onClick={savePlaybook} disabled={playbookSaving} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-black text-[12.5px] font-semibold hover:opacity-90 disabled:opacity-50">
             {playbookSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Target className="w-3.5 h-3.5" />}
             Save playbook
@@ -679,7 +679,7 @@ function SettingsSection({ title, children }: { title: string; children: ReactNo
     <div>
       <div className="flex items-center gap-2 mb-3">
         <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">{title}</h3>
-        <div className="flex-1 h-px bg-zinc-100 dark:bg-white/[0.06]" />
+        <div className="flex-1 h-px bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900" />
       </div>
       <div className="space-y-1">{children}</div>
     </div>
@@ -732,9 +732,9 @@ function SettingRow({ icon: Icon, title, desc, right }: {
   right: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors group">
+    <div className="flex items-center justify-between py-3.5 px-4 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors group">
       <div className="flex items-center gap-3 min-w-0">
-        <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.06] flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors shrink-0">
           <Icon className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
         </div>
         <div className="min-w-0">
@@ -757,10 +757,10 @@ function PermissionRow({ title, desc, checked, disabled, icon, onChange }: {
 }) {
   const Icon = icon;
   return (
-    <div className={`flex items-center justify-between py-3.5 px-4 rounded-xl transition-colors group ${disabled ? 'opacity-60' : 'hover:bg-zinc-50 dark:hover:bg-white/[0.02]'}`}>
+    <div className={`flex items-center justify-between py-3.5 px-4 rounded-xl transition-colors group ${disabled ? 'opacity-60' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900'}`}>
       <div className="flex items-center gap-3 min-w-0">
         {Icon && (
-          <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/[0.06] flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center group-hover:bg-zinc-200/60 dark:group-hover:bg-white/[0.08] transition-colors shrink-0">
             <Icon className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
           </div>
         )}

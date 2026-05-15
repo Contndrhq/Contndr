@@ -84,7 +84,7 @@ export function ApplicationModal({ isOpen, onClose, roleTitle }: ApplicationModa
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 20 }}
             transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            className="relative w-full max-w-lg bg-[#0A0A0A] border border-white/[0.08] rounded-[2rem] shadow-2xl overflow-hidden"
+            className="relative w-full max-w-lg bg-[#0A0A0A] border border-zinc-200 dark:border-zinc-800 rounded-[2rem] shadow-2xl overflow-hidden"
           >
             {isSuccess ? (
               <div className="p-14 flex flex-col items-center justify-center text-center">
@@ -96,14 +96,14 @@ export function ApplicationModal({ isOpen, onClose, roleTitle }: ApplicationModa
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between p-7 border-b border-white/[0.06]">
+                <div className="flex items-center justify-between p-7 border-b border-zinc-200 dark:border-zinc-800">
                   <div>
                     <h3 className="text-base font-semibold text-white tracking-tight">Apply for {roleTitle}</h3>
                     <p className="text-xs text-zinc-600 mt-0.5">Complete the form below</p>
                   </div>
                   <button
                     onClick={onClose}
-                    className="p-2 hover:bg-white/[0.04] rounded-xl transition-colors text-zinc-500 hover:text-white"
+                    className="p-2 hover:bg-zinc-100 dark:bg-zinc-900 rounded-xl transition-colors text-zinc-500 hover:text-white"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -124,7 +124,7 @@ export function ApplicationModal({ isOpen, onClose, roleTitle }: ApplicationModa
                       required
                       value={formData.name}
                       onChange={e => setFormData({...formData, name: e.target.value})}
-                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
+                      className="w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
                       placeholder="Jane Doe"
                     />
                   </div>
@@ -136,7 +136,7 @@ export function ApplicationModal({ isOpen, onClose, roleTitle }: ApplicationModa
                       required
                       value={formData.email}
                       onChange={e => setFormData({...formData, email: e.target.value})}
-                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
+                      className="w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
                       placeholder="jane@example.com"
                     />
                   </div>
@@ -148,7 +148,7 @@ export function ApplicationModal({ isOpen, onClose, roleTitle }: ApplicationModa
                       required
                       value={formData.linkedin}
                       onChange={e => setFormData({...formData, linkedin: e.target.value})}
-                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
+                      className="w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
                       placeholder="https://linkedin.com/in/..."
                     />
                   </div>
@@ -159,8 +159,8 @@ export function ApplicationModal({ isOpen, onClose, roleTitle }: ApplicationModa
                       onClick={() => fileInputRef.current?.click()}
                       className={`border border-dashed rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 ${
                         resumeFile
-                          ? 'bg-white/[0.04] border-white/20'
-                          : 'border-white/[0.08] hover:border-white/[0.15] hover:bg-white/[0.02]'
+                          ? 'bg-zinc-100 dark:bg-zinc-900 border-white/20'
+                          : 'border-zinc-200 dark:border-zinc-800 hover:border-white/[0.15] hover:bg-zinc-50 dark:bg-zinc-950'
                       }`}
                     >
                       <input
@@ -191,7 +191,7 @@ export function ApplicationModal({ isOpen, onClose, roleTitle }: ApplicationModa
                     <textarea
                       value={formData.notes}
                       onChange={e => setFormData({...formData, notes: e.target.value})}
-                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700 min-h-[100px]"
+                      className="w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700 min-h-[100px]"
                       placeholder="Tell us a bit about yourself..."
                     />
                   </div>

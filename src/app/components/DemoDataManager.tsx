@@ -293,8 +293,8 @@ export default function DemoDataManager() {
       </div>
 
       {/* Current Data Stats — compact 2x2 grid */}
-      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
-        <div className="px-4 sm:px-5 py-3 sm:py-3.5 border-b border-white/[0.06]">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 overflow-hidden">
+        <div className="px-4 sm:px-5 py-3 sm:py-3.5 border-b border-zinc-200 dark:border-zinc-800">
           <h2 className="text-[13px] font-bold text-zinc-400 uppercase tracking-wider">Current Data</h2>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4">
@@ -368,7 +368,7 @@ export default function DemoDataManager() {
       </div>
 
       {/* Tips */}
-      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 sm:p-5">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-4 sm:p-5">
         <h3 className="text-[13px] font-bold text-zinc-400 uppercase tracking-wider mb-3 flex items-center gap-2">
           <span className="text-base">💡</span>
           Demo Tips
@@ -393,7 +393,7 @@ function StatCell({ icon: Icon, label, value, borderLeft, borderTop }: {
   borderTop?: boolean;
 }) {
   return (
-    <div className={`px-4 sm:px-5 py-4 ${borderLeft ? 'border-l border-white/[0.06]' : ''} ${borderTop ? 'border-t border-white/[0.06] sm:border-t-0' : ''}`}>
+    <div className={`px-4 sm:px-5 py-4 ${borderLeft ? 'border-l border-zinc-200 dark:border-zinc-800' : ''} ${borderTop ? 'border-t border-zinc-200 dark:border-zinc-800 sm:border-t-0' : ''}`}>
       <div className="flex items-center gap-1.5 mb-1.5">
         <Icon className="w-3.5 h-3.5 text-zinc-500" />
         <span className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">{label}</span>
@@ -421,7 +421,7 @@ function ActionCard({
   buttonDisabled,
   onAction,
   buttonVariant = 'primary',
-  borderColor = 'border-white/[0.08]',
+  borderColor = 'border-zinc-200 dark:border-zinc-800',
   seedStats,
 }: {
   icon: React.ElementType;
@@ -443,12 +443,12 @@ function ActionCard({
 }) {
   const buttonStyles = {
     primary: 'bg-white text-black hover:bg-zinc-100 active:bg-zinc-200',
-    secondary: 'bg-zinc-800 text-white hover:bg-zinc-700 active:bg-zinc-600 border border-white/[0.08]',
+    secondary: 'bg-zinc-800 text-white hover:bg-zinc-700 active:bg-zinc-600 border border-zinc-200 dark:border-zinc-800',
     danger: 'bg-zinc-600/15 text-zinc-400 border border-zinc-500/25 hover:bg-zinc-600/25 active:bg-zinc-600/35',
   };
 
   return (
-    <div className={`rounded-2xl border ${borderColor} bg-white/[0.02] overflow-hidden`}>
+    <div className={`rounded-2xl border ${borderColor} bg-zinc-50 dark:bg-zinc-950 overflow-hidden`}>
       <div className="p-4 sm:p-5 flex flex-col">
         {/* Header row */}
         <div className="flex items-center gap-3 mb-3">

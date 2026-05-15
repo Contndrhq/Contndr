@@ -1114,11 +1114,11 @@ export function LeadsTable() {
                       className="w-4 h-4 rounded border-gray-300 dark:border-zinc-700 accent-[#1ED4A7] text-[#1ED4A7] focus:ring-[#1ED4A7] bg-white dark:bg-zinc-900 focus:ring-offset-0 focus:ring-offset-transparent"
                     />
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">Business</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">Category</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">Location</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">Contact</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">Actions</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Business</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Category</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Location</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Contact</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -1364,12 +1364,12 @@ export function LeadsTable() {
                 <table className="w-full">
                   <thead className="bg-white/5 border-b border-white/10">
                     <tr>
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">Business</th>
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">Category</th>
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">Location</th>
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">Contact</th>
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">Outreach</th>
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-widest text-gray-500">Added By</th>
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Business</th>
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Category</th>
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Location</th>
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Contact</th>
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Outreach</th>
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Added By</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">

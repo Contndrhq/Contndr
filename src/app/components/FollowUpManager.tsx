@@ -628,7 +628,7 @@ export function FollowUpManager() {
       )}
 
       {/* ── How Autopilot Works — clean, minimal ── */}
-      <section className="bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200/60 dark:border-zinc-800/60 rounded-xl p-5">
+      <section className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200/60 dark:border-zinc-800/60 rounded-xl p-5">
         <h4 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-300 mb-3">{t('autopilot.howAutopilotWorks')}</h4>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <AutopilotStep

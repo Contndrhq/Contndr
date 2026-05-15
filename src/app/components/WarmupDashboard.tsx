@@ -119,7 +119,7 @@ export function WarmupDashboard() {
 
       {/* Add Form */}
       {showAdd && (
-        <div className="p-4 border border-zinc-200 dark:border-white/10 rounded-xl bg-zinc-50 dark:bg-white/[0.02]">
+        <div className="p-4 border border-zinc-200 dark:border-white/10 rounded-xl bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950">
           <h4 className="text-sm font-semibold text-black dark:text-white mb-3">{t('warmupView.startWarmUp')}</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>

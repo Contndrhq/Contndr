@@ -161,8 +161,8 @@ export function AskAIButton({ onClick }: AskAIButtonProps) {
 
             {/* Keyboard shortcut badge */}
             <kbd className="hidden md:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-medium
-              bg-zinc-100 dark:bg-white/[0.06] text-zinc-400 dark:text-zinc-500
-              border border-zinc-200/60 dark:border-white/[0.06]
+              bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500
+              border border-zinc-200/60 dark:border-zinc-200 dark:border-zinc-800
               group-hover:border-zinc-300 dark:group-hover:border-white/[0.1] transition-colors">
               <span className="text-[9px]">&#8984;</span>J
             </kbd>

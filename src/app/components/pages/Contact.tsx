@@ -59,7 +59,7 @@ export function Contact({ onNavigate, onLogin, onGetStarted }: PageProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.6 }}
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10"
+              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70" />
               Get in Touch
@@ -94,9 +94,9 @@ export function Contact({ onNavigate, onLogin, onGetStarted }: PageProps) {
                 <ScrollReveal key={ch.label} delay={i * 0.08}>
                   <a
                     href={ch.link}
-                    className="group flex items-start gap-5 rounded-2xl border border-white/[0.06] bg-[#0A0A0A] p-7 hover:border-white/[0.12] hover:bg-[#0E0E0E] transition-all duration-300"
+                    className="group flex items-start gap-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-[#0A0A0A] p-7 hover:border-white/[0.12] hover:bg-[#0E0E0E] transition-all duration-300"
                   >
-                    <div className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center shrink-0 group-hover:border-white/[0.12] transition-colors">
+                    <div className="w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex items-center justify-center shrink-0 group-hover:border-white/[0.12] transition-colors">
                       <ch.icon className="w-4 h-4 text-zinc-400" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -114,9 +114,9 @@ export function Contact({ onNavigate, onLogin, onGetStarted }: PageProps) {
             {/* Right — Form */}
             <div className="lg:w-7/12">
               <ScrollReveal delay={0.1}>
-                <div className="rounded-[2rem] bg-[#0A0A0A] border border-white/[0.06] p-8 md:p-12 relative overflow-hidden shadow-2xl">
+                <div className="rounded-[2rem] bg-[#0A0A0A] border border-zinc-200 dark:border-zinc-800 p-8 md:p-12 relative overflow-hidden shadow-2xl">
                   {/* Subtle corner glow */}
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-white/[0.02] rounded-full blur-[100px] pointer-events-none" />
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-zinc-50 dark:bg-zinc-950 rounded-full blur-[100px] pointer-events-none" />
 
                   <form className="relative z-10 space-y-5" onSubmit={(e) => { e.preventDefault(); alert('Message sent!'); }}>
                     <div className="grid grid-cols-2 gap-5">
@@ -124,7 +124,7 @@ export function Contact({ onNavigate, onLogin, onGetStarted }: PageProps) {
                         <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">First Name</label>
                         <input
                           type="text"
-                          className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
+                          className="w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
                           placeholder="Jane"
                         />
                       </div>
@@ -132,7 +132,7 @@ export function Contact({ onNavigate, onLogin, onGetStarted }: PageProps) {
                         <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Last Name</label>
                         <input
                           type="text"
-                          className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
+                          className="w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
                           placeholder="Doe"
                         />
                       </div>
@@ -142,7 +142,7 @@ export function Contact({ onNavigate, onLogin, onGetStarted }: PageProps) {
                       <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Work Email</label>
                       <input
                         type="email"
-                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
+                        className="w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all placeholder:text-zinc-700"
                         placeholder="jane@company.com"
                       />
                     </div>
@@ -151,7 +151,7 @@ export function Contact({ onNavigate, onLogin, onGetStarted }: PageProps) {
                       <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Message</label>
                       <textarea
                         rows={4}
-                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all resize-none placeholder:text-zinc-700"
+                        className="w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-all resize-none placeholder:text-zinc-700"
                         placeholder="Tell us about your needs..."
                       />
                     </div>

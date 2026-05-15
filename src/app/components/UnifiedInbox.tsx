@@ -1314,12 +1314,12 @@ export function UnifiedInbox() {
       <div
         className={`
           w-full lg:w-96 lg:min-w-[24rem] lg:max-w-[24rem] lg:flex lg:flex-col
-          border-r-0 lg:border-r border-zinc-200 dark:border-white/[0.06]
+          border-r-0 lg:border-r border-zinc-200 dark:border-zinc-200 dark:border-zinc-800
           ${selectedThread || showNewCompose ? 'hidden lg:flex' : 'flex flex-col'}
         `}
       >
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-white dark:bg-[var(--bg-page)] border-b border-zinc-200 dark:border-white/[0.06]">
+        <div className="sticky top-0 z-10 bg-white dark:bg-[var(--bg-page)] border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
           <div className="p-4 pb-3">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
@@ -1373,7 +1373,7 @@ export function UnifiedInbox() {
                 placeholder={t('inbox.search')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                className="w-full pl-9 pr-4 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
               />
               {searchQuery && (
                 <button
@@ -1453,8 +1453,8 @@ export function UnifiedInbox() {
                   <button
                     key={thread.threadId}
                     onClick={() => handleSelectThread(thread)}
-                    className={`w-full text-left px-4 py-3.5 border-b border-zinc-100 dark:border-white/[0.04] transition-colors relative
-                      ${isSelected ? 'bg-zinc-50 dark:bg-white/[0.04]' : 'hover:bg-zinc-50/70 dark:hover:bg-white/[0.03]'}
+                    className={`w-full text-left px-4 py-3.5 border-b border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 transition-colors relative
+                      ${isSelected ? 'bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900' : 'hover:bg-zinc-50/70 dark:hover:bg-zinc-900'}
                       ${hasUnread ? 'bg-emerald-50/30 dark:bg-emerald-950/10' : ''}
                     `}
                   >
@@ -1574,7 +1574,7 @@ export function UnifiedInbox() {
         {selectedThread ? (
           <>
             {/* Detail header */}
-            <div className="sticky top-0 z-10 bg-white dark:bg-[var(--bg-page)] border-b border-zinc-200 dark:border-white/[0.06] px-4 lg:px-6 py-3">
+            <div className="sticky top-0 z-10 bg-white dark:bg-[var(--bg-page)] border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 px-4 lg:px-6 py-3">
               <div className="flex items-center gap-3">
                 {/* Back button (mobile only) */}
                 <button
@@ -1708,7 +1708,7 @@ export function UnifiedInbox() {
 
             {/* ── AI Insights Panel (collapsible) ── */}
             {showInsightsPanel && (
-              <div className="border-b border-zinc-200 dark:border-white/[0.06] bg-zinc-50/80 dark:bg-white/[0.02] px-4 lg:px-6 py-3">
+              <div className="border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-50 dark:bg-zinc-950 px-4 lg:px-6 py-3">
                 {loadingInsights ? (
                   <div className="flex items-center justify-center py-6 gap-2">
                     <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
@@ -1757,7 +1757,7 @@ export function UnifiedInbox() {
                         { label: t('inbox.repliedLabel'), value: `${insights.engagement.replies}`, icon: CornerUpLeft, color: insights.engagement.replies > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400' },
                         { label: t('inbox.deliveredLabel'), value: `${insights.engagement.delivered}/${insights.engagement.totalSent}`, icon: CheckCheck, color: 'text-zinc-500 dark:text-zinc-400' },
                       ].map(stat => (
-                        <div key={stat.label} className="text-center py-1.5 px-1 rounded-lg bg-white/60 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/[0.04]">
+                        <div key={stat.label} className="text-center py-1.5 px-1 rounded-lg bg-white/60 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
                           <stat.icon className={`w-3.5 h-3.5 mx-auto mb-0.5 ${stat.color}`} />
                           <p className={`text-xs font-semibold ${stat.color}`}>{stat.value}</p>
                           <p className="text-[9px] text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">{stat.label}</p>
@@ -1788,14 +1788,14 @@ export function UnifiedInbox() {
 
                         {/* Next action + best time */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <div className="flex items-start gap-2 p-2 rounded-lg bg-white/60 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/[0.04]">
+                          <div className="flex items-start gap-2 p-2 rounded-lg bg-white/60 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
                             <Zap className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
                             <div>
                               <p className="text-[10px] text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-medium">{t('inbox.nextActionLabel')}</p>
                               <p className="text-xs text-zinc-700 dark:text-zinc-300 mt-0.5">{insights.ai.nextAction}</p>
                             </div>
                           </div>
-                          <div className="flex items-start gap-2 p-2 rounded-lg bg-white/60 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/[0.04]">
+                          <div className="flex items-start gap-2 p-2 rounded-lg bg-white/60 dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
                             <Clock className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />
                             <div>
                               <p className="text-[10px] text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-medium">{t('inbox.bestTimeLabel')}</p>
@@ -1816,7 +1816,7 @@ export function UnifiedInbox() {
                         <div className="relative mt-1">
                           <p className="text-[10px] text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-medium mb-1">{t('inbox.suggestedReplyLabel')}</p>
                           <div className="relative group">
-                            <p className="text-sm text-zinc-600 dark:text-zinc-300 bg-white dark:bg-white/[0.03] border border-zinc-200 dark:border-white/[0.06] rounded-xl px-3 py-2.5 leading-relaxed">
+                            <p className="text-sm text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl px-3 py-2.5 leading-relaxed">
                               {insights.ai.suggestedReply}
                             </p>
                             <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1856,7 +1856,7 @@ export function UnifiedInbox() {
             )}
 
             {/* Messages */}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 lg:px-6 py-4 space-y-3 bg-zinc-50/50 dark:bg-[var(--bg-page)]">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 lg:px-6 py-4 space-y-3 bg-zinc-50 dark:bg-[var(--bg-page)]">
               {selectedThread.messages.map((msg, idx) => {
                 const isSent = msg.direction === 'sent';
                 const wasOpened = isSent && (!!msg.openedAt || msg.status === 'opened' || msg.status === 'clicked');
@@ -1869,7 +1869,7 @@ export function UnifiedInbox() {
                       className={`max-w-[85%] lg:max-w-[70%] rounded-2xl px-4 py-3 ${
                         isSent
                           ? 'bg-zinc-800 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 rounded-br-md'
-                          : 'bg-white dark:bg-white/[0.04] text-zinc-900 dark:text-zinc-100 rounded-bl-md shadow-sm dark:shadow-none border border-zinc-100 dark:border-white/[0.06]'
+                          : 'bg-white dark:bg-zinc-100 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 rounded-bl-md shadow-sm dark:shadow-none border border-zinc-100 dark:border-zinc-200 dark:border-zinc-800'
                       }`}
                     >
                       {/* Subject (on first message or if different from previous) */}
@@ -1952,7 +1952,7 @@ export function UnifiedInbox() {
 
             {/* ── Forward Modal (inline overlay) ── */}
             {showForwardModal && (
-              <div className="border-t border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[var(--bg-page)] px-4 lg:px-6 py-4">
+              <div className="border-t border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[var(--bg-page)] px-4 lg:px-6 py-4">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
                     <Forward className="w-4 h-4" />
@@ -1986,7 +1986,7 @@ export function UnifiedInbox() {
                       value={forwardTo}
                       onChange={(e) => setForwardTo(e.target.value)}
                       placeholder="recipient@email.com"
-                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20"
+                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !sendingForward) {
                           e.preventDefault();
@@ -2009,7 +2009,7 @@ export function UnifiedInbox() {
                           value={forwardCc}
                           onChange={(e) => setForwardCc(e.target.value)}
                           placeholder="cc@email.com, another@email.com"
-                          className="w-full px-3 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20"
+                          className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20"
                         />
                       </div>
                       <div>
@@ -2019,7 +2019,7 @@ export function UnifiedInbox() {
                           value={forwardBcc}
                           onChange={(e) => setForwardBcc(e.target.value)}
                           placeholder="bcc@email.com"
-                          className="w-full px-3 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20"
+                          className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20"
                         />
                       </div>
                     </div>
@@ -2031,7 +2031,7 @@ export function UnifiedInbox() {
                       onChange={(e) => setForwardNote(e.target.value)}
                       placeholder={t('inbox.addNote')}
                       rows={2}
-                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20 resize-none"
+                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20 resize-none"
                     />
                   </div>
                   <div className="flex items-center gap-2">
@@ -2072,7 +2072,7 @@ export function UnifiedInbox() {
 
             {/* ── Reply composer ── */}
             {showComposer && !showForwardModal && (
-              <div className="border-t border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[var(--bg-page)] px-4 lg:px-6 py-3">
+              <div className="border-t border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[var(--bg-page)] px-4 lg:px-6 py-3">
                 <div className="flex items-center gap-2 mb-2">
                   <CornerUpLeft className="w-3.5 h-3.5 text-zinc-400" />
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -2106,7 +2106,7 @@ export function UnifiedInbox() {
                         value={replyCc}
                         onChange={(e) => setReplyCc(e.target.value)}
                         placeholder="cc@email.com, another@email.com"
-                        className="w-full px-3 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20"
+                        className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20"
                       />
                     </div>
                     <div>
@@ -2116,7 +2116,7 @@ export function UnifiedInbox() {
                         value={replyBcc}
                         onChange={(e) => setReplyBcc(e.target.value)}
                         placeholder="bcc@email.com"
-                        className="w-full px-3 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20"
+                        className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20"
                       />
                     </div>
                   </div>
@@ -2128,10 +2128,10 @@ export function UnifiedInbox() {
                   onKeyDown={handleReplyKeyDown}
                   placeholder={t('inbox.writeReply')}
                   rows={3}
-                  className="w-full px-3 py-2.5 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-xl text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20 resize-none leading-relaxed"
+                  className="w-full px-3 py-2.5 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-400/50 dark:focus:ring-white/20 resize-none leading-relaxed"
                 />
                 {signaturePreview && (
-                  <div className="mt-1.5 pt-1.5 border-t border-dashed border-zinc-200 dark:border-white/[0.06]">
+                  <div className="mt-1.5 pt-1.5 border-t border-dashed border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
                     <pre className="text-[10.5px] text-zinc-400 dark:text-zinc-500 font-sans whitespace-pre-line leading-relaxed">{signaturePreview}</pre>
                   </div>
                 )}
@@ -2162,7 +2162,7 @@ export function UnifiedInbox() {
 
             {/* ── Action bar (when composer is hidden) ── */}
             {!showComposer && !showForwardModal && (
-              <div className="sticky bottom-0 bg-white dark:bg-[var(--bg-page)] border-t border-zinc-200 dark:border-white/[0.06] px-4 lg:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              <div className="sticky bottom-0 bg-white dark:bg-[var(--bg-page)] border-t border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 px-4 lg:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                 <div className="flex gap-2">
                   <button
                     className="flex-1 px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-900 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
@@ -2201,7 +2201,7 @@ export function UnifiedInbox() {
           /* ── New Email Compose Panel ── */
           <div className="flex-1 flex flex-col bg-white dark:bg-[var(--bg-page)]">
             {/* Compose Header */}
-            <div className="flex items-center justify-between px-4 lg:px-6 py-3 border-b border-zinc-200 dark:border-white/[0.06]">
+            <div className="flex items-center justify-between px-4 lg:px-6 py-3 border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
               <div className="flex items-center gap-2">
                 <button
                   onClick={resetNewCompose}
@@ -2232,7 +2232,7 @@ export function UnifiedInbox() {
                   value={newComposeTo}
                   onChange={e => setNewComposeTo(e.target.value)}
                   placeholder="recipient@example.com"
-                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
                 />
               </div>
 
@@ -2256,7 +2256,7 @@ export function UnifiedInbox() {
                       value={newComposeCc}
                       onChange={e => setNewComposeCc(e.target.value)}
                       placeholder="cc@example.com (comma-separated)"
-                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
                     />
                   </div>
                   <div>
@@ -2266,7 +2266,7 @@ export function UnifiedInbox() {
                       value={newComposeBcc}
                       onChange={e => setNewComposeBcc(e.target.value)}
                       placeholder="bcc@example.com (comma-separated)"
-                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
                     />
                   </div>
                 </div>
@@ -2280,7 +2280,7 @@ export function UnifiedInbox() {
                   value={newComposeSubject}
                   onChange={e => setNewComposeSubject(e.target.value)}
                   placeholder={t('inbox.emailSubject')}
-                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
                 />
               </div>
 
@@ -2293,7 +2293,7 @@ export function UnifiedInbox() {
                   onChange={e => setNewComposeBody(e.target.value)}
                   placeholder="Write your email..."
                   rows={12}
-                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.08] rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 resize-none"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 resize-none"
                   onKeyDown={e => {
                     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                       e.preventDefault();
@@ -2306,7 +2306,7 @@ export function UnifiedInbox() {
                 />
               {/* Signature preview */}
               {signaturePreview && (
-                <div className="mt-2 pt-2 border-t border-dashed border-zinc-200 dark:border-white/[0.06]">
+                <div className="mt-2 pt-2 border-t border-dashed border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
                   <pre className="text-[11px] text-zinc-400 dark:text-zinc-500 font-sans whitespace-pre-line leading-relaxed">{signaturePreview}</pre>
                   <p className="text-[10px] text-zinc-400/60 dark:text-zinc-600 mt-0.5 italic">Signature auto-appended on send</p>
                 </div>
@@ -2337,7 +2337,7 @@ export function UnifiedInbox() {
                       return (
                         <div
                           key={`${att.file.name}-${idx}`}
-                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-100 dark:bg-white/[0.06] border border-zinc-200 dark:border-white/[0.08] group/att"
+                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 group/att"
                         >
                           {att.preview ? (
                             <img src={att.preview} alt="" className="w-6 h-6 rounded object-cover flex-shrink-0" />
@@ -2365,7 +2365,7 @@ export function UnifiedInbox() {
             </div>
 
             {/* Compose Footer */}
-            <div className="sticky bottom-0 bg-white dark:bg-[var(--bg-page)] border-t border-zinc-200 dark:border-white/[0.06] px-4 lg:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="sticky bottom-0 bg-white dark:bg-[var(--bg-page)] border-t border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 px-4 lg:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
@@ -2399,7 +2399,7 @@ export function UnifiedInbox() {
           </div>
         ) : (
           /* Empty state (desktop only) */
-          <div className="flex-1 flex items-center justify-center bg-zinc-50/50 dark:bg-[var(--bg-page)]">
+          <div className="flex-1 flex items-center justify-center bg-zinc-50 dark:bg-[var(--bg-page)]">
             <div className="text-center px-6">
               <div className="w-16 h-16 rounded-2xl bg-zinc-100 dark:bg-zinc-800/60 flex items-center justify-center mx-auto mb-4">
                 <MessageSquare className="w-8 h-8 text-zinc-400 dark:text-zinc-500" />

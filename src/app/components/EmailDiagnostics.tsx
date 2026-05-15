@@ -345,7 +345,7 @@ export function EmailDiagnostics() {
 
       {/* Webhook status notice */}
       {!lastWebhookEvent && (
-        <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5">
+        <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5">
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-zinc-400 shrink-0 mt-0.5" />
             <div>

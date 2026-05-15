@@ -1095,13 +1095,13 @@ export function RealTimeMap({
               {popupInfo.source === 'email_open' && (
                 <div className="flex items-center gap-1.5 mb-2 px-2 py-1.5 bg-[#1ED4A7]/10 rounded-lg border border-[#1ED4A7]/20">
                   <Mail className="w-3 h-3 text-[#1ED4A7] flex-shrink-0" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-[#1ED4A7]">Opened Email</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#1ED4A7]">Opened Email</span>
                 </div>
               )}
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#1ED4A7]" />
-                  <span className="text-xs font-bold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                     {popupInfo.brand || "CONTNDR"}
                   </span>
                 </div>

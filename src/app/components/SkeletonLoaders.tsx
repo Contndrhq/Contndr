@@ -10,7 +10,7 @@ import { memo } from 'react';
 function Bone({ className = '' }: { className?: string }) {
   return (
     <div
-      className={`rounded-lg bg-zinc-200 dark:bg-white/[0.06] animate-pulse skeleton-shimmer ${className}`}
+      className={`rounded-lg bg-zinc-200 dark:bg-zinc-100 dark:bg-zinc-900 animate-pulse skeleton-shimmer ${className}`}
     />
   );
 }
@@ -33,7 +33,7 @@ export const DashboardSkeleton = memo(function DashboardSkeleton() {
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-5 space-y-3"
+            className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-5 space-y-3"
           >
             <div className="flex items-center justify-between">
               <Bone className="h-4 w-20" />
@@ -47,18 +47,18 @@ export const DashboardSkeleton = memo(function DashboardSkeleton() {
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-6 space-y-4">
+        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-6 space-y-4">
           <Bone className="h-5 w-32" />
           <Bone className="h-48 w-full rounded-xl" />
         </div>
-        <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-6 space-y-4">
+        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-6 space-y-4">
           <Bone className="h-5 w-40" />
           <Bone className="h-48 w-full rounded-xl" />
         </div>
       </div>
 
       {/* Recent activity */}
-      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-6 space-y-4">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-6 space-y-4">
         <Bone className="h-5 w-36" />
         {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="flex items-center gap-4">
@@ -99,9 +99,9 @@ export const CRMSkeleton = memo(function CRMSkeleton() {
       </div>
 
       {/* Table */}
-      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] overflow-hidden">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 overflow-hidden">
         {/* Table header */}
-        <div className="bg-zinc-50 dark:bg-white/[0.02] px-6 py-3 flex items-center gap-4 border-b border-zinc-200 dark:border-white/[0.06]">
+        <div className="bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 px-6 py-3 flex items-center gap-4 border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
           <Bone className="h-4 w-4 rounded" />
           <Bone className="h-4 w-40" />
           <Bone className="h-4 w-32 ml-auto" />
@@ -146,7 +146,7 @@ export const CampaignsSkeleton = memo(function CampaignsSkeleton() {
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-5 space-y-4"
+            className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-5 space-y-4"
           >
             <div className="flex items-center justify-between">
               <Bone className="h-5 w-32" />
@@ -179,14 +179,14 @@ export const AnalyticsSkeleton = memo(function AnalyticsSkeleton() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-5 space-y-3">
+          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-5 space-y-3">
             <Bone className="h-4 w-20" />
             <Bone className="h-8 w-24" />
           </div>
         ))}
       </div>
 
-      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-6 space-y-4">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-6 space-y-4">
         <Bone className="h-5 w-48" />
         <Bone className="h-64 w-full rounded-xl" />
       </div>
@@ -199,7 +199,7 @@ export const InboxSkeleton = memo(function InboxSkeleton() {
   return (
     <div className="h-full flex view-enter">
       {/* Sidebar list */}
-      <div className="w-80 border-r border-zinc-200 dark:border-white/[0.06] p-4 space-y-3">
+      <div className="w-80 border-r border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 p-4 space-y-3">
         <Bone className="h-10 w-full rounded-lg" />
         {Array.from({ length: 8 }).map((_, i) => (
           <div key={i} className="flex items-start gap-3 p-3">
@@ -243,7 +243,7 @@ export const SettingsSkeleton = memo(function SettingsSkeleton() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-zinc-200 dark:border-white/[0.06] pb-2">
+      <div className="flex gap-2 border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 pb-2">
         {Array.from({ length: 5 }).map((_, i) => (
           <Bone key={i} className="h-9 w-24 rounded-lg" />
         ))}
@@ -276,7 +276,7 @@ export const AiCallsSkeleton = memo(function AiCallsSkeleton() {
       </div>
 
       {/* Live call banner */}
-      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-5 flex items-center gap-4">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-5 flex items-center gap-4">
         <Bone className="h-12 w-12 rounded-full" />
         <div className="flex-1 space-y-2">
           <Bone className="h-5 w-48" />
@@ -289,7 +289,7 @@ export const AiCallsSkeleton = memo(function AiCallsSkeleton() {
       {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-5 space-y-3">
+          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-5 space-y-3">
             <Bone className="h-4 w-20" />
             <Bone className="h-8 w-16" />
             <Bone className="h-3 w-24" />
@@ -298,8 +298,8 @@ export const AiCallsSkeleton = memo(function AiCallsSkeleton() {
       </div>
 
       {/* Campaign list */}
-      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] overflow-hidden">
-        <div className="bg-zinc-50 dark:bg-white/[0.02] px-6 py-3 flex items-center gap-4 border-b border-zinc-200 dark:border-white/[0.06]">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 overflow-hidden">
+        <div className="bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 px-6 py-3 flex items-center gap-4 border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
           <Bone className="h-4 w-40" />
           <Bone className="h-4 w-24 ml-auto" />
           <Bone className="h-4 w-20" />
@@ -338,7 +338,7 @@ export const RevenueSkeleton = memo(function RevenueSkeleton() {
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-5 space-y-3">
+          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-5 space-y-3">
             <div className="flex items-center justify-between">
               <Bone className="h-4 w-20" />
               <Bone className="h-7 w-7 rounded-lg" />
@@ -350,7 +350,7 @@ export const RevenueSkeleton = memo(function RevenueSkeleton() {
       </div>
 
       {/* Main chart */}
-      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-6 space-y-4">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-6 space-y-4">
         <div className="flex items-center justify-between">
           <Bone className="h-5 w-40" />
           <div className="flex gap-2">
@@ -363,7 +363,7 @@ export const RevenueSkeleton = memo(function RevenueSkeleton() {
       {/* Two-col section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {[0,1].map(i => (
-          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-6 space-y-4">
+          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-6 space-y-4">
             <Bone className="h-5 w-36" />
             {Array.from({ length: 5 }).map((_, j) => (
               <div key={j} className="flex items-center justify-between">
@@ -384,7 +384,7 @@ export const PipelineSkeleton = memo(function PipelineSkeleton() {
   return (
     <div className="h-full flex flex-col view-enter">
       {/* Header */}
-      <div className="px-6 py-5 flex items-center justify-between border-b border-zinc-200 dark:border-white/[0.06]">
+      <div className="px-6 py-5 flex items-center justify-between border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
         <div className="space-y-1.5">
           <Bone className="h-7 w-32" />
           <Bone className="h-4 w-52" />
@@ -404,7 +404,7 @@ export const PipelineSkeleton = memo(function PipelineSkeleton() {
                 <Bone className="h-5 w-8 rounded-full" />
               </div>
               {Array.from({ length: count }).map((_, i) => (
-                <div key={i} className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-4 space-y-3">
+                <div key={i} className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-4 space-y-3">
                   <Bone className="h-4 w-36" />
                   <Bone className="h-3 w-24" />
                   <div className="flex items-center gap-2 pt-1">
@@ -437,7 +437,7 @@ export const IntentSkeleton = memo(function IntentSkeleton() {
       {/* Score cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-5 space-y-3">
+          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-5 space-y-3">
             <Bone className="h-4 w-24" />
             <Bone className="h-9 w-16" />
             <Bone className="h-2 w-full rounded-full" />
@@ -446,7 +446,7 @@ export const IntentSkeleton = memo(function IntentSkeleton() {
       </div>
 
       {/* Signal feed */}
-      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-6 space-y-4">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-6 space-y-4">
         <div className="flex items-center justify-between">
           <Bone className="h-5 w-36" />
           <Bone className="h-8 w-24 rounded-lg" />
@@ -492,7 +492,7 @@ export const SocialSkeleton = memo(function SocialSkeleton() {
       {/* Platform cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-5 space-y-4">
+          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-5 space-y-4">
             <div className="flex items-center gap-3">
               <Bone className="h-10 w-10 rounded-xl" />
               <div className="flex-1 space-y-1.5">
@@ -515,7 +515,7 @@ export const SocialSkeleton = memo(function SocialSkeleton() {
       </div>
 
       {/* Content scheduler */}
-      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-6 space-y-4">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-6 space-y-4">
         <div className="flex items-center justify-between">
           <Bone className="h-5 w-40" />
           <Bone className="h-9 w-28 rounded-lg" />
@@ -559,7 +559,7 @@ export const TeamSkeleton = memo(function TeamSkeleton() {
       </div>
 
       {/* Leaderboard rows */}
-      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] overflow-hidden">
+      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 overflow-hidden">
         {Array.from({ length: 8 }).map((_, i) => (
           <div key={i} className="px-6 py-4 flex items-center gap-4 border-b border-zinc-100 dark:border-white/[0.03] last:border-0">
             <Bone className="h-6 w-6 rounded-full shrink-0" />
@@ -593,7 +593,7 @@ export const AutomationsSkeleton = memo(function AutomationsSkeleton() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         {[0,1,2].map(i => (
-          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-5 space-y-3">
+          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-5 space-y-3">
             <Bone className="h-4 w-24" />
             <Bone className="h-8 w-16" />
           </div>
@@ -602,7 +602,7 @@ export const AutomationsSkeleton = memo(function AutomationsSkeleton() {
 
       {/* Rule cards */}
       {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-5 space-y-4">
+        <div key={i} className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-5 space-y-4">
           <div className="flex items-start gap-4">
             <Bone className="h-10 w-10 rounded-xl shrink-0" />
             <div className="flex-1 space-y-2">
@@ -655,7 +655,7 @@ export const LeadFinderSkeleton = memo(function LeadFinderSkeleton() {
       {/* Result cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-5 space-y-3">
+          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-5 space-y-3">
             <div className="flex items-start gap-3">
               <Bone className="h-12 w-12 rounded-xl shrink-0" />
               <div className="flex-1 space-y-1.5">
@@ -686,7 +686,7 @@ export const GenericSkeleton = memo(function GenericSkeleton() {
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-6 space-y-4">
+          <div key={i} className="rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-50 dark:bg-zinc-950 p-6 space-y-4">
             <Bone className="h-5 w-32" />
             <Bone className="h-32 w-full rounded-xl" />
           </div>

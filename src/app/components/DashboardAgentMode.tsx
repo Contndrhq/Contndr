@@ -71,7 +71,7 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
   if (loading) {
     return (
       <div className="glass-card h-full p-5 flex flex-col">
-        <div className="h-3.5 w-28 rounded bg-zinc-100 dark:bg-white/[0.06] skeleton-shimmer mb-4" />
+        <div className="h-3.5 w-28 rounded bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 skeleton-shimmer mb-4" />
         <DashboardListSkeleton rows={3} withIcon={false} />
       </div>
     );
@@ -120,7 +120,7 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
         <MiniStat icon={Phone} label="Calls" value={config.autoCallHotVisitors ? 'On' : 'Off'} />
       </div>
 
-      <div className="flex-shrink-0 border-t border-zinc-200 dark:border-white/[0.06] pt-3 mb-3">
+      <div className="flex-shrink-0 border-t border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 pt-3 mb-3">
         <div className="flex items-center justify-between gap-3 mb-2">
           <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-500">
             Last Pass
@@ -129,7 +129,7 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
             {formatAgentRunTime(lastRun?.ran_at || lastRun?.created_at)}
           </span>
         </div>
-        <div className="rounded-lg bg-zinc-50/70 dark:bg-white/[0.025] border border-zinc-200 dark:border-white/[0.06] px-2.5 py-2">
+        <div className="rounded-lg bg-zinc-50/70 dark:bg-white/[0.025] border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 px-2.5 py-2">
           <div className="flex items-start gap-2">
             <CheckCircle2 className="w-3.5 h-3.5 text-[#1ED4A7] mt-0.5 flex-shrink-0" />
             <div className="min-w-0">
@@ -148,7 +148,7 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
 
       <div className="flex-1 min-h-0 space-y-1.5 overflow-hidden">
         {priorities.slice(0, 2).map((item: any) => (
-          <div key={item.id} className="rounded-lg px-2.5 py-2 hover:bg-zinc-50/70 dark:hover:bg-white/[0.03] transition-colors">
+          <div key={item.id} className="rounded-lg px-2.5 py-2 hover:bg-zinc-50/70 dark:hover:bg-zinc-900 transition-colors">
             <div className="flex items-start gap-2">
               <span className={`mt-1 h-1.5 w-1.5 rounded-full flex-shrink-0 ${item.priority === 'high' ? 'bg-[#1ED4A7]' : 'bg-zinc-400 dark:bg-zinc-600'}`} />
               <div className="min-w-0 flex-1">
@@ -171,7 +171,7 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
       <button
         onClick={run}
         disabled={!canUse || running}
-        className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-zinc-50 dark:bg-white/[0.04] text-zinc-700 dark:text-zinc-300 text-[12px] font-medium hover:bg-zinc-100 dark:hover:bg-white/[0.07] hover:text-zinc-900 dark:hover:text-white transition-colors disabled:opacity-50 border border-zinc-200 dark:border-white/[0.06]"
+        className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 text-[12px] font-medium hover:bg-zinc-100 dark:hover:bg-white/[0.07] hover:text-zinc-900 dark:hover:text-white transition-colors disabled:opacity-50 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800"
       >
         {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
         Run Agent Pass
@@ -182,7 +182,7 @@ export function DashboardAgentMode({ onNavigate }: { onNavigate: (view: string) 
 
 function MiniStat({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-zinc-200 dark:border-white/[0.06] bg-zinc-50/60 dark:bg-white/[0.02] px-2.5 py-2">
+    <div className="rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-50 dark:bg-zinc-950 px-2.5 py-2">
       <div className="flex items-center gap-1.5 mb-1">
         <Icon className="w-3 h-3 text-[#1ED4A7]" />
         <p className="text-[9px] uppercase tracking-wider text-zinc-500 dark:text-zinc-500 truncate">{label}</p>

@@ -46,7 +46,7 @@ export function BlogIndex({ onNavigate, onLogin, onGetStarted }: BlogIndexProps)
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.6 }}
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10"
+              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70" />
               Blog
@@ -79,7 +79,7 @@ export function BlogIndex({ onNavigate, onLogin, onGetStarted }: BlogIndexProps)
               className="group cursor-pointer mb-24 md:mb-32"
               onClick={() => onNavigate(`/blog/${featuredPost.slug}`)}
             >
-              <div className="relative rounded-[2rem] overflow-hidden border border-white/[0.06] bg-[#0A0A0A] hover:border-white/[0.12] transition-all duration-500 shadow-2xl">
+              <div className="relative rounded-[2rem] overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-[#0A0A0A] hover:border-white/[0.12] transition-all duration-500 shadow-2xl">
                 <div className="grid md:grid-cols-2 gap-0">
                   <div className="h-[300px] md:h-[480px] overflow-hidden relative">
                     <img
@@ -138,7 +138,7 @@ export function BlogIndex({ onNavigate, onLogin, onGetStarted }: BlogIndexProps)
                   className="group cursor-pointer flex flex-col h-full"
                   onClick={() => onNavigate(`/blog/${post.slug}`)}
                 >
-                  <div className="aspect-[16/10] rounded-2xl overflow-hidden mb-6 border border-white/[0.06] relative bg-zinc-900 group-hover:border-white/[0.12] transition-all duration-300">
+                  <div className="aspect-[16/10] rounded-2xl overflow-hidden mb-6 border border-zinc-200 dark:border-zinc-800 relative bg-zinc-900 group-hover:border-white/[0.12] transition-all duration-300">
                     <img
                       src={post.image}
                       alt={post.title}
@@ -162,7 +162,7 @@ export function BlogIndex({ onNavigate, onLogin, onGetStarted }: BlogIndexProps)
                     {post.excerpt}
                   </p>
 
-                  <div className="mt-auto flex items-center justify-between text-[11px] text-zinc-600 font-medium pt-4 border-t border-white/[0.04]">
+                  <div className="mt-auto flex items-center justify-between text-[11px] text-zinc-600 font-medium pt-4 border-t border-zinc-200 dark:border-zinc-800">
                     <span>{post.date}</span>
                     <span>{post.readTime}</span>
                   </div>

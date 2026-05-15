@@ -1196,7 +1196,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
   // Show loading spinner while campaign stats are being fetched
   if (selectedCampaign && !campaignStats) {
     return (
-      <div className="h-full flex flex-col bg-zinc-50/50 dark:bg-black items-center justify-center">
+      <div className="h-full flex flex-col bg-zinc-50 dark:bg-black items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="animate-spin w-6 h-6 border-2 border-zinc-400 border-t-transparent rounded-full" />
           <span className="text-sm text-zinc-500 dark:text-zinc-400">{t('campaigns.loadingCampaign')}</span>
@@ -1209,7 +1209,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
     const campaign = campaigns.find(c => c.id === selectedCampaign);
     
     return (
-      <div className="h-full flex flex-col bg-zinc-50/50 dark:bg-black">
+      <div className="h-full flex flex-col bg-zinc-50 dark:bg-black">
         {/* Header — always visible */}
         <div className="flex-shrink-0 p-4 sm:p-8 pb-0">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1441,7 +1441,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                     ) : (
                       <>
                         {/* Delete All Bounced button */}
-                        <div className="flex items-center justify-between px-5 py-2.5 bg-zinc-50/50 dark:bg-zinc-900/30 border-b border-zinc-100 dark:border-zinc-800/30">
+                        <div className="flex items-center justify-between px-5 py-2.5 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-100 dark:border-zinc-800/30">
                           <span className="text-xs text-zinc-500 dark:text-zinc-400">
                             {bouncedContacts.length} bounced contact{bouncedContacts.length !== 1 ? 's' : ''}
                           </span>
@@ -1580,8 +1580,8 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-zinc-50/50 dark:bg-black">
-      <div className="flex-shrink-0 p-4 sm:p-8 bg-zinc-50/50 dark:bg-black z-10">
+    <div className="flex flex-col h-full bg-zinc-50 dark:bg-black">
+      <div className="flex-shrink-0 p-4 sm:p-8 bg-zinc-50 dark:bg-black z-10">
         {/* Header */}
         <div className="flex flex-col gap-4">
           <div className="flex flex-row items-start sm:items-center justify-between gap-4">

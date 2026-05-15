@@ -34,7 +34,7 @@ interface Lead {
 // ── Memoized lead row for performance ──
 const LeadPickerRow = memo(function LeadPickerRow({ lead, selected, onToggle }: { lead: Lead; selected: boolean; onToggle: (id: string) => void }) {
   return (
-    <label className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-all ${selected ? 'bg-zinc-50 dark:bg-white/[0.03]' : 'hover:bg-zinc-50/60 dark:hover:bg-white/[0.02]'}`}>
+    <label className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-all ${selected ? 'bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950' : 'hover:bg-zinc-50/60 dark:hover:bg-zinc-900'}`}>
       <div className={`w-[18px] h-[18px] rounded-md border-2 flex items-center justify-center transition-all shrink-0 ${
         selected
           ? 'bg-zinc-900 dark:bg-white border-zinc-900 dark:border-white'
@@ -280,7 +280,7 @@ export function AddToPipelineModal({ onClose, preselectedLeadIds = [], preselect
                   className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border transition-all text-left ${
                     stage === s.key
                       ? 'border-zinc-900 dark:border-white/40 bg-zinc-900/[0.03] dark:bg-white/[0.05] ring-1 ring-zinc-900/5 dark:ring-white/5'
-                      : 'border-zinc-200 dark:border-zinc-700/50 hover:border-zinc-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-white/[0.02]'
+                      : 'border-zinc-200 dark:border-zinc-700/50 hover:border-zinc-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-900'
                   }`}
                 >
                   <div className={`w-2 h-2 rounded-full shrink-0 ${
@@ -317,7 +317,7 @@ export function AddToPipelineModal({ onClose, preselectedLeadIds = [], preselect
                           ? isWon
                             ? 'border-emerald-500/60 bg-emerald-500/[0.08] ring-1 ring-emerald-500/10'
                             : 'border-red-500/60 bg-red-500/[0.08] ring-1 ring-red-500/10'
-                          : 'border-zinc-200 dark:border-zinc-700/50 hover:border-zinc-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-white/[0.02]'
+                          : 'border-zinc-200 dark:border-zinc-700/50 hover:border-zinc-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-900'
                       }`}
                     >
                       <div className={`w-5 h-5 rounded-full shrink-0 flex items-center justify-center ${

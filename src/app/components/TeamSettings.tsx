@@ -217,7 +217,7 @@ export function TeamSettings() {
       </div>
 
       {/* Plan Info */}
-      <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-900 dark:text-white">
             <Shield className="w-5 h-5" />
@@ -298,7 +298,7 @@ export function TeamSettings() {
 
           {/* Pending Invites */}
           {team.invites.map((invite) => (
-            <div key={invite.token} className="p-4 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors bg-zinc-50/50 dark:bg-zinc-900/20">
+            <div key={invite.token} className="p-4 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors bg-zinc-50 dark:bg-zinc-900/20">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full border-2 border-dashed border-zinc-300 dark:border-zinc-700 flex items-center justify-center text-zinc-400">
                   <Mail className="w-4 h-4" />

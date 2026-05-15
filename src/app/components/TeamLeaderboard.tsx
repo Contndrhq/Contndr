@@ -313,7 +313,7 @@ function TeamLeaderboard() {
   if (!loading && members.length === 0 && teamSize <= 1) {
     return (
       <div className="h-full flex flex-col items-center justify-center px-6 py-20">
-        <div className="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-white/[0.04] flex items-center justify-center mb-5">
+        <div className="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center mb-5">
           <Users className="w-6 h-6 text-zinc-300 dark:text-zinc-600" />
         </div>
         <h2 className="text-lg font-semibold text-zinc-800 dark:text-zinc-200 mb-1.5">
@@ -360,7 +360,7 @@ function TeamLeaderboard() {
 
       {/* ── Summary strip ──────────────────────────────────────── */}
       {totals && (
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-px rounded-xl overflow-hidden border border-zinc-200/80 dark:border-white/[0.06] bg-zinc-200/80 dark:bg-white/[0.06] mb-8">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-px rounded-xl overflow-hidden border border-zinc-200/80 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-200/80 dark:bg-zinc-100 dark:bg-zinc-900 mb-8">
           {([
             { labelKey: 'teamLeaderboard.colLeads',    value: totals.leads.toLocaleString() },
             { labelKey: 'teamLeaderboard.colEmails',   value: totals.emails_sent.toLocaleString() },
@@ -386,7 +386,7 @@ function TeamLeaderboard() {
 
       {/* ── Mobile sort label ───────────────────────────────────── */}
       <div className="lg:hidden flex items-center justify-between mb-3">
-        <span className="text-[11px] uppercase tracking-widest font-semibold text-zinc-400 dark:text-zinc-500">
+        <span className="text-[11px] uppercase tracking-wider font-semibold text-zinc-400 dark:text-zinc-500">
           {t('teamLeaderboard.sortedBy', { metric: t(activeCol.labelKey) })}
         </span>
       </div>
@@ -397,12 +397,12 @@ function TeamLeaderboard() {
       <div className="hidden lg:block">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-zinc-200/60 dark:border-white/[0.06]">
+            <tr className="border-b border-zinc-200/60 dark:border-zinc-200 dark:border-zinc-800">
               <th className="w-10 pb-3 text-left">
-                <span className="text-[10px] uppercase tracking-widest font-semibold text-zinc-300 dark:text-zinc-600">#</span>
+                <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-300 dark:text-zinc-600">#</span>
               </th>
               <th className="pb-3 text-left">
-                <span className="text-[10px] uppercase tracking-widest font-semibold text-zinc-400 dark:text-zinc-500">{t('teamLeaderboard.member')}</span>
+                <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400 dark:text-zinc-500">{t('teamLeaderboard.member')}</span>
               </th>
               {COLUMNS.map((col) => (
                 <th
@@ -410,7 +410,7 @@ function TeamLeaderboard() {
                   className={`pb-3 text-right cursor-pointer select-none group/th ${colVisibility(col)}`}
                   onClick={() => setSortBy(col.key)}
                 >
-                  <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-widest font-semibold transition-colors ${
+                  <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold transition-colors ${
                     sortBy === col.key
                       ? 'text-zinc-900 dark:text-white'
                       : 'text-zinc-400 dark:text-zinc-500 group-hover/th:text-zinc-600 dark:group-hover/th:text-zinc-300'
@@ -433,7 +433,7 @@ function TeamLeaderboard() {
                   className={`border-b border-zinc-100/60 dark:border-white/[0.03] transition-colors ${
                     member.is_you
                       ? 'bg-[#1ED4A7]/[0.03]'
-                      : 'hover:bg-zinc-50/50 dark:hover:bg-white/[0.015]'
+                      : 'hover:bg-zinc-50 dark:hover:bg-white/[0.015]'
                   }`}
                 >
                   {/* Rank */}
@@ -541,7 +541,7 @@ function TeamLeaderboard() {
                     )}
                   </div>
                   {/* Bar */}
-                  <div className="mt-1.5 h-1 bg-zinc-100 dark:bg-white/[0.04] rounded-full overflow-hidden">
+                  <div className="mt-1.5 h-1 bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-500 ease-out"
                       style={{ width: `${pct}%`, backgroundColor: activeCol.color, opacity: 0.5 }}

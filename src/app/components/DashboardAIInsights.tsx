@@ -212,7 +212,7 @@ export function DashboardAIInsights() {
   if (insights.length === 0) return null;
 
   return (
-    <div className="relative rounded-xl border border-zinc-100 dark:border-white/[0.06] bg-gradient-to-r from-zinc-50 via-zinc-50 to-zinc-50 dark:from-white/[0.02] dark:via-white/[0.03] dark:to-white/[0.02] overflow-hidden">
+    <div className="relative rounded-xl border border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 bg-gradient-to-r from-zinc-50 via-zinc-50 to-zinc-50 dark:from-white/[0.02] dark:via-white/[0.03] dark:to-white/[0.02] overflow-hidden">
       {/* Subtle accent line at top */}
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#1ED4A7]/30 to-transparent" />
       
@@ -222,11 +222,11 @@ export function DashboardAIInsights() {
           <div className="w-5 h-5 rounded-md bg-[#1ED4A7]/10 flex items-center justify-center">
             <Sparkles className="w-2.5 h-2.5 text-[#1ED4A7]" />
           </div>
-          <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">{t('aiInsights.label', 'AI')}</span>
+          <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">{t('aiInsights.label', 'AI')}</span>
         </div>
 
         {/* Divider */}
-        <div className="w-px h-5 bg-zinc-200 dark:bg-white/[0.06] flex-shrink-0" />
+        <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-100 dark:bg-zinc-900 flex-shrink-0" />
 
         {/* Insights inline */}
         <div className="flex items-center gap-5 overflow-x-auto scrollbar-hide flex-1 min-w-0">

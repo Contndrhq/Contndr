@@ -43,7 +43,7 @@ export function LeadFinder({ onSaveProspects, embedded = false, onUpgrade }: Lea
                   className={`
                     relative flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium transition-colors duration-150
                     ${active
-                      ? 'text-[var(--text-main)]'
+                      ? 'text-zinc-900 dark:text-zinc-100'
                       : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300'
                     }
                   `}

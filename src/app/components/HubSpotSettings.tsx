@@ -295,7 +295,7 @@ export function HubSpotSettings() {
             )}
 
             {/* How to use */}
-            <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
+            <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
               <h3 className="text-sm font-medium text-zinc-900 dark:text-white mb-2">How to export leads</h3>
               <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-1.5">
                 <li className="flex items-start gap-2">
@@ -322,7 +322,7 @@ export function HubSpotSettings() {
               </div>
             )}
 
-            <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
+            <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
               <h3 className="text-sm font-medium text-zinc-900 dark:text-white mb-2">Connect your HubSpot account</h3>
               <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-4">
                 Link your HubSpot CRM to push leads directly from Contndr. We'll create contacts and companies
@@ -442,7 +442,7 @@ export function HubSpotSettings() {
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-2">
             Before connecting, ensure your HubSpot Public OAuth app has the correct Redirect URI configured:
           </p>
-          <code className="block text-[11px] bg-zinc-200 dark:bg-zinc-900/50 p-2 rounded font-mono text-zinc-800 dark:text-zinc-300 break-all">
+          <code className="block text-[11px] bg-zinc-200 dark:bg-zinc-950 p-2 rounded font-mono text-zinc-800 dark:text-zinc-300 break-all">
             https://{projectId}.supabase.co/functions/v1/make-server-a8b2511f/hubspot/oauth/callback
           </code>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-2">

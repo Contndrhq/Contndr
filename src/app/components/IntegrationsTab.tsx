@@ -785,7 +785,7 @@ function HubSpotDetail({ onStatusChange }: { onStatusChange: () => void }) {
           )}
 
           {/* How to use */}
-          <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4">
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4">
             <h4 className="text-[13px] font-medium text-zinc-900 dark:text-white mb-2">{t('integrationsView.howToExportLeads')}</h4>
             <ul className="text-[12px] text-zinc-500 dark:text-zinc-400 space-y-1.5">
               <li className="flex items-start gap-2">
@@ -849,7 +849,7 @@ function HubSpotDetail({ onStatusChange }: { onStatusChange: () => void }) {
       <div className="bg-white dark:bg-black rounded-xl border border-zinc-200 dark:border-white/10 overflow-hidden">
         <button
           onClick={() => { if (!showLogs && logs.length === 0) loadLogs(); setShowLogs(!showLogs); }}
-          className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors"
+          className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
         >
           <span className="text-[13px] font-medium text-zinc-900 dark:text-white flex items-center gap-2">
             <Clock className="w-4 h-4 text-zinc-400" />
@@ -1187,7 +1187,7 @@ function CalendlyDetail({ onStatusChange }: { onStatusChange: () => void }) {
               <h4 className="text-[12px] font-medium text-zinc-500 mb-2">{t('integrationsView.eventTypes')}</h4>
               <div className="space-y-1.5">
                 {eventTypes.filter((e: any) => e.active !== false).slice(0, 5).map((et: any, i: number) => (
-                  <div key={et.uri || i} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800">
+                  <div key={et.uri || i} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: et.color || '#006BFF' }} />
                     <span className="text-[12px] text-zinc-700 dark:text-zinc-300 font-medium flex-1 truncate">{et.name}</span>
                     {et.duration && <span className="text-[11px] text-zinc-400">{et.duration} min</span>}
@@ -1498,7 +1498,7 @@ function SalesforceDetail({ onStatusChange }: { onStatusChange: () => void }) {
           )}
 
           {/* How to use */}
-          <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4">
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4">
             <h4 className="text-[13px] font-medium text-zinc-900 dark:text-white mb-2">{t('integrationsView.howToExportLeads')}</h4>
             <ul className="text-[12px] text-zinc-500 dark:text-zinc-400 space-y-1.5">
               <li className="flex items-start gap-2">
@@ -1566,7 +1566,7 @@ function SalesforceDetail({ onStatusChange }: { onStatusChange: () => void }) {
       <div className="bg-white dark:bg-black rounded-xl border border-zinc-200 dark:border-white/10 overflow-hidden">
         <button
           onClick={() => { if (!showLogs && logs.length === 0) loadLogs(); setShowLogs(!showLogs); }}
-          className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors"
+          className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
         >
           <span className="text-[13px] font-medium text-zinc-900 dark:text-white flex items-center gap-2">
             <Clock className="w-4 h-4 text-zinc-400" />
@@ -1966,7 +1966,7 @@ function SlackDetail({ onStatusChange }: { onStatusChange: () => void }) {
               <span key={f} className="px-2 py-0.5 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800/80 text-zinc-500 dark:text-zinc-400">{f}</span>
             ))}
           </div>
-          <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4 mb-4">
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4 mb-4">
             <h4 className="text-[13px] font-medium text-zinc-900 dark:text-white mb-2">What you'll get</h4>
             <ul className="text-[12px] text-zinc-500 dark:text-zinc-400 space-y-1.5">
               <li className="flex items-start gap-2"><span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-zinc-200 dark:bg-zinc-700 text-[10px] font-bold text-zinc-600 dark:text-zinc-300 shrink-0 mt-0.5">1</span>Instant notification when a new lead is added</li>
@@ -1983,7 +1983,7 @@ function SlackDetail({ onStatusChange }: { onStatusChange: () => void }) {
 
       {/* Notification Log */}
       <div className="bg-white dark:bg-black rounded-xl border border-zinc-200 dark:border-white/10 overflow-hidden">
-        <button onClick={() => { if (!showLogs && logs.length === 0) loadLogs(); setShowLogs(!showLogs); }} className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors">
+        <button onClick={() => { if (!showLogs && logs.length === 0) loadLogs(); setShowLogs(!showLogs); }} className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors">
           <span className="text-[13px] font-medium text-zinc-900 dark:text-white flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-zinc-400" />
             Notification Log
@@ -2248,7 +2248,7 @@ function QuickBooksDetail({ onStatusChange }: { onStatusChange: () => void }) {
           {syncStatus?.summary && (
             <div className="grid grid-cols-3 gap-3 mb-4">
               {Object.entries(syncStatus.summary as Record<string, { count: number; last_synced: string | null }>).map(([key, val]) => (
-                <div key={key} className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3 text-center">
+                <div key={key} className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3 text-center">
                   <p className="text-[20px] font-bold text-zinc-900 dark:text-white">{val.count}</p>
                   <p className="text-[11px] text-zinc-500 capitalize">{key}s</p>
                 </div>
@@ -2303,7 +2303,7 @@ function QuickBooksDetail({ onStatusChange }: { onStatusChange: () => void }) {
             )}
           </button>
 
-          <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4 mt-4">
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4 mt-4">
             <h4 className="text-[13px] font-medium text-zinc-900 dark:text-white mb-2">What gets synced</h4>
             <ul className="text-[12px] text-zinc-500 dark:text-zinc-400 space-y-1.5">
               <li className="flex items-start gap-2">
@@ -2346,7 +2346,7 @@ function QuickBooksDetail({ onStatusChange }: { onStatusChange: () => void }) {
             ))}
           </div>
 
-          <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4 mb-4">
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4 mb-4">
             <h4 className="text-[13px] font-medium text-zinc-900 dark:text-white mb-2">What you'll get</h4>
             <ul className="text-[12px] text-zinc-500 dark:text-zinc-400 space-y-1.5">
               <li className="flex items-start gap-2">
@@ -2387,7 +2387,7 @@ function QuickBooksDetail({ onStatusChange }: { onStatusChange: () => void }) {
       <div className="bg-white dark:bg-black rounded-xl border border-zinc-200 dark:border-white/10 overflow-hidden">
         <button
           onClick={() => { if (!showLogs && logs.length === 0) loadLogs(); setShowLogs(!showLogs); }}
-          className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors"
+          className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
         >
           <span className="text-[13px] font-medium text-zinc-900 dark:text-white flex items-center gap-2">
             <Clock className="w-4 h-4 text-zinc-400" />
@@ -2551,7 +2551,7 @@ function TelnyxDetail({ onStatusChange }: { onStatusChange: () => void }) {
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setShowPhoneNumbers(!showPhoneNumbers)}
-                className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-[13px] font-medium border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors"
+                className="flex items-center justify-center gap-2 py-2.5 rounded-lg text-[13px] font-medium border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
               >
                 <Phone className="w-4 h-4" />
                 {showPhoneNumbers ? 'Hide Numbers' : 'Phone Numbers'}
@@ -2599,7 +2599,7 @@ function TelnyxDetail({ onStatusChange }: { onStatusChange: () => void }) {
           ))}
         </div>
 
-        <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4 mb-4">
+        <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-lg p-4 mb-4">
           <h4 className="text-[13px] font-medium text-zinc-900 dark:text-white mb-2">What you'll set up</h4>
           <ul className="text-[12px] text-zinc-500 dark:text-zinc-400 space-y-1.5">
             <li className="flex items-start gap-2">

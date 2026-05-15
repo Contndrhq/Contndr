@@ -451,7 +451,7 @@ export function AIAgentConfig({ onBack }: Props) {
 
         {/* Agent cards */}
         {agents.length === 0 ? (
-          <div className="bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
             <div className="text-center py-12 sm:py-20 px-4 sm:px-6">
               <div className="w-12 sm:w-14 h-12 sm:h-14 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700/50 flex items-center justify-center mx-auto mb-3 sm:mb-4">
                 <Bot className="w-6 sm:w-7 h-6 sm:h-7 text-zinc-500" />
@@ -472,7 +472,7 @@ export function AIAgentConfig({ onBack }: Props) {
             {agents.map(agent => (
               <div
                 key={agent.id}
-                className="group relative bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 rounded-xl p-4 transition-all cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-900/60"
+                className="group relative bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 rounded-xl p-4 transition-all cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-900/60"
                 onClick={() => startEdit(agent)}
               >
                 <div className="flex items-start gap-4">
@@ -608,7 +608,7 @@ export function AIAgentConfig({ onBack }: Props) {
 
       {/* Quick templates */}
       {!selectedAgent && (
-        <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4">
+        <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4">
           <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2.5 flex items-center gap-1.5">
             <Zap className="w-3.5 h-3.5 text-[#1ED4A7]" />
             {t('aiCalls.agentPanel.quickStartTemplates')}
@@ -634,7 +634,7 @@ export function AIAgentConfig({ onBack }: Props) {
       )}
 
       {/* Form sections */}
-      <div className="space-y-1 bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-xl divide-y divide-zinc-200 dark:divide-zinc-800/50">
+      <div className="space-y-1 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl divide-y divide-zinc-200 dark:divide-zinc-800/50">
 
         {/* ── Identity ── */}
         <div className="px-3 sm:px-4">

@@ -436,7 +436,7 @@ export function AddLeadModal({ isOpen, onClose, onLeadAdded, onUpgrade }: AddLea
             {/* Divider between quick add and manual */}
             <div className="flex items-center gap-3">
               <div className="flex-1 h-px bg-zinc-200 dark:bg-zinc-800" />
-              <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">{t('addLeadModal.details')}</span>
+              <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">{t('addLeadModal.details')}</span>
               <div className="flex-1 h-px bg-zinc-200 dark:bg-zinc-800" />
             </div>
 
@@ -646,7 +646,7 @@ export function AddLeadModal({ isOpen, onClose, onLeadAdded, onUpgrade }: AddLea
           </div>
 
           {/* Footer */}
-          <div className="flex-shrink-0 px-4 sm:px-6 py-3 sm:py-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4 keyboard-aware-footer">
+          <div className="flex-shrink-0 px-4 sm:px-6 py-3 sm:py-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4 keyboard-aware-footer">
             <p className="text-[11px] text-zinc-400 mb-2 sm:hidden text-center">
               {form.email ? t('common.existingLeadsSkipped') : t('common.addContactDetails')}
             </p>

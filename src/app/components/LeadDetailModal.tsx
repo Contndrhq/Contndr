@@ -756,7 +756,7 @@ export function LeadDetailModal({ leadId, onClose }: LeadDetailModalProps) {
 
               {/* Lead Score Breakdown */}
               {(scoreBreakdown || loadingScore) && (
-                <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-zinc-50 dark:bg-zinc-900/50">
+                <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-zinc-50 dark:bg-zinc-950">
                   <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-white dark:bg-black">
                     <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                       <TrendingUp className="w-4 h-4" />
@@ -811,7 +811,7 @@ export function LeadDetailModal({ leadId, onClose }: LeadDetailModalProps) {
                             <div className={`flex items-center gap-2 rounded-lg px-3 py-2.5 ${
                               isHighIntent ? 'bg-[#1ED4A7]/5 border border-[#1ED4A7]/20' :
                               isMediumIntent ? 'bg-amber-500/5 border border-amber-500/15' :
-                              'bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-800'
+                              'bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800'
                             }`}>
                               <Zap className={`w-4 h-4 shrink-0 ${
                                 isHighIntent ? 'text-[#1ED4A7]' : isMediumIntent ? 'text-amber-500 dark:text-amber-400' : 'text-zinc-400'
@@ -961,7 +961,7 @@ export function LeadDetailModal({ leadId, onClose }: LeadDetailModalProps) {
                 {lead.emails && lead.emails.length > 0 ? (
                   <div className="space-y-3">
                     {lead.emails.map((email, i) => (
-                      <div key={i} className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 bg-zinc-50 dark:bg-zinc-900/50">
+                      <div key={i} className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 bg-zinc-50 dark:bg-zinc-950">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap mb-3">
@@ -1025,7 +1025,7 @@ export function LeadDetailModal({ leadId, onClose }: LeadDetailModalProps) {
                 {lead.phones && lead.phones.length > 0 ? (
                   <div className="space-y-3">
                     {lead.phones.map((phone, i) => (
-                      <div key={i} className="flex items-center justify-between p-4 border border-zinc-200 dark:border-zinc-800 rounded-xl bg-zinc-50 dark:bg-zinc-900/50 min-h-[60px]">
+                      <div key={i} className="flex items-center justify-between p-4 border border-zinc-200 dark:border-zinc-800 rounded-xl bg-zinc-50 dark:bg-zinc-950 min-h-[60px]">
                         <SmartPhoneButton
                           phone={phone.phone}
                           leadName={`${lead.first_name || ''} ${lead.last_name || ''}`.trim() || undefined}
@@ -1439,7 +1439,7 @@ function LeadCrmExport({ lead, primaryEmail }: { lead: any; primaryEmail: any })
         <button
           onClick={handleHubSpot}
           disabled={exporting !== null}
-          className="flex items-center gap-3.5 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 hover:border-[#FF7A59]/40 hover:bg-[#FF7A59]/5 transition-all group disabled:opacity-60 text-left tap-target-override"
+          className="flex items-center gap-3.5 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 hover:border-[#FF7A59]/40 hover:bg-[#FF7A59]/5 transition-all group disabled:opacity-60 text-left tap-target-override"
         >
           <div className="w-10 h-10 rounded-lg bg-[#FF7A59]/10 flex items-center justify-center flex-shrink-0 group-hover:bg-[#FF7A59]/15 transition-colors">
             {exporting === 'hubspot' ? (
@@ -1464,7 +1464,7 @@ function LeadCrmExport({ lead, primaryEmail }: { lead: any; primaryEmail: any })
         <button
           onClick={handleSalesforce}
           disabled={exporting !== null}
-          className="flex items-center gap-3.5 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 hover:border-[#00A1E0]/40 hover:bg-[#00A1E0]/5 transition-all group disabled:opacity-60 text-left tap-target-override"
+          className="flex items-center gap-3.5 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 hover:border-[#00A1E0]/40 hover:bg-[#00A1E0]/5 transition-all group disabled:opacity-60 text-left tap-target-override"
         >
           <div className="w-10 h-10 rounded-lg bg-[#00A1E0]/10 flex items-center justify-center flex-shrink-0 group-hover:bg-[#00A1E0]/15 transition-colors">
             {exporting === 'salesforce' ? (

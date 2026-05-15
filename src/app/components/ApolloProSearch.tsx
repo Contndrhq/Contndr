@@ -810,7 +810,7 @@ function LiveAgentFeed({
             </div>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-[var(--text-main)] tracking-tight">{t('apolloProSearch.pageTitle')}</h3>
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 tracking-tight">{t('apolloProSearch.pageTitle')}</h3>
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
               {isSearching
                 ? (activePhase ? translatePhaseName(t, activePhase.name) : t('apolloProSearch.working'))
@@ -857,10 +857,10 @@ function LiveAgentFeed({
                     <div className={`w-4 h-px flex-shrink-0 transition-colors duration-500 ${isDone ? 'bg-[#1ED4A7]/40' : 'bg-zinc-200 dark:bg-zinc-800'}`} />
                   )}
                   <div className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg flex-shrink-0 text-[10px] font-medium transition-all duration-300 ${
-                    isActive ? 'bg-[#1ED4A7]/8 text-[var(--text-main)] ring-1 ring-[#1ED4A7]/25' :
-                    isDone ? 'bg-zinc-50 dark:bg-zinc-900/50 text-[#1ED4A7]' :
-                    isSkipped ? 'bg-zinc-50 dark:bg-zinc-900/30 text-zinc-400 dark:text-zinc-600 line-through' :
-                    'bg-zinc-50 dark:bg-zinc-900/30 text-zinc-400 dark:text-zinc-600'
+                    isActive ? 'bg-[#1ED4A7]/8 text-zinc-900 dark:text-zinc-100 ring-1 ring-[#1ED4A7]/25' :
+                    isDone ? 'bg-zinc-50 dark:bg-zinc-950 text-[#1ED4A7]' :
+                    isSkipped ? 'bg-zinc-50 dark:bg-zinc-950 text-zinc-400 dark:text-zinc-600 line-through' :
+                    'bg-zinc-50 dark:bg-zinc-950 text-zinc-400 dark:text-zinc-600'
                   }`}>
                     {isActive && <Loader2 className="w-3 h-3 animate-spin" />}
                     {isDone && <CheckCircle className="w-3 h-3" />}
@@ -893,7 +893,7 @@ function LiveAgentFeed({
                 className={`flex items-start gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
                   isLatest
                     ? 'bg-[#1ED4A7]/[0.04] dark:bg-[#1ED4A7]/[0.04]'
-                    : 'hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20'
+                    : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/20'
                 }`}
                 style={{ animation: 'agentEntryIn 0.35s cubic-bezier(0.16,1,0.3,1) both' }}
               >
@@ -1053,18 +1053,18 @@ function ComboboxInput({
           onChange={e => { onChange(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           placeholder={placeholder}
-          className="w-full pl-8 pr-8 py-2 text-sm bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400"
+          className="w-full pl-8 pr-8 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400"
         />
         <ChevronDown className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-400 pointer-events-none transition-transform ${open ? 'rotate-180' : ''}`} />
       </div>
       {open && filtered.length > 0 && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg shadow-xl max-h-48 overflow-y-auto">
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl max-h-48 overflow-y-auto">
           {filtered.map(item => (
             <button
               key={item.value}
               type="button"
               onMouseDown={e => { e.preventDefault(); onChange(item.value); setOpen(false); }}
-              className={`w-full text-left px-3 py-2 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors ${value === item.value ? 'text-[#1ED4A7] font-medium bg-[#1ED4A7]/5' : 'text-[var(--text-main)]'}`}
+              className={`w-full text-left px-3 py-2 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors ${value === item.value ? 'text-[#1ED4A7] font-medium bg-[#1ED4A7]/5' : 'text-zinc-900 dark:text-zinc-100'}`}
             >
               {t(item.labelKey)}
             </button>
@@ -1122,17 +1122,17 @@ function IndustrySelect({
         <button
           type="button"
           onClick={() => setOpen(!open)}
-          className={`w-full flex items-center gap-2 pl-8 pr-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-900/50 border rounded-lg transition-all text-left ${
+          className={`w-full flex items-center gap-2 pl-8 pr-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border rounded-lg transition-all text-left ${
             open
               ? 'ring-2 ring-[#1ED4A7]/30 border-[#1ED4A7]/50'
-              : 'border-[var(--border-color)]'
+              : 'border-zinc-200 dark:border-zinc-800'
           }`}
         >
           <Factory className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
           {selected.size === 0 ? (
             <span className="text-zinc-400 truncate">{t('apolloProSearch.selectIndustries')}</span>
           ) : (
-            <span className="text-[var(--text-main)] truncate">
+            <span className="text-zinc-900 dark:text-zinc-100 truncate">
               {Array.from(selected).slice(0, 2).map(s => t(`companySearch.industries.${s}`, s)).join(', ')}
               {selected.size > 2 && ` +${selected.size - 2}`}
             </span>
@@ -1142,14 +1142,14 @@ function IndustrySelect({
 
         {/* Dropdown — inside relative so absolute positioning is scoped to the button */}
         {open && (
-          <div className="absolute z-50 top-full left-0 w-full min-w-[240px] mt-1 bg-white dark:bg-zinc-900 border border-[var(--border-color)] rounded-lg shadow-xl overflow-hidden">
-            <div className="p-2 border-b border-[var(--border-color)]">
+          <div className="absolute z-50 top-full left-0 w-full min-w-[240px] mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl overflow-hidden">
+            <div className="p-2 border-b border-zinc-200 dark:border-zinc-800">
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder={t('apolloProSearch.searchIndustries')}
-                className="w-full px-2.5 py-1.5 text-xs bg-zinc-50 dark:bg-zinc-800 border border-[var(--border-color)] rounded-md outline-none focus:ring-1 focus:ring-[#1ED4A7]/30 placeholder:text-zinc-400"
+                className="w-full px-2.5 py-1.5 text-xs bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-md outline-none focus:ring-1 focus:ring-[#1ED4A7]/30 placeholder:text-zinc-400"
                 autoFocus
               />
             </div>
@@ -1164,7 +1164,7 @@ function IndustrySelect({
                   className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors ${
                     selected.has(ind)
                       ? 'text-[#1ED4A7] font-medium bg-[#1ED4A7]/5'
-                      : 'text-[var(--text-main)] hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                      : 'text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800'
                   }`}
                 >
                   <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${
@@ -2750,7 +2750,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
             value={keywords}
             onChange={e => setKeywords(e.target.value)}
             placeholder={t('leadFinder.keywordsPlaceholder')}
-            className="w-full pl-8 pr-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400"
+            className="w-full pl-8 pr-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400"
           />
         </div>
       </div>
@@ -2767,7 +2767,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
               value={companyDomain}
               onChange={e => setCompanyDomain(e.target.value)}
               placeholder={t('leadFinder.companyDomainPlaceholder')}
-              className="w-full pl-8 pr-8 py-2 text-sm bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400 font-mono"
+              className="w-full pl-8 pr-8 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400 font-mono"
             />
             <button
               type="button"
@@ -2798,7 +2798,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
               className={`px-3 py-1.5 md:px-2 md:py-1 min-h-[32px] md:min-h-0 text-[11px] md:text-[10px] font-medium rounded-lg md:rounded-md border transition-all ${
                 seniorities.has(opt.value)
                   ? 'border-[#1ED4A7]/40 bg-[#1ED4A7]/10 text-[#1ED4A7]'
-                  : 'border-[var(--border-color)] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
+                  : 'border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
               }`}
             >
               {t(opt.labelKey)}
@@ -2820,7 +2820,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
               className={`px-3 py-1.5 md:px-2 md:py-1 min-h-[32px] md:min-h-0 text-[11px] md:text-[10px] font-medium rounded-lg md:rounded-md border transition-all ${
                 employeeRanges.has(opt.value)
                   ? 'border-[#1ED4A7]/40 bg-[#1ED4A7]/10 text-[#1ED4A7]'
-                  : 'border-[var(--border-color)] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
+                  : 'border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
               }`}
             >
               {opt.label}
@@ -2842,7 +2842,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
               className={`flex items-center justify-center py-1.5 min-h-[32px] md:min-h-0 text-[11px] md:text-[10px] font-medium rounded-lg md:rounded-md border transition-all ${
                 maxResults === opt.value
                   ? 'border-[#1ED4A7]/40 bg-[#1ED4A7]/10 text-[#1ED4A7]'
-                  : 'border-[var(--border-color)] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
+                  : 'border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
               }`}
             >
               {opt.label}
@@ -2885,7 +2885,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
         const phasePct = Math.round((completedPhases / totalPhases) * 100);
 
         return (
-          <div className="flex-shrink-0 mb-4 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-md border border-[var(--border-color)] rounded-xl overflow-hidden">
+          <div className="flex-shrink-0 mb-4 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-md border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
             {/* Top progress rail */}
             <div className="h-1 bg-zinc-100 dark:bg-zinc-800">
               <div
@@ -2901,7 +2901,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                   {activePhase ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1ED4A7]" />
-                      <span className="text-xs font-semibold text-[var(--text-main)]">{translatePhaseName(t, activePhase.name)}</span>
+                      <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{translatePhaseName(t, activePhase.name)}</span>
                     </>
                   ) : completedPhases === totalPhases ? (
                     <>
@@ -2911,7 +2911,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                   ) : (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1ED4A7]" />
-                      <span className="text-xs font-semibold text-[var(--text-main)]">{t('apolloProSearch.processingLabel')}</span>
+                      <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{t('apolloProSearch.processingLabel')}</span>
                     </>
                   )}
                 </div>
@@ -2942,10 +2942,10 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                     <div key={phase.phase} className="contents">
                       {i > 0 && <div className={`w-4 h-px flex-shrink-0 ${isDone ? 'bg-[#1ED4A7]/60' : isSkipped ? 'bg-zinc-300 dark:bg-zinc-700' : 'bg-zinc-200 dark:bg-zinc-800'}`} />}
                       <div className={`flex items-center gap-1 px-2 py-1 rounded-md flex-shrink-0 text-[10px] font-medium transition-all ${
-                        isActive ? 'bg-[#1ED4A7]/10 text-[var(--text-main)] ring-1 ring-[#1ED4A7]/30' :
+                        isActive ? 'bg-[#1ED4A7]/10 text-zinc-900 dark:text-zinc-100 ring-1 ring-[#1ED4A7]/30' :
                         isDone ? 'bg-[#1ED4A7]/5 text-[#1ED4A7]' :
                         isSkipped ? 'bg-zinc-100 dark:bg-zinc-800/50 text-zinc-400 dark:text-zinc-600 line-through' :
-                        'bg-zinc-50 dark:bg-zinc-900/50 text-zinc-400 dark:text-zinc-600'
+                        'bg-zinc-50 dark:bg-zinc-950 text-zinc-400 dark:text-zinc-600'
                       }`}>
                         {isActive && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
                         {isDone && <CheckCircle className="w-2.5 h-2.5" />}
@@ -3027,9 +3027,9 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
       )}
 
       {/* ── Main Layout ── */}
-      <div className="flex-1 overflow-hidden flex min-h-0 rounded-2xl border border-[var(--border-color)] bg-white dark:bg-[#050505]/80 dark:backdrop-blur-xl shadow-sm">
+      <div className="flex-1 overflow-hidden flex min-h-0 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#050505]/80 dark:backdrop-blur-xl shadow-sm">
         {/* ── Sidebar / Filters ── Desktop Only */}
-        <div className={`flex-shrink-0 border-r border-[var(--border-color)] transition-all duration-300 flex flex-col ${sidebarCollapsed ? 'w-0 md:w-12' : 'w-full md:w-[300px]'} ${results.length > 0 && !sidebarCollapsed ? 'hidden md:block md:flex' : ''}`}>
+        <div className={`flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 transition-all duration-300 flex flex-col ${sidebarCollapsed ? 'w-0 md:w-12' : 'w-full md:w-[300px]'} ${results.length > 0 && !sidebarCollapsed ? 'hidden md:block md:flex' : ''}`}>
           {!sidebarCollapsed ? (
             <div className="p-4 space-y-4 overflow-y-auto flex-1 min-h-0 pb-4">
               {/* Header */}
@@ -3038,19 +3038,19 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                   <div className="w-6 h-6 rounded-md bg-zinc-800 dark:bg-white/10 flex items-center justify-center text-white">
                     <Sparkles className="w-3.5 h-3.5" />
                   </div>
-                  <h2 className="text-sm font-semibold text-[var(--text-main)]">{t('leadFinder.smartDiscovery')}</h2>
+                  <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('leadFinder.smartDiscovery')}</h2>
                 </div>
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => { setShowSavedLists(!showSavedLists); loadSavedLists(); }}
-                    className={`p-1.5 rounded-md transition-colors text-xs ${showSavedLists ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]' : 'text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+                    className={`p-1.5 rounded-md transition-colors text-xs ${showSavedLists ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]' : 'text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
                     title={t('apolloProSearch.savedSearchesTitle')}
                   >
                     <Bookmark className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={() => setSidebarCollapsed(true)}
-                    className="p-1.5 rounded-md text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors hidden md:flex"
+                    className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors hidden md:flex"
                   >
                     <ChevronDown className="w-3.5 h-3.5 -rotate-90" />
                   </button>
@@ -3059,8 +3059,8 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
 
               {/* Saved Lists Panel */}
               {showSavedLists && (
-                <div className="rounded-lg border border-[var(--border-color)] overflow-hidden">
-                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-900/50 border-b border-[var(--border-color)]">
+                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{t('apolloProSearch.savedSearchesTitle')}</span>
                   </div>
                   <div className="max-h-48 overflow-y-auto">
@@ -3071,13 +3071,13 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                     ) : savedLists.map((list: any) => (
                       <div
                         key={list.id}
-                        className="px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer flex items-center justify-between group transition-colors border-b border-[var(--border-color)] last:border-b-0"
+                        className="px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer flex items-center justify-between group transition-colors border-b border-zinc-200 dark:border-zinc-800 last:border-b-0"
                         onClick={() => handleLoadList(list.id)}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <LayoutList className="w-3 h-3 text-zinc-400 flex-shrink-0" />
-                            <span className="text-xs font-medium text-[var(--text-main)] truncate">{list.name}</span>
+                            <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">{list.name}</span>
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] text-zinc-400">{t('apolloProSearch.leadsCount', { count: list.count })}</span>
@@ -3110,8 +3110,8 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
 
               {/* Results Summary */}
               {stats && (
-                <div className="rounded-lg border border-[var(--border-color)] overflow-hidden">
-                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-900/50 border-b border-[var(--border-color)] flex items-center justify-between">
+                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                  <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
                       {t('leadFinder.searchResults')}
                     </span>
@@ -3175,7 +3175,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                     )}
 
                     {/* Actions */}
-                    <div className="pt-2 mt-2 border-t border-[var(--border-color)] space-y-1.5">
+                    <div className="pt-2 mt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-1.5">
                       {newLeadsCount > 0 && (
                         <button
                           onClick={handleSaveAll}
@@ -3207,10 +3207,10 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
             </div>
           ) : (
             <div className="hidden md:flex flex-col items-center py-3 gap-2">
-              <button onClick={() => setSidebarCollapsed(false)} className="p-1.5 rounded-md text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
+              <button onClick={() => setSidebarCollapsed(false)} className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
                 <ChevronDown className="w-3.5 h-3.5 rotate-90" />
               </button>
-              <button onClick={() => setSidebarCollapsed(false)} className="p-1.5 rounded-md text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
+              <button onClick={() => setSidebarCollapsed(false)} className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
                 <SlidersHorizontal className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -3221,13 +3221,13 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
           {/* Top Action Bar */}
           {results.length > 0 && (
-            <div className={`flex-shrink-0 border-b border-[var(--border-color)] bg-white/95 dark:bg-[#050505]/95 backdrop-blur-md z-10 sticky top-0 ${headerClass}`}>
+            <div className={`flex-shrink-0 border-b border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-[#050505]/95 backdrop-blur-md z-10 sticky top-0 ${headerClass}`}>
               <div className="px-4 py-2.5 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   {/* Mobile: back to filters */}
                   <button
                     onClick={() => setSidebarCollapsed(false)}
-                    className="md:hidden p-1.5 rounded-md text-zinc-400 hover:text-[var(--text-main)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex-shrink-0"
+                    className="md:hidden p-1.5 rounded-md text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex-shrink-0"
                     title="Search filters"
                   >
                     <SlidersHorizontal className="w-4 h-4" />
@@ -3255,7 +3255,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                       value={resultSearch}
                       onChange={e => setResultSearch(e.target.value)}
                       placeholder={t('apolloProSearch.searchResultsPlaceholder')}
-                      className="w-full pl-7 pr-3 py-1.5 text-xs bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-md focus:ring-1 focus:ring-[#1ED4A7]/30 outline-none transition-all placeholder:text-zinc-400"
+                      className="w-full pl-7 pr-3 py-1.5 text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-md focus:ring-1 focus:ring-[#1ED4A7]/30 outline-none transition-all placeholder:text-zinc-400"
                     />
                   </div>
 
@@ -3307,7 +3307,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                 <div className="hidden md:flex items-center gap-1.5 flex-shrink-0">
                   <button
                     onClick={handleNewSearch}
-                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-color)] text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:border-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all"
+                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:border-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all"
                     title={t('apolloProSearch.newSearch')}
                   >
                     <Search className="w-3 h-3" /> {t('apolloProSearch.newSearch')}
@@ -3328,14 +3328,14 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                   )}
                   <button
                     onClick={() => setShowSaveDialog(true)}
-                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-color)] text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:border-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all"
+                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:border-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all"
                     title={t('apolloProSearch.saveDialogTitle')}
                   >
                     <Bookmark className="w-3 h-3" /> {t('apolloProSearch.saveLabel')}
                   </button>
                   <button
                     onClick={handleExportCSV}
-                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-color)] text-zinc-500 hover:text-[var(--text-main)] hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all"
+                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all"
                   >
                     <Download className="w-3 h-3" /> {t('apolloProSearch.csvLabel')}
                   </button>
@@ -3359,7 +3359,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
 
           {/* Mobile filter chips */}
           {results.length > 0 && (
-            <div className="md:hidden flex-shrink-0 flex items-center gap-1 px-4 py-1.5 border-b border-[var(--border-color)] overflow-x-auto">
+            <div className="md:hidden flex-shrink-0 flex items-center gap-1 px-4 py-1.5 border-b border-zinc-200 dark:border-zinc-800 overflow-x-auto">
               {(['all', 'verified', 'has_email', 'no_email'] as const).map(opt => {
                 const disabled = false;
                 return (
@@ -3436,7 +3436,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
               <div className="min-w-0">
                 {/* Compact live activity strip — visible while searching + leads are appearing */}
                 {isSearching && activityLog.length > 0 && (
-                  <div className="flex items-center gap-2.5 px-4 py-2 border-b border-[var(--border-color)] bg-zinc-50/60 dark:bg-zinc-900/30">
+                  <div className="flex items-center gap-2.5 px-4 py-2 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950">
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       <div className="w-1.5 h-1.5 rounded-full bg-[#1ED4A7] animate-pulse" />
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-600">{t('apolloProSearch.agentLabel')}</span>
@@ -3470,7 +3470,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                 {/* All leads now shown inline — no hidden preview banner needed */}
 
                 {/* Table Header */}
-                <div className="sticky top-0 z-10 bg-zinc-50/80 dark:bg-zinc-900/30 border-b border-[var(--border-color)] hidden md:grid md:grid-cols-[40px_1fr_0.8fr_minmax(0,1.3fr)_56px_60px] items-center px-4 py-2">
+                <div className="sticky top-0 z-10 bg-zinc-50/80 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 hidden md:grid md:grid-cols-[40px_1fr_0.8fr_minmax(0,1.3fr)_56px_60px] items-center px-4 py-2">
                   <div /> {/* checkbox */}
                   <SortHeader label={t('apolloProSearch.personHeader')} field="name" current={sortField} asc={sortAsc} onSort={toggleSort} />
                   <SortHeader label={t('apolloProSearch.companyHeader')} field="company" current={sortField} asc={sortAsc} onSort={toggleSort} />
@@ -3502,7 +3502,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
 
                 {/* Load more indicator */}
                 {isSearching && results.length > 0 && (
-                  <div className="flex items-center justify-center gap-2 py-4 border-t border-[var(--border-color)]">
+                  <div className="flex items-center justify-center gap-2 py-4 border-t border-zinc-200 dark:border-zinc-800">
                     <Loader2 className="w-4 h-4 animate-spin text-[#1ED4A7]" />
                     <span className="text-xs text-zinc-500">{t('apolloProSearch.loadingMoreLeads', { count: results.length })}</span>
                   </div>
@@ -3562,7 +3562,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
       {showSaveDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowSaveDialog(false)}>
           <div
-            className="bg-white dark:bg-zinc-900 rounded-xl border border-[var(--border-color)] shadow-2xl w-full max-w-sm p-5"
+            className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-sm p-5"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center gap-2 mb-4">
@@ -3570,7 +3570,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                 <Bookmark className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-[var(--text-main)]">{t('apolloProSearch.saveDialogTitle')}</h3>
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('apolloProSearch.saveDialogTitle')}</h3>
                 <p className="text-[11px] text-zinc-500">{t('apolloProSearch.leadsWillBeSaved', { count: results.length })}</p>
               </div>
             </div>
@@ -3579,14 +3579,14 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
               value={saveListName}
               onChange={e => setSaveListName(e.target.value)}
               placeholder={`Smart Discovery — ${new Date().toLocaleDateString()}`}
-              className="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-800 border border-[var(--border-color)] rounded-lg focus:ring-2 focus:ring-zinc-400/30 focus:border-zinc-400 outline-none transition-all placeholder:text-zinc-400 mb-4"
+              className="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-zinc-400/30 focus:border-zinc-400 outline-none transition-all placeholder:text-zinc-400 mb-4"
               autoFocus
               onKeyDown={e => { if (e.key === 'Enter') handleSaveSearchResults(); }}
             />
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowSaveDialog(false)}
-                className="flex-1 py-2 text-xs font-medium rounded-lg border border-[var(--border-color)] text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+                className="flex-1 py-2 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
               >
                 {t('apolloProSearch.cancelLabel')}
               </button>
@@ -3612,7 +3612,7 @@ function StatRow({ label, value, highlight, color }: { label: string; value: str
   return (
     <div className="flex justify-between items-center">
       <span className="text-xs text-zinc-500">{label}</span>
-      <span className={`text-xs font-semibold ${color || (highlight ? 'text-[#1ED4A7]' : 'text-[var(--text-main)]')}`}>{value}</span>
+      <span className={`text-xs font-semibold ${color || (highlight ? 'text-[#1ED4A7]' : 'text-zinc-900 dark:text-zinc-100')}`}>{value}</span>
     </div>
   );
 }
@@ -3642,7 +3642,7 @@ function LeadRow({ lead, selected, inCRM, teamOutreach, onToggleSelect, selected
   const hasLocation = !!(lead.city || lead.state || lead.country);
   const outOfArea = searchLocation && hasLocation && !inArea;
   return (
-    <div className={`border-b border-[var(--border-color)] transition-colors ${hasTeamOutreach ? 'bg-zinc-500/[0.03]' : selected ? 'bg-[#1ED4A7]/[0.03]' : 'hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30'} ${outOfArea ? 'opacity-60 hover:opacity-100' : ''}`}>
+    <div className={`border-b border-zinc-200 dark:border-zinc-800 transition-colors ${hasTeamOutreach ? 'bg-zinc-500/[0.03]' : selected ? 'bg-[#1ED4A7]/[0.03]' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/30'} ${outOfArea ? 'opacity-60 hover:opacity-100' : ''}`}>
       {/* Desktop */}
       <div className="hidden md:grid md:grid-cols-[40px_1fr_0.8fr_minmax(0,1.3fr)_56px_60px] items-center px-4 py-2.5">
         {/* Checkbox */}
@@ -3661,7 +3661,7 @@ function LeadRow({ lead, selected, inCRM, teamOutreach, onToggleSelect, selected
           <LeadAvatar name={lead.name} email={lead.email} linkedinUrl={lead.linkedin_url} size={32} />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-[var(--text-main)] truncate">{cleanDisplayName(lead.name)}</span>
+              <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{cleanDisplayName(lead.name)}</span>
               <SeniorityBadge seniority={lead.seniority} title={lead.title} />
               {inCRM && <span className="px-1.5 py-0.5 bg-[#1ED4A7]/10 text-[#1ED4A7] text-[9px] rounded font-bold uppercase tracking-wider flex-shrink-0">{t('apolloProSearch.inCrmBadge')}</span>}
               {hasTeamOutreach && (
@@ -3703,7 +3703,7 @@ function LeadRow({ lead, selected, inCRM, teamOutreach, onToggleSelect, selected
             className="mt-0.5"
           />
           <div className="min-w-0 space-y-0.5">
-            <span className="text-sm font-medium text-[var(--text-main)] truncate block">{cleanDisplayCompany(lead.organization?.name || '') || '—'}</span>
+            <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate block">{cleanDisplayCompany(lead.organization?.name || '') || '—'}</span>
             {/* Industry */}
             <div className="flex items-center gap-1.5">
               <Factory className="w-2.5 h-2.5 text-zinc-300 dark:text-zinc-600 flex-shrink-0" />
@@ -3752,7 +3752,7 @@ function LeadRow({ lead, selected, inCRM, teamOutreach, onToggleSelect, selected
                 <EmailBadge status={lead.email_status} verification={lead.email_verification} />
                 <button
                   onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(lead.email); toast.success(t('apolloProSearch.emailCopied')); }}
-                  className="p-0.5 text-zinc-400 hover:text-[var(--text-main)] rounded transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+                  className="p-0.5 text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 rounded transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
                 >
                   <Copy className="w-3 h-3" />
                 </button>
@@ -3804,7 +3804,7 @@ function LeadRow({ lead, selected, inCRM, teamOutreach, onToggleSelect, selected
             </a>
           )}
           {lead.organization?.website_url && (
-            <a href={lead.organization.website_url.startsWith('http') ? lead.organization.website_url : `https://${lead.organization.website_url}`} target="_blank" rel="noreferrer" className="p-1 text-zinc-400 hover:text-[var(--text-main)] rounded transition-colors">
+            <a href={lead.organization.website_url.startsWith('http') ? lead.organization.website_url : `https://${lead.organization.website_url}`} target="_blank" rel="noreferrer" className="p-1 text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 rounded transition-colors">
               <Globe className="w-3.5 h-3.5" />
             </a>
           )}
@@ -3826,7 +3826,7 @@ function LeadRow({ lead, selected, inCRM, teamOutreach, onToggleSelect, selected
           <div className="flex-1 min-w-0">
             {/* Name + Badges */}
             <div className="flex items-start gap-1.5 mb-1 flex-wrap">
-              <h3 className="text-[14px] font-semibold text-[var(--text-main)] leading-tight break-words">{cleanDisplayName(lead.name)}</h3>
+              <h3 className="text-[14px] font-semibold text-zinc-900 dark:text-zinc-100 leading-tight break-words">{cleanDisplayName(lead.name)}</h3>
               <div className="flex items-center gap-1 flex-shrink-0">
                 {lead._lead_score != null && <LeadScoreBadge score={lead._lead_score} size="sm" showLabel={false} />}
                 <SeniorityBadge seniority={lead.seniority} title={lead.title} />
@@ -3957,7 +3957,7 @@ function LeadRow({ lead, selected, inCRM, teamOutreach, onToggleSelect, selected
                     </a>
                   )}
                   {lead.organization?.website_url && (
-                    <a href={lead.organization.website_url.startsWith('http') ? lead.organization.website_url : `https://${lead.organization.website_url}`} target="_blank" rel="noreferrer" className="p-1 text-zinc-400 hover:text-[var(--text-main)] transition-colors">
+                    <a href={lead.organization.website_url.startsWith('http') ? lead.organization.website_url : `https://${lead.organization.website_url}`} target="_blank" rel="noreferrer" className="p-1 text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 transition-colors">
                       <Globe className="w-3.5 h-3.5" />
                     </a>
                   )}
@@ -4019,10 +4019,10 @@ function NoResultsState({
         <div className="w-16 h-16 rounded-2xl bg-zinc-100 dark:bg-zinc-800/50 flex items-center justify-center mx-auto mb-5 shadow-sm border border-zinc-200 dark:border-zinc-700">
           <Radar className="w-7 h-7 text-zinc-400 dark:text-zinc-500" />
         </div>
-        <h3 className="text-lg font-semibold text-[var(--text-main)] mb-1">{t('apolloProSearch.noResults', 'No matching leads found')}</h3>
+        <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">{t('apolloProSearch.noResults', 'No matching leads found')}</h3>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2">
           {query ? (
-            <>No results for <span className="font-medium text-[var(--text-main)]">"{query}"</span> with your current filters.</>
+            <>No results for <span className="font-medium text-zinc-900 dark:text-zinc-100">"{query}"</span> with your current filters.</>
           ) : (
             <>No leads matched your current filter combination.</>
           )}
@@ -4044,7 +4044,7 @@ function NoResultsState({
           {/* Re-search same filters */}
           <button
             onClick={() => { cancelAuto(); onReSearch(); }}
-            className="flex items-center gap-2 px-4 py-2 text-xs text-zinc-500 hover:text-[var(--text-main)] transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-100 transition-colors"
           >
             <RefreshCcw className="w-3 h-3" />
             Re-search with same filters
@@ -4081,7 +4081,7 @@ function NoResultsState({
         </div>
 
         {/* Tips */}
-        <div className="mt-8 p-4 rounded-xl bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] text-left">
+        <div className="mt-8 p-4 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-left">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-3">Tips for better results</p>
           <div className="flex flex-col gap-2.5">
             {[
@@ -4108,10 +4108,10 @@ function ApolloEmptyState() {
   return (
     <div className="h-full flex flex-col items-center justify-center p-8">
       <div className="max-w-sm text-center">
-        <div className="w-16 h-16 rounded-2xl bg-zinc-100 dark:bg-white/5 flex items-center justify-center mx-auto mb-5 shadow-sm border border-[var(--border-color)]">
-          <Sparkles className="w-7 h-7 text-[var(--text-main)]" />
+        <div className="w-16 h-16 rounded-2xl bg-zinc-100 dark:bg-white/5 flex items-center justify-center mx-auto mb-5 shadow-sm border border-zinc-200 dark:border-zinc-800">
+          <Sparkles className="w-7 h-7 text-zinc-900 dark:text-zinc-100" />
         </div>
-        <h3 className="text-lg font-semibold text-[var(--text-main)] mb-1">{t('apolloProSearch.emptyStateTitle')}</h3>
+        <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">{t('apolloProSearch.emptyStateTitle')}</h3>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
           {t('apolloProSearch.emptyStateDesc')}
         </p>

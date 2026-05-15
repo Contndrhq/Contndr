@@ -380,7 +380,7 @@ export function TrackingSettings() {
 
         {/* Admin brand selector */}
         {isAdmin && (
-          <div className="flex items-center gap-3 p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-100 dark:border-zinc-800">
+          <div className="flex items-center gap-3 p-3 bg-zinc-50 dark:bg-zinc-950 rounded-lg border border-zinc-100 dark:border-zinc-800">
             <Tag className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
             <span className="text-[13px] text-zinc-600 dark:text-zinc-400">{t('tracking.brand')}</span>
             <select value={selectedBrand} onChange={e => setSelectedBrand(e.target.value)}

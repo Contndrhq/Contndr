@@ -176,7 +176,7 @@ export function SenderRotation() {
       </div>
 
       {/* Master Toggle & Config */}
-      <div className="p-4 border border-zinc-200 dark:border-white/10 rounded-xl bg-zinc-50 dark:bg-white/[0.02]">
+      <div className="p-4 border border-zinc-200 dark:border-white/10 rounded-xl bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
@@ -228,7 +228,7 @@ export function SenderRotation() {
 
       {/* Add Account Form */}
       {showAdd && (
-        <div className="p-4 border border-zinc-200 dark:border-white/10 rounded-xl bg-zinc-50 dark:bg-white/[0.02]">
+        <div className="p-4 border border-zinc-200 dark:border-white/10 rounded-xl bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950">
           <h4 className="text-sm font-semibold text-black dark:text-white mb-3">{t('senderRotation.addSenderAccount')}</h4>
           
           {/* OAuth Connect Buttons */}

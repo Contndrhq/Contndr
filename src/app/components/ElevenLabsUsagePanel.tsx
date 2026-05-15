@@ -111,7 +111,7 @@ export function ElevenLabsUsagePanel({ compact = false }: { compact?: boolean })
   if (loading) {
     if (compact) return null;
     return (
-      <div className="bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 flex items-center justify-center">
+      <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 flex items-center justify-center">
         <Loader2 className="w-5 h-5 text-zinc-400 animate-spin" />
       </div>
     );
@@ -175,7 +175,7 @@ export function ElevenLabsUsagePanel({ compact = false }: { compact?: boolean })
   };
 
   return (
-    <div className="bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+    <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
       {/* Header */}
       <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-zinc-200/50 dark:border-zinc-800/50 flex items-center justify-between">
         <div className="flex items-center gap-2.5">

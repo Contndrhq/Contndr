@@ -381,7 +381,7 @@ export function BuildingSearch({ onSaveProspects, onUpgrade }: BuildingSearchPro
                   value={buildingQuery}
                   onChange={e => setBuildingQuery(e.target.value)}
                   placeholder="e.g. Brickell City Centre, 601 Brickell Key Dr..."
-                  className="w-full pl-9 pr-4 py-2.5 text-sm bg-zinc-50 dark:bg-zinc-900/50 border border-[var(--border-color)] rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400"
+                  className="w-full pl-9 pr-4 py-2.5 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all placeholder:text-zinc-400"
                   disabled={isSearching}
                 />
               </div>
@@ -430,8 +430,8 @@ export function BuildingSearch({ onSaveProspects, onUpgrade }: BuildingSearchPro
 
       {/* Activity feed (when searching) */}
       {isSearching && activityLog.length > 0 && (
-        <div className="flex-shrink-0 px-4 sm:px-6 pb-3 border-t border-[var(--border-color)]">
-          <div className="mt-3 p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 max-h-32 overflow-y-auto" ref={feedRef}>
+        <div className="flex-shrink-0 px-4 sm:px-6 pb-3 border-t border-zinc-200 dark:border-zinc-800">
+          <div className="mt-3 p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 max-h-32 overflow-y-auto" ref={feedRef}>
             {activityLog.slice(-3).map((entry, i, arr) => {
               const isLatest = i === arr.length - 1;
               return (
@@ -466,12 +466,12 @@ export function BuildingSearch({ onSaveProspects, onUpgrade }: BuildingSearchPro
 
       {/* Results */}
       {hasSearched && !isSearching && (
-        <div className="flex-1 flex flex-col overflow-hidden border-t border-[var(--border-color)]">
+        <div className="flex-1 flex flex-col overflow-hidden border-t border-zinc-200 dark:border-zinc-800">
           {/* Results header */}
           <div className="flex-shrink-0 px-4 sm:px-6 pt-3 pb-2">
             <div className="flex items-center justify-between mb-2">
               <div>
-                <h3 className="text-sm font-semibold text-[var(--text-main)]">
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                   {people.length} decision maker{people.length !== 1 ? 's' : ''} found
                 </h3>
                 <p className="text-[11px] text-zinc-400 truncate max-w-[240px]">{buildingQuery}</p>
@@ -496,7 +496,7 @@ export function BuildingSearch({ onSaveProspects, onUpgrade }: BuildingSearchPro
                     { label: 'Phones', value: people.filter(p => p.phone_numbers?.length).length },
                   ].map(({ label, value }) => (
                     <div key={label}>
-                      <div className="text-[13px] font-semibold text-[var(--text-main)]">{value}</div>
+                      <div className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">{value}</div>
                       <div className="text-[10px] text-zinc-400">{label}</div>
                     </div>
                   ))}
@@ -543,7 +543,7 @@ export function BuildingSearch({ onSaveProspects, onUpgrade }: BuildingSearchPro
                       key={person.id}
                       className={`flex items-start gap-3 px-3.5 py-3 rounded-xl border transition-all ${
                         selected
-                          ? 'border-[var(--border-color)] bg-white dark:bg-zinc-900/30'
+                          ? 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950'
                           : 'border-transparent bg-transparent opacity-50'
                       }`}
                       style={{ animation: 'bsEntryIn 0.3s ease both' }}
@@ -571,7 +571,7 @@ export function BuildingSearch({ onSaveProspects, onUpgrade }: BuildingSearchPro
                       {/* Main info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[13px] font-semibold text-[var(--text-main)] truncate">{person.name}</span>
+                          <span className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100 truncate">{person.name}</span>
                           {person._lead_score !== undefined && (
                             <LeadScoreBadge score={person._lead_score} size="sm" />
                           )}

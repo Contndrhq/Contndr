@@ -171,7 +171,7 @@ export function CrmExportMenu({ leads }: CrmExportMenuProps) {
       <button
         onClick={() => !isExporting && setOpen(!open)}
         disabled={isExporting}
-        className="flex items-center gap-2 px-4 py-2 text-[13px] rounded-full border border-white/10 bg-white/[0.04] text-gray-300 hover:bg-white/[0.08] hover:text-white transition-all whitespace-nowrap disabled:opacity-60"
+        className="flex items-center gap-2 px-4 py-2 text-[13px] rounded-full border border-white/10 bg-zinc-100 dark:bg-zinc-900 text-gray-300 hover:bg-white/[0.08] hover:text-white transition-all whitespace-nowrap disabled:opacity-60"
       >
         {isExporting ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={1.5} />
@@ -193,7 +193,7 @@ export function CrmExportMenu({ leads }: CrmExportMenuProps) {
           {/* HubSpot */}
           <button
             onClick={exportToHubSpot}
-            className="w-full flex items-center gap-3.5 px-4 py-3 hover:bg-white/[0.04] transition-colors group"
+            className="w-full flex items-center gap-3.5 px-4 py-3 hover:bg-zinc-100 dark:bg-zinc-900 transition-colors group"
           >
             <div className="w-9 h-9 rounded-lg bg-[#FF7A59]/10 flex items-center justify-center flex-shrink-0 group-hover:bg-[#FF7A59]/15 transition-colors">
               <svg width="18" height="18" viewBox="0 0 31 32" fill="#FF7A59">
@@ -210,12 +210,12 @@ export function CrmExportMenu({ leads }: CrmExportMenuProps) {
           </button>
 
           {/* Divider */}
-          <div className="mx-4 border-t border-white/[0.06]" />
+          <div className="mx-4 border-t border-zinc-200 dark:border-zinc-800" />
 
           {/* Salesforce */}
           <button
             onClick={exportToSalesforce}
-            className="w-full flex items-center gap-3.5 px-4 py-3 hover:bg-white/[0.04] transition-colors group"
+            className="w-full flex items-center gap-3.5 px-4 py-3 hover:bg-zinc-100 dark:bg-zinc-900 transition-colors group"
           >
             <div className="w-9 h-9 rounded-lg bg-[#00A1E0]/10 flex items-center justify-center flex-shrink-0 group-hover:bg-[#00A1E0]/15 transition-colors">
               <svg width="20" height="14" viewBox="0 0 30 21" fill="#00A1E0" xmlns="http://www.w3.org/2000/svg">

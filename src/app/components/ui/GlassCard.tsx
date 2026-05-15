@@ -13,7 +13,7 @@ export function GlassCard({ children, className = '', hoverEffect = false, onCli
       onClick={onClick}
       className={`
         bg-[var(--bg-surface)] 
-        border border-[var(--border-color)] 
+        border border-zinc-200 dark:border-zinc-800 
         rounded-2xl 
         shadow-sm dark:shadow-xl dark:backdrop-blur-xl 
         transition-all duration-300

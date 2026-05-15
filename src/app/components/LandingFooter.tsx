@@ -81,7 +81,7 @@ export function LandingFooter({ onNavigate }: LandingFooterProps) {
           {/* Right Column - Navigation */}
           <div className="flex flex-col sm:flex-row gap-16 md:gap-32 md:justify-end">
             <div>
-              <h4 className="font-bold text-white mb-8 text-sm uppercase tracking-widest opacity-80">Product</h4>
+              <h4 className="font-bold text-white mb-8 text-sm uppercase tracking-wider opacity-80">Product</h4>
               <ul className="space-y-6 text-gray-400 font-medium">
                 <li><a href="/" onClick={(e) => handleNav('/', e)} className="hover:text-white transition-colors">Home</a></li>
                 <li><a href="/#features" onClick={(e) => handleNav('/#features', e)} className="hover:text-white transition-colors">Features</a></li>
@@ -91,7 +91,7 @@ export function LandingFooter({ onNavigate }: LandingFooterProps) {
               </ul>
             </div>
             <div>
-              <h4 className="font-bold text-white mb-8 text-sm uppercase tracking-widest opacity-80">Company</h4>
+              <h4 className="font-bold text-white mb-8 text-sm uppercase tracking-wider opacity-80">Company</h4>
               <ul className="space-y-6 text-gray-400 font-medium">
                 <li><a href="/about" onClick={(e) => handleNav('/about', e)} className="hover:text-white transition-colors">About Us</a></li>
                 <li><a href="/careers" onClick={(e) => handleNav('/careers', e)} className="hover:text-white transition-colors">Careers</a></li>

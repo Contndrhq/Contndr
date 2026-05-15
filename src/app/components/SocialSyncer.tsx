@@ -140,7 +140,7 @@ function MetricCard({ label, value, icon: Icon, dimmed }: {
 }) {
   return (
     <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border ${
-      dimmed ? 'bg-white/[0.01] border-white/[0.02]' : 'bg-white/[0.03] border-white/[0.04]'
+      dimmed ? 'bg-white/[0.01] border-white/[0.02]' : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800'
     }`}>
       <Icon className={`w-3 h-3 shrink-0 ${dimmed ? 'text-zinc-700' : 'text-zinc-500'}`} />
       <div className="min-w-0">
@@ -202,7 +202,7 @@ function TrackedAccountCard({ account, onSync, onRemove, onClick, syncing, remov
       className={`rounded-xl border overflow-hidden group cursor-pointer transition-colors ${
         isCompetitor
           ? 'border-rose-500/20 dark:border-rose-500/15 bg-white dark:bg-[#0A0A0A] hover:border-rose-500/30 dark:hover:border-rose-500/25'
-          : 'border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0A0A0A] hover:border-zinc-300 dark:hover:border-white/[0.12]'
+          : 'border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0A0A0A] hover:border-zinc-300 dark:hover:border-white/[0.12]'
       }`}
       onClick={onClick}
     >
@@ -305,7 +305,7 @@ function TrackedAccountCard({ account, onSync, onRemove, onClick, syncing, remov
       </div>
 
       {/* Footer link */}
-      <div className="px-3 sm:px-4 py-2 border-t border-zinc-200 dark:border-white/[0.04] bg-zinc-50 dark:bg-[#080808] flex items-center justify-between">
+      <div className="px-3 sm:px-4 py-2 border-t border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#080808] flex items-center justify-between">
         <a
           href={account.url}
           target="_blank"
@@ -349,10 +349,10 @@ function AddProfileModal({ onClose, onAdd, adding }: {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/60 dark:bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#111] shadow-2xl"
+        className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100 dark:border-white/[0.06]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100 dark:border-zinc-200 dark:border-zinc-800">
           <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">{t('socialHub.addModal.title')}</h3>
           <button onClick={onClose} className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors">
             <XMark className="w-4 h-4" />
@@ -368,7 +368,7 @@ function AddProfileModal({ onClose, onAdd, adding }: {
               onChange={(e) => setUrl(e.target.value)}
               placeholder={t('socialHub.addModal.placeholder')}
               title=""
-              className="w-full bg-zinc-50 dark:bg-[#0A0A0A] border border-zinc-200 dark:border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-teal-500/30 dark:focus:border-[#1ED4A7]/30"
+              className="w-full bg-zinc-50 dark:bg-[#0A0A0A] border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-teal-500/30 dark:focus:border-[#1ED4A7]/30"
             />
           </div>
           {/* Profile Type Selector */}
@@ -381,7 +381,7 @@ function AddProfileModal({ onClose, onAdd, adding }: {
                 className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-left transition-all ${
                   profileType === 'own'
                     ? 'border-[#1ED4A7]/40 bg-[#1ED4A7]/5 ring-1 ring-[#1ED4A7]/20'
-                    : 'border-zinc-200 dark:border-white/[0.06] hover:border-zinc-300 dark:hover:border-white/[0.1]'
+                    : 'border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-white/[0.1]'
                 }`}
               >
                 <Shield className={`w-4 h-4 shrink-0 ${profileType === 'own' ? 'text-[#1ED4A7]' : 'text-zinc-400'}`} />
@@ -396,7 +396,7 @@ function AddProfileModal({ onClose, onAdd, adding }: {
                 className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-left transition-all ${
                   profileType === 'competitor'
                     ? 'border-rose-500/40 bg-rose-500/5 ring-1 ring-rose-500/20'
-                    : 'border-zinc-200 dark:border-white/[0.06] hover:border-zinc-300 dark:hover:border-white/[0.1]'
+                    : 'border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-white/[0.1]'
                 }`}
               >
                 <Swords className={`w-4 h-4 shrink-0 ${profileType === 'competitor' ? 'text-rose-500' : 'text-zinc-400'}`} />
@@ -419,7 +419,7 @@ function AddProfileModal({ onClose, onAdd, adding }: {
                 { key: 'facebook', Logo: FacebookLogo, label: 'Facebook', extraClass: 'text-[#1877F2]' },
                 { key: 'twitter', Logo: TwitterLogo, label: 'X', extraClass: 'text-black dark:text-white' },
               ] as const).map(({ key, Logo, label, extraClass }) => (
-                <span key={key} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/[0.06]">
+                <span key={key} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
                   <Logo className={`w-3.5 h-3.5 ${extraClass}`} />
                   <span className="text-zinc-600 dark:text-zinc-400">{label}</span>
                 </span>
@@ -430,7 +430,7 @@ function AddProfileModal({ onClose, onAdd, adding }: {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 rounded-xl text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white border border-zinc-200 hover:border-zinc-300 dark:border-white/[0.06] dark:hover:border-white/[0.12] transition-colors"
+              className="flex-1 px-4 py-2 rounded-xl text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white border border-zinc-200 hover:border-zinc-300 dark:border-zinc-200 dark:border-zinc-800 dark:hover:border-white/[0.12] transition-colors"
             >
               {t('socialHub.addModal.cancel')}
             </button>
@@ -740,9 +740,9 @@ export function BreakdownList({
         {items.map((item, idx) => {
           const pct = (item.value / maxVal) * 100;
           return (
-            <div key={idx} className="relative flex items-center justify-between px-3 py-2 rounded-md overflow-hidden group hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors cursor-default">
+            <div key={idx} className="relative flex items-center justify-between px-3 py-2 rounded-md overflow-hidden group hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors cursor-default">
               <div
-                className="absolute left-0 top-0 bottom-0 bg-zinc-100 dark:bg-white/[0.03] transition-all rounded-r-md group-hover:bg-zinc-200 dark:group-hover:bg-white/[0.05]"
+                className="absolute left-0 top-0 bottom-0 bg-zinc-100 dark:bg-zinc-50 dark:bg-zinc-950 transition-all rounded-r-md group-hover:bg-zinc-200 dark:group-hover:bg-white/[0.05]"
                 style={{ width: `${pct}%` }}
               />
               <div className="relative z-10 flex items-center gap-2.5 min-w-0">
@@ -958,7 +958,7 @@ function AccountDetailPanel({ account, onBack, onSync, syncing, isDemoMode, allA
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors border ${
                   compareTarget
                     ? 'text-rose-500 border-rose-500/30 bg-rose-500/5 hover:bg-rose-500/10'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 border-zinc-200 dark:border-white/[0.06]'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800'
                 }`}
               >
                 <Swords className="w-3.5 h-3.5" />
@@ -966,7 +966,7 @@ function AccountDetailPanel({ account, onBack, onSync, syncing, isDemoMode, allA
                 <ChevronDown className="w-3 h-3" />
               </button>
               {showCompareDropdown && (
-                <div className="absolute right-0 top-full mt-1 z-20 w-56 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#111] shadow-2xl py-1 max-h-60 overflow-y-auto">
+                <div className="absolute right-0 top-full mt-1 z-20 w-56 rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111] shadow-2xl py-1 max-h-60 overflow-y-auto">
                   {compareTarget && (
                     <button
                       onClick={() => { setCompareTarget(null); setShowCompareDropdown(false); }}
@@ -980,7 +980,7 @@ function AccountDetailPanel({ account, onBack, onSync, syncing, isDemoMode, allA
                     <button
                       key={opt.id}
                       onClick={() => { setCompareTarget(opt); setShowCompareDropdown(false); }}
-                      className={`w-full px-3 py-2 text-left text-[11px] hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors flex items-center gap-2 ${compareTarget?.id === opt.id ? 'bg-rose-500/5 text-rose-500' : 'text-zinc-700 dark:text-zinc-300'}`}
+                      className={`w-full px-3 py-2 text-left text-[11px] hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors flex items-center gap-2 ${compareTarget?.id === opt.id ? 'bg-rose-500/5 text-rose-500' : 'text-zinc-700 dark:text-zinc-300'}`}
                     >
                       {opt.avatarUrl ? (
                         <img src={opt.avatarUrl} alt="" className="w-5 h-5 rounded shrink-0 object-cover" />
@@ -1003,10 +1003,10 @@ function AccountDetailPanel({ account, onBack, onSync, syncing, isDemoMode, allA
               )}
             </div>
           )}
-          <button onClick={onSync} disabled={syncing} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 border border-zinc-200 dark:border-white/[0.06] transition-colors disabled:opacity-40">
+          <button onClick={onSync} disabled={syncing} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 transition-colors disabled:opacity-40">
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /> {t('socialHub.trackerView.sync')}
           </button>
-          <a href={account.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 border border-zinc-200 dark:border-white/[0.06] transition-colors">
+          <a href={account.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 transition-colors">
             <ExternalLink className="w-3.5 h-3.5" /> {t('socialHub.detail.profile')}
           </a>
         </div>
@@ -1021,7 +1021,7 @@ function AccountDetailPanel({ account, onBack, onSync, syncing, isDemoMode, allA
             const isActive = activeMetric === mk.key;
             const isDimmed = val === 0;
             return (
-              <button key={mk.key} onClick={() => setActiveMetric(mk.key)} className={`rounded-xl border p-3 text-left transition-all ${isActive ? 'border-zinc-300 dark:border-white/[0.15] bg-zinc-50 dark:bg-white/[0.04] ring-1 ring-zinc-200 dark:ring-white/[0.08]' : 'border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0A0A0A] hover:border-zinc-300 dark:hover:border-white/[0.1]'}`}>
+              <button key={mk.key} onClick={() => setActiveMetric(mk.key)} className={`rounded-xl border p-3 text-left transition-all ${isActive ? 'border-zinc-300 dark:border-white/[0.15] bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-900 ring-1 ring-zinc-200 dark:ring-white/[0.08]' : 'border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0A0A0A] hover:border-zinc-300 dark:hover:border-white/[0.1]'}`}>
                 <div className="flex items-center gap-1.5 mb-1">
                   <Icon className="w-3 h-3" style={{ color: isDimmed ? '#a1a1aa' : mk.color }} />
                   <span className={`text-[10px] uppercase tracking-wider font-medium ${isDimmed ? 'text-zinc-400 dark:text-zinc-700' : 'text-zinc-500'}`}>{t(`socialHub.metrics.${mk.key}` as any)}</span>
@@ -1034,7 +1034,7 @@ function AccountDetailPanel({ account, onBack, onSync, syncing, isDemoMode, allA
       )}
 
       {/* Chart — single or comparison */}
-      <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <activeCfg.icon className="w-4 h-4" style={{ color: activeCfg.color }} />
@@ -1103,7 +1103,7 @@ function AccountDetailPanel({ account, onBack, onSync, syncing, isDemoMode, allA
               const mkCfg = METRIC_KEYS.find(mk => mk.key === metricKey);
               const Icon = mkCfg?.icon;
               return (
-                <div key={metricKey} className="rounded-lg border border-zinc-200 dark:border-white/[0.04] p-3">
+                <div key={metricKey} className="rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 p-3">
                   <div className="flex items-center gap-1.5 mb-2">
                     {Icon && <Icon className="w-3 h-3 text-zinc-500" />}
                     <span className="text-[9px] font-semibold text-zinc-500 uppercase tracking-wider">{t(`socialHub.metrics.${metricKey}` as any)}</span>
@@ -1113,7 +1113,7 @@ function AccountDetailPanel({ account, onBack, onSync, syncing, isDemoMode, allA
                     <span className="text-[9px] text-zinc-500">vs</span>
                     <span className="text-xs font-bold text-rose-500">{compactNum(theirVal)}</span>
                   </div>
-                  <div className="h-1.5 rounded-full bg-zinc-100 dark:bg-white/[0.04] overflow-hidden flex">
+                  <div className="h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 overflow-hidden flex">
                     <div className="h-full bg-[#1ED4A7] transition-all" style={{ width: `${Math.min(100, (yourVal / Math.max(yourVal + theirVal, 1)) * 100)}%` }} />
                     <div className="h-full bg-rose-500 transition-all" style={{ width: `${Math.min(100, (theirVal / Math.max(yourVal + theirVal, 1)) * 100)}%` }} />
                   </div>
@@ -1130,16 +1130,16 @@ function AccountDetailPanel({ account, onBack, onSync, syncing, isDemoMode, allA
       {/* Analytics Breakdown Grid */}
       {chartData.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
             <BreakdownList title={t('socialHub.detail.sources')} subtitle={t('socialHub.detail.referrer')} items={breakdownData.sources} />
           </div>
-          <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
             <BreakdownList title={t('socialHub.detail.pages')} subtitle={t('socialHub.detail.all')} items={breakdownData.content} />
           </div>
-          <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
             <BreakdownList title={t('socialHub.detail.countries')} items={breakdownData.countries} />
           </div>
-          <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
             <BreakdownList title={t('socialHub.detail.devices')} subtitle={t('socialHub.detail.type')} items={breakdownData.devices} />
           </div>
         </div>
@@ -1301,7 +1301,7 @@ function SocialTrackerView() {
         <>
           {/* ── You vs Competitors comparison bar ── */}
           {accounts.length > 0 && ownAccounts.length > 0 && competitorAccounts.length > 0 && (
-            <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0A0A0A] p-4 sm:p-5">
               <div className="flex items-center gap-2 mb-4">
                 <Swords className="w-4 h-4 text-zinc-500" />
                 <h3 className="text-xs font-semibold text-zinc-900 dark:text-white">{t('socialHub.trackerView.youVsCompetitors', 'You vs Competitors')}</h3>
@@ -1316,7 +1316,7 @@ function SocialTrackerView() {
                         <span className="text-[10px] font-medium text-[#1ED4A7]">{t('socialHub.trackerView.you', 'You')}</span>
                         <span className="text-xs font-bold text-zinc-900 dark:text-white">{compactNum(ownFollowers)}</span>
                       </div>
-                      <div className="h-2 rounded-full bg-zinc-100 dark:bg-white/[0.04] overflow-hidden">
+                      <div className="h-2 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
                         <div className="h-full rounded-full bg-[#1ED4A7] transition-all duration-700" style={{ width: `${Math.min(100, (ownFollowers / Math.max(ownFollowers, compFollowers, 1)) * 100)}%` }} />
                       </div>
                     </div>
@@ -1325,7 +1325,7 @@ function SocialTrackerView() {
                         <span className="text-[10px] font-medium text-rose-500">{t('socialHub.trackerView.competitors', 'Competitors')}</span>
                         <span className="text-xs font-bold text-zinc-900 dark:text-white">{compactNum(compFollowers)}</span>
                       </div>
-                      <div className="h-2 rounded-full bg-zinc-100 dark:bg-white/[0.04] overflow-hidden">
+                      <div className="h-2 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
                         <div className="h-full rounded-full bg-rose-500 transition-all duration-700" style={{ width: `${Math.min(100, (compFollowers / Math.max(ownFollowers, compFollowers, 1)) * 100)}%` }} />
                       </div>
                     </div>
@@ -1340,7 +1340,7 @@ function SocialTrackerView() {
                         <span className="text-[10px] font-medium text-[#1ED4A7]">{t('socialHub.trackerView.you', 'You')}</span>
                         <span className="text-xs font-bold text-zinc-900 dark:text-white">{compactNum(ownPosts)}</span>
                       </div>
-                      <div className="h-2 rounded-full bg-zinc-100 dark:bg-white/[0.04] overflow-hidden">
+                      <div className="h-2 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
                         <div className="h-full rounded-full bg-[#1ED4A7] transition-all duration-700" style={{ width: `${Math.min(100, (ownPosts / Math.max(ownPosts, compPosts, 1)) * 100)}%` }} />
                       </div>
                     </div>
@@ -1349,7 +1349,7 @@ function SocialTrackerView() {
                         <span className="text-[10px] font-medium text-rose-500">{t('socialHub.trackerView.competitors', 'Competitors')}</span>
                         <span className="text-xs font-bold text-zinc-900 dark:text-white">{compactNum(compPosts)}</span>
                       </div>
-                      <div className="h-2 rounded-full bg-zinc-100 dark:bg-white/[0.04] overflow-hidden">
+                      <div className="h-2 rounded-full bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
                         <div className="h-full rounded-full bg-rose-500 transition-all duration-700" style={{ width: `${Math.min(100, (compPosts / Math.max(ownPosts, compPosts, 1)) * 100)}%` }} />
                       </div>
                     </div>
@@ -1362,7 +1362,7 @@ function SocialTrackerView() {
           {/* ── Summary stat cards ── */}
           {accounts.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-              <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0A0A0A] p-3 sm:p-4">
+              <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0A0A0A] p-3 sm:p-4">
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">{t('socialHub.trackerView.yourProfiles', 'Your Profiles')}</div>
                 <div className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-white mt-1">{ownAccounts.length}</div>
               </div>
@@ -1370,7 +1370,7 @@ function SocialTrackerView() {
                 <div className="text-[10px] text-rose-500/70 uppercase tracking-wider font-semibold">{t('socialHub.trackerView.competitorsTracked', 'Competitors')}</div>
                 <div className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-white mt-1">{competitorAccounts.length}</div>
               </div>
-              <div className="rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0A0A0A] p-3 sm:p-4">
+              <div className="rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0A0A0A] p-3 sm:p-4">
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">{t('socialHub.trackerView.yourFollowers', 'Your Followers')}</div>
                 <div className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-white mt-1">{compactNum(ownFollowers)}</div>
               </div>
@@ -1459,7 +1459,7 @@ function SocialTrackerView() {
                         style={{ backgroundColor: color }}
                       />
                       <div
-                        className={`relative ${i === 1 ? 'w-14 h-14 sm:w-16 sm:h-16 rounded-2xl' : 'w-12 h-12 sm:w-14 sm:h-14 rounded-xl'} flex items-center justify-center border border-white/[0.06] group-hover/icon:border-white/[0.12] transition-all duration-300 group-hover/icon:scale-105 cursor-default`}
+                        className={`relative ${i === 1 ? 'w-14 h-14 sm:w-16 sm:h-16 rounded-2xl' : 'w-12 h-12 sm:w-14 sm:h-14 rounded-xl'} flex items-center justify-center border border-zinc-200 dark:border-zinc-800 group-hover/icon:border-white/[0.12] transition-all duration-300 group-hover/icon:scale-105 cursor-default`}
                         style={{ backgroundColor: `${color}0A`, boxShadow: `0 0 0 1px ${color}08, inset 0 1px 0 ${color}06` }}
                       >
                         <Logo className={`${i === 1 ? 'w-6 h-6 sm:w-7 sm:h-7' : 'w-5 h-5 sm:w-6 sm:h-6'} ${extra}`} />
@@ -1479,7 +1479,7 @@ function SocialTrackerView() {
                         style={{ backgroundColor: color }}
                       />
                       <div
-                        className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center border border-white/[0.06] group-hover/icon:border-white/[0.12] transition-all duration-300 group-hover/icon:scale-105 cursor-default"
+                        className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center border border-zinc-200 dark:border-zinc-800 group-hover/icon:border-white/[0.12] transition-all duration-300 group-hover/icon:scale-105 cursor-default"
                         style={{ backgroundColor: `${color}0A`, boxShadow: `0 0 0 1px ${color}08, inset 0 1px 0 ${color}06` }}
                       >
                         <Logo className={`w-5 h-5 sm:w-6 sm:h-6 ${extra}`} />
@@ -1517,7 +1517,7 @@ export function SocialSyncer() {
   const [activeTab, setActiveTab] = useState<'tracker' | 'publisher'>('tracker');
   return (
     <div className="h-full overflow-y-auto">
-      <div className="sm:sticky sm:top-0 sm:z-10 bg-white/80 dark:bg-black/80 backdrop-blur-md border-b border-zinc-200 dark:border-white/[0.06]">
+      <div className="sm:sticky sm:top-0 sm:z-10 bg-white/80 dark:bg-black/80 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-800">
         <div className="px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
@@ -1536,7 +1536,7 @@ export function SocialSyncer() {
             {activeTab === 'publisher' && <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-zinc-900 dark:bg-zinc-100" />}
           </button>
         </div>
-        <div className="h-px bg-zinc-200 dark:bg-white/[0.06]" />
+        <div className="h-px bg-zinc-200 dark:bg-zinc-100 dark:bg-zinc-900" />
       </div>
       <div className="px-4 py-3 sm:px-6 sm:py-6 pb-[calc(env(safe-area-inset-bottom,20px)+20px)] sm:pb-6">
         {activeTab === 'tracker' ? <SocialTrackerView /> : <SocialPublisher />}

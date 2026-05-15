@@ -203,7 +203,7 @@ export function ProfileSettings() {
 
       <div className="space-y-6">
         {/* Avatar Section */}
-        <div className="bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6">
+        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6">
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">{t('profile.profilePhoto')}</label>
           <div className="flex items-start gap-6">
             <div className="relative group">
@@ -268,7 +268,7 @@ export function ProfileSettings() {
         </div>
 
         {/* Details Section */}
-        <div className="bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 space-y-4">
+        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">{t('profile.fullName')}</label>

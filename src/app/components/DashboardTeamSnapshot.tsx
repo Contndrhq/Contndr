@@ -116,7 +116,7 @@ export function DashboardTeamSnapshot({ onNavigate, stats }: { onNavigate: (view
   if (loading) {
     return (
       <div className="glass-card p-6 h-full flex flex-col">
-        <div className="h-3.5 w-24 rounded bg-zinc-100 dark:bg-white/[0.06] skeleton-shimmer mb-4" />
+        <div className="h-3.5 w-24 rounded bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 skeleton-shimmer mb-4" />
         <DashboardListSkeleton rows={4} />
       </div>
     );
@@ -137,7 +137,7 @@ export function DashboardTeamSnapshot({ onNavigate, stats }: { onNavigate: (view
           <Users className="w-4 h-4 text-zinc-400 dark:text-zinc-500" />
         </div>
         <div className="flex-1 flex flex-col items-center justify-center text-center">
-          <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-white/[0.04] flex items-center justify-center mb-4">
+          <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center mb-4">
             <Users className="w-5 h-5 text-zinc-300 dark:text-zinc-600" />
           </div>
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{t('dashboard.inviteTeam')}</p>
@@ -146,7 +146,7 @@ export function DashboardTeamSnapshot({ onNavigate, stats }: { onNavigate: (view
           </p>
           <button
             onClick={() => onNavigate('settings')}
-            className="mt-4 text-[11px] font-medium px-4 py-2 rounded-lg bg-zinc-50 dark:bg-white/[0.03] text-zinc-500 dark:text-zinc-400 hover:text-[#1ED4A7] transition-colors border border-zinc-200 dark:border-white/[0.06] hover:border-[#1ED4A7]/30"
+            className="mt-4 text-[11px] font-medium px-4 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-[#1ED4A7] transition-colors border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:border-[#1ED4A7]/30"
           >
             {t('dashboard.teamSettings')}
           </button>
@@ -268,10 +268,10 @@ export function DashboardTeamSnapshot({ onNavigate, stats }: { onNavigate: (view
       </div>
 
       {/* Footer */}
-      <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-white/[0.06] flex-shrink-0">
+      <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-200 dark:border-zinc-800 flex-shrink-0">
         <button
           onClick={() => onNavigate('team')}
-          className="w-full text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-white/[0.03] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/[0.06] transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-white/[0.08]"
+          className="w-full text-[11px] font-medium text-center py-2 rounded-lg bg-zinc-50 dark:bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-100 dark:bg-zinc-900 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-200 dark:border-zinc-800"
         >
           <Trophy className="w-3 h-3 inline mr-1.5 -mt-px" />
           {t('common.viewLeaderboard')}

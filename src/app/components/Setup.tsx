@@ -312,7 +312,7 @@ function WebhookCard({ title, description, status, onCheck, loading, onCopyUrl, 
 
           {/* Setup Instructions */}
           {!isReceiving && status.setup_instructions && (
-            <div className="bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
+            <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
               <h4 className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100 mb-3">
                 📋 Setup Instructions
               </h4>
@@ -420,7 +420,7 @@ function StripeWebhookCard({ title, description, status, onCopyUrl, copied }: St
         </div>
 
         {/* Setup Instructions */}
-        <div className="bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
+        <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
           <h4 className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100 mb-3">
             📋 Setup Instructions
           </h4>

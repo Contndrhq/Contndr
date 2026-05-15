@@ -158,7 +158,7 @@ export function MobileInput({
   return (
     <input
       className={cn(
-        'w-full px-4 py-3.5 text-base bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-white/10',
+        'w-full px-4 py-3.5 text-base bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/10',
         'rounded-xl focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all',
         'placeholder:text-zinc-400 dark:placeholder:text-zinc-500',
         'min-h-[44px]', // iOS touch target
@@ -179,7 +179,7 @@ export function MobileTextarea({
   return (
     <textarea
       className={cn(
-        'w-full px-4 py-3.5 text-base bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-white/10',
+        'w-full px-4 py-3.5 text-base bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-white/10',
         'rounded-xl focus:ring-2 focus:ring-[#1ED4A7]/30 focus:border-[#1ED4A7]/50 outline-none transition-all',
         'placeholder:text-zinc-400 dark:placeholder:text-zinc-500',
         'min-h-[100px] resize-vertical',

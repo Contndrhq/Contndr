@@ -23,7 +23,7 @@ export function PrivacyPolicy({ onNavigate, onLogin, onGetStarted }: LegalPagePr
             animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
             transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-10">
               Legal
             </div>
 
@@ -68,10 +68,10 @@ export function PrivacyPolicy({ onNavigate, onLogin, onGetStarted }: LegalPagePr
               <div className="mb-8">
                 <h4 className="text-white/90 font-medium text-[15px] mb-3">Scopes we request</h4>
                 <ul className="list-disc list-inside space-y-2 text-zinc-500">
-                  <li><code className="text-xs bg-white/[0.06] px-1.5 py-0.5 rounded font-mono text-zinc-400">https://www.googleapis.com/auth/gmail.send</code> &mdash; to send emails from your Gmail account inside Contndr</li>
-                  <li><code className="text-xs bg-white/[0.06] px-1.5 py-0.5 rounded font-mono text-zinc-400">https://www.googleapis.com/auth/gmail.readonly</code> &mdash; to sync your inbox (messages/threads) for reply detection, conversation history, and CRM logging</li>
-                  <li><code className="text-xs bg-white/[0.06] px-1.5 py-0.5 rounded font-mono text-zinc-400">https://www.googleapis.com/auth/userinfo.email</code> &mdash; to identify the connected Google account</li>
-                  <li><code className="text-xs bg-white/[0.06] px-1.5 py-0.5 rounded font-mono text-zinc-400">https://www.googleapis.com/auth/userinfo.profile</code> &mdash; to display the connected Google account name and avatar</li>
+                  <li><code className="text-xs bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 rounded font-mono text-zinc-400">https://www.googleapis.com/auth/gmail.send</code> &mdash; to send emails from your Gmail account inside Contndr</li>
+                  <li><code className="text-xs bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 rounded font-mono text-zinc-400">https://www.googleapis.com/auth/gmail.readonly</code> &mdash; to sync your inbox (messages/threads) for reply detection, conversation history, and CRM logging</li>
+                  <li><code className="text-xs bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 rounded font-mono text-zinc-400">https://www.googleapis.com/auth/userinfo.email</code> &mdash; to identify the connected Google account</li>
+                  <li><code className="text-xs bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 rounded font-mono text-zinc-400">https://www.googleapis.com/auth/userinfo.profile</code> &mdash; to display the connected Google account name and avatar</li>
                 </ul>
               </div>
 
@@ -139,7 +139,7 @@ export function PrivacyPolicy({ onNavigate, onLogin, onGetStarted }: LegalPagePr
               </div>
 
               {/* Limited Use and AI/ML training compliance */}
-              <div className="p-5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div className="p-5 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
                 <h4 className="text-white/90 font-medium text-[15px] mb-3">Limited Use &amp; AI/ML training compliance</h4>
                 <p className="mb-3">Contndr's use and transfer to any other app of information received from Google APIs will adhere to the{' '}
                   <a

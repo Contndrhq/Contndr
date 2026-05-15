@@ -61,7 +61,7 @@ export function BlogLayout({ children, onNavigate, onLogin, onGetStarted }: Blog
             <button onClick={() => { setMobileMenuOpen(false); handleNav('/blog'); }} className="text-white transition-colors">Blog</button>
             <button onClick={() => { setMobileMenuOpen(false); handleNav('/#pricing'); }} className="text-zinc-300 hover:text-white transition-colors">Pricing</button>
             <a href="https://calendly.com/ax-contndr/30min?month=2026-02" target="_blank" rel="noopener noreferrer" onClick={() => setMobileMenuOpen(false)} className="text-zinc-300 hover:text-white transition-colors">Book Demo</a>
-            <div className="h-px bg-white/[0.06] w-full my-2" />
+            <div className="h-px bg-zinc-100 dark:bg-zinc-900 w-full my-2" />
             <button onClick={onLogin} className="text-zinc-300 hover:text-white transition-colors">Log in</button>
             <button onClick={onGetStarted} className="bg-white hover:bg-zinc-200 text-black py-4 rounded-xl text-center font-semibold transition-colors">Get Started</button>
           </div>
