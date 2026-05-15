@@ -213,7 +213,7 @@ export function CronHealthPanel() {
           <span className="ml-auto text-[10px] text-zinc-400 dark:text-zinc-600 hidden group-open:inline">Hide</span>
         </summary>
         <div className="px-5 pb-4">
-          <pre className="text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg p-3 overflow-x-auto font-mono">
+          <pre className="text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-950 rounded-lg p-3 overflow-x-auto font-mono">
             {hb ? JSON.stringify(hb, null, 2) : 'No heartbeat data'}
           </pre>
         </div>
@@ -292,7 +292,7 @@ function KvGarbageCollection() {
   };
 
   return (
-    <div className="bg-[#0A0A0A] border border-white/5 rounded-xl p-5">
+    <div className="bg-[#0A0A0A] border border-zinc-200 dark:border-zinc-800 rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">
           <Database className="w-4 h-4 text-amber-400" />
@@ -330,7 +330,7 @@ function KvGarbageCollection() {
                     ? 'border-red-500/20 bg-red-500/5'
                     : count > 100
                       ? 'border-amber-500/20 bg-amber-500/5'
-                      : 'border-white/5 bg-zinc-900/50'
+                      : 'border-zinc-200 dark:border-zinc-800 bg-zinc-900/50'
               }`}
             >
               <p className="text-[10px] text-zinc-500 font-mono truncate">{prefix}</p>
@@ -347,7 +347,7 @@ function KvGarbageCollection() {
       )}
 
       {lastResult && (
-        <div className="rounded-lg bg-zinc-900/50 border border-white/5 p-3 text-xs text-zinc-400">
+        <div className="rounded-lg bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 p-3 text-xs text-zinc-400">
           <p className="text-[#1ED4A7] font-semibold mb-1">Last GC Result: {lastResult.total_deleted} keys freed</p>
           <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-[11px]">
             <span>dpx: indices: <b className="text-white">{lastResult.dpx_deleted}</b></span>

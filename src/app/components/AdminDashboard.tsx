@@ -98,7 +98,7 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
       <div
-        className="bg-white dark:bg-black rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden"
+        className="bg-white dark:bg-black rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -112,7 +112,7 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
               <p className="text-[11px] text-zinc-500 truncate">{user.user_metadata?.name || user.email}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors">
+          <button onClick={onClose} className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-50 dark:bg-zinc-950 transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -126,7 +126,7 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
           ) : (
             <>
               {/* Balance Card */}
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Current Balance</span>
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${
@@ -144,15 +144,15 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
                   <span className="text-sm text-zinc-500 mb-0.5">credits</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <div className="bg-white/[0.03] rounded-lg p-2 border border-white/[0.04]">
+                  <div className="bg-zinc-50 dark:bg-zinc-950 rounded-lg p-2 border border-zinc-200 dark:border-zinc-800">
                     <div className="text-[9px] text-zinc-600 uppercase">Monthly</div>
                     <div className="text-xs font-semibold text-zinc-300">{credits?.monthly_allocation ?? 0}</div>
                   </div>
-                  <div className="bg-white/[0.03] rounded-lg p-2 border border-white/[0.04]">
+                  <div className="bg-zinc-50 dark:bg-zinc-950 rounded-lg p-2 border border-zinc-200 dark:border-zinc-800">
                     <div className="text-[9px] text-zinc-600 uppercase">Bonus</div>
                     <div className="text-xs font-semibold text-zinc-300">{credits?.bonus_credits ?? 0}</div>
                   </div>
-                  <div className="bg-white/[0.03] rounded-lg p-2 border border-white/[0.04]">
+                  <div className="bg-zinc-50 dark:bg-zinc-950 rounded-lg p-2 border border-zinc-200 dark:border-zinc-800">
                     <div className="text-[9px] text-zinc-600 uppercase">Used</div>
                     <div className="text-xs font-semibold text-zinc-300">{credits?.used_this_period ?? 0}</div>
                   </div>
@@ -168,7 +168,7 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
                       key={qty}
                       onClick={() => handleAdjust(qty)}
                       disabled={adjusting}
-                      className="group relative px-3 py-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-[#1ED4A7]/5 hover:border-[#1ED4A7]/20 text-white text-sm font-semibold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="group relative px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 hover:bg-[#1ED4A7]/5 hover:border-[#1ED4A7]/20 text-white text-sm font-semibold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <span className="text-[#1ED4A7] text-[10px] font-bold absolute top-1.5 left-2.5">+</span>
                       {qty}
@@ -178,7 +178,7 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
               </div>
 
               {/* Custom Amount */}
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-4 space-y-3">
                 <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Custom Adjustment</div>
                 <div className="flex gap-2">
                   <input
@@ -226,7 +226,7 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
                       <p className="text-[11px] text-zinc-600 py-3 text-center">No credit history</p>
                     ) : (
                       log.map((entry: any) => (
-                        <div key={entry.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                        <div key={entry.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
                               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
@@ -563,7 +563,7 @@ function AffiliateAdminPanel({
             {createdResult ? (
               <div className="p-6">
                 <div className="text-center mb-5">
-                  <div className="w-12 h-12 rounded-full bg-white/[0.06] flex items-center justify-center mx-auto mb-3">
+                  <div className="w-12 h-12 rounded-full bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center mx-auto mb-3">
                     <CheckCircle className="w-6 h-6 text-white" />
                   </div>
                   <h4 className="text-lg font-bold text-white">Affiliate Created!</h4>
@@ -684,7 +684,7 @@ function AffiliateAdminPanel({
                     </div>
                   </div>
                 </div>
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 text-xs text-zinc-400">
+                <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-xs text-zinc-400">
                   The affiliate will log in at <span className="font-mono font-medium text-zinc-300">/affiliate</span> with their email and password. They can only see their tracking dashboard — no platform access.
                 </div>
                 <div className="flex gap-2 pt-1">
@@ -763,7 +763,7 @@ function AffiliateAdminPanel({
                   <p className="text-sm font-bold text-[#1ED4A7] tabular-nums">{fmtUSDCents(aff.stats?.monthly_recurring || 0)}</p>
                 </div>
               </div>
-              <div className="mt-2 pt-2 border-t border-white/[0.04] flex items-center justify-between">
+              <div className="mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
                 <span className="text-[10px] text-zinc-600">
                   {(aff.commission_rate * 100).toFixed(0)}% commission &bull; Total: {fmtUSDCents(aff.stats?.total_earned || 0)}
                 </span>
@@ -925,9 +925,9 @@ function AffiliateRow({
           <td colSpan={9} className="px-5 py-0">
             <div className="bg-zinc-50 dark:bg-zinc-950 rounded-lg border border-zinc-200 dark:border-zinc-800 my-2 overflow-hidden">
               {/* Expanded header with earnings summary */}
-              <div className="px-4 py-3 border-b border-white/5">
+              <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
                     Subscriber Earnings ({referrals.length} referral{referrals.length !== 1 ? 's' : ''})
                   </span>
                   <span className="text-[10px] text-zinc-600">
@@ -958,7 +958,7 @@ function AffiliateRow({
               ) : (
                 <>
                   {/* Subscriber table header */}
-                  <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[9px] font-bold text-zinc-600 uppercase tracking-widest border-b border-white/5">
+                  <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[9px] font-bold text-zinc-600 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800">
                     <div className="col-span-3">Subscriber</div>
                     <div className="col-span-2">Status</div>
                     <div className="col-span-1 text-center">Plan</div>
@@ -970,14 +970,14 @@ function AffiliateRow({
                   </div>
 
                   {/* Subscriber rows */}
-                  <div className="divide-y divide-white/[0.03]">
+                  <div className="divide-y divide-zinc-100 dark:divide-zinc-900">
                     {referrals.map((ref: any, idx: number) => {
                       const liveSub = ref.live_subscription;
                       const isActive = ref.status === 'active' || ref.status === 'converted';
                       const isChurned = ref.status === 'churned';
 
                       return (
-                        <div key={ref.id || idx} className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center hover:bg-white/[0.02] transition-colors">
+                        <div key={ref.id || idx} className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center hover:bg-zinc-50 dark:bg-zinc-950 transition-colors">
                           {/* Subscriber */}
                           <div className="col-span-3 flex items-center gap-2 min-w-0">
                             <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase flex-shrink-0">
@@ -1681,7 +1681,7 @@ export function AdminDashboard() {
                 className={`px-3 py-1.5 text-[12px] font-medium rounded-full transition-all whitespace-nowrap flex-shrink-0 border ${
                   activeTab === t.id
                     ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-transparent'
-                    : 'bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-white/10 hover:bg-zinc-100 dark:hover:bg-white/5'
+                    : 'bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-50 dark:bg-zinc-950'
                 }`}
               >
                 {t.label}
@@ -1736,7 +1736,7 @@ export function AdminDashboard() {
           <div className="flex flex-col gap-4 h-full overflow-hidden">
             {/* Setup Banner */}
             {!orgSetupDone && (
-              <div className="bg-white dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl p-5 shadow-sm dark:shadow-none">
+              <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-5 shadow-sm dark:shadow-none">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <h3 className="text-sm font-semibold text-white mb-1">Contndr Org Account</h3>
@@ -1778,7 +1778,7 @@ export function AdminDashboard() {
 
             {/* Actions Bar */}
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-              <div className="text-xs text-zinc-500 font-mono uppercase tracking-widest">
+              <div className="text-xs text-zinc-500 font-mono uppercase tracking-wider">
                 Onboarded Sales Reps
               </div>
               <div className="flex gap-2">
@@ -1792,7 +1792,7 @@ export function AdminDashboard() {
                 <button
                   onClick={loadData}
                   disabled={refreshing}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+                  className="flex items-center gap-2 px-3 py-1.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-100 dark:bg-zinc-900 transition-colors"
                 >
                   <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
                   Refresh
@@ -1802,7 +1802,7 @@ export function AdminDashboard() {
 
             {/* Add Rep Form */}
             {showAddRep && (
-              <div className="bg-white dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl p-5 shadow-sm dark:shadow-none">
+              <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 rounded-xl p-5 shadow-sm dark:shadow-none">
                 <h4 className="text-sm font-semibold text-zinc-900 dark:text-white mb-4">Onboard New Sales Rep</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                   <div>
@@ -1812,7 +1812,7 @@ export function AdminDashboard() {
                       value={newRepName}
                       onChange={(e) => setNewRepName(e.target.value)}
                       placeholder="e.g. Jane Smith"
-                      className="w-full px-3 py-2 bg-zinc-900 border border-white/10 rounded-lg text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10"
+                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10"
                     />
                   </div>
                   <div>
@@ -1822,7 +1822,7 @@ export function AdminDashboard() {
                       value={newRepEmail}
                       onChange={(e) => setNewRepEmail(e.target.value)}
                       placeholder="e.g. jane@contndr.com"
-                      className="w-full px-3 py-2 bg-zinc-900 border border-white/10 rounded-lg text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10"
+                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10"
                     />
                   </div>
                   <div>
@@ -1832,7 +1832,7 @@ export function AdminDashboard() {
                       value={newRepPassword}
                       onChange={(e) => setNewRepPassword(e.target.value)}
                       placeholder="Temporary password"
-                      className="w-full px-3 py-2 bg-zinc-900 border border-white/10 rounded-lg text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10"
+                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10"
                     />
                   </div>
                   <div>
@@ -1840,7 +1840,7 @@ export function AdminDashboard() {
                     <select
                       value={newRepRole}
                       onChange={(e) => setNewRepRole(e.target.value)}
-                      className="w-full px-3 py-2 bg-zinc-900 border border-white/10 rounded-lg text-sm text-zinc-300 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10"
+                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-300 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10"
                     >
                       <option value="sales_rep">Sales Rep</option>
                       <option value="account_exec">Account Executive</option>
@@ -1872,7 +1872,7 @@ export function AdminDashboard() {
               ) : (
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="border-b border-white/5">
+                    <tr className="border-b border-zinc-200 dark:border-zinc-800">
                       <th className="px-5 py-3 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Name</th>
                       <th className="px-5 py-3 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Email</th>
                       <th className="px-5 py-3 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Role</th>
@@ -1881,11 +1881,11 @@ export function AdminDashboard() {
                       <th className="px-5 py-3 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5">
+                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
                     {orgReps
                       .filter(r => !searchTerm || r.name?.toLowerCase().includes(searchTerm.toLowerCase()) || r.email?.toLowerCase().includes(searchTerm.toLowerCase()))
                       .map((rep: any) => (
-                      <tr key={rep.id || rep.email} className="hover:bg-white/[0.02] transition-colors">
+                      <tr key={rep.id || rep.email} className="hover:bg-zinc-50 dark:bg-zinc-950 transition-colors">
                         <td className="px-5 py-3">
                           <span className="text-sm font-medium text-zinc-900 dark:text-zinc-200">{rep.name}</span>
                         </td>
@@ -2135,7 +2135,7 @@ export function AdminDashboard() {
                           <button onClick={() => setCreditUser(user)} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 text-[10px] font-medium transition-colors">
                             <Zap className="w-3 h-3" /> Credits
                           </button>
-                          <button onClick={() => setEditingUser(user)} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 text-[10px] font-medium transition-colors">
+                          <button onClick={() => setEditingUser(user)} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-50 dark:bg-zinc-950 hover:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-400 text-[10px] font-medium transition-colors">
                             <DollarSign className="w-3 h-3" /> Plan
                           </button>
                         </div>
@@ -2374,7 +2374,7 @@ export function AdminDashboard() {
       {/* Change Plan Modal */}
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-black p-6 rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl w-full max-w-sm relative overflow-hidden">
+          <div className="bg-white dark:bg-black p-6 rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-sm relative overflow-hidden">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-bold text-white">Change Plan</h3>
               <button onClick={() => setEditingUser(null)} className="text-zinc-400 hover:text-white transition-colors">
@@ -2387,7 +2387,7 @@ export function AdminDashboard() {
                 Update plan for <span className="font-semibold text-white">{editingUser.email}</span>
               </p>
 
-              <div className="bg-zinc-100 dark:bg-white/5 p-3 rounded-xl border border-zinc-200 dark:border-white/10 mb-4 space-y-3">
+              <div className="bg-zinc-100 dark:bg-zinc-50 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 mb-4 space-y-3">
                 {editingUser.subscription?.stripe_sub_id ? (
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] font-mono text-zinc-500">
@@ -2423,7 +2423,7 @@ export function AdminDashboard() {
                 </label>
                 {shouldCharge && (
                   <div>
-                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-widest font-semibold mb-2">
+                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-2">
                       <CreditCard className="w-3 h-3" />
                       Billing interval
                     </div>
@@ -2435,7 +2435,7 @@ export function AdminDashboard() {
                           className={`px-3 py-2 rounded-lg border text-xs font-semibold capitalize transition-colors ${
                             billingInterval === interval
                               ? 'bg-[#1ED4A7]/10 border-[#1ED4A7]/30 text-[#1ED4A7]'
-                              : 'border-white/10 text-zinc-400 hover:bg-white/5'
+                              : 'border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:bg-zinc-50 dark:bg-zinc-950'
                           }`}
                         >
                           {interval}
@@ -2475,7 +2475,7 @@ export function AdminDashboard() {
                   className={`p-4 rounded-xl border text-left flex items-center justify-between transition-all ${
                     editingUser.subscription?.plan === plan
                       ? 'bg-zinc-800 dark:bg-zinc-800 border-zinc-500 dark:border-zinc-8000 text-white'
-                      : 'hover:bg-zinc-100 dark:hover:bg-white/5 border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-zinc-300'
+                      : 'hover:bg-zinc-100 dark:hover:bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
                   }`}
                 >
                   <span className="capitalize font-medium">{plan}</span>
@@ -2489,7 +2489,7 @@ export function AdminDashboard() {
                   <div className="w-full border-t border-zinc-200 dark:border-zinc-800" />
                 </div>
                 <div className="relative flex justify-center">
-                  <span className="px-2 text-[9px] uppercase tracking-widest text-zinc-500 dark:text-zinc-600 bg-white dark:bg-black">or</span>
+                  <span className="px-2 text-[9px] uppercase tracking-wider text-zinc-500 dark:text-zinc-600 bg-white dark:bg-black">or</span>
                 </div>
               </div>
 
@@ -2551,7 +2551,7 @@ export function AdminDashboard() {
       {/* Inspect KV Data Modal */}
       {inspectingUserId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-black p-6 rounded-2xl border border-gray-200 dark:border-white/10 shadow-2xl w-full max-w-lg relative overflow-hidden max-h-[80vh] flex flex-col">
+          <div className="bg-white dark:bg-black p-6 rounded-2xl border border-gray-200 dark:border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-lg relative overflow-hidden max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
                 <Eye className="w-5 h-5 text-zinc-500" /> Inspect User KV
@@ -2566,7 +2566,7 @@ export function AdminDashboard() {
             {inspectData ? (
               <div className="overflow-auto flex-1 space-y-3">
                 {Object.entries(inspectData).filter(([k]) => k !== 'userId').map(([key, value]) => (
-                  <div key={key} className="bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-200 dark:border-white/10 p-3">
+                  <div key={key} className="bg-gray-50 dark:bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-gray-200 dark:border-zinc-200 dark:border-zinc-800 p-3">
                     <div className="text-[10px] font-mono font-bold text-gray-700 dark:text-zinc-300 mb-1.5 uppercase tracking-wider">{key}</div>
                     {value === null || value === undefined ? (
                       <div className="text-[11px] text-gray-400 dark:text-zinc-600 italic">null</div>

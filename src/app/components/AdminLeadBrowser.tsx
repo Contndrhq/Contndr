@@ -801,7 +801,7 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
         )}
 
         {/* Mobile header — select all bar */}
-        <div className="md:hidden flex flex-col gap-2 px-3 py-2 border-b border-white/5">
+        <div className="md:hidden flex flex-col gap-2 px-3 py-2 border-b border-zinc-200 dark:border-zinc-800">
           <div className="flex items-center justify-between">
             <button onClick={toggleSelectAll} className="flex items-center gap-2 text-xs text-zinc-400 hover:text-teal-400 transition-colors min-h-[44px]">
               {selectAll ? <CheckSquare className="w-4 h-4 text-teal-500" /> : <Square className="w-4 h-4" />}
@@ -812,7 +812,7 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
             )}
           </div>
           {/* "Select All Results" button */}
-          <label className="flex items-center gap-2 cursor-pointer min-h-[44px] border-t border-white/5 pt-2">
+          <label className="flex items-center gap-2 cursor-pointer min-h-[44px] border-t border-zinc-200 dark:border-zinc-800 pt-2">
             <input 
               type="checkbox" 
               checked={selectAllResults} 
@@ -847,7 +847,7 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
                   {/* Desktop row */}
                   <div
                     onClick={() => toggleSelect(lead.id)}
-                    className={`hidden md:grid grid-cols-[40px_1.3fr_1.2fr_0.8fr_0.8fr_0.8fr_0.7fr_0.6fr] gap-2 px-4 py-2.5 border-b border-white/[0.03] text-xs cursor-pointer transition-colors ${isSelected ? 'bg-teal-500/10' : 'hover:bg-white/[0.02]'}`}
+                    className={`hidden md:grid grid-cols-[40px_1.3fr_1.2fr_0.8fr_0.8fr_0.8fr_0.7fr_0.6fr] gap-2 px-4 py-2.5 border-b border-white/[0.03] text-xs cursor-pointer transition-colors ${isSelected ? 'bg-teal-500/10' : 'hover:bg-zinc-50 dark:bg-zinc-950'}`}
                   >
                     <div className="flex items-center justify-center">
                       {isSelected ? <CheckSquare className="w-4 h-4 text-teal-500" /> : <Square className="w-4 h-4 text-zinc-600" />}
@@ -891,7 +891,7 @@ export function AdminLeadBrowser({ searchTerm }: { searchTerm: string }) {
                   {/* Mobile card */}
                   <div
                     onClick={() => toggleSelect(lead.id)}
-                    className={`md:hidden flex gap-3 px-3 py-3 border-b border-white/[0.03] cursor-pointer transition-colors min-h-[70px] ${isSelected ? 'bg-teal-500/10' : 'active:bg-white/[0.02]'}`}
+                    className={`md:hidden flex gap-3 px-3 py-3 border-b border-white/[0.03] cursor-pointer transition-colors min-h-[70px] ${isSelected ? 'bg-teal-500/10' : 'active:bg-zinc-50 dark:bg-zinc-950'}`}
                   >
                     <div className="flex items-start pt-1">
                       {isSelected ? <CheckSquare className="w-5 h-5 text-teal-500" /> : <Square className="w-5 h-5 text-zinc-600" />}

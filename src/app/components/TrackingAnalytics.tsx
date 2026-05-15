@@ -340,7 +340,7 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
                   {Object.entries(data!.providers).filter(([name]) => name).map(([name, stats]) => (
                     <div
                       key={name}
-                      className={`px-3 py-3 rounded-xl border ${adminMode ? 'bg-white dark:bg-black border-zinc-200 dark:border-zinc-800' : 'bg-zinc-50 dark:bg-zinc-900/50 border-zinc-100 dark:border-zinc-800'}`}
+                      className={`px-3 py-3 rounded-xl border ${adminMode ? 'bg-white dark:bg-black border-zinc-200 dark:border-zinc-800' : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800'}`}
                     >
                       <div className="flex items-center gap-2.5 mb-2">
                         <div
@@ -374,7 +374,7 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
                     </p>
                   </div>
 
-                  <div className={`flex items-center gap-4 px-3 py-3 rounded-xl border ${adminMode ? 'bg-white dark:bg-black border-zinc-200 dark:border-zinc-800' : 'bg-zinc-50 dark:bg-zinc-900/50 border-zinc-100 dark:border-zinc-800'}`}>
+                  <div className={`flex items-center gap-4 px-3 py-3 rounded-xl border ${adminMode ? 'bg-white dark:bg-black border-zinc-200 dark:border-zinc-800' : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800'}`}>
                     {/* Mini pie chart */}
                     <div className="w-[72px] h-[72px] flex-shrink-0">
                       <ResponsiveContainer width="100%" height="100%">
@@ -460,20 +460,20 @@ export function TrackingAnalytics({ adminMode = false }: TrackingAnalyticsProps)
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
                     <tr>
-                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest">User</th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-center">Sent</th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-center">Delivered</th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-center">Opened</th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-center">Clicked</th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-center">Bounced</th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-right">Open Rate</th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-right">Click Rate</th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-right">Delivery</th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-wider">User</th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-center">Sent</th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-center">Delivered</th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-center">Opened</th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-center">Clicked</th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-center">Bounced</th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-right">Open Rate</th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-right">Click Rate</th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-right">Delivery</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
                     {filteredUsers.map((u) => (
-                      <tr key={u.userId} className="hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
+                      <tr key={u.userId} className="hover:bg-gray-50 dark:hover:bg-zinc-50 dark:bg-zinc-950 transition-colors">
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-2.5 min-w-0">
                             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 border border-emerald-500/20 flex items-center justify-center text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase flex-shrink-0">

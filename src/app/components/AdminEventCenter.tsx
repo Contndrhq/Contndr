@@ -39,15 +39,15 @@ interface AdminEvent {
 
 const EVENT_CONFIG: Record<EventType, { icon: any; label: string; color: string; bg: string }> = {
   new_signup:             { icon: UserPlus,    label: 'Signup',       color: 'text-[#1ED4A7]',  bg: 'bg-[#1ED4A7]/10' },
-  waitlist_join:          { icon: ListPlus,    label: 'Waitlist',     color: 'text-zinc-400',    bg: 'bg-white/[0.04]' },
+  waitlist_join:          { icon: ListPlus,    label: 'Waitlist',     color: 'text-zinc-400',    bg: 'bg-zinc-100 dark:bg-zinc-900' },
   waitlist_approved:      { icon: CheckCircle, label: 'Approved',     color: 'text-[#1ED4A7]',  bg: 'bg-[#1ED4A7]/10' },
   subscription_created:   { icon: CreditCard,  label: 'Subscriber',   color: 'text-[#1ED4A7]',  bg: 'bg-[#1ED4A7]/15' },
-  subscription_cancelled: { icon: AlertCircle, label: 'Cancelled',    color: 'text-zinc-400',    bg: 'bg-white/[0.04]' },
+  subscription_cancelled: { icon: AlertCircle, label: 'Cancelled',    color: 'text-zinc-400',    bg: 'bg-zinc-100 dark:bg-zinc-900' },
   campaign_launched:      { icon: Send,        label: 'Campaign',     color: 'text-[#1ED4A7]',  bg: 'bg-[#1ED4A7]/10' },
   deal_closed:            { icon: CreditCard,  label: 'Deal Won',     color: 'text-[#1ED4A7]',  bg: 'bg-[#1ED4A7]/15' },
-  team_member_joined:     { icon: Users,       label: 'Team',         color: 'text-zinc-400',    bg: 'bg-white/[0.04]' },
-  new_lead_imported:      { icon: Zap,         label: 'Lead Import',  color: 'text-zinc-400',    bg: 'bg-white/[0.04]' },
-  system:                 { icon: AlertCircle, label: 'System',       color: 'text-zinc-500',    bg: 'bg-white/[0.03]' },
+  team_member_joined:     { icon: Users,       label: 'Team',         color: 'text-zinc-400',    bg: 'bg-zinc-100 dark:bg-zinc-900' },
+  new_lead_imported:      { icon: Zap,         label: 'Lead Import',  color: 'text-zinc-400',    bg: 'bg-zinc-100 dark:bg-zinc-900' },
+  system:                 { icon: AlertCircle, label: 'System',       color: 'text-zinc-500',    bg: 'bg-zinc-50 dark:bg-zinc-950' },
 };
 
 const FILTER_OPTIONS: { value: string; label: string }[] = [
@@ -186,7 +186,7 @@ export function AdminEventCenter() {
           <div className="relative">
             <button
               onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-              className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors"
+              className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
             >
               <Filter className="w-3.5 h-3.5 text-zinc-500" />
               <span className="text-zinc-700 dark:text-zinc-300">{activeFilterLabel}</span>
@@ -204,7 +204,7 @@ export function AdminEventCenter() {
                       className={`w-full text-left px-4 py-2.5 text-xs font-medium transition-colors ${
                         typeFilter === opt.value
                           ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]'
-                          : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-white/[0.04]'
+                          : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-100 dark:bg-zinc-900'
                       }`}
                     >
                       {opt.label}
@@ -229,7 +229,7 @@ export function AdminEventCenter() {
           <button
             onClick={() => fetchEvents(0)}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-zinc-600 dark:text-zinc-400 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -318,7 +318,7 @@ export function AdminEventCenter() {
               return (
                 <div
                   key={event.id}
-                  className="flex items-start gap-3 p-3 rounded-xl hover:bg-white/[0.02] dark:hover:bg-white/[0.02] transition-colors group"
+                  className="flex items-start gap-3 p-3 rounded-xl hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900 transition-colors group"
                 >
                   {/* Icon */}
                   <div className={`w-8 h-8 rounded-lg ${config.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>

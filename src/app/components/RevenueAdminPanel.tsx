@@ -200,7 +200,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
       {/* Actions */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 flex-shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-          <div className="text-[10px] text-gray-500 dark:text-zinc-500 font-mono uppercase tracking-widest">
+          <div className="text-[10px] text-gray-500 dark:text-zinc-500 font-mono uppercase tracking-wider">
             All Subscribers
           </div>
           <div className="flex items-center gap-2 overflow-x-auto">
@@ -239,14 +239,14 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
         <div className="flex gap-2 flex-shrink-0">
           <button
             onClick={downloadRevenueCSV}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-zinc-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors shadow-sm dark:shadow-none"
+            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors shadow-sm dark:shadow-none"
           >
             <Download className="w-3 h-3" /> Export CSV
           </button>
           <button
             onClick={fetchRevenue}
             disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-zinc-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors disabled:opacity-50 shadow-sm dark:shadow-none"
+            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/[0.07] transition-colors disabled:opacity-50 shadow-sm dark:shadow-none"
           >
             <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
@@ -260,14 +260,14 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
         <table className="w-full text-left border-collapse">
           <thead className="bg-gray-50 dark:bg-zinc-950 sticky top-0 z-10 border-b border-gray-200 dark:border-zinc-800">
             <tr>
-              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-widest">Subscriber</th>
-              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-widest">Plan</th>
-              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-center">Status</th>
-              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-right">MRR / Billing</th>
-              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-center">Months</th>
-              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-widest text-right">Lifetime Rev</th>
-              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-widest">Affiliate</th>
-              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-widest">Stripe ID</th>
+              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-wider">Subscriber</th>
+              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-wider">Plan</th>
+              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-center">Status</th>
+              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-right">MRR / Billing</th>
+              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-center">Months</th>
+              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-wider text-right">Lifetime Rev</th>
+              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-wider">Affiliate</th>
+              <th className="px-5 py-3 text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-wider">Stripe ID</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-white/[0.04]">
@@ -276,7 +276,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
               const isPaying = sub.is_paying;
               const rowOpacity = !isPaying && isActive ? 'opacity-60' : '';
               return (
-                <tr key={sub.user_id} className={`hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors ${rowOpacity}`}>
+                <tr key={sub.user_id} className={`hover:bg-gray-50 dark:hover:bg-zinc-900 transition-colors ${rowOpacity}`}>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-2.5">
                       <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-zinc-900 flex items-center justify-center text-[10px] font-bold text-gray-500 dark:text-zinc-500 uppercase flex-shrink-0">
@@ -452,7 +452,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                   </div>
                 </div>
                 {sub.affiliate && (
-                  <div className="mt-2.5 pt-2.5 border-t border-gray-100 dark:border-white/[0.04] flex items-center gap-1.5">
+                  <div className="mt-2.5 pt-2.5 border-t border-gray-100 dark:border-zinc-200 dark:border-zinc-800 flex items-center gap-1.5">
                     <Link2 className="w-3 h-3 text-gray-400 dark:text-zinc-600 flex-shrink-0" />
                     <span className="text-[10px] text-gray-500 dark:text-zinc-500 truncate">
                       {sub.affiliate.affiliate_name || sub.affiliate.affiliate_email} ({(sub.affiliate.commission_rate * 100).toFixed(0)}% = ${sub.affiliate.monthly_commission}/mo)
