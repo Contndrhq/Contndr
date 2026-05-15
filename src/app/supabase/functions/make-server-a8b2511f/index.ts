@@ -3114,8 +3114,11 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
     // order. This caused team links (and potentially subs) to be assigned to the
     // wrong users.  Use individual kv.get via Promise.all to guarantee correct
     // index alignment.
-    const subValues = await Promise.all(users.map(u => kv.get(`contndr_sub:${u.id}`)));
-    const teamValues = await Promise.all(users.map(u => kv.get(`user:${u.id}:team`)));
+    const [subValues, teamValues, paymentFailureValues] = await Promise.all([
+      Promise.all(users.map(u => kv.get(`contndr_sub:${u.id}`))),
+      Promise.all(users.map(u => kv.get(`user:${u.id}:team`))),
+      Promise.all(users.map(u => kv.get(`payment_failures:${u.id}`).catch(() => null))),
+    ]);
     
     // Fetch lead counts for ALL users in parallel
     const leadCountValues = await Promise.all(users.map(u => getUserLeadCount(supabase, u.id)));
@@ -3158,7 +3161,8 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
       subMap[users[i].id] = sub;
     }
     
-    const usersWithSubs = users.map(u => {
+    const AT_RISK_STATUSES = new Set(['past_due', 'unpaid', 'incomplete', 'incomplete_expired']);
+    const usersWithSubs = users.map((u, idx) => {
       const sub = subMap[u.id] || { status: 'none' };
       // Internal/VIP users get full access only as a fallback. Explicit admin/Stripe
       // plans still win so Enterprise users display and enforce Enterprise limits.
@@ -3175,6 +3179,19 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
         sub.isWhitelisted = true;
         sub._internalOverride = true;
       }
+      // Surface payment-failure info so admin UI can flag at-risk users
+      const pf: any = paymentFailureValues[idx] || null;
+      const failureCount = pf?.count || 0;
+      const atRisk = AT_RISK_STATUSES.has(sub.status) || failureCount > 0;
+      const billing = {
+        at_risk: atRisk,
+        failure_count: failureCount,
+        first_failed_at: pf?.first_failed_at || null,
+        last_failed_at: pf?.last_failed_at || null,
+        amount_due: pf?.amount_due || 0,
+        attempts: pf?.attempts || 0,
+        reason: AT_RISK_STATUSES.has(sub.status) ? sub.status : (failureCount > 0 ? 'payment_failed' : null),
+      };
       return {
         id: u.id,
         email: u.email,
@@ -3184,6 +3201,7 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
         subscription: sub,
         leadCount,
         leadLimit,
+        billing,
       };
     });
     

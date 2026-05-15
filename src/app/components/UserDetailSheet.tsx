@@ -354,6 +354,21 @@ export function UserDetailSheet({
                 )}
               </Section>
 
+              {/* Past-due banner */}
+              {(sub?.status === 'past_due' || sub?.status === 'unpaid' || sub?.status === 'incomplete') && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 flex items-start gap-2.5 text-xs">
+                  <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-amber-700 dark:text-amber-300">
+                      Subscription is {sub.status === 'past_due' ? 'past due' : sub.status === 'unpaid' ? 'unpaid' : 'incomplete'}
+                    </div>
+                    <div className="text-amber-700/80 dark:text-amber-300/80 mt-0.5">
+                      Stripe will continue retrying. Use "Charge card on file" below to attempt collection now, or send a setup link if the card needs updating.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Subscription */}
               <Section title="Subscription">
                 <KV

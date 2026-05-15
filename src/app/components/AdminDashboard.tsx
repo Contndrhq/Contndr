@@ -407,6 +407,15 @@ interface User {
   subscription: any;
   leadCount?: number;
   leadLimit?: number;
+  billing?: {
+    at_risk: boolean;
+    failure_count: number;
+    first_failed_at: string | null;
+    last_failed_at: string | null;
+    amount_due: number;
+    attempts: number;
+    reason: string | null;
+  };
 }
 
 // ─── Affiliate Admin Panel (sub-component) ──────────────────────────
@@ -1139,6 +1148,7 @@ export function AdminDashboard() {
   const [inspectData, setInspectData] = useState<any>(null);
   const [inspectingUserId, setInspectingUserId] = useState<string | null>(null);
   const [detailUser, setDetailUser] = useState<User | null>(null);
+  const [showOnlyAtRisk, setShowOnlyAtRisk] = useState(false);
 
   // Lead tracking
   const [totalLeads, setTotalLeads] = useState(0);
@@ -1602,10 +1612,14 @@ export function AdminDashboard() {
     (entry.businessType || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const filteredUsers = users.filter(user =>
-    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.user_metadata?.name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const atRiskUsers = users.filter((u) => u.billing?.at_risk);
+  const filteredUsers = users.filter(user => {
+    if (showOnlyAtRisk && !user.billing?.at_risk) return false;
+    return (
+      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.user_metadata?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  });
 
   const downloadCSV = () => {
     const data = activeTab === 'waitlist' ? filteredWaitlist : filteredUsers;
@@ -1971,22 +1985,82 @@ export function AdminDashboard() {
 
             {/* User Lead Summary Stats (only shown on users tab) */}
             {activeTab === 'users' && users.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 flex-shrink-0">
-                {[
-                  { label: 'Total Users', value: users.length.toString(), icon: UsersIcon },
-                  { label: 'Total Leads', value: totalLeads.toLocaleString(), icon: Database },
-                  { label: 'Avg Leads / User', value: users.length > 0 ? Math.round(totalLeads / users.length).toLocaleString() : '0', icon: BarChart3 },
-                  { label: 'At Limit', value: users.filter(u => u.leadLimit && u.leadLimit !== -1 && (u.leadCount || 0) >= u.leadLimit).length.toString(), icon: TrendingUp },
-                ].map(s => (
-                  <div key={s.label} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm">
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4 flex-shrink-0">
+                  <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm">
                     <div className="flex items-center gap-2 mb-2 text-zinc-500 dark:text-zinc-400">
-                      <s.icon className="w-3.5 h-3.5" />
-                      <span className="text-[10px] font-medium uppercase tracking-wider">{s.label}</span>
+                      <UsersIcon className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-medium uppercase tracking-wider">Total Users</span>
                     </div>
-                    <p className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{s.value}</p>
+                    <p className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{users.length.toString()}</p>
                   </div>
-                ))}
-              </div>
+                  <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2 text-zinc-500 dark:text-zinc-400">
+                      <Database className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-medium uppercase tracking-wider">Total Leads</span>
+                    </div>
+                    <p className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{totalLeads.toLocaleString()}</p>
+                  </div>
+                  <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2 text-zinc-500 dark:text-zinc-400">
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-medium uppercase tracking-wider">Avg Leads / User</span>
+                    </div>
+                    <p className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">
+                      {users.length > 0 ? Math.round(totalLeads / users.length).toLocaleString() : '0'}
+                    </p>
+                  </div>
+                  <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2 text-zinc-500 dark:text-zinc-400">
+                      <TrendingUp className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-medium uppercase tracking-wider">At Limit</span>
+                    </div>
+                    <p className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">
+                      {users.filter(u => u.leadLimit && u.leadLimit !== -1 && (u.leadCount || 0) >= u.leadLimit).length}
+                    </p>
+                  </div>
+                  {/* Past Due / Payment issues — clickable to toggle filter */}
+                  <button
+                    onClick={() => setShowOnlyAtRisk(!showOnlyAtRisk)}
+                    className={`text-left rounded-xl p-4 shadow-sm border transition-colors ${
+                      showOnlyAtRisk
+                        ? 'bg-amber-500/10 border-amber-500/40'
+                        : atRiskUsers.length > 0
+                        ? 'bg-amber-500/5 border-amber-500/30 hover:bg-amber-500/10'
+                        : 'bg-white dark:bg-black border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-950'
+                    }`}
+                  >
+                    <div className={`flex items-center gap-2 mb-2 ${atRiskUsers.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-500 dark:text-zinc-400'}`}>
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-medium uppercase tracking-wider">Past Due</span>
+                    </div>
+                    <p className={`text-2xl font-bold tracking-tight ${atRiskUsers.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-900 dark:text-white'}`}>
+                      {atRiskUsers.length}
+                    </p>
+                    {atRiskUsers.length > 0 && (
+                      <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80 mt-1">
+                        {showOnlyAtRisk ? 'Showing only past-due — click to clear' : 'Click to filter'}
+                      </p>
+                    )}
+                  </button>
+                </div>
+                {showOnlyAtRisk && atRiskUsers.length > 0 && (
+                  <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
+                    <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 min-w-0">
+                      <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                      <span className="truncate">
+                        Showing {atRiskUsers.length} user{atRiskUsers.length !== 1 ? 's' : ''} with payment issues
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setShowOnlyAtRisk(false)}
+                      className="text-xs text-amber-700 dark:text-amber-300 hover:underline flex-shrink-0"
+                    >
+                      Clear filter
+                    </button>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Mobile Card Layout */}
@@ -2307,6 +2381,20 @@ export function AdminDashboard() {
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${planChipCls}`}>
                               {planLabel}
                             </span>
+                            {user.billing?.at_risk && (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                                title={
+                                  user.billing.reason === 'past_due' ? `Past due${user.billing.amount_due ? ` · $${user.billing.amount_due.toFixed(2)} owed` : ''}`
+                                  : user.billing.reason === 'unpaid' ? 'Unpaid invoice'
+                                  : user.billing.reason === 'incomplete' ? 'Incomplete checkout'
+                                  : `Payment failed ${user.billing.failure_count}× · last ${user.billing.last_failed_at ? new Date(user.billing.last_failed_at).toLocaleDateString() : 'recently'}`
+                                }
+                              >
+                                <AlertTriangle className="w-2.5 h-2.5" />
+                                {user.billing.reason === 'past_due' ? 'Past due' : user.billing.reason === 'unpaid' ? 'Unpaid' : user.billing.reason === 'incomplete' ? 'Incomplete' : `${user.billing.failure_count}× failed`}
+                              </span>
+                            )}
                             {user.subscription?.isWhitelisted && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800">Whitelist</span>
                             )}
