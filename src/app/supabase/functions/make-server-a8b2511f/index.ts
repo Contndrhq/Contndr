@@ -20646,12 +20646,21 @@ app.get("/make-server-a8b2511f/admin/affiliates", async (c) => {
       const affiliateData = val;
       const affiliateUserId = affiliateData.userId;
 
-      // Load referrals
-      const referrals = (await kv.get(`affiliate:${affiliateUserId}:referrals`)) || [];
-
-      // Load click count
-      const clickCount = await kv.get(`affiliate_counter:${affiliateData.slug}`);
+      // Load referrals + click count in parallel
+      const [referralsRaw, clickCount] = await Promise.all([
+        kv.get(`affiliate:${affiliateUserId}:referrals`),
+        kv.get(`affiliate_counter:${affiliateData.slug}`),
+      ]);
+      const referrals = referralsRaw || [];
       const totalClicks = clickCount ? parseInt(String(clickCount), 10) : 0;
+
+      // Pre-fetch ALL live subscriptions for this affiliate's referrals in parallel
+      const referredIds = referrals.filter((r: any) => r.referred_user_id).map((r: any) => r.referred_user_id);
+      const liveSubs = referredIds.length > 0
+        ? await Promise.all(referredIds.map((id: string) => kv.get(`contndr_sub:${id}`).catch(() => null)))
+        : [];
+      const liveSubMap = new Map<string, any>();
+      referredIds.forEach((id: string, i: number) => liveSubMap.set(id, liveSubs[i]));
 
       // Calculate stats and enrich referrals with live subscription data
       let totalSignups = 0;
@@ -20662,23 +20671,19 @@ app.get("/make-server-a8b2511f/admin/affiliates", async (c) => {
       for (const ref of referrals) {
         totalSignups++;
 
-        // Enrich with live subscription status from KV
+        // Enrich with live subscription status from pre-fetched map
         if (ref.referred_user_id) {
-          try {
-            const liveSub = await kv.get(`contndr_sub:${ref.referred_user_id}`);
-            if (liveSub) {
-              ref.live_subscription = {
-                plan: liveSub.plan || 'none',
-                status: liveSub.status || 'unknown',
-                stripe_sub_id: liveSub.stripe_sub_id || null,
-                updated_at: liveSub.updated_at || null,
-              };
-              if (liveSub.status === 'canceled' && (ref.status === 'active' || ref.status === 'converted')) {
-                ref.status_mismatch = true;
-              }
+          const liveSub = liveSubMap.get(ref.referred_user_id);
+          if (liveSub) {
+            ref.live_subscription = {
+              plan: liveSub.plan || 'none',
+              status: liveSub.status || 'unknown',
+              stripe_sub_id: liveSub.stripe_sub_id || null,
+              updated_at: liveSub.updated_at || null,
+            };
+            if (liveSub.status === 'canceled' && (ref.status === 'active' || ref.status === 'converted')) {
+              ref.status_mismatch = true;
             }
-          } catch (e) {
-            console.error(`[ADMIN] Error fetching live sub for ${ref.referred_user_id}:`, e);
           }
         }
 

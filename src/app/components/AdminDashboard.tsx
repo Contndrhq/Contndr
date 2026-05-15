@@ -501,48 +501,46 @@ function AffiliateAdminPanel({
   }
 
   return (
-    <div className="flex flex-col gap-4 h-full overflow-hidden">
+    <div className="flex flex-col gap-4">
       {/* Summary Stats */}
       {totals && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 flex-shrink-0">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
-            { label: 'Affiliates', value: String(totals.total_affiliates), icon: UsersIcon, color: '' },
-            { label: 'Total Clicks', value: totals.total_clicks.toLocaleString(), icon: MousePointerClick, color: '' },
-            { label: 'Signups', value: totals.total_signups.toLocaleString(), icon: TrendingUp, color: '' },
-            { label: 'Paying Subscribers', value: String(activeSubscribers.length), icon: CheckCircle, color: 'text-[#1ED4A7]' },
-            { label: 'Monthly Commission', value: fmtUSDCents(totals.total_monthly_recurring), icon: DollarSign, color: 'text-[#1ED4A7]' },
-            { label: 'Lifetime Owed', value: fmtUSDCents(totals.total_earned), icon: Wallet, color: '' },
+            { label: 'Affiliates', value: String(totals.total_affiliates), icon: UsersIcon },
+            { label: 'Total Clicks', value: totals.total_clicks.toLocaleString(), icon: MousePointerClick },
+            { label: 'Signups', value: totals.total_signups.toLocaleString(), icon: TrendingUp },
+            { label: 'Paying Subscribers', value: String(activeSubscribers.length), icon: CheckCircle },
+            { label: 'Monthly Commission', value: fmtUSDCents(totals.total_monthly_recurring), icon: DollarSign },
+            { label: 'Lifetime Owed', value: fmtUSDCents(totals.total_earned), icon: Wallet },
           ].map(s => (
-            <div key={s.label} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3.5 shadow-sm dark:shadow-none">
-              <div className="flex items-center gap-2 mb-2">
-                <s.icon className="w-3.5 h-3.5 text-zinc-500" />
-                <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">{s.label}</span>
+            <div key={s.label} className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2 text-zinc-500 dark:text-zinc-400">
+                <s.icon className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-medium uppercase tracking-wider">{s.label}</span>
               </div>
-              <p className={`text-lg font-bold ${s.color || 'text-white'}`}>{s.value}</p>
+              <p className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{s.value}</p>
             </div>
           ))}
         </div>
       )}
 
       {/* Actions */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 flex-shrink-0">
-        <div className="text-xs text-zinc-500 font-mono uppercase tracking-widest">
-          Affiliate Partners &amp; Subscriber Earnings
-        </div>
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+        <div className="text-sm font-medium text-zinc-900 dark:text-white">Affiliate partners</div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => { setShowCreateModal(true); setCreatedResult(null); setNewAff({ name: '', email: '', password: '', custom_slug: '', commission_rate: 10 }); }}
-            className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 text-white dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 dark:text-black rounded-lg text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:opacity-90 text-xs font-medium transition-opacity"
           >
-            <UserPlus className="w-3 h-3" />
-            Create External Affiliate
+            <UserPlus className="w-3.5 h-3.5" />
+            Create affiliate
           </button>
           <button
             onClick={onRefresh}
             disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-1.5 bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition-colors disabled:opacity-60"
           >
-            <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </button>
         </div>
@@ -776,22 +774,22 @@ function AffiliateAdminPanel({
       </div>
 
       {/* Desktop Affiliates Table */}
-      <div className="flex-1 overflow-auto bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl hidden md:block shadow-sm dark:shadow-none">
+      <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl hidden md:block shadow-sm overflow-hidden">
         <table className="w-full text-left border-collapse">
-          <thead className="bg-zinc-50 dark:bg-zinc-950 sticky top-0 z-10 border-b border-zinc-200 dark:border-zinc-800">
+          <thead className="bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
             <tr>
-              <th className="px-5 py-3.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Affiliate</th>
-              <th className="px-5 py-3.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Slug / Link</th>
-              <th className="px-5 py-3.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-center">Clicks</th>
-              <th className="px-5 py-3.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-center">Signups</th>
-              <th className="px-5 py-3.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-center">Conversions</th>
-              <th className="px-5 py-3.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">MRR Owed</th>
-              <th className="px-5 py-3.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Total Earned</th>
-              <th className="px-5 py-3.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Payout</th>
-              <th className="px-5 py-3.5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest w-8"></th>
+              <th className="px-5 py-3 text-[11px] font-medium text-zinc-500">Affiliate</th>
+              <th className="px-5 py-3 text-[11px] font-medium text-zinc-500">Link</th>
+              <th className="px-5 py-3 text-[11px] font-medium text-zinc-500 text-center">Clicks</th>
+              <th className="px-5 py-3 text-[11px] font-medium text-zinc-500 text-center">Signups</th>
+              <th className="px-5 py-3 text-[11px] font-medium text-zinc-500 text-center">Conversions</th>
+              <th className="px-5 py-3 text-[11px] font-medium text-zinc-500 text-right">MRR</th>
+              <th className="px-5 py-3 text-[11px] font-medium text-zinc-500 text-right">Total earned</th>
+              <th className="px-5 py-3 text-[11px] font-medium text-zinc-500">Payout</th>
+              <th className="px-5 py-3 text-[11px] font-medium text-zinc-500 w-8"></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/[0.03]">
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
             {filtered.map((aff) => (
               <AffiliateRow
                 key={aff.userId}
@@ -814,8 +812,8 @@ function AffiliateAdminPanel({
         </table>
       </div>
 
-      <div className="mt-1 text-[10px] text-zinc-600 text-right uppercase tracking-wider flex-shrink-0">
-        Total: {affiliates.length} affiliate{affiliates.length !== 1 ? 's' : ''} | {activeSubscribers.length} active subscriber{activeSubscribers.length !== 1 ? 's' : ''} | {churnedSubscribers.length} churned
+      <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-500 text-right">
+        {affiliates.length} affiliate{affiliates.length !== 1 ? 's' : ''} · {activeSubscribers.length} active · {churnedSubscribers.length} churned
       </div>
     </div>
   );
@@ -842,11 +840,11 @@ function AffiliateRow({
 
   return (
     <>
-      <tr className="hover:bg-white/[0.02] transition-colors group">
+      <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors group">
         <td className="px-5 py-3.5">
           <div className="flex items-center gap-2">
             <div className="font-medium text-sm text-zinc-900 dark:text-zinc-200">{affiliate.name || 'Unknown'}</div>
-            {affiliate.is_external && <span className="px-1.5 py-0.5 text-[9px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 rounded">External</span>}
+            {affiliate.is_external && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded-full">External</span>}
           </div>
           <div className="text-xs text-zinc-600 mt-0.5">{affiliate.email}</div>
           <div className="text-[10px] text-zinc-700 mt-0.5 flex items-center gap-2">
