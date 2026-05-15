@@ -253,20 +253,63 @@ wc.post('/event', async (c) => {
     // ── Bridge to legacy Analytics Live Traffic ──
     // Mirror the event into the recent_visit_v2 key format so the existing
     // Analytics → Live Traffic page shows these visits without any frontend
-    // change. Enriches with Cloudflare geo headers so the visitor pin lands
-    // on the correct city — same source the legacy /tracking endpoint uses.
+    // change. Enriches with ipwho.is (same source the legacy /tracking
+    // endpoint uses) since Supabase Edge Functions only see cf-ipcountry,
+    // not the fuller cf-ipcity/cf-iplatitude headers.
     // Fire-and-forget so it never blocks the response.
     (async () => {
       try {
         const ts = Date.now();
         const visitId = crypto.randomUUID();
-        const cfLatRaw = c.req.header('cf-iplatitude');
-        const cfLonRaw = c.req.header('cf-iplongitude');
-        const cfCity = c.req.header('cf-ipcity') || null;
-        const cfRegion = c.req.header('cf-region-code') || c.req.header('cf-region') || null;
         const cfCountry = c.req.header('cf-ipcountry') || null;
-        const cfLat = cfLatRaw ? parseFloat(cfLatRaw) : null;
-        const cfLon = cfLonRaw ? parseFloat(cfLonRaw) : null;
+
+        let city: string | null = null;
+        let region: string | null = null;
+        let country: string | null = cfCountry;
+        let latitude: number | null = null;
+        let longitude: number | null = null;
+        let isp: string | null = null;
+
+        // Geo lookup — primary: ipwho.is, fallback: ip-api.com. 2s timeout.
+        if (ip && ip !== '127.0.0.1') {
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 2000);
+            const geoRes = await fetch(`https://ipwho.is/${ip}`, { signal: controller.signal });
+            clearTimeout(timer);
+            if (geoRes.ok) {
+              const g = await geoRes.json();
+              if (g.success !== false) {
+                city = g.city || null;
+                region = g.region || null;
+                country = g.country || country;
+                latitude = typeof g.latitude === 'number' ? g.latitude : null;
+                longitude = typeof g.longitude === 'number' ? g.longitude : null;
+                isp = g.connection?.isp || g.connection?.org || null;
+              }
+            }
+          } catch (geoErr: any) {
+            // Fallback to ip-api.com (HTTP)
+            try {
+              const controller2 = new AbortController();
+              const timer2 = setTimeout(() => controller2.abort(), 2000);
+              const r2 = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,region,regionName,city,lat,lon,isp,org`, { signal: controller2.signal });
+              clearTimeout(timer2);
+              if (r2.ok) {
+                const g2 = await r2.json();
+                if (g2.status === 'success') {
+                  city = g2.city || null;
+                  region = g2.regionName || g2.region || null;
+                  country = g2.country || country;
+                  latitude = typeof g2.lat === 'number' ? g2.lat : null;
+                  longitude = typeof g2.lon === 'number' ? g2.lon : null;
+                  isp = g2.isp || g2.org || null;
+                }
+              }
+            } catch { /* swallow */ }
+          }
+        }
+
         const visitData = {
           id: visitId,
           user_id: ws.user_id,
@@ -282,18 +325,19 @@ wc.post('/event', async (c) => {
           title: body.title || '',
           timestamp: new Date(now).toISOString(),
           user_agent: c.req.header('User-Agent') || '',
-          city: cfCity,
-          country: cfCountry,
-          countryCode: cfCountry,
-          region: cfRegion,
-          latitude: Number.isFinite(cfLat) ? cfLat : null,
-          longitude: Number.isFinite(cfLon) ? cfLon : null,
-          isp: null,
+          city,
+          country,
+          countryCode: cfCountry || country,
+          region,
+          latitude,
+          longitude,
+          isp,
           affiliate_ref: null,
           kv_key: `recent_visit_v2:${ws.user_id}:${ts}:${visitId}`,
           source: 'website_connector',
         };
         await kv.set(visitData.kv_key, visitData);
+        console.log(`[WC] Bridge wrote visit: ${city || '(no city)'}, ${country || '(no country)'} for user ${ws.user_id}`);
       } catch (bridgeErr) {
         console.warn('[WC] legacy visit bridge failed (non-fatal):', bridgeErr);
       }
