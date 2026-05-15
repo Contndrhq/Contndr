@@ -3396,46 +3396,11 @@ app.post("/make-server-a8b2511f/admin/users/sync-stripe", async (c) => {
   }
 });
 
-// POST /admin/kv-gc - Run KV store garbage collection (Admin Only)
-app.post("/make-server-a8b2511f/admin/kv-gc", async (c) => {
-  try {
-    const { user } = await getAuthenticatedUser(c);
-    if (!isAdminEmail(user.email)) {
-      return c.json({ error: 'Unauthorized' }, 403);
-    }
-    
-    console.log('[ADMIN] Manual KV cleanup triggered by:', user.email);
-    const stats = await runCleanup();
-    
-    // Also reset the circuit breaker after successful cleanup
-    resetCircuit();
-    
-    return c.json({ 
-      success: true, 
-      stats,
-      message: `Cleaned up ${stats.totalDeleted} old entries in ${stats.duration}ms. Circuit breaker reset.`
-    });
-  } catch (error: any) {
-    console.error('[ADMIN] Error running KV cleanup:', error);
-    return c.json({ error: error.message }, 500);
-  }
-});
-
-// GET /admin/kv-stats - Get KV store statistics (Admin Only)
-app.get("/make-server-a8b2511f/admin/kv-stats", async (c) => {
-  try {
-    const { user } = await getAuthenticatedUser(c);
-    if (!isAdminEmail(user.email)) {
-      return c.json({ error: 'Unauthorized' }, 403);
-    }
-    
-    const stats = await getKVStats();
-    return c.json({ success: true, stats });
-  } catch (error: any) {
-    console.error('[ADMIN] Error getting KV stats:', error);
-    return c.json({ error: error.message }, 500);
-  }
-});
+// (Older /admin/kv-gc and /admin/kv-stats endpoints removed — the newer
+// duplicates further below at lines 3900+ are what the dashboard expects;
+// having two registered routes for the same path caused Hono to dispatch
+// to the older one and the UI silently received an unexpected payload
+// shape, which made "Run GC" appear to do nothing.)
 
 // POST /admin/circuit-reset - Manually reset the KV circuit breaker (Admin Only)
 app.post("/make-server-a8b2511f/admin/circuit-reset", async (c) => {

@@ -663,6 +663,23 @@ export async function runFullCronCycle(): Promise<CronRunResult> {
   const start = Date.now();
   console.log('[CRON] ════════ Starting full cron cycle ════════');
 
+  // Stamp a "running" heartbeat immediately so the admin Health panel
+  // shows progress even before the cycle finishes (it polls every 60s).
+  try {
+    await kv.set(CRON_FULL_LAST_RUN_KEY, {
+      completedAt: new Date().toISOString(),
+      duration: 0,
+      followUpsSent: 0,
+      campaignsResumed: 0,
+      campaignEmailsSent: 0,
+      notificationsSent: 0,
+      errors: 0,
+      status: 'running',
+    });
+  } catch (e) {
+    // Non-critical; the final write at the end of the cycle is the real heartbeat.
+  }
+
   const cronResult: CronRunResult = {
     followUps: { usersProcessed: 0, totalSent: 0, errors: [] },
     campaignResume: { usersProcessed: 0, campaignsResumed: 0, totalSent: 0, errors: [] },
