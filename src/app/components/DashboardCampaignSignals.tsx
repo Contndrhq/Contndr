@@ -114,7 +114,12 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
             authenticatedFetch(`${API_BASE}/intent/dashboard`).then(r => r.ok ? r.json() : { recent_signals: [] }).catch(() => ({ recent_signals: [] })),
             userId ? supabase
               .from('leads')
-              .select('id, first_name, last_name, company, email, status, engagement_score, updated_at')
+              // engagement_score isn't a column on the leads table — it was
+              // joined via a different query path. Selecting it here returns a
+              // 400 from PostgREST. We compute the score from signal data
+              // anyway (see s.score || matchedLead.engagement_score fallback),
+              // so dropping it is safe.
+              .select('id, first_name, last_name, company, email, status, updated_at')
               .eq('user_id', userId)
               .in('status', ['contacted', 'replied', 'meeting_scheduled', 'opened', 'clicked'])
               .order('updated_at', { ascending: false })
