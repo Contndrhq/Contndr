@@ -1068,7 +1068,33 @@ function AffiliateRow({
 
 // ─── Main Admin Dashboard ───────────────────────────────────────────
 export function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'waitlist' | 'users' | 'affiliates' | 'revenue' | 'sales' | 'tracking' | 'org' | 'roles' | 'events' | 'system' | 'leads'>('waitlist');
+  type AdminTab = 'waitlist' | 'users' | 'affiliates' | 'revenue' | 'sales' | 'tracking' | 'org' | 'roles' | 'events' | 'system' | 'leads';
+  type AdminGroup = 'people' | 'business' | 'system';
+  const TAB_GROUP: Record<AdminTab, AdminGroup> = {
+    waitlist: 'people', users: 'people', affiliates: 'people', org: 'people', roles: 'people',
+    revenue: 'business', sales: 'business', leads: 'business', tracking: 'business',
+    events: 'system', system: 'system',
+  };
+  const GROUPS: Array<{ id: AdminGroup; label: string; tabs: Array<{ id: AdminTab; label: string }> }> = [
+    { id: 'people', label: 'People', tabs: [
+      { id: 'waitlist', label: 'Waitlist' },
+      { id: 'users', label: 'Active Users' },
+      { id: 'affiliates', label: 'Affiliates' },
+      { id: 'org', label: 'Org / Sales Reps' },
+      { id: 'roles', label: 'Roles & Permissions' },
+    ]},
+    { id: 'business', label: 'Business', tabs: [
+      { id: 'revenue', label: 'Revenue' },
+      { id: 'sales', label: 'Sales' },
+      { id: 'leads', label: 'Lead Database' },
+      { id: 'tracking', label: 'Tracking' },
+    ]},
+    { id: 'system', label: 'System', tabs: [
+      { id: 'events', label: 'Event Feed' },
+      { id: 'system', label: 'Health' },
+    ]},
+  ];
+  const [activeTab, setActiveTab] = useState<AdminTab>('users');
   const [waitlistEntries, setWaitlistEntries] = useState<WaitlistEntry[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1576,79 +1602,41 @@ export function AdminDashboard() {
     <div className="flex flex-col h-full bg-zinc-50 dark:bg-[#050505] text-zinc-900 dark:text-white transition-colors duration-200">
       {/* Top Bar */}
       <div className="px-4 sm:px-6 py-4 sm:py-6 bg-zinc-50 dark:bg-[#050505] z-20 flex flex-col gap-4">
-        {/* Tabs */}
-        <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-[#111] rounded-lg w-full sm:w-fit border border-zinc-200 dark:border-white/5 overflow-x-auto scrollbar-hide">
-          <button
-            onClick={() => setActiveTab('waitlist')}
-            className={`px-3 sm:px-4 py-2 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${activeTab === 'waitlist' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent' : 'text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-          >
-            Waitlist Requests
-          </button>
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`px-3 sm:px-4 py-2 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${activeTab === 'users' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent' : 'text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-          >
-            Active Users
-          </button>
-          <button
-            onClick={() => setActiveTab('affiliates')}
-            className={`px-3 sm:px-4 py-2 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${activeTab === 'affiliates' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent' : 'text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-          >
-            Affiliates
-          </button>
-          <button
-            onClick={() => setActiveTab('revenue')}
-            className={`px-3 sm:px-4 py-2 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${activeTab === 'revenue' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent' : 'text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-          >
-            Revenue
-          </button>
-          <button
-            onClick={() => setActiveTab('sales')}
-            className={`px-3 sm:px-4 py-2 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${activeTab === 'sales' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent' : 'text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-          >
-            <DollarSign className="w-3.5 h-3.5 inline mr-1" />
-            Sales
-          </button>
-          <button
-            onClick={() => setActiveTab('tracking')}
-            className={`px-3 sm:px-4 py-2 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${activeTab === 'tracking' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent' : 'text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-          >
-            Tracking
-          </button>
-          <button
-            onClick={() => setActiveTab('org')}
-            className={`px-3 sm:px-4 py-2 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${activeTab === 'org' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent' : 'text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-          >
-            Org / Sales Reps
-          </button>
-          <button
-            onClick={() => setActiveTab('roles')}
-            className={`px-3 sm:px-4 py-2 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${activeTab === 'roles' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent' : 'text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-          >
-            <Shield className="w-3.5 h-3.5 inline mr-1.5" />
-            Roles & Permissions
-          </button>
-          <button
-            onClick={() => setActiveTab('events')}
-            className={`px-3 sm:px-4 py-2 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${activeTab === 'events' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent' : 'text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-          >
-            <Zap className="w-3.5 h-3.5 inline mr-1.5" />
-            Event Feed
-          </button>
-          <button
-            onClick={() => setActiveTab('system')}
-            className={`px-3 sm:px-4 py-2 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${activeTab === 'system' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent' : 'text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-          >
-            <Activity className="w-3.5 h-3.5 inline mr-1.5" />
-            System
-          </button>
-          <button
-            onClick={() => setActiveTab('leads')}
-            className={`px-3 sm:px-4 py-2 text-xs font-medium rounded-md transition-all whitespace-nowrap flex-shrink-0 ${activeTab === 'leads' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent' : 'text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-          >
-            <Database className="w-3.5 h-3.5 inline mr-1.5" />
-            Lead Database
-          </button>
+        {/* Two-tier Tabs: top groups + secondary tabs within the active group */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-[#111] rounded-lg w-full sm:w-fit border border-zinc-200 dark:border-white/5 overflow-x-auto scrollbar-hide">
+            {GROUPS.map((g) => {
+              const isActive = TAB_GROUP[activeTab] === g.id;
+              return (
+                <button
+                  key={g.id}
+                  onClick={() => setActiveTab(g.tabs[0].id)}
+                  className={`px-4 py-2 text-xs font-semibold rounded-md transition-all whitespace-nowrap flex-shrink-0 ${
+                    isActive
+                      ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-transparent'
+                      : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  {g.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide -mx-1 px-1">
+            {(GROUPS.find((g) => g.id === TAB_GROUP[activeTab])?.tabs || []).map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(t.id)}
+                className={`px-3 py-1.5 text-[12px] font-medium rounded-full transition-all whitespace-nowrap flex-shrink-0 border ${
+                  activeTab === t.id
+                    ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-transparent'
+                    : 'bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-white/10 hover:bg-zinc-100 dark:hover:bg-white/5'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {activeTab !== 'roles' && activeTab !== 'system' && activeTab !== 'sales' && activeTab !== 'events' && activeTab !== 'leads' && (
