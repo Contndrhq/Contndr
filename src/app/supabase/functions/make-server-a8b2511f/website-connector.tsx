@@ -250,6 +250,46 @@ wc.post('/event', async (c) => {
     list.unshift(eventId);
     await kv.set(listKey, list.slice(0, 200));
 
+    // ── Bridge to legacy Analytics Live Traffic ──
+    // Mirror the event into the recent_visit_v2 key format so the existing
+    // Analytics → Live Traffic page shows these visits without any frontend
+    // change. Cheap; runs as a fire-and-forget so it never blocks the response.
+    (async () => {
+      try {
+        const ts = Date.now();
+        const visitId = crypto.randomUUID();
+        const visitData = {
+          id: visitId,
+          user_id: ws.user_id,
+          lead_id: 'anonymous',
+          anonymous_lead: { visitor_id: visitorId },
+          brand: 'contndr',
+          campaign_id: null,
+          email_id: null,
+          event_type: eventType,
+          element_text: body.cta_label || null,
+          element_href: null,
+          url,
+          title: '',
+          timestamp: new Date(now).toISOString(),
+          user_agent: c.req.header('User-Agent') || '',
+          city: null,
+          country: c.req.header('cf-ipcountry') || null,
+          countryCode: c.req.header('cf-ipcountry') || null,
+          region: null,
+          latitude: null,
+          longitude: null,
+          isp: null,
+          affiliate_ref: null,
+          kv_key: `recent_visit_v2:${ws.user_id}:${ts}:${visitId}`,
+          source: 'website_connector',
+        };
+        await kv.set(visitData.kv_key, visitData);
+      } catch (bridgeErr) {
+        console.warn('[WC] legacy visit bridge failed (non-fatal):', bridgeErr);
+      }
+    })();
+
     return new Response(JSON.stringify({ ok: true, visitor_id: visitorId, score: session.intent_score }), {
       status: 200, headers: { ...PUBLIC_CORS, 'Content-Type': 'application/json' },
     });
