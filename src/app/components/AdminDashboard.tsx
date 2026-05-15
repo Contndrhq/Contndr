@@ -2346,8 +2346,16 @@ export function AdminDashboard() {
                     filteredUsers.map((user) => {
                       const name = user.user_metadata?.name || (user.email || '').split('@')[0] || 'User';
                       const av = avatarFor(name);
+                      const rawPlan = String(user.subscription?.plan || '').toLowerCase();
                       const planKey = normalizePlanKey(user.subscription?.plan);
-                      const planLabel = planKey ? planKey.charAt(0).toUpperCase() + planKey.slice(1) : 'None';
+                      // Show the user's REAL plan name on the row, not the normalized
+                      // tier. Admins need to see "Professional" vs "Scale" so they
+                      // know who's on a legacy plan vs the current pricing.
+                      // normalizePlanLabel/Key is only used for picker UIs.
+                      const isLegacyPlan = rawPlan && rawPlan !== planKey && rawPlan !== 'none';
+                      const planLabel = rawPlan && rawPlan !== 'none'
+                        ? rawPlan.charAt(0).toUpperCase() + rawPlan.slice(1)
+                        : 'None';
                       const planActive = user.subscription?.status === 'active';
                       const count = user.leadCount || 0;
                       const limit = user.leadLimit || 0;
@@ -2381,6 +2389,14 @@ export function AdminDashboard() {
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${planChipCls}`}>
                               {planLabel}
                             </span>
+                            {isLegacyPlan && (
+                              <span
+                                className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-500 border border-zinc-200 dark:border-zinc-800"
+                                title={`Legacy plan — closest current tier is ${planKey.charAt(0).toUpperCase() + planKey.slice(1)}`}
+                              >
+                                Legacy
+                              </span>
+                            )}
                             {user.billing?.at_risk && (
                               <span
                                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30"

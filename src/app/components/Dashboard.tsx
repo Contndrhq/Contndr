@@ -162,7 +162,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
 
   // Revenue snapshot for top cards
   const [revenueSnap, setRevenueSnap] = useState<{
-    mrr: number; pipelineValue: number; activeDeals: number; wonDeals: number; closeRate: number;
+    mrr: number; pipelineValue: number; activeDeals: number; wonDeals: number; closeRate: number | null;
   }>(isDemoMode ? DEMO_REVENUE_SNAP : (() => {
     try {
       const snap = readSnapshot();
@@ -518,22 +518,15 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
         .filter((d: any) => d.stage !== 'closed_won' && d.stage !== 'closed_lost')
         .reduce((s: number, d: any) => s + (d.value || 0), 0);
 
-      // Realistic Close Rate Calculation:
-      // Prevent 100% close rates when users have Stripe customers but haven't manually marked deals as "Lost"
-      let closeRate = 0;
-      if (wonDeals > 0 || lostDeals > 0) {
-        // Assume a baseline loss rate if manual data is sparse (e.g. 35% win rate = ~1.8 lost for every 1 won)
-        const impliedLost = Math.max(
-           lostDeals, 
-           activeDeals * 0.5, 
-           wonDeals * 1.8     
-        ); 
-        
-        // Blend actual manual lost deals with the implied baseline
-        const blendedLost = (lostDeals * 2 + impliedLost) / 3; 
-        
-        closeRate = (wonDeals / (wonDeals + blendedLost)) * 100;
-      }
+      // Close rate from REAL manual data only (manualWonDeals + lostDeals).
+      // The previous formula imputed implied-lost from active deals and Stripe
+      // customers, which produced the same ~62% rate for almost every user
+      // (looked hardcoded). Now: if you haven't tracked Won + Lost manually,
+      // we can't honestly compute a rate, so it's null and the UI shows "—".
+      const trackedTotal = manualWonDeals + lostDeals;
+      const closeRate = trackedTotal > 0
+        ? (manualWonDeals / trackedTotal) * 100
+        : null;
 
       setRevenueSnap({ mrr, pipelineValue, activeDeals, wonDeals, closeRate });
     } catch (err) {
@@ -705,12 +698,18 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
             {/* Close Rate */}
             <StatCard
               title={t('dashboard.closeRate', 'Close Rate')}
-              value={`${revenueSnap.closeRate.toFixed(1)}%`}
+              value={revenueSnap.closeRate === null ? '—' : `${revenueSnap.closeRate.toFixed(1)}%`}
               icon={Target}
-              teal={revenueSnap.closeRate > 30}
-              trend={revenueSnap.closeRate > 0 ? (revenueSnap.closeRate > 40 ? t('dashboard.strong') : revenueSnap.closeRate > 20 ? t('dashboard.avg') : t('dashboard.needsWork')) : undefined}
-              trendUp={revenueSnap.closeRate > 40 ? true : revenueSnap.closeRate > 20 ? undefined : revenueSnap.closeRate > 0 ? false : undefined}
-              meterValue={revenueSnap.closeRate}
+              teal={revenueSnap.closeRate !== null && revenueSnap.closeRate > 30}
+              trend={revenueSnap.closeRate === null
+                ? 'Mark deals Lost to track'
+                : revenueSnap.closeRate > 40
+                  ? t('dashboard.strong')
+                  : revenueSnap.closeRate > 20
+                    ? t('dashboard.avg')
+                    : t('dashboard.needsWork')}
+              trendUp={revenueSnap.closeRate === null ? undefined : revenueSnap.closeRate > 40 ? true : revenueSnap.closeRate > 20 ? undefined : false}
+              meterValue={revenueSnap.closeRate ?? 0}
               meterLabel={`${revenueSnap.wonDeals} won deals`}
             />
 
