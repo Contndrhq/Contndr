@@ -18537,6 +18537,58 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
   }
 });
 
+// POST /admin/users/:userId/setup-link - Generate a Stripe Checkout setup-mode
+// URL so the user can add a card without being charged. Useful for whitelisted
+// or admin-bypassed users who skipped checkout and now need to be billable.
+app.post("/make-server-a8b2511f/admin/users/:userId/setup-link", async (c) => {
+  try {
+    const { user: caller, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(caller.email, caller.id)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+
+    const stripeClient = await getStripe();
+    if (!stripeClient) return c.json({ error: 'Stripe not configured' }, 500);
+
+    // Resolve target user
+    const { data: { user: targetUser } } = await supabase.auth.admin.getUserById(userId);
+    if (!targetUser) return c.json({ error: 'User not found' }, 404);
+
+    // Find / create Stripe customer
+    let customerId = await kv.get(`stripe_customer:${userId}`);
+    if (!customerId && targetUser.email) {
+      const list = await stripeClient.customers.list({ email: targetUser.email, limit: 1 });
+      customerId = list.data[0]?.id || null;
+      if (!customerId) {
+        const created = await stripeClient.customers.create({
+          email: targetUser.email,
+          name: targetUser.user_metadata?.full_name || targetUser.user_metadata?.name || undefined,
+          metadata: { userId },
+        });
+        customerId = created.id;
+      }
+      await kv.set(`stripe_customer:${userId}`, customerId);
+      await kv.set(`stripe_customer_reverse:${customerId}`, userId);
+    }
+    if (!customerId) return c.json({ error: 'Could not resolve Stripe customer' }, 500);
+
+    const origin = c.req.header('origin') || 'https://contndr.com';
+    const session = await stripeClient.checkout.sessions.create({
+      mode: 'setup',
+      customer: customerId,
+      payment_method_types: ['card'],
+      success_url: `${origin}/?billing=card_added`,
+      cancel_url: `${origin}/?billing=card_cancelled`,
+      metadata: { userId, intent: 'admin_initiated_setup', admin: caller.email || '' },
+    });
+
+    return c.json({ url: session.url, customer_id: customerId });
+  } catch (error: any) {
+    console.error('[ADMIN] setup-link error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // GET /admin/users/inspect/:userId - Inspect raw KV data for a user (Admin Only)
 app.get("/make-server-a8b2511f/admin/users/inspect/:userId", async (c) => {
   try {

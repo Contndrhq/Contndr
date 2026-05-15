@@ -2559,6 +2559,7 @@ export function AdminDashboard() {
             ? () => { handleRevokeSubscription(detailUser.id, detailUser.email, detailUser.subscription!.plan); }
             : undefined}
           onDelete={() => { handleDeleteUser(detailUser.id); setDetailUser(null); }}
+          onChargeUpdated={() => { fetchUsers(); }}
         />
       )}
 

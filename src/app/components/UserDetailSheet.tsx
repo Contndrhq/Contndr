@@ -47,7 +47,14 @@ interface UserDetailSheetProps {
   onDelete?: () => void;
   onPromoteAdmin?: () => void;
   onInspectKv: () => void;
+  onChargeUpdated?: () => void;
 }
+
+const PLAN_PRICES: Record<string, { monthly: string; yearly: string }> = {
+  growth: { monthly: '$499', yearly: '$4,990' },
+  scale: { monthly: '$999', yearly: '$9,990' },
+  enterprise: { monthly: '$2,500', yearly: '$25,000' },
+};
 
 interface DetailPayload {
   user: any;
@@ -120,10 +127,15 @@ export function UserDetailSheet({
   onDelete,
   onPromoteAdmin,
   onInspectKv,
+  onChargeUpdated,
 }: UserDetailSheetProps) {
   const [data, setData] = useState<DetailPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [chargePlan, setChargePlan] = useState<'growth' | 'scale' | 'enterprise'>('growth');
+  const [chargeInterval, setChargeInterval] = useState<'monthly' | 'yearly'>('monthly');
+  const [charging, setCharging] = useState(false);
+  const [generatingSetupLink, setGeneratingSetupLink] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -143,6 +155,14 @@ export function UserDetailSheet({
 
   useEffect(() => { load(); }, [load]);
 
+  // Default the charge plan picker to the user's current plan when data arrives
+  useEffect(() => {
+    const current = data?.subscription?.plan;
+    if (current && ['growth', 'scale', 'enterprise'].includes(current)) {
+      setChargePlan(current as 'growth' | 'scale' | 'enterprise');
+    }
+  }, [data?.subscription?.plan]);
+
   // Esc to close, prevent body scroll
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -154,6 +174,59 @@ export function UserDetailSheet({
       document.body.style.overflow = prevOverflow;
     };
   }, [onClose]);
+
+  const chargeCard = async () => {
+    const confirmMsg = `Charge ${userEmail || 'this user'}'s card on file: ${chargePlan} ${chargeInterval === 'yearly' ? PLAN_PRICES[chargePlan].yearly + '/yr' : PLAN_PRICES[chargePlan].monthly + '/mo'}?\n\nThis creates or updates their Stripe subscription and charges immediately.`;
+    if (!confirm(confirmMsg)) return;
+    setCharging(true);
+    try {
+      const r = await authenticatedFetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/plan`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId,
+            userEmail,
+            plan: chargePlan,
+            charge: true,
+            interval: chargeInterval,
+          }),
+        },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      toast.success(`Charged successfully — ${chargePlan} ${chargeInterval}`);
+      onChargeUpdated?.();
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Charge failed');
+    } finally {
+      setCharging(false);
+    }
+  };
+
+  const generateSetupLink = async () => {
+    setGeneratingSetupLink(true);
+    try {
+      const r = await authenticatedFetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/${userId}/setup-link`,
+        { method: 'POST' },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      try {
+        await navigator.clipboard.writeText(j.url);
+        toast.success('Setup link copied — send it to the user');
+      } catch {
+        toast(`Setup link: ${j.url}`);
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Setup link failed');
+    } finally {
+      setGeneratingSetupLink(false);
+    }
+  };
 
   const copy = async (label: string, value: string) => {
     try {
@@ -308,6 +381,72 @@ export function UserDetailSheet({
                   <div className="text-xs text-zinc-500 italic flex items-center gap-2">
                     <AlertCircle className="w-3.5 h-3.5" />
                     {data.stripe.customer_id ? 'No card on file' : 'No Stripe customer linked'}
+                  </div>
+                )}
+              </Section>
+
+              {/* Charge / Collect card */}
+              <Section title={pm ? 'Charge card on file' : 'Collect payment method'}>
+                {pm ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {(['growth', 'scale', 'enterprise'] as const).map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => setChargePlan(p)}
+                          className={`px-2.5 py-1.5 rounded-md text-[11px] font-medium border transition-colors ${
+                            chargePlan === p
+                              ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30'
+                              : 'bg-zinc-50 dark:bg-white/5 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-white/10 hover:bg-zinc-100 dark:hover:bg-white/10'
+                          }`}
+                        >
+                          <span className="capitalize">{p}</span>
+                          <span className="ml-1.5 text-[10px] opacity-70">
+                            {chargeInterval === 'yearly' ? PLAN_PRICES[p].yearly + '/yr' : PLAN_PRICES[p].monthly + '/mo'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {(['monthly', 'yearly'] as const).map((i) => (
+                        <button
+                          key={i}
+                          onClick={() => setChargeInterval(i)}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
+                            chargeInterval === i
+                              ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-transparent'
+                              : 'bg-zinc-50 dark:bg-white/5 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-white/10'
+                          }`}
+                        >
+                          {i === 'yearly' ? 'Yearly · save ~17%' : 'Monthly'}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={chargeCard}
+                      disabled={charging}
+                      className="w-full mt-1 px-3 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white text-xs font-medium flex items-center justify-center gap-1.5"
+                    >
+                      {charging ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
+                      {charging ? 'Charging…' : `Charge ${chargeInterval === 'yearly' ? PLAN_PRICES[chargePlan].yearly + '/yr' : PLAN_PRICES[chargePlan].monthly + '/mo'}`}
+                    </button>
+                    <div className="text-[10px] text-zinc-500">
+                      Creates or updates the Stripe subscription and bills the card immediately. Switching intervals re-bills with proration.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="text-xs text-zinc-500">
+                      User has no card on file. Generate a Stripe setup link — when they open it, they can save a card without being charged.
+                    </div>
+                    <button
+                      onClick={generateSetupLink}
+                      disabled={generatingSetupLink}
+                      className="w-full px-3 py-2 rounded-lg bg-zinc-900 dark:bg-white hover:opacity-90 disabled:opacity-60 text-white dark:text-zinc-900 text-xs font-medium flex items-center justify-center gap-1.5"
+                    >
+                      {generatingSetupLink ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
+                      {generatingSetupLink ? 'Generating…' : 'Copy "Save card" link'}
+                    </button>
                   </div>
                 )}
               </Section>
