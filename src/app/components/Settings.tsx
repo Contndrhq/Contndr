@@ -14,7 +14,6 @@ import { LeadScoringTest } from './LeadScoringTest';
 import ApiDiagnostics from './ApiDiagnostics';
 import DemoDataManager from './DemoDataManager';
 import LeadScoringManager from './LeadScoringManager';
-import { TrackingSettings } from './TrackingSettings';
 import { WebsiteConnector } from './WebsiteConnector';
 import { PreferencesSettings } from './PreferencesSettings';
 import { ComplianceSettings } from './ComplianceSettings';
@@ -24,7 +23,7 @@ import { useTranslation } from 'react-i18next';
 // ─── Admin UIDs (supplement email-based checks) ─────────────────────
 const ADMIN_UIDS = ['004b2df9-3e3f-48ec-acfd-5374ab55b09f'];
 
-type SettingsTab = 'profile' | 'preferences' | 'signature' | 'email' | 'integrations' | 'tracking' | 'knowledge-base' | 'team' | 'affiliate' | 'billing' | 'diagnostics' | 'demo' | 'lead-scoring' | 'compliance' | 'agent-mode' | 'website-connector';
+type SettingsTab = 'profile' | 'preferences' | 'signature' | 'email' | 'integrations' | 'tracking' | 'knowledge-base' | 'team' | 'affiliate' | 'billing' | 'diagnostics' | 'demo' | 'lead-scoring' | 'compliance' | 'agent-mode';
 
 export function Settings() {
   const { t } = useTranslation();
@@ -101,7 +100,6 @@ export function Settings() {
     { id: 'signature', label: t('settings.signature', 'Signature') },
     { id: 'integrations', label: t('settings.integrations', 'Integrations') },
     { id: 'tracking', label: t('settings.tracking', 'Tracking') },
-    { id: 'website-connector', label: t('settings.websiteConnector', 'Website Connector') },
     { id: 'knowledge-base', label: t('settings.aiBrain', 'AI Brain') },
     { id: 'team', label: t('settings.team', 'Team') },
     ...(showAffiliateTab ? [{ id: 'affiliate' as SettingsTab, label: t('settings.affiliate', 'Affiliate') }] : []),
@@ -155,9 +153,7 @@ export function Settings() {
 
         {activeTab === 'integrations' && <IntegrationsTab />}
 
-        {activeTab === 'tracking' && <TrackingSettings />}
-
-        {activeTab === 'website-connector' && <WebsiteConnector />}
+        {activeTab === 'tracking' && <WebsiteConnector />}
 
         {activeTab === 'team' && <TeamSettings />}
         
