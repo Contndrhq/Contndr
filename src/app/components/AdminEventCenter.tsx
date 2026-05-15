@@ -279,11 +279,35 @@ export function AdminEventCenter() {
           </div>
         ) : events.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-3">
+            <div className="w-12 h-12 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex items-center justify-center mb-3">
               <Clock className="w-5 h-5 text-zinc-600" />
             </div>
             <p className="text-sm text-zinc-500 font-medium">No events yet</p>
-            <p className="text-xs text-zinc-600 mt-1">Platform events will appear here in real time</p>
+            <p className="text-xs text-zinc-600 mt-1 max-w-xs">
+              Platform events appear here as users sign up, subscribe, or close deals. Backfill from existing data to seed the feed.
+            </p>
+            <button
+              onClick={async () => {
+                try {
+                  const { data: { session } } = await supabase.auth.getSession();
+                  const token = session?.access_token;
+                  if (!token) throw new Error('Not authenticated');
+                  const res = await fetch(`${API_BASE}/admin-events/backfill`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                  });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || 'Backfill failed');
+                  toast.success(`Backfilled ${data.waitlist_count} waitlist + ${data.subscription_count} subscription events`);
+                  fetchEvents(0);
+                } catch (e: any) {
+                  toast.error(e?.message || 'Backfill failed');
+                }
+              }}
+              className="mt-4 px-3 py-1.5 rounded-md bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition-colors"
+            >
+              Backfill from existing data
+            </button>
           </div>
         ) : (
           <div className="space-y-1">

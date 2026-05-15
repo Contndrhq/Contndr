@@ -246,7 +246,9 @@ function KvGarbageCollection() {
       const headers = await getAuthHeaders();
       const res = await fetch(`${API}/admin/kv-stats`, { headers });
       const data = await res.json();
-      if (res.ok && data.counts) setStats(data.counts);
+      // Backend returns { success, stats }; older versions returned counts.
+      const payload = data.stats || data.counts;
+      if (res.ok && payload) setStats(payload);
       else toast.error(data.error || 'Failed to load stats');
     } catch (err: any) {
       toast.error(err.message);

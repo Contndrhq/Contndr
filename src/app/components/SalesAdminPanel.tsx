@@ -432,7 +432,7 @@ export function SalesAdminPanel({ searchTerm }: { searchTerm: string }) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-[12px] font-medium text-zinc-900 dark:text-white truncate">{deal.customer_name}</span>
-                        <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded border ${statusColor(deal.status)}`}>
+                        <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full border ${statusColor(deal.status)}`}>
                           {deal.status}
                         </span>
                       </div>

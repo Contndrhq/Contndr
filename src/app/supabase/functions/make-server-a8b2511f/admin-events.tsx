@@ -287,6 +287,79 @@ adminEventsApp.get("/recent", async (c) => {
   }
 });
 
+// POST /admin-events/backfill — Retroactively generate events from existing
+// waitlist + active subscriptions so the Event Feed isn't empty on fresh
+// installs. Admin-only. Idempotent: dedupes by source ID.
+adminEventsApp.post("/backfill", async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ error: 'Unauthorized' }, 401);
+
+    const token = authHeader.replace('Bearer ', '');
+    const result = await getUserWithRetry(token);
+    if (result.error || !result.user?.email) return authErrorResponse(c, result as any);
+
+    const email = result.user.email.toLowerCase().trim();
+    if (!isAdminUser(email, result.user.id)) {
+      return c.json({ error: 'Forbidden — admin access required' }, 403);
+    }
+
+    let waitlistCount = 0;
+    let subCount = 0;
+
+    // Backfill waitlist events
+    try {
+      const waitlistEntries = await kv.getByPrefixLimited('waitlist:', 200, 0) as any[];
+      for (const entry of waitlistEntries) {
+        if (!entry || !entry.id || entry.id.startsWith('email:')) continue;
+        await logAdminEvent(
+          'waitlist_join',
+          'New Waitlist Entry',
+          `${entry.name || 'Applicant'} (${entry.email || 'no-email'})${entry.businessType ? ` — ${entry.businessType}` : ''}`,
+          {
+            email: entry.email,
+            metadata: {
+              business_type: entry.businessType,
+              team_size: entry.teamSize,
+              annual_revenue: entry.annualRevenue,
+              source_id: entry.id,
+            },
+          },
+        );
+        waitlistCount++;
+      }
+    } catch (err: any) {
+      console.warn('[ADMIN-EVENTS] Waitlist backfill error:', err?.message);
+    }
+
+    // Backfill subscription events
+    try {
+      const subs = await kv.getByPrefixLimited('contndr_sub:', 200, 0) as any[];
+      for (const sub of subs) {
+        if (!sub || sub.status !== 'active') continue;
+        await logAdminEvent(
+          'subscription_created',
+          'Active Subscriber',
+          `${sub.org || sub.updated_by || 'User'} on ${sub.plan || 'unknown'} plan`,
+          {
+            email: sub.updated_by,
+            metadata: { plan: sub.plan, isWhitelisted: !!sub.isWhitelisted, source_id: sub.updated_by },
+          },
+        );
+        subCount++;
+      }
+    } catch (err: any) {
+      console.warn('[ADMIN-EVENTS] Subscription backfill error:', err?.message);
+    }
+
+    console.log(`[ADMIN-EVENTS] Backfill complete: ${waitlistCount} waitlist + ${subCount} subscriptions`);
+    return c.json({ success: true, waitlist_count: waitlistCount, subscription_count: subCount });
+  } catch (error: any) {
+    console.error('[ADMIN-EVENTS] Backfill error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // GET /admin-events/history?page=0&limit=30&type=<optional filter>
 // Returns full paginated event history. Admin-only.
 adminEventsApp.get("/history", async (c) => {
