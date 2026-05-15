@@ -326,7 +326,7 @@ export function UserDetailSheet({
                         }`}>{sub.status}</span>
                       )}
                       {sub?.isWhitelisted && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800">Whitelisted</span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800">Whitelisted</span>
                       )}
                     </span>
                   }

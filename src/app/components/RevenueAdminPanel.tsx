@@ -173,7 +173,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
               return (
                 <div key={plan} className="bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 rounded-xl p-3.5 shadow-sm dark:shadow-none">
                   <div className="flex items-center justify-between mb-3">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
                       {plan}
                     </span>
                     <span className="text-[10px] text-gray-400 dark:text-zinc-600 font-mono">
@@ -294,11 +294,11 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex flex-col gap-1">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800 w-fit">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800 w-fit">
                         {sub.plan || 'none'}
                       </span>
                       {sub.payment_type && (
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border w-fit ${paymentTypeColor[sub.payment_type] || paymentTypeColor.bypass}`}>
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium border w-fit ${paymentTypeColor[sub.payment_type] || paymentTypeColor.bypass}`}>
                           {paymentTypeLabel[sub.payment_type] || sub.payment_type}
                         </span>
                       )}
@@ -319,7 +319,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                           {fmtUSD(sub.mrr ?? sub.plan_price)}<span className="text-[9px] font-normal text-zinc-400 dark:text-zinc-600">/mo</span>
                         </span>
                         {sub.billing_interval === 'yearly' ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border bg-zinc-50 text-zinc-700 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium border bg-zinc-50 text-zinc-700 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
                             Yearly — {fmtUSD(sub.billing_amount || 0)}/yr
                           </span>
                         ) : (
@@ -417,18 +417,18 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                   </div>
                 </div>
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
                     {sub.plan || 'none'}
                   </span>
                   {sub.payment_type && (
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border ${paymentTypeColor[sub.payment_type] || paymentTypeColor.bypass}`}>
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium border ${paymentTypeColor[sub.payment_type] || paymentTypeColor.bypass}`}>
                       {paymentTypeLabel[sub.payment_type] || sub.payment_type}
                     </span>
                   )}
                 </div>
                 {isPaying && sub.billing_interval === 'yearly' && (
                   <div className="mt-2">
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium border bg-zinc-50 text-zinc-700 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium border bg-zinc-50 text-zinc-700 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
                       Yearly — ${sub.billing_amount?.toLocaleString()}/yr
                     </span>
                   </div>

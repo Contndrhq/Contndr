@@ -229,7 +229,7 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
                         <div key={entry.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
-                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
                                 entry.type === 'admin_adjust' ? 'bg-amber-500/10 text-amber-400' :
                                 entry.type === 'allocation' ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]' :
                                 entry.type === 'deduction' ? 'bg-red-500/10 text-red-400' :
@@ -1883,7 +1883,7 @@ export function AdminDashboard() {
                           <span className="text-sm text-zinc-400 font-mono">{rep.email}</span>
                         </td>
                         <td className="px-5 py-3">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 capitalize">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 capitalize">
                             {(rep.role || 'sales_rep').replace(/_/g, ' ')}
                           </span>
                         </td>
@@ -2003,7 +2003,7 @@ export function AdminDashboard() {
                         </div>
                       </div>
                       <div className="mt-2 flex items-center gap-2 flex-wrap">
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
                           {formatBusinessType(entry.businessType) || 'Profile pending'}
                         </span>
                         {formatLeadVolume(entry.monthlyLeadVolume) ? (
@@ -2014,17 +2014,17 @@ export function AdminDashboard() {
                           <span className="text-xs text-zinc-500 dark:text-zinc-600">Lead volume pending</span>
                         )}
                         {!isMissingValue(entry.teamSize) && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
                             {TEAM_SIZE_LABELS[entry.teamSize] || entry.teamSize} ppl
                           </span>
                         )}
                         {!isMissingValue(entry.annualRevenue) && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
                             {REVENUE_LABELS[entry.annualRevenue] || entry.annualRevenue}
                           </span>
                         )}
                         {entry.recommended_plan && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20">
                             Suggested: <span>{normalizePlanLabel(entry.recommended_plan)}</span>
                           </span>
                         )}
@@ -2066,12 +2066,12 @@ export function AdminDashboard() {
                             {(user.user_metadata?.teamSize || user.user_metadata?.annualRevenue) && (
                               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                 {user.user_metadata?.teamSize && user.user_metadata.teamSize !== 'Unknown' && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
                                     {TEAM_SIZE_LABELS[user.user_metadata.teamSize] || user.user_metadata.teamSize} ppl
                                   </span>
                                 )}
                                 {user.user_metadata?.annualRevenue && user.user_metadata.annualRevenue !== 'Unknown' && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
                                     {REVENUE_LABELS[user.user_metadata.annualRevenue] || user.user_metadata.annualRevenue}
                                   </span>
                                 )}
@@ -2079,7 +2079,7 @@ export function AdminDashboard() {
                             )}
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <div className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
+                            <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${
                               user.subscription?.status === 'active'
                                 ? 'bg-[#1ED4A7]/10 text-[#1ED4A7] border-[#1ED4A7]/20'
                                 : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700'
@@ -2094,7 +2094,7 @@ export function AdminDashboard() {
                         {user.subscription?.recommended_plan && (
                           <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                             <span className="text-[9px] text-zinc-500">Suggested:</span>
-                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium capitalize ${
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium capitalize ${
                               normalizePlanKey(user.subscription.recommended_plan) === (user.subscription?.plan || 'none').toLowerCase()
                                 ? 'bg-[#1ED4A7]/10 text-[#1ED4A7] border border-[#1ED4A7]/20'
                                 : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
@@ -2194,7 +2194,7 @@ export function AdminDashboard() {
                             {entry.recommended_plan ? (
                               <span
                                 title={entry.recommendation_reasons?.join(', ')}
-                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                                className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
                               >
                                 {normalizePlanLabel(entry.recommended_plan)}
                               </span>
@@ -2286,14 +2286,14 @@ export function AdminDashboard() {
                         </td>
                         <td className="px-5 py-3.5">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium border ${planChipCls}`}>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${planChipCls}`}>
                               {planLabel}
                             </span>
                             {user.subscription?.isWhitelisted && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800">Whitelist</span>
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800">Whitelist</span>
                             )}
                             {planActive && !user.subscription?.stripe_sub_id && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20" title="No Stripe subscription linked">Unlinked</span>
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20" title="No Stripe subscription linked">Unlinked</span>
                             )}
                           </div>
                           {user.subscription?.recommended_plan && normalizePlanKey(user.subscription.recommended_plan) !== planKey && (
