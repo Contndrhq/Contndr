@@ -72,7 +72,7 @@ import adminEventsApp from "./admin-events.tsx";
 import { logAdminEvent } from "./admin-events.tsx";
 import socialApp from "./social-syncer.tsx";
 import socialTrackerApp from "./social-tracker.tsx";
-import { runFullCronCycle, resumeAllUsersCampaigns, getFullCronStatus, registerDenoCron, getNotifications, markNotificationRead, markAllNotificationsRead, getUnreadCount, deleteNotification, rescoreAllUsersLeads, cleanupOldClickTracking } from "./cron-scheduler.tsx";
+import { runFullCronCycle, resumeAllUsersCampaigns, getFullCronStatus, registerDenoCron, getNotifications, markNotificationRead, markAllNotificationsRead, getUnreadCount, deleteNotification, rescoreAllUsersLeads, cleanupOldClickTracking, maybeRunScheduledTrigger, activateScheduledCampaigns } from "./cron-scheduler.tsx";
 import { runCleanup, getKVStats } from "./kv-cleanup.tsx";
 import { resetCircuit } from "./kv-retry.tsx";
 
@@ -12541,7 +12541,9 @@ app.post("/make-server-a8b2511f/generate-followup-from-email", async (c) => {
 app.get("/make-server-a8b2511f/campaigns", async (c) => {
   try {
     const { user, supabase } = await getAuthenticatedUser(c);
-    
+    // Opportunistic: activate due-scheduled campaigns (60s cooldown, fire-and-forget)
+    maybeRunScheduledTrigger().catch(() => {});
+
     let campaignsKV = [];
     // Get campaigns from KV store with error handling
     try {
@@ -14305,6 +14307,8 @@ app.get("/make-server-a8b2511f/retry/stats", async (c) => {
 app.post("/make-server-a8b2511f/followups/auto-process", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
+    // Opportunistic: activate due-scheduled campaigns (60s cooldown, fire-and-forget)
+    maybeRunScheduledTrigger().catch(() => {});
     console.log(`[WORKER] Processing follow-ups for user ${user.email}`);
     const result = await processAllFollowUps(user.id);
 
@@ -14357,6 +14361,24 @@ app.post("/make-server-a8b2511f/cron/process-all-followups", async (c) => {
     return c.json({ success: true, ...result });
   } catch (error: any) {
     console.error('[CRON] process-all-followups error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /cron/activate-scheduled - Activate due-scheduled campaigns NOW (user-auth, no cooldown)
+// Lets the frontend/operator force a check without waiting for the external cron.
+app.post("/make-server-a8b2511f/cron/activate-scheduled", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    console.log(`[CRON] Manual activate-scheduled triggered by ${user.email}`);
+    const activation = await activateScheduledCampaigns();
+    let resume: any = null;
+    if (activation.campaignsActivated > 0) {
+      resume = await resumeAllUsersCampaigns();
+    }
+    return c.json({ success: true, activation, resume });
+  } catch (error: any) {
+    console.error('[CRON] activate-scheduled error:', error);
     return c.json({ error: error.message }, 500);
   }
 });
@@ -19445,6 +19467,8 @@ app.put("/make-server-a8b2511f/ai-call-playbook", async (c) => {
 app.get("/make-server-a8b2511f/today", async (c) => {
   try {
     const { user, supabase } = await getAuthenticatedUser(c);
+    // Opportunistic: activate due-scheduled campaigns (60s cooldown, fire-and-forget)
+    maybeRunScheduledTrigger().catch(() => {});
     const userId = user.id;
     const nowMs = Date.now();
     const HOT_WINDOW_MIN = 10; // visitor counts as "on site now" if seen in last 10 min

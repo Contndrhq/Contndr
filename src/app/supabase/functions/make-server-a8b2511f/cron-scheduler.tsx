@@ -164,11 +164,55 @@ export async function deleteNotification(userId: string, notificationId: string)
 
 // ─── Campaign Auto-Resume ────────────────────────────────────────────
 
+const SCHEDULED_TRIGGER_LAST_RUN_KEY = 'cron:scheduled_trigger_last_run';
+const SCHEDULED_TRIGGER_COOLDOWN_MS = 60 * 1000; // 1 minute
+
+/**
+ * Lightweight opportunistic trigger that activates due-scheduled campaigns
+ * and resumes active campaigns. Called from common user-facing endpoints
+ * (dashboard, today panel, auto-process) so scheduled campaigns fire even
+ * without an external cron service. Cheap KV scan + 60s cooldown so it
+ * doesn't tax request latency.
+ */
+export async function maybeRunScheduledTrigger(): Promise<boolean> {
+  try {
+    const last = await kv.get(SCHEDULED_TRIGGER_LAST_RUN_KEY) as { at: string } | null;
+    if (last?.at) {
+      const elapsed = Date.now() - new Date(last.at).getTime();
+      if (elapsed < SCHEDULED_TRIGGER_COOLDOWN_MS) return false;
+    }
+    // Stamp BEFORE running so concurrent requests don't double-fire
+    await kv.set(SCHEDULED_TRIGGER_LAST_RUN_KEY, { at: new Date().toISOString() });
+
+    // Fire and forget — don't block the user request
+    (async () => {
+      try {
+        console.log('[CRON-OPP] Opportunistic scheduled-campaign trigger firing');
+        const activation = await activateScheduledCampaigns();
+        if (activation.campaignsActivated > 0) {
+          console.log(`[CRON-OPP] Activated ${activation.campaignsActivated} scheduled campaign(s)`);
+          // If we activated any, immediately try to resume them so they start sending
+          const resume = await resumeAllUsersCampaigns();
+          console.log(`[CRON-OPP] Resume sent ${resume.totalSent} emails across ${resume.campaignsResumed} campaigns`);
+        }
+      } catch (err: any) {
+        console.error('[CRON-OPP] Background opportunistic trigger error:', err?.message || err);
+      }
+    })();
+
+    return true;
+  } catch (err) {
+    console.warn('[CRON-OPP] maybeRunScheduledTrigger check error:', err);
+    return false;
+  }
+}
+
+
 /**
  * Activate scheduled campaigns whose scheduled_time has passed.
  * Changes status from 'scheduled' to 'active' so they get picked up by resume logic.
  */
-async function activateScheduledCampaigns(): Promise<{
+export async function activateScheduledCampaigns(): Promise<{
   campaignsActivated: number;
   errors: string[];
 }> {
