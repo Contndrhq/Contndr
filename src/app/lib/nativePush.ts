@@ -47,9 +47,13 @@ export async function initNativePush(): Promise<{ supported: boolean; reason?: s
 
   try {
     // Dynamic import so the web bundle never tries to resolve this.
+    // The /* @vite-ignore */ + indirect string prevents Vite/Rollup from
+    // statically analyzing the path and failing the build when the
+    // optional peer dep isn't installed (web/Vercel builds).
+    const pkg = '@capacitor/push-notifications';
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore - optional peer dep
-    const mod: any = await import('@capacitor/push-notifications').catch(() => null);
+    const mod: any = await import(/* @vite-ignore */ pkg).catch(() => null);
     if (!mod?.PushNotifications) {
       return { supported: false, reason: '@capacitor/push-notifications not installed' };
     }
