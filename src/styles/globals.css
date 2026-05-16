@@ -105,19 +105,19 @@ select:focus-visible {
   }
 }
 
-/* Mobile bottom-nav clearance — NONE.
-   The floating pill nav is translucent and absolutely positioned, so
-   content extends behind it naturally (like native iOS tab bars). No
-   padding, no safe-area, no scroll-padding. If the last item ends up
-   under the nav, the user scrolls a tiny bit further — preferred over
-   a giant dead zone. Hard-zeroed with !important so no stale build or
-   third-party CSS can reintroduce the gap. */
+/* Mobile bottom-nav clearance — just enough to clear the floating nav
+   pill (~5rem total = pill height + small gap + safe-area). Anything
+   bigger creates a visible dead zone; anything smaller hides the last
+   item behind the nav. Applied with !important on the shell scroll
+   only so it doesn't double-stack on nested scroll containers. */
 @media (max-width: 1023px) {
-  .app-main-scroll,
+  .app-main-scroll {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)) !important;
+    scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)) !important;
+  }
   .mobile-scroll,
   main {
     padding-bottom: 0 !important;
-    scroll-padding-bottom: 0 !important;
   }
 }
 
