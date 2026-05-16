@@ -129,8 +129,11 @@ select:focus-visible {
      `.mobile-scroll` zero-rule is also matching. */
   .app-main-scroll,
   .mobile-scroll.app-main-scroll {
-    padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px)) !important;
-    scroll-padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px)) !important;
+    /* Tight: just clear the floating nav pill (~68px) with a tiny
+       breathing gap. Safe-area is already baked into the nav's own
+       positioning, so we don't add it again here. */
+    padding-bottom: 5.5rem !important;
+    scroll-padding-bottom: 5.5rem !important;
   }
 }
 
