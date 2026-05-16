@@ -1,9 +1,9 @@
 // Notification Service for Contndr Platform
 // Handles browser notifications and in-app notification management
 
-export type NotificationType = 
-  | 'email_clicked' 
-  | 'email_opened' 
+export type NotificationType =
+  | 'email_clicked'
+  | 'email_opened'
   | 'email_replied'
   | 'campaign_completed'
   | 'high_engagement'
@@ -12,6 +12,9 @@ export type NotificationType =
   | 'followup_sent'
   | 'campaign_resumed'
   | 'cron_summary'
+  | 'ai_call_completed'
+  | 'deal_won'
+  | 'payment_failed'
   | 'system';
 
 export interface NotificationData {
@@ -297,6 +300,40 @@ export function notifyCronSummary(summary: string, metadata?: any) {
     '📅 Cron Summary',
     summary,
     metadata
+  );
+}
+
+/** AI call completed — fires after an outbound call wraps. */
+export function notifyAICallCompleted(leadName: string, outcome: string, metadata?: any) {
+  notificationService.notify(
+    'ai_call_completed',
+    '📞 AI call completed',
+    `${leadName} — ${outcome}`,
+    metadata,
+  );
+}
+
+/** Deal won — fires when a pipeline deal moves to closed_won or a Stripe sub becomes active. */
+export function notifyDealWon(customerName: string, amount: number | string, metadata?: any) {
+  notificationService.notify(
+    'deal_won',
+    '💰 Deal won!',
+    typeof amount === 'number'
+      ? `${customerName} signed for $${amount.toLocaleString()}`
+      : `${customerName} signed for ${amount}`,
+    metadata,
+  );
+}
+
+/** Payment failed — fires for the current user when their Stripe payment fails (dunning). */
+export function notifyPaymentFailed(amount: number | string, attempt: number, metadata?: any) {
+  notificationService.notify(
+    'payment_failed',
+    '⚠️ Payment failed',
+    typeof amount === 'number'
+      ? `$${amount.toFixed(2)} payment failed (attempt ${attempt}). Update your card to avoid losing access.`
+      : `Payment failed (attempt ${attempt}). Update your card to avoid losing access.`,
+    metadata,
   );
 }
 

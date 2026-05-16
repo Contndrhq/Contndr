@@ -1093,7 +1093,12 @@ export function registerDenoCron() {
   }
 
   try {
-    // Full cron cycle every 3 hours
+    // Full cron cycle every 3 hours — heavy lifting (lead rescoring, KV
+    // maintenance, DLQ retries, etc.). Do NOT activate scheduled campaigns
+    // here on its own — that's handled by a separate every-minute job below
+    // so a campaign scheduled for, say, 5:07 PM doesn't have to wait until
+    // the next 3-hour tick (6 PM) to fire. The user's actual report:
+    // "scheduled at [evening time], sent at night" was the 3-hour gap.
     (Deno as any).cron('contndr-full-cron', '0 */3 * * *', async () => {
       console.log('[CRON] Deno.cron triggered: full cycle');
       try {
@@ -1106,6 +1111,32 @@ export function registerDenoCron() {
   } catch (err) {
     console.warn('[CRON] Failed to register Deno.cron:', err);
     console.log('[CRON] Falling back to external cron + opportunistic triggers');
+  }
+
+  // ─── Scheduled-campaign activator — every minute ───
+  // Cheap: KV scan for `status === 'scheduled'`, compare scheduled_at to
+  // now (both UTC ms — timezone-safe), flip due ones to `active`, then
+  // immediately resume them so the first batch of emails goes out within
+  // ~60 seconds of the user's chosen send time instead of waiting up to
+  // 3 hours for the next full-cron tick. The cooldown inside the function
+  // itself prevents double-fires if a user request also opportunistically
+  // triggers it in the same minute.
+  try {
+    (Deno as any).cron('contndr-activate-scheduled', '* * * * *', async () => {
+      try {
+        const activation = await activateScheduledCampaigns();
+        if (activation.campaignsActivated > 0) {
+          console.log(`[CRON-MIN] Activated ${activation.campaignsActivated} scheduled campaign(s) — kicking resume`);
+          const resume = await resumeAllUsersCampaigns();
+          console.log(`[CRON-MIN] Resume sent ${resume.totalSent} emails across ${resume.campaignsResumed} campaigns`);
+        }
+      } catch (err) {
+        console.error('[CRON-MIN] Activate-scheduled error:', err);
+      }
+    });
+    console.log('[CRON] Deno.cron registered: scheduled-campaign activator every minute');
+  } catch (err) {
+    console.warn('[CRON] Failed to register activate-scheduled cron:', err);
   }
 
   // KV store cleanup every 30 minutes (proactive maintenance)

@@ -61,6 +61,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { ImpersonationBanner } from './components/ImpersonationBanner';
 import { ConfirmProvider } from './components/ConfirmDialog';
 import { NotificationPermissionPrompt } from './components/NotificationPermissionPrompt';
+import { initNativePush } from './lib/nativePush';
 import { PendingAccessScreen } from './components/PendingAccessScreen';
 import { OAuthOnboardingScreen } from './components/OAuthOnboardingScreen';
 import { ApprovedAccessScreen } from './components/ApprovedAccessScreen';
@@ -836,6 +837,13 @@ function AppContent() {
     if (isDemoMode || !user) return;
     prefetchAdjacentViews(currentView);
   }, [currentView, isDemoMode, user]);
+
+  // ── Native push (Capacitor) — no-op on web. Wires up once a real user
+  // session exists so the backend has a user_id to attach the device token to.
+  useEffect(() => {
+    if (isDemoMode || !user?.id) return;
+    initNativePush().catch(() => {});
+  }, [isDemoMode, user?.id]);
 
   // ── Global campaign monitor: auto-resumes stuck campaigns & processes retries ──
   // Runs regardless of which view is active. Pauses when offline or tab hidden.
