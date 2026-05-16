@@ -105,21 +105,19 @@ select:focus-visible {
   }
 }
 
-/* Mobile bottom-nav clearance.
-   The floating pill nav (MobileNav.tsx) is ~64px tall with its own
-   safe-area-inset-bottom built in. Content needs JUST enough room to
-   clear the pill — anything more leaves the "huge dead zone" the user
-   reported. Target: nav-pill height (~3rem) + small breathing gap +
-   safe-area. Total clearance drops from ~140px (old 6.5rem + safe-area)
-   to ~80–90px on iPhone — roughly a 40% reduction, matching the spec.
-
-   Single source of truth: applied on `.app-main-scroll` only. The
-   previous catch-all on `main` and `[data-mobile-scroll]` was stacking
-   the same 6.5rem twice on layouts that had both. Removed. */
+/* Mobile bottom-nav clearance — NONE.
+   The floating pill nav is translucent and absolutely positioned, so
+   content extends behind it naturally (like native iOS tab bars). No
+   padding, no safe-area, no scroll-padding. If the last item ends up
+   under the nav, the user scrolls a tiny bit further — preferred over
+   a giant dead zone. Hard-zeroed with !important so no stale build or
+   third-party CSS can reintroduce the gap. */
 @media (max-width: 1023px) {
-  .app-main-scroll {
-    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
-    scroll-padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  .app-main-scroll,
+  .mobile-scroll,
+  main {
+    padding-bottom: 0 !important;
+    scroll-padding-bottom: 0 !important;
   }
 }
 
