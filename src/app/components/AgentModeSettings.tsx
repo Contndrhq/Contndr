@@ -691,6 +691,9 @@ function ToggleSwitch({ checked, disabled, onChange }: {
   disabled?: boolean;
   onChange: (checked: boolean) => void;
 }) {
+  // Use inline styles for the moving thumb's position so production
+  // Tailwind purges can't strip the arbitrary translate values that
+  // previously made the thumb collapse into a solid pill on mobile.
   return (
     <button
       type="button"
@@ -698,19 +701,23 @@ function ToggleSwitch({ checked, disabled, onChange }: {
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out shrink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
+      className={`relative inline-flex items-center rounded-full transition-colors duration-200 ease-in-out shrink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
         checked
           ? 'bg-zinc-900 dark:bg-white'
-          : 'bg-zinc-200 dark:bg-white/[0.12]'
+          : 'bg-zinc-200 dark:bg-zinc-800'
       }`}
+      style={{ width: 44, height: 24 }}
     >
       <span
-        className={`inline-block h-4.5 w-4.5 transform rounded-full transition-all duration-200 ease-in-out shadow-sm ${
-          checked
-            ? 'translate-x-[22px] bg-white dark:bg-zinc-900'
-            : 'translate-x-[3px] bg-white dark:bg-zinc-400'
+        aria-hidden
+        className={`block rounded-full transition-transform duration-200 ease-in-out shadow-sm ${
+          checked ? 'bg-white dark:bg-zinc-900' : 'bg-white dark:bg-zinc-400'
         }`}
-        style={{ width: 18, height: 18 }}
+        style={{
+          width: 18,
+          height: 18,
+          transform: `translateX(${checked ? 23 : 3}px)`,
+        }}
       />
     </button>
   );

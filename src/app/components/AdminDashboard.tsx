@@ -2485,8 +2485,8 @@ export function AdminDashboard() {
 
       {/* Change Plan Modal */}
       {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-black p-6 rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-sm relative overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-black p-6 rounded-t-2xl sm:rounded-2xl border-t sm:border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-sm relative overflow-y-auto max-h-[92vh] pb-[max(env(safe-area-inset-bottom),24px)]">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-bold text-white">Change Plan</h3>
               <button onClick={() => setEditingUser(null)} className="text-zinc-400 hover:text-white transition-colors">

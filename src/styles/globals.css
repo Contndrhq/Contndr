@@ -1043,3 +1043,29 @@ body.is-native-app main .mobile-scroll {
   .print\:rounded-none { border-radius: 0 !important; }
   .print\:max-w-none { max-width: none !important; }
 }
+
+/* ─── Mobile safe-area + viewport-aware modals ───────────────────────
+   Apply consistently across every modal that uses fixed inset-0 so
+   action buttons at the bottom never get clipped behind the mobile
+   nav, the iOS home indicator, or the address bar. */
+@media (max-width: 640px) {
+  /* Sonner toasts: respect the screen edge so the close button doesn't
+     get clipped on phones with rounded corners or notches. */
+  [data-sonner-toaster] {
+    max-width: calc(100vw - 24px) !important;
+  }
+  [data-sonner-toaster] [data-sonner-toast] {
+    max-width: calc(100vw - 24px) !important;
+  }
+
+  /* Any modal panel inside a fixed-overlay should be scrollable and
+     leave room for the home indicator + bottom nav. The pattern matches
+     direct children of `.fixed.inset-0` overlays that are NOT already
+     opted in (e.g. UserDetailSheet sets its own scroll). */
+  .fixed.inset-0.flex > div:not([data-no-mobile-fix]):not([data-sonner-toast]) {
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    padding-bottom: max(env(safe-area-inset-bottom), 16px);
+  }
+}

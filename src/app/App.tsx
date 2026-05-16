@@ -2768,15 +2768,20 @@ function AppContent() {
       <BroadcastOverlay />
       <ImportBroadcastOverlay />
       <AdminEventToasts userEmail={user?.email || user?.user_metadata?.email} />
-      <Toaster 
-        position="top-right" 
-        theme={isDark ? "dark" : "light"} 
-        richColors 
-        closeButton 
+      <Toaster
+        position="top-right"
+        theme={isDark ? "dark" : "light"}
+        richColors
+        closeButton
         toastOptions={{
-          style: { fontFamily: 'var(--font-family-base)', fontSize: '13px' },
-          className: 'modal-enter',
+          style: {
+            fontFamily: 'var(--font-family-base)',
+            fontSize: '13px',
+            maxWidth: 'calc(100vw - 24px)',
+          },
+          className: 'modal-enter sonner-toast-mobile-safe',
         }}
+        offset={16}
         gap={8}
       />
 
