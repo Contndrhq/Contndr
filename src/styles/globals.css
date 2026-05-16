@@ -129,11 +129,14 @@ select:focus-visible {
      `.mobile-scroll` zero-rule is also matching. */
   .app-main-scroll,
   .mobile-scroll.app-main-scroll {
-    /* Tight: just clear the floating nav pill (~68px) with a tiny
-       breathing gap. Safe-area is already baked into the nav's own
-       positioning, so we don't add it again here. */
-    padding-bottom: 5.5rem !important;
-    scroll-padding-bottom: 5.5rem !important;
+    /* Visible breathing gap above the floating nav pill — enough room
+       for content to "sit" above the nav without looking cramped. The
+       `scroll-padding-bottom` is set larger so when a long list scrolls
+       to its end, the last item still has clear room above the nav
+       (feels like infinite scroll on Campaigns/Leads), while short
+       fixed pages like Pipeline get just the visual padding. */
+    padding-bottom: 6.5rem !important;
+    scroll-padding-bottom: 6.5rem !important;
   }
 }
 
