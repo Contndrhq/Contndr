@@ -105,21 +105,21 @@ select:focus-visible {
   }
 }
 
-/* The mobile bottom nav is visible on every screen <1024px (web AND native
-   webview). Give the main scrollport enough real scroll padding so the last
-   card/action is not hidden behind it. Previously this rule was scoped to
-   body.is-native-app only, which left web mobile users (Safari, Chrome on
-   iOS, etc.) unable to reach the last few items in any scrollable view. */
+/* Mobile bottom-nav clearance.
+   The floating pill nav (MobileNav.tsx) is ~64px tall with its own
+   safe-area-inset-bottom built in. Content needs JUST enough room to
+   clear the pill — anything more leaves the "huge dead zone" the user
+   reported. Target: nav-pill height (~3rem) + small breathing gap +
+   safe-area. Total clearance drops from ~140px (old 6.5rem + safe-area)
+   to ~80–90px on iPhone — roughly a 40% reduction, matching the spec.
+
+   Single source of truth: applied on `.app-main-scroll` only. The
+   previous catch-all on `main` and `[data-mobile-scroll]` was stacking
+   the same 6.5rem twice on layouts that had both. Removed. */
 @media (max-width: 1023px) {
   .app-main-scroll {
-    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
-    scroll-padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
-  }
-  /* Generic catch-all for any other scroll containers that aren't using
-     the .app-main-scroll class — give them the same bottom clearance. */
-  body:not(.no-mobile-nav-clearance) main,
-  body:not(.no-mobile-nav-clearance) [data-mobile-scroll] {
-    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+    scroll-padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -871,28 +871,21 @@ a, button, [role="button"], [tabindex] {
   padding-right: env(safe-area-inset-right, 0px);
 }
 
-/* Mobile scroll container — single smooth scroll with iOS momentum */
+/* Mobile scroll container — single smooth scroll with iOS momentum.
+   No bottom padding here: when this class is composed with
+   `.app-main-scroll` (the main app shell uses BOTH together), the
+   parent's `padding-bottom` already accounts for nav clearance and
+   safe-area. Adding it again here was the source of the double-stack
+   that made every page look like it had a giant empty zone at the
+   bottom. Keep this class purely about scroll behavior. */
 .mobile-scroll {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
-  /* Default padding for normal browser mode (no app nav bar) */
-  padding-bottom: env(safe-area-inset-bottom, 16px);
-}
-
-/* Adjust padding when running as a PWA or inside a native webview */
-@media (display-mode: standalone) {
-  main .mobile-scroll, body.is-native-app main .mobile-scroll {
-    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 24px));
-  }
-}
-
-body.is-native-app main .mobile-scroll {
-  padding-bottom: calc(5rem + env(safe-area-inset-bottom, 24px));
 }
 
 @media (min-width: 1024px) {
-  .mobile-scroll, body.is-native-app main .mobile-scroll {
+  .mobile-scroll {
     padding-bottom: 0;
   }
 }
