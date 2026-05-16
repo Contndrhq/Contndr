@@ -585,7 +585,7 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
   }
 
   return (
-    <div className="h-full min-h-screen overflow-y-auto bg-transparent flex flex-col">
+    <div className="min-h-full bg-transparent flex flex-col">
       {/* Header */}
       <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-zinc-200 dark:border-zinc-800 sm:sticky sm:top-0 sm:z-10 bg-white/80 dark:bg-black/80 backdrop-blur-md flex-shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
