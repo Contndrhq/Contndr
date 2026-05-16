@@ -105,12 +105,21 @@ select:focus-visible {
   }
 }
 
-/* Native/PWA webviews have a fixed bottom nav. Give the main scrollport enough
-   real scroll padding so the last card/action is not hidden behind it. */
+/* The mobile bottom nav is visible on every screen <1024px (web AND native
+   webview). Give the main scrollport enough real scroll padding so the last
+   card/action is not hidden behind it. Previously this rule was scoped to
+   body.is-native-app only, which left web mobile users (Safari, Chrome on
+   iOS, etc.) unable to reach the last few items in any scrollable view. */
 @media (max-width: 1023px) {
-  body.is-native-app .app-main-scroll {
-    padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
-    scroll-padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+  .app-main-scroll {
+    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
+    scroll-padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  /* Generic catch-all for any other scroll containers that aren't using
+     the .app-main-scroll class — give them the same bottom clearance. */
+  body:not(.no-mobile-nav-clearance) main,
+  body:not(.no-mobile-nav-clearance) [data-mobile-scroll] {
+    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
   }
 }
 
