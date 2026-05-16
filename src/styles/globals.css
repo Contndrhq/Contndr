@@ -105,15 +105,21 @@ select:focus-visible {
   }
 }
 
-/* Mobile bottom-nav clearance — just enough to clear the floating nav
-   pill (~5rem total = pill height + small gap + safe-area). Anything
-   bigger creates a visible dead zone; anything smaller hides the last
-   item behind the nav. Applied with !important on the shell scroll
-   only so it doesn't double-stack on nested scroll containers. */
+/* Mobile bottom-nav clearance.
+   The floating pill (MobileNav.tsx) takes up:
+     - 52px button height + 16px container py-2  = 68px pill height
+     - + env(safe-area-inset-bottom, 16px)       ≈ 34px on iPhone
+     - + ~16px breathing gap above the pill
+     ─────────────────────────────────────────────
+     Total: ~7rem + safe-area-inset-bottom
+   Anything less and the last actionable item (Save Changes, Add Deal,
+   etc.) gets hidden behind the nav on iPhones with a home indicator.
+   Applied with !important on the shell scroll only — `mobile-scroll`
+   and `main` are zeroed so the clearance isn't double-stacked. */
 @media (max-width: 1023px) {
   .app-main-scroll {
-    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)) !important;
-    scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)) !important;
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px)) !important;
+    scroll-padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px)) !important;
   }
   .mobile-scroll,
   main {
