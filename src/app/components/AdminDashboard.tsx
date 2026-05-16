@@ -23,6 +23,7 @@ import { UserDetailSheet } from './UserDetailSheet';
 import { AdminPanelErrorBoundary } from './AdminPanelErrorBoundary';
 import { AdminCallsPanel } from './AdminCallsPanel';
 import { AuditLogPanel } from './AuditLogPanel';
+import { confirmAsync } from './ConfirmDialog';
 
 // ─── Admin Credit Management Modal ──────────────────────────────────
 function AdminCreditModal({ user, onClose }: { user: { id: string; email: string; user_metadata: any; subscription: any }; onClose: () => void }) {
@@ -492,7 +493,7 @@ function AffiliateAdminPanel({
   }
 
   async function handleDeleteExternal(userId: string) {
-    if (!confirm('Delete this external affiliate? This will remove their login and all data.')) return;
+    if (!(await confirmAsync({ title: 'Delete external affiliate?', message: 'Their login and all referral data will be removed.', confirmLabel: 'Delete affiliate', destructive: true }))) return;
     setDeletingId(userId);
     try {
       const headers = await getAuthHeaders();
@@ -1298,7 +1299,7 @@ export function AdminDashboard() {
   }
 
   async function handleRemoveRep(repEmail: string) {
-    if (!confirm(`Remove ${repEmail} from the org? Their access will be revoked.`)) return;
+    if (!(await confirmAsync({ title: 'Remove sales rep?', message: `${repEmail} will lose org access immediately.`, confirmLabel: 'Remove rep', destructive: true }))) return;
     setRemovingRepEmail(repEmail);
     try {
       const headers = await getAuthHeaders();
@@ -1321,7 +1322,7 @@ export function AdminDashboard() {
   }
 
   async function handlePromoteAdmin(targetUserId: string) {
-    if (!confirm(`Promote user ${targetUserId} to org admin with full campaign access?`)) return;
+    if (!(await confirmAsync({ title: 'Promote to org admin?', message: 'They will get full admin access including the ability to manage other users.', confirmLabel: 'Promote' }))) return;
     try {
       const headers = await getAuthHeaders();
       const res = await fetch(
@@ -1408,7 +1409,7 @@ export function AdminDashboard() {
   }
 
   async function handleApprove(id: string, email: string) {
-    if (!confirm(`Approve ${email} and send invitation?`)) return;
+    if (!(await confirmAsync({ title: 'Approve applicant?', message: `${email} will receive an invitation email.`, confirmLabel: 'Approve & invite' }))) return;
     setProcessingId(id);
     try {
       const headers = await getAuthHeaders();
@@ -1430,7 +1431,7 @@ export function AdminDashboard() {
   }
 
   async function handleReject(id: string) {
-    if (!confirm('Are you sure you want to reject this application?')) return;
+    if (!(await confirmAsync({ title: 'Reject application?', message: 'The applicant will not be invited.', confirmLabel: 'Reject', destructive: true }))) return;
     setProcessingId(id);
     try {
       const headers = await getAuthHeaders();
@@ -1452,7 +1453,7 @@ export function AdminDashboard() {
   }
 
   async function handleDeleteWaitlistEntry(id: string) {
-    if (!confirm('Are you sure you want to permanently delete this application?')) return;
+    if (!(await confirmAsync({ title: 'Delete application?', message: 'This permanently removes the waitlist entry. Cannot be undone.', confirmLabel: 'Delete', destructive: true }))) return;
     setProcessingId(id);
     try {
       const headers = await getAuthHeaders();
@@ -1474,7 +1475,7 @@ export function AdminDashboard() {
   }
 
   async function handleDeleteUser(userId: string) {
-    if (!confirm('DANGER: This will permanently delete the user account. Continue?')) return;
+    if (!(await confirmAsync({ title: 'Delete user account?', message: 'This permanently deletes the auth record and subscription. Cannot be undone.', confirmLabel: 'Delete user', destructive: true }))) return;
     setProcessingId(userId);
     try {
       const headers = await getAuthHeaders();
@@ -1497,7 +1498,7 @@ export function AdminDashboard() {
 
   async function handleUpdatePlan(userId: string, newPlan: string) {
     const action = shouldCharge ? `upgrade/downgrade to ${newPlan} and charge the card on file via Stripe` : `change the plan to ${newPlan} (bypass payment)`;
-    if (!confirm(`Are you sure you want to ${action}?`)) return;
+    if (!(await confirmAsync({ title: 'Confirm plan change', message: `Are you sure you want to ${action}?`, confirmLabel: shouldCharge ? 'Charge & change' : 'Change plan' }))) return;
     setProcessingId(userId);
     try {
       const headers = await getAuthHeaders();
@@ -1557,7 +1558,7 @@ export function AdminDashboard() {
   }
 
   async function handleRevokeSubscription(userId: string, userEmail: string, currentPlan: string) {
-    if (!confirm(`Revoke subscription access for ${userEmail}?\n\nCurrent Plan: ${currentPlan}\n\nThis will immediately block their access to the app.`)) return;
+    if (!(await confirmAsync({ title: `Revoke ${currentPlan} access?`, message: `${userEmail} will be blocked from the app immediately.`, confirmLabel: 'Revoke access', destructive: true }))) return;
     setProcessingId(userId);
     try {
       const headers = await getAuthHeaders();

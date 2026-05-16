@@ -389,10 +389,10 @@ export function UpgradeModal({ isOpen, onClose, currentPlan, forced = false, use
         <motion.div className="relative z-[10000]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
           <motion.div className="fixed inset-0 bg-black/80 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
 
-          <div className="fixed inset-0 overflow-y-auto pt-safe sm:pt-0">
-            <div className="flex min-h-full items-start sm:items-center justify-center p-4 sm:p-6 text-center">
+          <div className="fixed inset-0 overflow-y-auto pt-safe sm:pt-0" data-no-mobile-fix>
+            <div className="flex min-h-full items-start sm:items-center justify-center p-4 sm:p-6 pb-[max(env(safe-area-inset-bottom),24px)] text-center">
               <motion.div
-                className="w-full max-w-5xl transform overflow-hidden rounded-[2rem] bg-[#0A0A0A] p-5 sm:p-8 text-left align-middle shadow-2xl transition-all border border-white/10 relative flex flex-col mt-4 sm:mt-0"
+                className="w-full max-w-5xl transform overflow-hidden rounded-2xl sm:rounded-[2rem] bg-[#0A0A0A] p-5 sm:p-8 text-left align-middle shadow-2xl transition-all border border-white/10 relative flex flex-col mt-4 sm:mt-0 mb-[max(env(safe-area-inset-bottom),16px)] sm:mb-0"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}

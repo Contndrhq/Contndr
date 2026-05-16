@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Mail, Send, Eye, Users, Clock, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Zap, Plus, RefreshCw, Trash2, Download, Target, ChevronLeft, ChevronDown, ChevronUp, MousePointerClick, User, Radio, Play, Building2, Briefcase, Phone, MapPin, Globe } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { authenticatedFetch, getAuthHeaders } from '../lib/auth';
+import { confirmAsync } from './ConfirmDialog';
 import { projectId } from '../utils/supabase/info';
 import { notifyEmailClicked, notifyEmailOpened } from '../lib/notifications';
 import { exportCampaigns } from '../lib/csvExport';
@@ -611,7 +612,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
       toast.info('No leads to delete');
       return;
     }
-    if (!confirm(`Delete all ${uniqueLeadIds.length} bounced lead${uniqueLeadIds.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    if (!(await confirmAsync({ title: 'Delete bounced leads?', message: `${uniqueLeadIds.length} lead${uniqueLeadIds.length === 1 ? '' : 's'} will be permanently removed.`, confirmLabel: 'Delete', destructive: true }))) return;
     setDeletingAllBounced(true);
     try {
       const headers = await getAuthHeaders();
@@ -650,7 +651,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
       toast(t('campaignBuilder.demoMode'), { description: t('campaignBuilder.broadcastingDisabledDemo'), duration: 3000 });
       return;
     }
-    if (!confirm('Send emails to all pending leads?')) return;
+    if (!(await confirmAsync({ title: 'Send to all pending leads?', message: 'Every lead in pending status will be queued for sending.', confirmLabel: 'Send all' }))) return;
 
     // Guard: don't send if this campaign is already being broadcast
     if (!acquireSendLock(campaignId)) {
@@ -900,7 +901,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
       toast(t('campaignBuilder.demoMode'), { description: t('campaignBuilder.broadcastingDisabledDemo'), duration: 3000 });
       return;
     }
-    if (!confirm(t('campaigns.confirmSendAll', { name: campaignName }))) return;
+    if (!(await confirmAsync({ title: `Send campaign "${campaignName}"?`, message: t('campaigns.confirmSendAll', { name: campaignName }) as string, confirmLabel: 'Send campaign' }))) return;
 
     // Fetch pending count for this campaign
     let pendingCount = 0;
@@ -1127,7 +1128,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
       toast('Demo Mode', { description: 'Deleting is disabled in demo mode.', duration: 3000 });
       return;
     }
-    if (!confirm(t('campaigns.confirmDelete'))) return;
+    if (!(await confirmAsync({ title: 'Delete campaign?', message: t('campaigns.confirmDelete') as string, confirmLabel: 'Delete campaign', destructive: true }))) return;
 
     try {
       const res = await authenticatedFetch(
@@ -1160,8 +1161,8 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
       toast('Demo Mode', { description: 'Deleting is disabled in demo mode.', duration: 3000 });
       return;
     }
-    if (!confirm(t('campaigns.confirmDeleteAll', { count: campaigns.length }))) return;
-    if (!confirm(t('campaigns.confirmDeleteAllAbsolute', { count: campaigns.length }))) return;
+    if (!(await confirmAsync({ title: 'Delete all campaigns?', message: t('campaigns.confirmDeleteAll', { count: campaigns.length }) as string, confirmLabel: 'Delete all', destructive: true }))) return;
+    if (!(await confirmAsync({ title: 'Are you absolutely sure?', message: t('campaigns.confirmDeleteAllAbsolute', { count: campaigns.length }) as string, confirmLabel: 'Yes, delete all', destructive: true }))) return;
 
     setDeletingAll(true);
     try {
