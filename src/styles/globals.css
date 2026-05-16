@@ -117,13 +117,20 @@ select:focus-visible {
    Applied with !important on the shell scroll only — `mobile-scroll`
    and `main` are zeroed so the clearance isn't double-stacked. */
 @media (max-width: 1023px) {
-  .app-main-scroll {
-    padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px)) !important;
-    scroll-padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px)) !important;
-  }
+  /* Zero out catch-alls FIRST so they don't override the app-shell
+     clearance below (the shell element has both `mobile-scroll` AND
+     `app-main-scroll` classes — same specificity, last rule wins). */
   .mobile-scroll,
   main {
     padding-bottom: 0 !important;
+  }
+  /* Compound selector wins over plain `.mobile-scroll` by specificity,
+     so the shell scroll always gets its clearance even when the
+     `.mobile-scroll` zero-rule is also matching. */
+  .app-main-scroll,
+  .mobile-scroll.app-main-scroll {
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px)) !important;
+    scroll-padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px)) !important;
   }
 }
 
