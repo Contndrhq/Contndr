@@ -14,6 +14,7 @@ import { OAuthResultModal } from './OAuthResultModal';
 import { dispatchAppEvent } from '../lib/app-events';
 import { SenderRotation } from './SenderRotation';
 import { WarmupDashboard } from './WarmupDashboard';
+import { EmailAuthChecker } from './EmailAuthChecker';
 
 type Provider = 'resend' | 'gmail_oauth' | 'outlook_oauth' | 'smtp';
 
@@ -297,8 +298,19 @@ export function EmailProviderSettings() {
   const isOAuth = provider === 'gmail_oauth' || provider === 'outlook_oauth';
   const isAdmin = userEmail === 'or@roadr.com' || userEmail === 'admin@contndr.com';
 
+  // Best-effort default domain for the DNS checker — the verified
+  // sending email (connectedEmail) is the most likely candidate.
+  const defaultAuthDomain = (() => {
+    const e = (userEmail || '').toLowerCase();
+    if (!e || !e.includes('@')) return '';
+    return e.split('@')[1] || '';
+  })();
+
   return (
     <div className="space-y-5">
+      {/* SPF / DKIM / DMARC health — pinned high so users see it on every visit */}
+      <EmailAuthChecker defaultDomain={defaultAuthDomain} />
+
       {/* Toasts */}
       {saved && (
         <div className="bg-[#1ED4A7]/10 border border-[#1ED4A7]/20 rounded-lg p-3.5 animate-fade-in">

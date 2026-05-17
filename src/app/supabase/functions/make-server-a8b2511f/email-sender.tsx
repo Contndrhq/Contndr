@@ -57,6 +57,14 @@ interface EmailOptions {
     filename: string;
     content: any;
   }[];
+  /**
+   * Per-recipient unsubscribe URL (HTTPS endpoint that records opt-out).
+   * When set, the sender emits the RFC 8058 `List-Unsubscribe` and
+   * `List-Unsubscribe-Post` headers — required by Gmail and Yahoo for
+   * any sender exceeding 5k/day as of Feb 2024. Without it, outbound
+   * silently routes to spam.
+   */
+  unsubscribeUrl?: string;
 }
 
 interface SendEmailResult {
@@ -167,6 +175,21 @@ async function sendViaResend(options: EmailOptions): Promise<SendEmailResult> {
 
   for (let i = 0; i < maxRetries; i++) {
     try {
+      // Build outbound headers. List-Unsubscribe + List-Unsubscribe-Post
+      // are REQUIRED by Gmail/Yahoo for bulk senders (>5k/day) as of
+      // Feb 2024 — without them outbound silently lands in spam.
+      // RFC 8058 one-click unsub format: `List-Unsubscribe-Post:
+      // List-Unsubscribe=One-Click` tells the receiving MTA the URL
+      // in List-Unsubscribe will accept a POST and complete the opt-out
+      // in one click (no confirmation page).
+      const outboundHeaders: Record<string, string> = {
+        'X-Entity-Ref-ID': crypto.randomUUID(),
+      };
+      if (options.unsubscribeUrl) {
+        outboundHeaders['List-Unsubscribe'] = `<${options.unsubscribeUrl}>`;
+        outboundHeaders['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+      }
+
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
@@ -182,7 +205,7 @@ async function sendViaResend(options: EmailOptions): Promise<SendEmailResult> {
           subject: options.subject,
           html: options.html,
           text: options.text,
-          headers: { 'X-Entity-Ref-ID': crypto.randomUUID() },
+          headers: outboundHeaders,
           attachments: options.attachments,
           tags: [{ name: 'app', value: 'make-builder' }],
           // Self-hosted tracking handles opens/clicks for ALL providers.
@@ -228,7 +251,7 @@ async function sendViaResend(options: EmailOptions): Promise<SendEmailResult> {
                       subject: options.subject,
                       html: options.html,
                       text: options.text,
-                      headers: { 'X-Entity-Ref-ID': crypto.randomUUID() },
+                      headers: outboundHeaders,    // carry the same List-Unsubscribe headers
                       attachments: options.attachments,
                       tags: [{ name: 'app', value: 'make-builder' }, { name: 'fallback', value: 'true' }],
                        // Self-hosted tracking handles opens/clicks for ALL providers.
@@ -518,6 +541,22 @@ export async function sendEmail(
   const suppressed = await isEmailSuppressed(options.to);
   if (suppressed) {
     return { success: false, error: `Email suppressed: ${options.to} has previously bounced. Skipping to protect sender reputation.` };
+  }
+
+  // ── Auto-attach unsubscribe URL ──
+  // RFC 8058 List-Unsubscribe headers require a per-recipient URL.
+  // Generate one here if the caller didn't supply it so every outbound
+  // through this dispatcher carries the headers (Gmail/Yahoo bulk
+  // sender requirement). System emails go through sendSystemEmail()
+  // which calls sendViaResend directly and skip this — intentional;
+  // transactional mail shouldn't carry a unsub link.
+  if (!options.unsubscribeUrl) {
+    try {
+      const { generateUnsubscribeUrl } = await import('./compliance.tsx');
+      options = { ...options, unsubscribeUrl: generateUnsubscribeUrl(userId, options.to) };
+    } catch (e) {
+      console.warn('[EMAIL-SENDER] Could not generate unsubscribe URL — continuing without:', (e as any)?.message);
+    }
   }
 
   try {

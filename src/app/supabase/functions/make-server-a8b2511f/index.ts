@@ -22592,6 +22592,132 @@ app.get("/make-server-a8b2511f/unsubscribe/:payload", async (c) => {
   }
 });
 
+// RFC 8058 one-click unsubscribe — required by Gmail/Yahoo bulk-sender
+// policy (Feb 2024). Receiving MTAs POST to the same URL we put in
+// List-Unsubscribe. Must respond 200 and complete the opt-out
+// silently — no confirmation page, no auth required (the token in
+// :payload IS the auth).
+app.post("/make-server-a8b2511f/unsubscribe/:payload", async (c) => {
+  try {
+    const payload = c.req.param('payload');
+    const decoded = JSON.parse(atob(payload));
+    const { u: userId, e: email } = decoded;
+    if (!userId || !email) return c.text('Invalid unsubscribe link', 400);
+    await recordUnsubscribe(userId, email);
+    await handleReplyDetected(userId, email);
+    return c.text('OK', 200);
+  } catch (error: any) {
+    console.error("[COMPLIANCE] One-click unsubscribe error:", error);
+    // Return 200 anyway so the MTA records the unsub as successful
+    // and doesn't bounce the user back. Internal log captures the issue.
+    return c.text('OK', 200);
+  }
+});
+
+// GET /email-auth/check?domain=example.com
+// Runs SPF / DKIM / DMARC lookups for the given domain and returns a
+// traffic-light verdict per record + actionable fix instructions when
+// something's broken. Uses DNS-over-HTTPS (Cloudflare 1.1.1.1) so it
+// works inside the Edge Function runtime which has no native DNS.
+app.get("/make-server-a8b2511f/email-auth/check", async (c) => {
+  try {
+    await getAuthenticatedUser(c); // auth-required (per-user setting)
+    const domain = (c.req.query('domain') || '').trim().toLowerCase();
+    if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) {
+      return c.json({ error: 'Provide ?domain=example.com' }, 400);
+    }
+
+    async function txt(name: string): Promise<string[]> {
+      try {
+        const r = await fetch(
+          `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=TXT`,
+          { headers: { Accept: 'application/dns-json' } },
+        );
+        if (!r.ok) return [];
+        const j = await r.json();
+        // Cloudflare returns TXT records with surrounding quotes that
+        // need stripping; multi-string TXT records arrive as `"a" "b"`.
+        return ((j.Answer || []) as any[])
+          .map((a) => String(a.data || ''))
+          .map((s) => s.replace(/^"|"$/g, '').replace(/"\s+"/g, ''));
+      } catch { return []; }
+    }
+
+    const [spfRaw, dmarcRaw] = await Promise.all([
+      txt(domain),
+      txt(`_dmarc.${domain}`),
+    ]);
+    // Resend's DKIM selector is `resend._domainkey.<domain>`. Other
+    // ESPs use different selectors; this is the one we publish guides
+    // for so it's the one we check.
+    const dkimRaw = await txt(`resend._domainkey.${domain}`);
+
+    // SPF: any TXT starting with `v=spf1`. Should include `include:_spf.resend.com` for Resend.
+    const spfRecord = spfRaw.find((s) => /^v=spf1/i.test(s));
+    const spfHasResend = !!(spfRecord && /include:_spf\.resend\.com/i.test(spfRecord));
+    const spf = {
+      status: !spfRecord ? 'missing'
+              : !spfHasResend ? 'misconfigured'
+              : 'ok',
+      record: spfRecord || null,
+      issue: !spfRecord
+        ? 'No SPF record found. Add a TXT record at the root: v=spf1 include:_spf.resend.com ~all'
+        : !spfHasResend
+          ? 'SPF record exists but does not authorize Resend. Add include:_spf.resend.com before the ~all mechanism.'
+          : null,
+    };
+
+    // DKIM: just need to see at least one v=DKIM1 with a p= public key
+    const dkimRecord = dkimRaw.find((s) => /^v=DKIM1/i.test(s) && /p=/i.test(s));
+    const dkim = {
+      status: dkimRecord ? 'ok' : 'missing',
+      record: dkimRecord || null,
+      issue: dkimRecord
+        ? null
+        : `No DKIM record at resend._domainkey.${domain}. Add the TXT record from your Resend dashboard → Domains → ${domain} → DNS Records.`,
+    };
+
+    // DMARC: parse v=DMARC1 p=<none|quarantine|reject>
+    const dmarcRecord = dmarcRaw.find((s) => /^v=DMARC1/i.test(s));
+    let dmarcPolicy: string | null = null;
+    if (dmarcRecord) {
+      const m = dmarcRecord.match(/p=(none|quarantine|reject)/i);
+      dmarcPolicy = m ? m[1].toLowerCase() : null;
+    }
+    const dmarc = {
+      status: !dmarcRecord ? 'missing'
+              : dmarcPolicy === 'none' ? 'weak'
+              : dmarcPolicy ? 'ok'
+              : 'misconfigured',
+      record: dmarcRecord || null,
+      policy: dmarcPolicy,
+      issue: !dmarcRecord
+        ? 'No DMARC record at _dmarc.' + domain + '. Add: v=DMARC1; p=quarantine; rua=mailto:dmarc@' + domain + '; (start with p=none if you want monitoring only).'
+        : dmarcPolicy === 'none'
+          ? 'DMARC policy is "none" (monitoring only). Move to p=quarantine or p=reject once you confirm SPF + DKIM are passing.'
+          : !dmarcPolicy ? 'DMARC record present but no p= policy. Add p=quarantine or p=reject.' : null,
+    };
+
+    const overall =
+      spf.status === 'ok' && dkim.status === 'ok' && dmarc.status === 'ok'
+        ? 'pass'
+        : spf.status === 'missing' || dkim.status === 'missing' || dmarc.status === 'missing'
+          ? 'fail'
+          : 'warn';
+
+    return c.json({
+      domain,
+      overall,
+      spf,
+      dkim,
+      dmarc,
+      checked_at: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return c.json({ error: error.message || 'check failed' }, 500);
+  }
+});
+
 app.get("/make-server-a8b2511f/compliance/stats", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
