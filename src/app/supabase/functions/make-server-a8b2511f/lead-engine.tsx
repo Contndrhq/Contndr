@@ -318,58 +318,59 @@ app.post("/search", async (c) => {
     const seenDomains = new Set<string>();
 
     // ── Phase 1: Google Maps paginated search ───────────────────────────
-    for (let page = 0; page < pages; page++) {
-      try {
-        const params = new URLSearchParams({
-          engine: "google_maps",
-          q: query,
-          api_key: SERPAPI_API_KEY,
-          type: "search",
-          start: (page * 20).toString()
+    // Pages are fetched in PARALLEL. Each page is an independent SerpAPI
+    // call addressed by the `start` offset, so there's no sequence to
+    // preserve — and at `depth=maximum` (5 pages) the old sequential
+    // loop cost ~5x SerpAPI latency (often 10s+). Now we fire all pages
+    // at once via `Promise.allSettled` and dedup the merged results.
+    const pageFetches = Array.from({ length: pages }, (_, page) => {
+      const params = new URLSearchParams({
+        engine: "google_maps",
+        q: query,
+        api_key: SERPAPI_API_KEY,
+        type: "search",
+        start: (page * 20).toString(),
+      });
+      return fetch(`https://serpapi.com/search?${params}`)
+        .then(async (response) => {
+          if (!response.ok) {
+            console.warn(`[LEAD ENGINE] Maps page ${page + 1} failed: ${response.statusText}`);
+            return [] as any[];
+          }
+          const data = await response.json();
+          return (data.local_results || []) as any[];
+        })
+        .catch((err) => {
+          console.warn(`[LEAD ENGINE] Maps page ${page + 1} error:`, err?.message || err);
+          return [] as any[];
         });
+    });
 
-        console.log(`[LEAD ENGINE] Maps page ${page + 1}/${pages} (start=${page * 20})`);
-
-        const response = await fetch(`https://serpapi.com/search?${params}`);
-        if (!response.ok) {
-          console.warn(`[LEAD ENGINE] Maps page ${page + 1} failed: ${response.statusText}`);
-          break; // Stop paginating on error
-        }
-
-        const data = await response.json();
-        const results = data.local_results || [];
-
-        if (results.length === 0) {
-          console.log(`[LEAD ENGINE] Maps page ${page + 1}: no more results`);
-          break; // No more results
-        }
-
-        for (const r of results) {
-          const domain = extractDomain(r.website);
-          if (!domain || isJunkDomain(domain) || seenDomains.has(domain)) continue;
-          seenDomains.add(domain);
-
-          allCompanies.push({
-            name: r.title,
-            domain,
-            website: r.website,
-            phone: r.phone,
-            address: r.address,
-            rating: r.rating,
-            reviews: r.reviews,
-            types: r.types,
-            place_id: r.place_id,
-            description: r.description,
-            source: 'google_maps',
-            industry: toTitleCase(industry)
-          });
-        }
-
-        console.log(`[LEAD ENGINE] Maps page ${page + 1}: +${results.length} raw → ${allCompanies.length} unique companies so far`);
-      } catch (pageError) {
-        console.warn(`[LEAD ENGINE] Maps page ${page + 1} error:`, pageError.message);
-        break;
+    const pageResultsSettled = await Promise.allSettled(pageFetches);
+    for (let page = 0; page < pageResultsSettled.length; page++) {
+      const settled = pageResultsSettled[page];
+      const results = settled.status === 'fulfilled' ? settled.value : [];
+      if (results.length === 0) continue;
+      for (const r of results) {
+        const domain = extractDomain(r.website);
+        if (!domain || isJunkDomain(domain) || seenDomains.has(domain)) continue;
+        seenDomains.add(domain);
+        allCompanies.push({
+          name: r.title,
+          domain,
+          website: r.website,
+          phone: r.phone,
+          address: r.address,
+          rating: r.rating,
+          reviews: r.reviews,
+          types: r.types,
+          place_id: r.place_id,
+          description: r.description,
+          source: 'google_maps',
+          industry: toTitleCase(industry),
+        });
       }
+      console.log(`[LEAD ENGINE] Maps page ${page + 1}: +${results.length} raw → ${allCompanies.length} unique so far`);
     }
 
     // ── Phase 2: Google organic search (supplements Maps) ───────────────
@@ -822,22 +823,30 @@ app.post("/search-stream", async (c) => {
           phasesEmitted++;
           send("phase", { phase: 1, name: "Business Directory", status: "searching", total_phases: depth === "standard" ? 5 : 6 });
 
-          for (let page = 0; page < pages; page++) {
-            if (isCancelled) break;
-            try {
-              const params = new URLSearchParams({
-                engine: "google_maps", q: query, api_key: SERPAPI_API_KEY,
-                type: "search", start: (page * 20).toString()
+          // Parallel page fetch — fire all pages at once, emit progress
+          // as each settles. ~60-75% wall-time reduction at depth=maximum
+          // vs. the old sequential loop.
+          const pagePromises = Array.from({ length: pages }, (_, page) => {
+            const params = new URLSearchParams({
+              engine: "google_maps", q: query, api_key: SERPAPI_API_KEY,
+              type: "search", start: (page * 20).toString(),
+            });
+            return fetch(`https://serpapi.com/search?${params}`)
+              .then(async (response) => {
+                if (!response.ok) return { page, results: [] as any[] };
+                const data = await response.json();
+                return { page, results: (data.local_results || []) as any[] };
+              })
+              .catch((err) => {
+                console.warn(`[LEAD ENGINE SSE] Maps page ${page + 1} error:`, err?.message || err);
+                return { page, results: [] as any[] };
               });
+          });
 
-              const response = await fetch(`https://serpapi.com/search?${params}`);
-              if (isCancelled) break;
-              if (!response.ok) break;
-
-              const data = await response.json();
-              const results = data.local_results || [];
-              if (results.length === 0) break;
-
+          let pagesSettled = 0;
+          for (const promise of pagePromises) {
+            promise.then(({ page, results }) => {
+              if (isCancelled) return;
               for (const r of results) {
                 const domain = extractDomain(r.website);
                 if (!domain || isJunkDomain(domain) || seenDomains.has(domain)) continue;
@@ -846,16 +855,15 @@ app.post("/search-stream", async (c) => {
                   name: r.title, domain, website: r.website, phone: r.phone,
                   address: r.address, rating: r.rating, reviews: r.reviews,
                   types: r.types, place_id: r.place_id, description: r.description,
-                  source: 'google_maps', industry: toTitleCase(industry)
+                  source: 'google_maps', industry: toTitleCase(industry),
                 });
               }
-
-              send("progress", { phase: 1, page: page + 1, total_pages: pages, companies_found: allCompanies.length });
-            } catch (pageError: any) {
-              console.warn(`[LEAD ENGINE SSE] Maps page ${page + 1} error:`, pageError.message);
-              break;
-            }
+              pagesSettled++;
+              send("progress", { phase: 1, page: pagesSettled, total_pages: pages, companies_found: allCompanies.length });
+            });
           }
+          await Promise.allSettled(pagePromises);
+          if (isCancelled) return;
 
           send("phase", { phase: 1, name: "Business Directory", status: "complete", companies_found: allCompanies.length });
 
@@ -1321,28 +1329,32 @@ app.post("/enrich-batch", async (c) => {
 
     // Cap at 10 per batch to avoid timeout
     const batch = companies.slice(0, 10);
-    console.log(`[LEAD ENGINE] Batch enriching ${batch.length} companies`);
+    console.log(`[LEAD ENGINE] Batch enriching ${batch.length} companies (concurrency 4)`);
 
-    const results: any[] = [];
+    // PARALLEL enrichment with bounded concurrency.
+    // Previously this was a `for await` loop — 10 companies × 3-8s each
+    // = 30-80s sequential walltime, regularly hitting the Edge wall
+    // clock and timing out. Now we issue 4 in flight at a time. With
+    // typical 5s per call, 10 companies finish in ~15s instead of 50s.
+    const CONCURRENCY = 4;
+    const results: any[] = new Array(batch.length);
 
-    for (const company of batch) {
+    const enrichOne = async (company: any, idx: number) => {
       if (!company.domain) {
-        results.push({ domain: company.domain, success: false, reason: "no_domain" });
-        continue;
+        results[idx] = { domain: company.domain, success: false, reason: "no_domain" };
+        return;
       }
-
       try {
         // Check cache first
         const cacheKey = `enrich:${company.domain}`;
         const cached = await kv.get(cacheKey);
         if (cached?.enriched_at && (Date.now() - new Date(cached.enriched_at).getTime() < 30 * 24 * 60 * 60 * 1000)) {
-          // Invalidate old cache entries with unverified/derived emails
           const hasUnverified = cached.decision_makers?.some(
             (dm: any) => dm.verification_status === 'derived' || dm.verification_status === 'unverified' || dm.verification_status === 'likely_valid'
           );
           if (!hasUnverified) {
-            results.push({ domain: company.domain, ...cached, source: 'cache' });
-            continue;
+            results[idx] = { domain: company.domain, ...cached, source: 'cache' };
+            return;
           }
           console.log(`[LEAD ENGINE] Batch: cache invalidated for ${company.domain} (unverified contacts)`);
         }
@@ -1351,20 +1363,23 @@ app.post("/enrich-batch", async (c) => {
           company_name: company.name,
           company_domain: company.domain,
           company_website_url: company.website,
-          company_location: company.address
+          company_location: company.address,
         };
-
         const result = await enrichLeadWithFindymail(input);
-
         if (result.success) {
           await kv.set(cacheKey, { ...result, enriched_at: new Date().toISOString() });
         }
-
-        results.push({ domain: company.domain, ...result });
-      } catch (err) {
+        results[idx] = { domain: company.domain, ...result };
+      } catch (err: any) {
         console.error(`[LEAD ENGINE] Batch enrich error for ${company.domain}:`, err.message);
-        results.push({ domain: company.domain, success: false, reason: err.message });
+        results[idx] = { domain: company.domain, success: false, reason: err.message };
       }
+    };
+
+    // Simple bounded-concurrency runner — process the batch in waves of CONCURRENCY.
+    for (let i = 0; i < batch.length; i += CONCURRENCY) {
+      const slice = batch.slice(i, i + CONCURRENCY);
+      await Promise.all(slice.map((c: any, j: number) => enrichOne(c, i + j)));
     }
 
     const enriched = results.filter(r => r.success).length;

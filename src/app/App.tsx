@@ -108,14 +108,6 @@ import {
 import { QuickSearch } from './components/QuickSearch';
 import { DatabaseSetup } from './components/DatabaseSetup';
 
-// ── Eager imports for critical components (fixes CORS lazy load errors) ────
-// CORS Issue Fix: 2026-03-30 - Figma Make's iframe environment blocks dynamic chunk loading
-// with "Cross-origin script load denied by Cross-Origin Resource Sharing policy" errors.
-// Converting these high-priority components to eager imports bundles them in the main chunk,
-// eliminating the cross-origin fetch that was causing failures. Other components remain lazy.
-import { AIAssistant } from './components/AIAssistant';
-import { Dashboard } from './components/Dashboard';
-import { AutomationScheduler } from './components/AutomationScheduler';
 
 // ���── Admin UIDs (supplement email-based checks) ─────────────────────
 const ADMIN_UIDS = ['004b2df9-3e3f-48ec-acfd-5374ab55b09f'];
@@ -213,6 +205,14 @@ const lazyRetry = (importFn: () => Promise<any>, componentName: string, retries 
 // REBUILD: 2026-03-30T16:00 - Converted AIAssistant, Dashboard, AutomationScheduler to eager imports (fixes CORS errors in iframe)
 
 // ─── Lazy-loaded components (code-split for performance) ───────────────────
+// Dashboard / AIAssistant / AutomationScheduler used to be eager-imported to
+// work around a Figma Make iframe CORS quirk. That added ~300KB gz to the
+// landing/auth bundle for every visitor. `lazyRetry` already handles chunk
+// load failures (which is what the CORS issue presents as), so the workaround
+// was net negative.
+const Dashboard = lazy(() => lazyRetry(() => import('./components/Dashboard'), 'Dashboard'));
+const AIAssistant = lazy(() => lazyRetry(() => import('./components/AIAssistant'), 'AIAssistant'));
+const AutomationScheduler = lazy(() => lazyRetry(() => import('./components/AutomationScheduler'), 'AutomationScheduler'));
 const CRM = lazy(() => lazyRetry(() => import('./components/CRM'), 'CRM'));
 const CampaignsView = lazy(() => lazyRetry(() => import('./components/CampaignsView'), 'CampaignsView'));
 const UnifiedInbox = lazy(() => lazyRetry(() => import('./components/UnifiedInbox'), 'UnifiedInbox'));

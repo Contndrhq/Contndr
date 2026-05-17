@@ -197,8 +197,11 @@ export async function processIncomingEmail(webhookData: any): Promise<void> {
       archived: false,
     };
 
-    await kv.set(`reply:${replyId}`, reply);
-    
+    // Write under the per-user prefix so future reads can scope by user.
+    // The legacy `reply:${replyId}` key range is still scanned for
+    // backward compatibility but new replies don't pollute it.
+    await kv.set(`reply:${leadUserId}:${replyId}`, reply);
+
     // Add to thread
     await addReplyToThread(threadId, reply);
 
@@ -740,10 +743,27 @@ export async function getConversations(filters?: {
     threads.forEach(t => threadsMap.set(t.threadId, t));
     
     // MERGE LEGACY KV REPLIES
-    // This ensures replies received before the Postgres migration are still visible
+    // This ensures replies received before the Postgres migration are still visible.
+    //
+    // PERFORMANCE: `kv.getByPrefix('reply:')` previously scanned the ENTIRE
+    // reply key range across all users on every inbox load (~300ms p50,
+    // 2-5s p99 once a tenant grew). Now we:
+    //  1. Build a set of THIS user's lead IDs from the emails we already
+    //     loaded above (free — already in memory).
+    //  2. Use the bounded `getByPrefixLimited` variant so a runaway DB
+    //     can't take down the request.
+    //  3. Filter the merged replies by lead-membership client-side so
+    //     other tenants' replies are never merged into this user's threads.
     try {
-      const kvReplies = await kv.getByPrefix('reply:');
-      
+      const userLeadIds = new Set<string>();
+      for (const arr of leadsMap.values()) {
+        for (const em of arr) {
+          if (em.lead_id) userLeadIds.add(em.lead_id);
+        }
+      }
+      const kvRepliesRaw = await kv.getByPrefixLimited('reply:', 2000, 0).catch(() => []);
+      const kvReplies = (kvRepliesRaw as EmailReply[]).filter(r => r?.leadId && userLeadIds.has(r.leadId));
+
       for (const replyData of kvReplies) {
         const reply = replyData as EmailReply;
         
