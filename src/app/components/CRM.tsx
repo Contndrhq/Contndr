@@ -203,7 +203,39 @@ interface Client {
   created_at: string;
 }
 
+/**
+ * Returns whether the viewport matches the Tailwind `sm` breakpoint
+ * (≥640px). Used below to render EITHER the mobile card list OR the
+ * desktop table — not both. Previously the page mounted both DOM
+ * trees and toggled visibility via `block sm:hidden` / `hidden sm:block`
+ * so React was committing ~200 components per render (100 leads × 2
+ * variants × LeadAvatar inside each row). Conditional render via this
+ * hook drops it to ~100 — perf audit estimated -300–500ms TTI on the
+ * leads tab.
+ *
+ * SSR-safe default: assume desktop on first render so SSR markup
+ * matches what desktop users see; the effect re-evaluates immediately
+ * on hydration for actual mobile sizes (one-frame FOUC, acceptable).
+ */
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return window.matchMedia('(min-width: 640px)').matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(min-width: 640px)');
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    // Sync once on mount in case SSR default was wrong
+    setIsDesktop(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isDesktop;
+}
+
 export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds: string[]) => void; onUpgrade?: () => void }) {
+  const isDesktop = useIsDesktop();
   const { t } = useTranslation();
   const isDemoMode = useDemoMode();
   const { emit: emitRealtime } = useRealtimeContext();
@@ -2865,8 +2897,11 @@ export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds
           </div>
         ) : (
           <>
-            {/* Mobile Card View */}
-            <div className="block sm:hidden flex-1 min-h-0 overflow-y-auto p-4 space-y-4">{paginatedLeads.map((lead) => (<MobileLeadCard key={lead.id} lead={lead} selectedLeads={selectedLeads} toggleLeadSelection={toggleLeadSelection} setSelectedLeadId={setSelectedLeadId} statusColors={statusColors} needsReveal={needsReveal} revealLead={revealLead} revealingLeadId={revealingLeadId} showOutreach={teamLeads.length > 0} pipelineStage={pipelineLeadIds[lead.id] || null} intentLevel={highIntentLeadIds.has(lead.id) ? 'high' : mediumIntentLeadIds.has(lead.id) ? 'medium' : 'none'} onComposeEmail={handleComposeEmail} />))}</div><div className="block sm:hidden px-4">{/* Pagination for Mobile */}
+            {/* Mobile Card View — only mounted when viewport is <sm.
+               Class `block sm:hidden` is kept for safety against late
+               hydration on resize, but the JSX is gated on isDesktop
+               so React doesn't commit ~100 components on desktop. */}
+            {!isDesktop && <div className="block sm:hidden flex-1 min-h-0 overflow-y-auto p-4 space-y-4">{paginatedLeads.map((lead) => (<MobileLeadCard key={lead.id} lead={lead} selectedLeads={selectedLeads} toggleLeadSelection={toggleLeadSelection} setSelectedLeadId={setSelectedLeadId} statusColors={statusColors} needsReveal={needsReveal} revealLead={revealLead} revealingLeadId={revealingLeadId} showOutreach={teamLeads.length > 0} pipelineStage={pipelineLeadIds[lead.id] || null} intentLevel={highIntentLeadIds.has(lead.id) ? 'high' : mediumIntentLeadIds.has(lead.id) ? 'medium' : 'none'} onComposeEmail={handleComposeEmail} />))}</div>}{!isDesktop && <div className="block sm:hidden px-4">{/* Pagination for Mobile */}
               {totalPages > 1 && (
                 <div className="flex items-center justify-between py-4">
                    <button
@@ -2888,10 +2923,13 @@ export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds
                    </button>
                 </div>
               )}
-            </div>
+            </div>}
 
-            {/* Desktop/Tablet Table View */}
-            <div 
+            {/* Desktop/Tablet Table View — only mounted when ≥sm.
+               Class `hidden sm:block` retained for safety, but JSX is
+               gated on isDesktop so React doesn't commit the full
+               table tree on mobile. */}
+            {isDesktop && <div
               ref={desktopTableRef}
               className="hidden sm:block flex-1 min-h-0 overflow-auto"
             >
@@ -2977,11 +3015,11 @@ export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds
               </tbody>
               {/* (removed duplicate hidden tbody — never rendered, was re-rendering paginatedLeads on every state change) */}
             </table>
-            
-            </div>
 
-            {/* Desktop Pagination Controls for Leads Tab */}
-            {activeTab === 'leads' && totalPages > 1 && (
+            </div>}
+
+            {/* Desktop Pagination Controls for Leads Tab — only on ≥sm */}
+            {isDesktop && activeTab === 'leads' && totalPages > 1 && (
               <div className="hidden sm:flex sticky bottom-0 bg-white dark:bg-black border-t border-zinc-200 dark:border-zinc-800 px-4 py-3 items-center justify-between z-10">
                 <p className="text-xs text-zinc-500">
                   {t('crm.showingRange', { from: ((currentPage - 1) * leadsPerPage) + 1, to: Math.min(currentPage * leadsPerPage, totalLeads), total: totalLeads.toLocaleString() }, `Showing ${((currentPage - 1) * leadsPerPage) + 1} - ${Math.min(currentPage * leadsPerPage, totalLeads)} of ${totalLeads.toLocaleString()} leads`)}
@@ -3051,8 +3089,8 @@ export function CRM({ onStartFollowUp, onUpgrade }: { onStartFollowUp?: (leadIds
               </div>
             )}
 
-            {/* Desktop Pagination Controls for Non-Leads Tabs */}
-            {activeTab !== 'leads' && filteredLeads.length > leadsPerPage && (
+            {/* Desktop Pagination Controls for Non-Leads Tabs — only on ≥sm */}
+            {isDesktop && activeTab !== 'leads' && filteredLeads.length > leadsPerPage && (
               <div className="hidden sm:flex sticky bottom-0 bg-white dark:bg-black border-t border-zinc-200 dark:border-zinc-800 px-4 py-3 items-center justify-between">
                 <p className="text-xs text-zinc-500">
                   {t('crm.showingRange', { from: ((currentPage - 1) * leadsPerPage) + 1, to: Math.min(currentPage * leadsPerPage, filteredLeads.length), total: filteredLeads.length.toLocaleString() }, `Showing ${((currentPage - 1) * leadsPerPage) + 1} - ${Math.min(currentPage * leadsPerPage, filteredLeads.length)} of ${filteredLeads.length.toLocaleString()} leads`)}
