@@ -175,19 +175,22 @@ select:focus-visible {
 .email-body > div:last-child > :last-child,
 .email-body-fresh > :last-child { margin-bottom: 0; }
 
-/* Sent-bubble bodies sit on a light card (zinc-100) even in dark mode.
-   The HTML inside is almost always a templated outreach email that
-   carries inline `color: #ffffff` / `color: rgba(255,255,255,0.x)`
-   styles intended for dark backgrounds — which renders as invisible
-   white-on-white on our light bubble.
-   The universal selector + !important forces every descendant of
-   `.email-body-light` to render in readable ink no matter what
-   inline `style="color: ..."` or sender CSS classes were attached.
-   Strong/heading tags get a slightly darker shade so emphasis still
-   reads as emphasis. */
+/* Sent-bubble bodies use INVERTED background colors:
+     - light mode bubble: bg-zinc-800 (DARK) → text must be LIGHT
+     - dark mode  bubble: bg-zinc-100 (LIGHT) → text must be DARK
+   Templated outreach HTML carries inline `color: #fff` styles meant
+   for dark backgrounds; those work in light mode but render invisible
+   white-on-white in dark mode. So the override has to flip with the
+   theme.
+
+   `.email-body-light` is the SENT-bubble scope class. Treat it as
+   "force the text color appropriate for the bubble in the active
+   theme" regardless of the (slightly misleading) name. */
+
+/* LIGHT MODE — bubble is dark, force light text */
 .email-body-light,
 .email-body-light * {
-  color: #3f3f46 !important;        /* zinc-700 */
+  color: #f4f4f5 !important;        /* zinc-100 */
 }
 .email-body-light h1,
 .email-body-light h2,
@@ -195,15 +198,35 @@ select:focus-visible {
 .email-body-light h4,
 .email-body-light strong,
 .email-body-light b {
-  color: #18181b !important;        /* zinc-900 */
+  color: #ffffff !important;
 }
 .email-body-light a,
 .email-body-light a * {
+  color: #ffffff !important;
+  text-decoration-color: rgba(255, 255, 255, 0.7);
+}
+
+/* DARK MODE — bubble is light, force dark text */
+.dark .email-body-light,
+.dark .email-body-light * {
+  color: #3f3f46 !important;        /* zinc-700 */
+}
+.dark .email-body-light h1,
+.dark .email-body-light h2,
+.dark .email-body-light h3,
+.dark .email-body-light h4,
+.dark .email-body-light strong,
+.dark .email-body-light b {
+  color: #18181b !important;        /* zinc-900 */
+}
+.dark .email-body-light a,
+.dark .email-body-light a * {
   color: #18181b !important;
   text-decoration-color: rgba(24, 24, 27, 0.65);
 }
-/* Background overrides too — sender's "transparent" backgrounds can
-   end up as dark blocks on our light card. Force them to inherit. */
+
+/* Background overrides — sender's intended "dark block" wrappers must
+   not render as opaque rectangles over our bubble in either mode. */
 .email-body-light *[style*="background"] {
   background-color: transparent !important;
   background-image: none !important;
