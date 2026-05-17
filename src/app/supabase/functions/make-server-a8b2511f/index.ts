@@ -9208,58 +9208,116 @@ app.post("/make-server-a8b2511f/emails/inbound", async (c) => {
     const toMatch = toStr.match(/<(.+)>/);
     const toEmail = toMatch ? toMatch[1] : toStr;
     
-    // ── Tenant resolution (CRITICAL) ────────────────────────────────────
-    // Previously this looked up the lead globally by `from` email and
-    // picked the most recently contacted one — which routinely matched
-    // ANOTHER tenant's lead and silently flipped their status to
-    // "Replied." Cross-tenant data corruption.
-    //
-    // Correct flow: derive the tenant (user_id) from the RECIPIENT
-    // address (your own sending mailbox), then look up the lead within
-    // that tenant only. If we can't resolve a tenant, we drop the
-    // webhook rather than risk attribution to the wrong user.
+    // ── Tenant + lead resolution ────────────────────────────────────────
+    // Resolution order, most → least reliable:
+    //   1. RFC-5322 threading via `In-Reply-To` / `References` headers.
+    //      These map to a `resend_id` on the original outbound email
+    //      row, which carries user_id + lead_id + campaign_id directly.
+    //      Can't collide across tenants — Message-IDs are unique.
+    //   2. Tenant via recipient address + lead by from-email, scoped
+    //      to that tenant. Survives missing headers but requires the
+    //      recipient mailbox to have sent at least one email before.
+    //   3. Drop. Refusing to risk cross-tenant attribution.
 
     let tenantUserId: string | undefined;
-    if (toEmail) {
+    let lead: { id: string; user_id: string; business_name?: string } | undefined;
+    let threadedCampaignId: string | undefined;
+    let threadedEmailId: string | undefined;
+
+    // 1. Try header-based threading first. Resend / Postmark / SendGrid
+    // all forward these headers in their inbound webhook payload.
+    const inReplyTo: string = (payload.inReplyTo || payload.in_reply_to || payload.headers?.['in-reply-to'] || '').toString();
+    const referencesHdr: string = (payload.references || payload.headers?.['references'] || '').toString();
+    const headerIds: string[] = [];
+    const collectIds = (raw: string) => {
+      // Header format: `<id@host>` possibly space-separated. Try both
+      // the bracketed form, the bare id, and the id without @suffix.
+      for (const m of raw.matchAll(/<([^<>\s]+)>/g)) {
+        const full = m[1];
+        headerIds.push(full);
+        if (full.includes('@')) headerIds.push(full.split('@')[0]);
+      }
+    };
+    if (inReplyTo) collectIds(inReplyTo);
+    if (referencesHdr) collectIds(referencesHdr);
+
+    if (headerIds.length > 0) {
       try {
-        const { data: ownerRow } = await supabase
+        const { data: byMsgId } = await supabase
           .from('emails')
-          .select('user_id')
-          .eq('from_email', toEmail)
+          .select('id, lead_id, user_id, campaign_id, leads(id, user_id, business_name)')
+          .in('resend_id', headerIds)
           .limit(1)
           .maybeSingle();
-        tenantUserId = ownerRow?.user_id;
-      } catch (resolveErr) {
-        console.warn('[INBOUND] Tenant resolution failed:', resolveErr);
+        if (byMsgId?.user_id && byMsgId?.lead_id) {
+          tenantUserId = byMsgId.user_id;
+          threadedEmailId = byMsgId.id;
+          threadedCampaignId = byMsgId.campaign_id;
+          const joined = (byMsgId as any).leads;
+          if (joined && joined.id === byMsgId.lead_id) {
+            lead = { id: joined.id, user_id: joined.user_id, business_name: joined.business_name };
+          } else {
+            // Join didn't materialize — fetch the lead row directly
+            const { data: leadRow } = await supabase
+              .from('leads')
+              .select('id, user_id, business_name')
+              .eq('id', byMsgId.lead_id)
+              .eq('user_id', byMsgId.user_id)
+              .maybeSingle();
+            if (leadRow) lead = leadRow;
+          }
+          if (lead) {
+            console.log(`[INBOUND] Matched via In-Reply-To header → tenant ${tenantUserId}, lead ${lead.id}, campaign ${threadedCampaignId || 'none'}`);
+          }
+        }
+      } catch (threadErr) {
+        console.warn('[INBOUND] Header-based threading lookup failed:', threadErr);
       }
     }
 
-    if (!tenantUserId) {
-      console.warn(`[INBOUND] Could not resolve tenant for recipient ${toEmail} — dropping (refusing to risk cross-tenant attribution)`);
-      return c.json({ message: 'Unresolved tenant, dropped' });
-    }
+    // 2. Fallback: tenant via recipient address, lead via from-email.
+    if (!lead) {
+      if (toEmail) {
+        try {
+          const { data: ownerRow } = await supabase
+            .from('emails')
+            .select('user_id')
+            .eq('from_email', toEmail)
+            .limit(1)
+            .maybeSingle();
+          tenantUserId = ownerRow?.user_id;
+        } catch (resolveErr) {
+          console.warn('[INBOUND] Tenant resolution failed:', resolveErr);
+        }
+      }
 
-    // Find Lead — scoped to the resolved tenant. limit(1) for safety
-    // if duplicate emails-per-tenant exist; order by last_contacted so
-    // the reply goes to the most recently contacted instance.
-    const { data: leads, error: leadError } = await supabase
-        .from('leads')
-        .select('id, user_id, business_name')
-        .eq('user_id', tenantUserId)           // ← CRITICAL: tenant scope
-        .ilike('email', fromEmail)
-        .order('last_contacted', { ascending: false })
-        .limit(1);
+      if (!tenantUserId) {
+        console.warn(`[INBOUND] Could not resolve tenant for recipient ${toEmail} (no thread header match either) — dropping`);
+        return c.json({ message: 'Unresolved tenant, dropped' });
+      }
 
-    const lead = leads?.[0];
+      const { data: leads, error: leadError } = await supabase
+          .from('leads')
+          .select('id, user_id, business_name')
+          .eq('user_id', tenantUserId)           // ← tenant scope
+          .ilike('email', fromEmail)
+          .order('last_contacted', { ascending: false })
+          .limit(1);
 
-    if (leadError || !lead) {
-        console.log(`[INBOUND] No lead found for ${fromEmail} within tenant ${tenantUserId}. Ignoring.`);
-        return c.json({ message: 'No lead found, ignored' });
+      lead = leads?.[0];
+
+      if (leadError || !lead) {
+          console.log(`[INBOUND] No lead found for ${fromEmail} within tenant ${tenantUserId}. Ignoring.`);
+          return c.json({ message: 'No lead found, ignored' });
+      }
     }
     
     console.log(`[INBOUND] Found lead: ${lead.business_name} (${lead.id})`);
     
-    // Insert Email Record
+    // Insert Email Record. If we resolved this via In-Reply-To header
+    // we know the original campaign_id, so attach it — that's what
+    // gives the reply a proper thread bucket in the inbox UI instead
+    // of getting dumped into the "general" orphan thread.
     const { data: email, error: emailError } = await supabase
         .from('emails')
         .insert({
@@ -9271,7 +9329,8 @@ app.post("/make-server-a8b2511f/emails/inbound", async (c) => {
             text_body: payload.text,
             html_body: payload.html,
             received_at: new Date().toISOString(),
-            // Ensure we mark it as received so it shows up in inbox
+            ...(threadedCampaignId ? { campaign_id: threadedCampaignId } : {}),
+            ...(threadedEmailId ? { in_reply_to: threadedEmailId } : {}),
         })
         .select()
         .single();

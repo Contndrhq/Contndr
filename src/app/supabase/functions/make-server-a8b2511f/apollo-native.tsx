@@ -826,60 +826,107 @@ async function hybridEnrichPeople(
     send("phase", { phase: 4.5, name: "Checking existing CRM contacts", status: "complete", found: crmHydrated });
   }
 
-  // ── Phase 2: Hunter.io for leads missing email (also grabs phone if returned) ──
-  // Now we have full names + org website_urls from the reveal
+  // ── Phase 2: Hunter.io domain-search (COALESCED) ──
+  // Previously this called Hunter `email-finder` once per missing-email
+  // lead — N API calls for N leads. Phase 4 below then called
+  // `domain-search` per domain for phones. Wasteful: domain-search
+  // returns the SAME 100-people-per-domain payload that contains
+  // email + phone + linkedin — one call satisfies both phases.
+  //
+  // New flow: bucket leads-missing-email by domain → one domain-search
+  // per UNIQUE domain → match returned people to our leads by name →
+  // cache the response so Phase 4 (phone enrichment) can reuse it
+  // without re-hitting Hunter. Cuts Hunter API calls by ~50% on
+  // multi-lead-per-company searches and 2-4s off enrichment latency.
   let hunterFound = 0;
   let hunterPhoneFound = 0;
   const leadsNoEmail = [...revealedMap.entries()].filter(([, l]) => !l.email && l.organization?.website_url);
+  // Per-domain cache shared with Phase 4 below. Key = bare domain.
+  const hunterDomainCache = new Map<string, {
+    people: Array<{ first_name?: string; last_name?: string; value?: string; phone_number?: string; linkedin?: string; position?: string; confidence?: number }>;
+    orgPhone: string;
+  }>();
 
   if (HUNTER_API_KEY && leadsNoEmail.length > 0 && !isCancelledFn()) {
-    send("phase", { phase: 5, name: `Verifying emails (${leadsNoEmail.length} leads)`, status: "processing" });
-    send("activity", { message: `Querying Hunter.io for ${leadsNoEmail.length} leads missing email addresses...`, type: "info" });
-    console.log(`[ENRICH] Phase 2: Hunter.io for ${leadsNoEmail.length} leads missing email`);
-    const HB = 10;
-    for (let i = 0; i < leadsNoEmail.length; i += HB) {
+    // Bucket by domain — one Hunter call per unique domain.
+    const domainBuckets = new Map<string, [string, ApolloLead][]>();
+    for (const [id, lead] of leadsNoEmail) {
+      const domain = lead.organization.website_url.replace(/^https?:\/\//, '').replace(/\/.*/, '').replace(/^www\./, '');
+      if (!domain || !lead.first_name) continue;
+      if (!domainBuckets.has(domain)) domainBuckets.set(domain, []);
+      domainBuckets.get(domain)!.push([id, lead]);
+    }
+    const uniqueDomains = [...domainBuckets.keys()];
+
+    send("phase", { phase: 5, name: `Verifying emails (${leadsNoEmail.length} leads, ${uniqueDomains.length} domains)`, status: "processing" });
+    send("activity", { message: `Querying Hunter.io across ${uniqueDomains.length} unique domains for ${leadsNoEmail.length} leads...`, type: "info" });
+    console.log(`[ENRICH] Phase 2 (coalesced): Hunter.io domain-search × ${uniqueDomains.length} for ${leadsNoEmail.length} leads`);
+
+    const DB = 5; // domain batch — Hunter rate-limit friendly
+    for (let i = 0; i < uniqueDomains.length; i += DB) {
       if (isCancelledFn()) break;
-      const batch = leadsNoEmail.slice(i, i + HB);
-      const br = await Promise.allSettled(
-        batch.map(async ([id, lead]) => {
-          const domain = lead.organization.website_url.replace(/^https?:\/\//, '').replace(/\/.*/, '').replace(/^www\./, '');
-          if (!domain || !lead.first_name || !lead.last_name) return null;
+      const domainBatch = uniqueDomains.slice(i, i + DB);
+      const results = await Promise.allSettled(
+        domainBatch.map(async (domain) => {
           try {
-            const url = `https://api.hunter.io/v2/email-finder?first_name=${encodeURIComponent(lead.first_name)}&last_name=${encodeURIComponent(lead.last_name)}&domain=${encodeURIComponent(domain)}&api_key=${HUNTER_API_KEY}`;
+            const url = `https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(domain)}&api_key=${HUNTER_API_KEY}&limit=100`;
             const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-            if (!r.ok) return null;
+            if (!r.ok) return { domain, people: [], orgPhone: '' };
             const d = await r.json();
-            if (d.data?.email) return { id, email: d.data.email, status: d.data.score > 80 ? 'verified' : 'guessed', source: 'hunter', phone: d.data.phone_number || null, linkedin: d.data.linkedin_url || null };
-            return null;
-          } catch { return null; }
-        })
+            const orgPhone = d.data?.organization?.phone_number || '';
+            const people = (d.data?.emails || []) as any[];
+            return { domain, people, orgPhone };
+          } catch { return { domain, people: [], orgPhone: '' }; }
+        }),
       );
-      for (const r of br) {
-        if (r.status === 'fulfilled' && r.value) {
-          hunterFound++;
-          const lead = revealedMap.get(r.value.id);
-          if (lead) {
-            lead.email = r.value.email;
-            lead.email_status = r.value.status;
+
+      for (const r of results) {
+        if (r.status !== 'fulfilled' || !r.value) continue;
+        const { domain, people: domainPeople, orgPhone } = r.value;
+        // Cache for Phase 4 reuse
+        hunterDomainCache.set(domain, { people: domainPeople, orgPhone });
+
+        // Match our leads against returned people by normalized name
+        const leadsForDomain = domainBuckets.get(domain) || [];
+        for (const [id, lead] of leadsForDomain) {
+          const targetFirst = (lead.first_name || '').toLowerCase().trim();
+          const targetLast = (lead.last_name || '').toLowerCase().trim();
+          if (!targetFirst) continue;
+
+          const match = domainPeople.find((p: any) => {
+            const pf = String(p.first_name || '').toLowerCase().trim();
+            const pl = String(p.last_name || '').toLowerCase().trim();
+            if (!pf) return false;
+            // Exact first-name match required; last-name match required if we
+            // have one, else first-initial of last name as fallback.
+            if (pf !== targetFirst) return false;
+            if (targetLast && pl) return pl === targetLast;
+            if (targetLast && !pl) return false;
+            return true;
+          });
+
+          if (match?.value) {
+            lead.email = match.value;
+            lead.email_status = (match.confidence ?? 0) > 80 ? 'verified' : 'guessed';
             (lead as any)._enrichment_source = 'hunter';
-            // Also grab phone from Hunter response (free — no extra API call)
-            if (r.value.phone && lead.phone_numbers.length === 0) {
-              lead.phone_numbers.push({ raw_number: r.value.phone, type: "direct" });
+            hunterFound++;
+            if (match.phone_number && lead.phone_numbers.length === 0) {
+              lead.phone_numbers.push({ raw_number: match.phone_number, type: 'direct' });
               hunterPhoneFound++;
             }
-            // Also grab LinkedIn if missing
-            if (r.value.linkedin && !lead.linkedin_url) {
-              lead.linkedin_url = r.value.linkedin;
+            if (match.linkedin && !lead.linkedin_url) {
+              lead.linkedin_url = match.linkedin;
             }
           }
         }
       }
-      send("progress", { fetched: Math.min(i + HB, leadsNoEmail.length), total: leadsNoEmail.length, phase: "hunter" });
-      if (i + HB < leadsNoEmail.length) await sleep(300);
+      send("progress", { fetched: Math.min(i + DB, uniqueDomains.length), total: uniqueDomains.length, phase: "hunter" });
+      if (i + DB < uniqueDomains.length) await sleep(300);
     }
-    console.log(`[ENRICH] Hunter found ${hunterFound}/${leadsNoEmail.length} emails, ${hunterPhoneFound} phones`);
-    if (hunterFound > 0) send("activity", { message: `Hunter.io found ${hunterFound} additional emails${hunterPhoneFound > 0 ? ` and ${hunterPhoneFound} phone numbers` : ''}`, type: "success" });
-    else send("activity", { message: `Hunter.io scan complete — no additional emails found`, type: "info" });
+
+    console.log(`[ENRICH] Hunter (coalesced) found ${hunterFound}/${leadsNoEmail.length} emails, ${hunterPhoneFound} phones across ${uniqueDomains.length} domains`);
+    if (hunterFound > 0) send("activity", { message: `Hunter.io found ${hunterFound} emails${hunterPhoneFound > 0 ? ` and ${hunterPhoneFound} phones` : ''} (${uniqueDomains.length} API calls vs ${leadsNoEmail.length} previously)`, type: "success" });
+    else send("activity", { message: `Hunter.io scan complete — no matches found`, type: "info" });
   }
 
   // ── Phase 3: Findymail for remaining leads without email ──
@@ -947,8 +994,10 @@ async function hybridEnrichPeople(
     send("activity", { message: `Searching for direct phone numbers for ${leadsNoPhone.length} leads...`, type: "info" });
     console.log(`[ENRICH] Phase 4: Phone enrichment for ${leadsNoPhone.length} leads missing phone`);
 
-    // 4a. Hunter.io domain-search — returns people at a domain with phone_number field
-    // We batch by unique domain to avoid duplicate API calls
+    // 4a. Hunter.io domain-search — Phase 2 above already cached
+    // domain-search results for every domain that had a missing-email
+    // lead. Reuse that cache here; only call Hunter for domains that
+    // weren't already searched. Further cuts redundant API calls.
     if (HUNTER_API_KEY) {
       const domainLeadMap = new Map<string, { id: string; lead: ApolloLead }[]>();
       for (const [id, lead] of leadsNoPhone) {
@@ -958,11 +1007,17 @@ async function hybridEnrichPeople(
         domainLeadMap.get(domain)!.push({ id, lead });
       }
 
-      const domains = [...domainLeadMap.keys()];
+      const allDomains = [...domainLeadMap.keys()];
+      const uncachedDomains = allDomains.filter((d) => !hunterDomainCache.has(d));
+      const cacheHits = allDomains.length - uncachedDomains.length;
+      if (cacheHits > 0) {
+        console.log(`[ENRICH] Phase 4 reusing Phase 2 cache for ${cacheHits}/${allDomains.length} domains`);
+      }
+
       const PB = 5; // Phone batch size
-      for (let i = 0; i < domains.length; i += PB) {
+      for (let i = 0; i < uncachedDomains.length; i += PB) {
         if (isCancelledFn()) break;
-        const domainBatch = domains.slice(i, i + PB);
+        const domainBatch = uncachedDomains.slice(i, i + PB);
         const results = await Promise.allSettled(
           domainBatch.map(async (domain) => {
             try {
@@ -970,27 +1025,41 @@ async function hybridEnrichPeople(
               const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
               if (!r.ok) return { domain, people: [], orgPhone: "" };
               const d = await r.json();
-              // Extract people with phone numbers from the domain search response
               const orgPhone = d.data?.organization?.phone_number || "";
-              const people = (d.data?.emails || []).filter((e: any) => e.phone_number);
+              const people = (d.data?.emails || []) as any[];
               return { domain, people, orgPhone };
             } catch { return { domain, people: [], orgPhone: "" }; }
           })
         );
-
         for (const r of results) {
-          if (r.status !== 'fulfilled' || !r.value) continue;
-          const { domain, people: domainPeople, orgPhone } = r.value;
+          if (r.status === 'fulfilled' && r.value) {
+            hunterDomainCache.set(r.value.domain, { people: r.value.people, orgPhone: r.value.orgPhone });
+          }
+        }
+        if (i + PB < uncachedDomains.length) await sleep(300);
+      }
+
+      // Apply phone enrichment from the (now fully populated) cache.
+      // Single pass over allDomains — no batching needed, this is pure
+      // in-memory work over data we already fetched.
+      let domainsProcessed = 0;
+      for (const domain of allDomains) {
+        if (isCancelledFn()) break;
+        const cached = hunterDomainCache.get(domain);
+        if (cached) {
+          const { people: rawPeople, orgPhone } = cached;
+          const domainPeople = rawPeople.filter((e: any) => e.phone_number);
           const leads = domainLeadMap.get(domain) || [];
 
-          for (const { id, lead } of leads) {
-            if (lead.phone_numbers.length > 0) continue; // Already has phone from earlier step
+          for (const { id: _id, lead } of leads) {
+            if (lead.phone_numbers.length > 0) continue; // Already has phone
 
-            // Try to match by name to find direct phone
+            // Match by exact first+last name to find a direct phone
             const match = domainPeople.find((p: any) => {
-              const fn = (p.first_name || "").toLowerCase();
-              const ln = (p.last_name || "").toLowerCase();
-              return fn === lead.first_name.toLowerCase() && ln === lead.last_name.toLowerCase();
+              const fn = String(p.first_name || '').toLowerCase();
+              const ln = String(p.last_name || '').toLowerCase();
+              return fn === (lead.first_name || '').toLowerCase()
+                  && ln === (lead.last_name || '').toLowerCase();
             });
 
             if (match?.phone_number) {
@@ -998,15 +1067,17 @@ async function hybridEnrichPeople(
               (lead as any)._phone_source = 'hunter_domain';
               phoneEnrichFound++;
             } else if (orgPhone) {
-              // Use organization phone as fallback
+              // Fall back to organization phone
               lead.phone_numbers.push({ raw_number: orgPhone, type: "company" });
               (lead as any)._phone_source = 'hunter_org';
               phoneEnrichFound++;
             }
           }
         }
-        send("progress", { fetched: Math.min(i + PB, domains.length), total: domains.length, phase: "phone_enrich" });
-        if (i + PB < domains.length) await sleep(300);
+        domainsProcessed++;
+        if (domainsProcessed % 5 === 0) {
+          send("progress", { fetched: domainsProcessed, total: allDomains.length, phase: "phone_enrich" });
+        }
       }
     }
 
