@@ -33,16 +33,29 @@ export function EmailMessageBody({ body, htmlBody, isSent }: Props) {
     [body, htmlBody]
   );
 
+  // Sent bubbles sit on a LIGHT background in both light and dark mode
+  // (`bg-zinc-800` light / `dark:bg-zinc-100`), so we always need DARK
+  // ink. Templated outreach emails carry inline `color: #fff` styles
+  // intended for the dark bg they were designed against — which renders
+  // invisible white-on-white. The `email-body-light` class wires into
+  // a `.email-body-light *` override in globals.css that forces every
+  // descendant (even ones with inline `style="color:"`) into readable
+  // ink via !important.
   const proseColor = isSent
-    ? 'text-zinc-100 dark:text-zinc-900'
+    ? 'text-zinc-800 dark:text-zinc-800'
     : 'text-zinc-800 dark:text-zinc-200';
 
   const linkColor = isSent
-    ? '[&_a]:text-emerald-300 dark:[&_a]:text-emerald-700'
+    ? '[&_a]:text-zinc-900 dark:[&_a]:text-zinc-900'
     : '[&_a]:text-emerald-600 dark:[&_a]:text-emerald-400';
 
+  const scopeClass = isSent ? 'email-body-light' : '';
+
   return (
-    <div className={`text-sm leading-relaxed ${proseColor} email-body ${linkColor}`}>
+    <div
+      className={`text-sm leading-relaxed ${proseColor} email-body ${scopeClass} ${linkColor}`}
+      style={isSent ? { color: '#3f3f46' } : undefined}
+    >
       <div
         className="email-body-fresh"
         dangerouslySetInnerHTML={{ __html: freshHtml || '<em class="opacity-60">(no content)</em>' }}
