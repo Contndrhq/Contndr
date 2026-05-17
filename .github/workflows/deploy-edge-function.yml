@@ -1,0 +1,74 @@
+name: Deploy Supabase Edge Function
+
+# Runs whenever main is updated AND the Edge Function source actually
+# changed. Skips the deploy step on unrelated commits to save CI time.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/app/supabase/functions/make-server-a8b2511f/**'
+  # Allow manual re-deploy from the Actions tab without a code change
+  workflow_dispatch:
+
+# Avoid two deploys racing on rapid pushes
+concurrency:
+  group: deploy-edge-function
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy make-server-a8b2511f
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Verify env
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN secret is missing. Add it under Settings → Secrets → Actions."
+            exit 1
+          fi
+          if [ -z "$PROJECT_REF" ]; then
+            echo "::error::SUPABASE_PROJECT_REF secret is missing. Add it under Settings → Secrets → Actions."
+            exit 1
+          fi
+
+      # This repo keeps Edge Functions at src/app/supabase/functions/<name>
+      # instead of the conventional <root>/supabase/functions/<name>. The CLI
+      # looks for `supabase/functions/...` relative to the working directory,
+      # so we deploy from src/app/ where that path resolves.
+      - name: Deploy function
+        working-directory: src/app
+        run: |
+          supabase functions deploy make-server-a8b2511f \
+            --project-ref "$PROJECT_REF" \
+            --no-verify-jwt
+
+      - name: Smoke-check
+        run: |
+          # Hit /ping to confirm the new build is live. Don't fail the
+          # job on a non-200 — the function can be slow to swap and we
+          # still want to see deploy-completed in the summary.
+          set +e
+          URL="https://${PROJECT_REF}.supabase.co/functions/v1/make-server-a8b2511f/ping"
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' "$URL" || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ /ping → 200 after ${i} attempt(s)"
+              break
+            fi
+            echo "Attempt $i: status $STATUS, retrying in 5s..."
+            sleep 5
+          done
