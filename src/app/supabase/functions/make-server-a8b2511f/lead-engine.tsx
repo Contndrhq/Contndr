@@ -125,6 +125,7 @@ function scoreCompany(c: RawCompany): number {
 
   // Presence signals
   if (c.domain) score += 20;
+  else score += 5;                       // websiteless biz still counts — many SMBs are Maps-only
   if (c.phone) score += 10;
   if (c.address) score += 10;
   if (c.description) score += 5;
@@ -425,7 +426,7 @@ function matchPersonToCompany(person: DiscoveredPerson, companies: RawCompany[])
 app.post("/search", async (c) => {
   try {
     const { user, supabase } = await getAuthenticatedUser(c);
-    const { industry, location, keywords, depth = "standard" } = await c.req.json();
+    const { industry, location, keywords, depth = "deep" } = await c.req.json(); // default deep (3 pages) — standard returned too few results
 
     if (!industry || !location) {
       return c.json({ error: "Industry and location are required" }, 400);
@@ -481,18 +482,31 @@ app.post("/search", async (c) => {
     });
 
     const pageResultsSettled = await Promise.allSettled(pageFetches);
+    const seenNames = new Set<string>();
     for (let page = 0; page < pageResultsSettled.length; page++) {
       const settled = pageResultsSettled[page];
       const results = settled.status === 'fulfilled' ? settled.value : [];
       if (results.length === 0) continue;
       for (const r of results) {
         const domain = extractDomain(r.website);
-        if (!domain || isJunkDomain(domain) || seenDomains.has(domain)) continue;
-        seenDomains.add(domain);
+        // Drop ONLY junk domains and dup domains. Companies without a
+        // website are still valid leads (huge swath of small biz —
+        // restaurants, retail, services — operate from Maps/Facebook
+        // alone). Previously we threw them away entirely.
+        if (domain && (isJunkDomain(domain) || seenDomains.has(domain))) continue;
+
+        // For domainless rows, dedup by (name + address) so the same
+        // place from Maps + organic doesn't show twice.
+        const nameKey = `${(r.title || '').toLowerCase()}|${(r.address || '').toLowerCase()}`;
+        if (!domain && seenNames.has(nameKey)) continue;
+
+        if (domain) seenDomains.add(domain);
+        else seenNames.add(nameKey);
+
         allCompanies.push({
           name: r.title,
-          domain,
-          website: r.website,
+          domain: domain || '',          // empty string when none
+          website: r.website || '',
           phone: r.phone,
           address: r.address,
           rating: r.rating,
@@ -562,7 +576,13 @@ app.post("/search", async (c) => {
     scored.sort((a, b) => (b.quality_score || 0) - (a.quality_score || 0));
 
     // Filter: require minimum quality (must have at least a domain = 30 points)
-    const qualified = scored.filter(c => (c.quality_score || 0) >= 30);
+    // Threshold relaxed from 30 → 15. The 30 cutoff was discarding any
+// company that didn't have BOTH a website AND multiple reputation
+// signals — which is most of the small-biz long tail (retail,
+// restaurants, services that operate from a Maps listing + phone).
+// We still sort by score, so the best leads surface first — we just
+// don't pretend lower-scored ones don't exist.
+const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
 
     // Cache search metadata
     const searchKey = `search:${industry}:${location}:${depth}`.toLowerCase().replace(/\s+/g, '-');
@@ -581,8 +601,13 @@ app.post("/search", async (c) => {
     let companiesWithContacts = 0;
     let autoEnrichedCount = 0;
     if (qualified.length > 0) {
-      const numToDiscover = depth === 'maximum' ? 8 : depth === 'deep' ? 5 : 3;
-      const topForDiscovery = qualified.slice(0, numToDiscover);
+      // Bumped from 3/5/8 — too small; most searches returned 0
+      // contacts. Filter to companies with domains (Findymail/Hunter
+      // need one) before slicing so we don't burn the cap.
+      const numToDiscover = depth === 'maximum' ? 25 : depth === 'deep' ? 15 : 8;
+      const topForDiscovery = qualified
+        .filter((c) => !!c.domain)
+        .slice(0, numToDiscover);
 
       console.log(`[LEAD ENGINE] Phase 4: Multi-source contact discovery for top ${topForDiscovery.length} companies...`);
 
@@ -763,7 +788,9 @@ app.post("/search", async (c) => {
     // Run full enrichment (with email verification) for the top 2 companies that have discovered contacts
     // This gives users verified emails immediately for the best leads
     if (qualified.length > 0 && companiesWithContacts > 0) {
-      const numToAutoEnrich = depth === 'maximum' ? 2 : 1;
+      // Was 1-2; now actually enriches a meaningful number of the
+      // top companies. Bounded by depth so we don't blow the wall clock.
+      const numToAutoEnrich = depth === 'maximum' ? 10 : depth === 'deep' ? 6 : 3;
       const toAutoEnrich = qualified
         .filter(c => c.discovered_contacts?.length && !c.enrichedData)
         .slice(0, numToAutoEnrich);
@@ -887,7 +914,7 @@ app.post("/search-stream", async (c) => {
     const { user, supabase } = await getAuthenticatedUser(c);
     console.log(`[LEAD ENGINE SSE] Authenticated user: ${user.email} (ID: ${user.id})`);
     
-    const { industry, location, keywords, depth = "standard" } = await c.req.json();
+    const { industry, location, keywords, depth = "deep" } = await c.req.json(); // default deep (3 pages) — standard returned too few results
     console.log(`[LEAD ENGINE SSE] Request params:`, { industry, location, keywords, depth });
 
     if (!industry || !location) {
@@ -978,15 +1005,24 @@ app.post("/search-stream", async (c) => {
           });
 
           let pagesSettled = 0;
+          const seenNames = new Set<string>();
           for (const promise of pagePromises) {
             promise.then(({ page, results }) => {
               if (isCancelled) return;
               for (const r of results) {
                 const domain = extractDomain(r.website);
-                if (!domain || isJunkDomain(domain) || seenDomains.has(domain)) continue;
-                seenDomains.add(domain);
+                // Keep websiteless rows (most small businesses don't
+                // have one). Only drop junk and dup-domain.
+                if (domain && (isJunkDomain(domain) || seenDomains.has(domain))) continue;
+                const nameKey = `${(r.title || '').toLowerCase()}|${(r.address || '').toLowerCase()}`;
+                if (!domain && seenNames.has(nameKey)) continue;
+                if (domain) seenDomains.add(domain);
+                else seenNames.add(nameKey);
                 allCompanies.push({
-                  name: r.title, domain, website: r.website, phone: r.phone,
+                  name: r.title,
+                  domain: domain || '',
+                  website: r.website || '',
+                  phone: r.phone,
                   address: r.address, rating: r.rating, reviews: r.reviews,
                   types: r.types, place_id: r.place_id, description: r.description,
                   source: 'google_maps', industry: toTitleCase(industry),
@@ -1041,7 +1077,13 @@ app.post("/search-stream", async (c) => {
 
           const scored = allCompanies.map(c => ({ ...c, quality_score: scoreCompany(c) }));
           scored.sort((a, b) => (b.quality_score || 0) - (a.quality_score || 0));
-          const qualified = scored.filter(c => (c.quality_score || 0) >= 30);
+          // Threshold relaxed from 30 → 15. The 30 cutoff was discarding any
+// company that didn't have BOTH a website AND multiple reputation
+// signals — which is most of the small-biz long tail (retail,
+// restaurants, services that operate from a Maps listing + phone).
+// We still sort by score, so the best leads surface first — we just
+// don't pretend lower-scored ones don't exist.
+const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
 
           send("phase", { phase: 3, name: "Quality Scoring", status: "complete", qualified: qualified.length, filtered_out: allCompanies.length - qualified.length });
 
@@ -1059,8 +1101,15 @@ app.post("/search-stream", async (c) => {
               send("phase", { phase: 4, name: "Contact Discovery", status: "searching", sources: contactSources });
             }
 
-            const numToDiscover = depth === 'maximum' ? 8 : depth === 'deep' ? 5 : 3;
-            const topForDiscovery = qualified.slice(0, numToDiscover);
+            // Bump discovery caps so users actually get contacts. Was
+            // 3 / 5 / 8 — way too small; most searches returned 0
+            // companies with discovered contacts. Restrict to companies
+            // with a domain (Findymail/Hunter need one), and dedup
+            // those before slicing so we don't burn cap on duplicates.
+            const numToDiscover = depth === 'maximum' ? 25 : depth === 'deep' ? 15 : 8;
+            const topForDiscovery = qualified
+              .filter((c) => !!c.domain)
+              .slice(0, numToDiscover);
 
             try {
               if (isCancelled) throw new Error("Cancelled");
@@ -1221,8 +1270,13 @@ app.post("/search-stream", async (c) => {
           if (isCancelled) return;
           let autoEnrichedCount = 0;
           const shouldAutoEnrich = qualified.length > 0 && companiesWithContacts > 0;
+          // Auto-enrich every candidate that has discovered contacts
+          // (capped to a reasonable max per depth so we don't blow the
+          // Edge wall-clock). Old cap of 1-2 was leaving 90% of
+          // discovered contacts unverified.
+          const enrichCap = depth === 'maximum' ? 10 : depth === 'deep' ? 6 : 3;
           const toAutoEnrich = shouldAutoEnrich
-            ? qualified.filter(c => c.discovered_contacts?.length && !c.enrichedData).slice(0, depth === 'maximum' ? 2 : 1)
+            ? qualified.filter(c => c.discovered_contacts?.length && !c.enrichedData).slice(0, enrichCap)
             : [];
 
           if (toAutoEnrich.length > 0) {
