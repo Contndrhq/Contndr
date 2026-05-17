@@ -19923,12 +19923,25 @@ app.get("/make-server-a8b2511f/today", async (c) => {
     const HOT_WINDOW_MIN = 10; // visitor counts as "on site now" if seen in last 10 min
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
 
-    // Run everything in parallel — fail-soft on any individual source
+    // Run everything in parallel — fail-soft on any individual source.
+    // Added sources beyond the original 4 (visitors / replies /
+    // campaigns / calls): newly-created leads today, closed-won deals
+    // today, recent bounces (deliverability signal), scheduled campaigns
+    // about to fire, and the user's own subscription status (for
+    // payment-failed nudges).
+    const last24hIso = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
+    const todayStartIso = todayStart.toISOString();
+
     const [
       visitsRaw,
       repliedEmailsRes,
       activeCampaignsRes,
+      scheduledCampaignsRes,
       allCallsRaw,
+      newLeadsRes,
+      dealsWonRes,
+      bouncesRes,
+      subRecordRaw,
     ] = await Promise.all([
       kvGetByPrefixSafe(`recent_visit_v2:${userId}:`, []).catch(() => []),
       supabase
@@ -19947,7 +19960,42 @@ app.get("/make-server-a8b2511f/today", async (c) => {
         .order('updated_at', { ascending: false })
         .limit(20)
         .then((r: any) => r).catch(() => ({ data: [], error: null })),
+      supabase
+        .from('campaigns')
+        .select('id, name, scheduled_at')
+        .eq('user_id', userId)
+        .eq('status', 'scheduled')
+        .gte('scheduled_at', new Date(nowMs).toISOString())
+        .lte('scheduled_at', new Date(nowMs + 24 * 60 * 60 * 1000).toISOString())
+        .order('scheduled_at', { ascending: true })
+        .limit(10)
+        .then((r: any) => r).catch(() => ({ data: [], error: null })),
       kv.getByPrefixLimited('call:', 1000, 0).catch(() => []),
+      supabase
+        .from('leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .gte('created_at', todayStartIso)
+        .then((r: any) => r).catch(() => ({ count: 0, error: null })),
+      // Closed-won pipeline deals today (table name and column may differ;
+      // fail-soft so missing schema doesn't break the rest of the panel).
+      supabase
+        .from('pipeline_deals')
+        .select('id, name, amount, stage, customer_name, updated_at')
+        .eq('user_id', userId)
+        .eq('stage', 'closed_won')
+        .gte('updated_at', todayStartIso)
+        .order('updated_at', { ascending: false })
+        .limit(10)
+        .then((r: any) => r).catch(() => ({ data: [], error: null })),
+      supabase
+        .from('emails')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('status', 'bounced')
+        .gte('updated_at', last24hIso)
+        .then((r: any) => r).catch(() => ({ count: 0, error: null })),
+      kv.get(`contndr_sub:${userId}`).catch(() => null),
     ]);
 
     // ── Hot visitors on site right now ──
@@ -20019,6 +20067,37 @@ app.get("/make-server-a8b2511f/today", async (c) => {
       ['initiated', 'ringing', 'answered', 'speaking', 'listening', 'processing'].includes(cc.status)
     ).length;
 
+    // ── New leads added today (by you or your team) ──
+    const newLeadsCount = Number((newLeadsRes as any)?.count || 0);
+
+    // ── Deals closed-won today ──
+    const dealsWon = ((dealsWonRes as any)?.data || []) as any[];
+    const dealsWonItems = dealsWon.slice(0, 5).map((d: any) => ({
+      id: d.id,
+      name: d.name || d.customer_name || 'Deal',
+      customer: d.customer_name || '',
+      amount: typeof d.amount === 'number' ? d.amount : Number(d.amount) || 0,
+    }));
+    const dealsWonTotal = dealsWon.reduce((s: number, d: any) => {
+      const n = typeof d.amount === 'number' ? d.amount : Number(d.amount) || 0;
+      return s + n;
+    }, 0);
+
+    // ── Bounce spike in last 24h (deliverability risk) ──
+    const bouncesLast24h = Number((bouncesRes as any)?.count || 0);
+
+    // ── Scheduled campaigns about to fire (next 24h) ──
+    const scheduledSoon = ((scheduledCampaignsRes as any)?.data || []) as any[];
+    const scheduledItems = scheduledSoon.slice(0, 5).map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      scheduled_at: s.scheduled_at,
+    }));
+
+    // ── Subscription / payment health (only nudge when there's a problem) ──
+    const sub = (subRecordRaw as any) || {};
+    const paymentTrouble = ['past_due', 'unpaid', 'incomplete', 'incomplete_expired'].includes(sub.status);
+
     c.header('Cache-Control', 'no-store');
     return c.json({
       success: true,
@@ -20031,6 +20110,15 @@ app.get("/make-server-a8b2511f/today", async (c) => {
         connected: connectedToday,
         active_now: activeNow,
       },
+      new_leads_today: { count: newLeadsCount },
+      deals_won_today: {
+        count: dealsWon.length,
+        total_amount: dealsWonTotal,
+        items: dealsWonItems,
+      },
+      bounces_last_24h: { count: bouncesLast24h },
+      scheduled_soon: { count: scheduledSoon.length, items: scheduledItems },
+      payment_alert: paymentTrouble ? { status: sub.status } : null,
     });
   } catch (error: any) {
     console.error('[TODAY] Aggregator failed:', error);
