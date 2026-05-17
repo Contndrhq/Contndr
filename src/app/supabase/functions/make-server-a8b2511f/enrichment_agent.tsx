@@ -1456,7 +1456,7 @@ export async function quickDiscoverContacts(domain: string): Promise<{
             };
           })
           .sort((a: QuickContact, b: QuickContact) => a.role_tier - b.role_tier)
-          .slice(0, 3);
+          .slice(0, 8);
 
         if (results.length > 0) return results;
       } else {
@@ -1481,12 +1481,128 @@ export async function quickDiscoverContacts(domain: string): Promise<{
             role_tier: getRoleTier(c.title)
           }))
           .sort((a, b) => a.role_tier - b.role_tier)
-          .slice(0, 3);
+          .slice(0, 8);
       }
     } catch { /* no contacts */ }
   }
 
+  // ── Fallback to SerpAPI LinkedIn scrape ──
+  // This is the ONLY contact source that works without a Findymail/
+  // Hunter key (or when both are rate-limited). It scrapes Google for
+  // public LinkedIn profile snippets associated with the company domain
+  // and parses out name + title. No emails (those come from a separate
+  // pattern-guess step later) but we get who-works-there for free —
+  // which beats the previous "0 contacts" outcome entirely.
+  const linkedinContacts = await discoverContactsViaLinkedInScrape(domain);
+  if (linkedinContacts.length > 0) {
+    return linkedinContacts.slice(0, 8);
+  }
+
   return [];
+}
+
+/**
+ * Last-ditch contact source: scrape Google for `site:linkedin.com/in/
+ * "Company Name"` snippets. Each result on Google's organic page is
+ * a LinkedIn profile with the title format "Name - Title - Company"
+ * which we parse out. Free relative to paid people-search APIs, only
+ * requires the SerpAPI key we're already paying for.
+ *
+ * Not perfect — Google snippets aren't always cleanly structured —
+ * but recovers 3-10 plausible contacts for any company with a real
+ * LinkedIn presence. The downstream pattern-guess + verify step turns
+ * those into emails.
+ */
+async function discoverContactsViaLinkedInScrape(domain: string): Promise<{
+  full_name: string;
+  title: string;
+  email?: string;
+  linkedin_url?: string;
+  role_tier: number;
+}[]> {
+  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  if (!SERPAPI_API_KEY) return [];
+
+  // Derive a search query: prefer the bare domain stem (e.g. "acme"
+  // from "acme.com"). Searching by domain matches LinkedIn snippets
+  // that mention the company without us knowing its exact display name.
+  const domainStem = domain.split('.')[0].replace(/[-_]/g, ' ');
+  if (!domainStem || domainStem.length < 3) return [];
+
+  try {
+    const params = new URLSearchParams({
+      engine: 'google',
+      q: `site:linkedin.com/in "${domainStem}"`,
+      api_key: SERPAPI_API_KEY,
+      num: '20',
+    });
+    const resp = await fetch(`https://serpapi.com/search?${params}`);
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    const results: any[] = data.organic_results || [];
+    if (results.length === 0) return [];
+
+    const out: Array<{
+      full_name: string;
+      title: string;
+      linkedin_url?: string;
+      role_tier: number;
+    }> = [];
+    const seenNames = new Set<string>();
+
+    for (const r of results) {
+      const link: string = r.link || '';
+      const title: string = r.title || '';
+      // LinkedIn /in/ URL is required — filter out company pages,
+      // posts, articles, etc.
+      if (!/linkedin\.com\/in\//i.test(link)) continue;
+
+      // Title format examples Google produces:
+      //   "Jane Doe - Head of Sales - Acme | LinkedIn"
+      //   "Jane Doe - Acme - LinkedIn"
+      //   "Jane Doe | LinkedIn"
+      // Split on " - " and " | ".
+      const cleaned = title.replace(/\s*[|]\s*LinkedIn.*$/i, '').trim();
+      const parts = cleaned.split(/\s+[-–]\s+/).map((s) => s.trim()).filter(Boolean);
+      if (parts.length === 0) continue;
+
+      const name = parts[0];
+      if (!isValidPersonName(name)) continue;
+
+      const nameKey = name.toLowerCase();
+      if (seenNames.has(nameKey)) continue;
+      seenNames.add(nameKey);
+
+      // Title is typically parts[1]; if absent, try parsing the
+      // snippet. Stop at company name (often parts[2]).
+      let jobTitle = parts[1] || '';
+      if (!jobTitle && r.snippet) {
+        // Snippet often starts with the title or "Title at Company"
+        const snippetMatch = (r.snippet as string).match(/^([^.·•\n]+?)(?:\s+at\s+|\s+•\s+|\s+·\s+|\.)/i);
+        if (snippetMatch) jobTitle = snippetMatch[1].trim();
+      }
+      if (!jobTitle) jobTitle = 'Unknown';
+
+      const roleTier = getRoleTier(jobTitle);
+      if (roleTier === 99) continue;       // junk titles (assistant, intern, etc.)
+
+      out.push({
+        full_name: name,
+        title: jobTitle,
+        linkedin_url: link,
+        role_tier: roleTier,
+      });
+
+      if (out.length >= 15) break;
+    }
+
+    // Sort by role tier so decision-makers come first
+    out.sort((a, b) => a.role_tier - b.role_tier);
+    return out;
+  } catch (err: any) {
+    console.warn(`[ENRICH] LinkedIn scrape for ${domain} failed:`, err?.message || err);
+    return [];
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
