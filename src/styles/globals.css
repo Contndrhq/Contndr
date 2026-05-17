@@ -175,6 +175,40 @@ select:focus-visible {
 .email-body > div:last-child > :last-child,
 .email-body-fresh > :last-child { margin-bottom: 0; }
 
+/* Sent-bubble bodies sit on a light card (zinc-100) even in dark mode.
+   The HTML inside is almost always a templated outreach email that
+   carries inline `color: #ffffff` / `color: rgba(255,255,255,0.x)`
+   styles intended for dark backgrounds — which renders as invisible
+   white-on-white on our light bubble.
+   The universal selector + !important forces every descendant of
+   `.email-body-light` to render in readable ink no matter what
+   inline `style="color: ..."` or sender CSS classes were attached.
+   Strong/heading tags get a slightly darker shade so emphasis still
+   reads as emphasis. */
+.email-body-light,
+.email-body-light * {
+  color: #3f3f46 !important;        /* zinc-700 */
+}
+.email-body-light h1,
+.email-body-light h2,
+.email-body-light h3,
+.email-body-light h4,
+.email-body-light strong,
+.email-body-light b {
+  color: #18181b !important;        /* zinc-900 */
+}
+.email-body-light a,
+.email-body-light a * {
+  color: #18181b !important;
+  text-decoration-color: rgba(24, 24, 27, 0.65);
+}
+/* Background overrides too — sender's "transparent" backgrounds can
+   end up as dark blocks on our light card. Force them to inherit. */
+.email-body-light *[style*="background"] {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
 /* ═══ SCROLL-AWAY HEADER UTILITIES ═══ */
 /* Hides header on scroll down, shows on scroll up — iOS Safari/native pattern */
 .scroll-header {
