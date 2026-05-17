@@ -127,25 +127,45 @@ const VERIFY_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 // ═══════════════════════════════════════════════════════════════════════════
 // MULTI-PROVIDER TRACKING — auto-switch when a provider runs out of credits
 // ═══════════════════════════════════════════════════════════════════════════
-let findymailExhausted = false;   // set on 402/429 from Findymail
-let hunterExhausted    = false;   // set on 429 from Hunter
+// Previously these were plain `let` booleans that flipped to `true` on the
+// first 402/429 and NEVER RESET. One rate-limited request from any user
+// killed enrichment for every subsequent user across the entire Edge Worker
+// lifetime (could be hours). Now each provider has a `cooldownUntil` epoch
+// and we treat it as "exhausted" only until that timestamp passes — auto-
+// healing on the next request after the cooldown window elapses.
+const PROVIDER_COOLDOWN_MS = {
+  402: 60 * 60 * 1000,        // credit/billing — long cooldown (1h)
+  429: 5 * 60 * 1000,         //  rate limit — short cooldown (5m)
+  403: 15 * 60 * 1000,        // forbidden/temp ban — medium (15m)
+} as const;
 
-function markFindymailExhausted(status: number) {
-  if (status === 402 || status === 429 || status === 403) {
-    if (!findymailExhausted) {
-      console.warn(`[PROVIDER] Findymail credit exhaustion detected (HTTP ${status}). Fallback unavailable.`);
-    }
-    findymailExhausted = true;
+const providerCooldowns: Record<'findymail' | 'hunter', number> = {
+  findymail: 0,
+  hunter: 0,
+};
+
+function markProviderExhausted(provider: 'findymail' | 'hunter', status: number) {
+  const ms = (PROVIDER_COOLDOWN_MS as Record<number, number>)[status];
+  if (!ms) return;
+  const wasInCooldown = providerCooldowns[provider] > Date.now();
+  providerCooldowns[provider] = Date.now() + ms;
+  if (!wasInCooldown) {
+    console.warn(
+      `[PROVIDER] ${provider} cooldown engaged (HTTP ${status}, ${Math.round(ms / 60000)}m)`,
+    );
   }
 }
 
+function markFindymailExhausted(status: number) {
+  markProviderExhausted('findymail', status);
+}
+
 function markHunterExhausted(status: number) {
-  if (status === 429 || status === 403) {
-    if (!hunterExhausted) {
-      console.warn(`[PROVIDER] Hunter.io rate limit / exhaustion detected (HTTP ${status}). Switching to Findymail fallback.`);
-    }
-    hunterExhausted = true;
-  }
+  markProviderExhausted('hunter', status);
+}
+
+function isExhausted(provider: 'findymail' | 'hunter'): boolean {
+  return providerCooldowns[provider] > Date.now();
 }
 
 function getAvailableProviders(): ('findymail' | 'hunter')[] {
@@ -153,8 +173,8 @@ function getAvailableProviders(): ('findymail' | 'hunter')[] {
   const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
   const providers: ('findymail' | 'hunter')[] = [];
   // Hunter.io is primary, Findymail is fallback
-  if (HUNTER_API_KEY && !hunterExhausted) providers.push('hunter');
-  if (FINDYMAIL_API_KEY && !findymailExhausted) providers.push('findymail');
+  if (HUNTER_API_KEY && !isExhausted('hunter')) providers.push('hunter');
+  if (FINDYMAIL_API_KEY && !isExhausted('findymail')) providers.push('findymail');
   return providers;
 }
 
@@ -312,14 +332,14 @@ async function verifyEmailMultiProvider(email: string): Promise<VerificationResu
   const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
 
   // Try Hunter.io first (primary)
-  if (HUNTER_API_KEY && !hunterExhausted) {
+  if (HUNTER_API_KEY && !isExhausted("hunter")) {
     const result = await hunterVerifyEmail(email, HUNTER_API_KEY);
     if (result.status !== 'unknown') return result;
     // If Hunter returned 'unknown' (error), try Findymail
   }
 
   // Fallback to Findymail
-  if (FINDYMAIL_API_KEY && !findymailExhausted) {
+  if (FINDYMAIL_API_KEY && !isExhausted("findymail")) {
     const result = await verifyEmailStrict(email, FINDYMAIL_API_KEY);
     if (result.status !== 'unknown') return result;
   }
@@ -342,7 +362,7 @@ async function findVerifiedEmailMultiProvider(
   const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
 
   // ── Strategy 1: Hunter.io email finder (primary) ──
-  if (HUNTER_API_KEY && !hunterExhausted && firstName && lastName) {
+  if (HUNTER_API_KEY && !isExhausted("hunter") && firstName && lastName) {
     const hunterResult = await hunterFindEmail(firstName, lastName, domain, HUNTER_API_KEY);
     if (hunterResult) {
       const verification = await verifyEmailMultiProvider(hunterResult.email);
@@ -354,7 +374,7 @@ async function findVerifiedEmailMultiProvider(
   }
 
   // ── Strategy 2: Findymail email finder (fallback) ──
-  if (FINDYMAIL_API_KEY && !findymailExhausted && firstName && lastName) {
+  if (FINDYMAIL_API_KEY && !isExhausted("findymail") && firstName && lastName) {
     try {
       const params = new URLSearchParams({
         first_name: firstName,
@@ -692,11 +712,11 @@ export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<E
   // 3) Domain search — try Hunter.io first (primary), then Findymail (fallback)
   let domainSearchResult: EnrichmentOutput | null = null;
 
-  if (HUNTER_API_KEY && !hunterExhausted) {
+  if (HUNTER_API_KEY && !isExhausted("hunter")) {
     domainSearchResult = await tryHunterDomainSearchEnrich(input, HUNTER_API_KEY);
   }
 
-  if (!domainSearchResult?.decision_makers?.length && FINDYMAIL_API_KEY && !findymailExhausted) {
+  if (!domainSearchResult?.decision_makers?.length && FINDYMAIL_API_KEY && !isExhausted("findymail")) {
     console.log(`[ENRICH] Hunter.io domain search yielded 0 contacts, trying Findymail fallback...`);
     domainSearchResult = await tryFindymailDomainSearch(input, FINDYMAIL_API_KEY);
   }
@@ -742,7 +762,7 @@ export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<E
 
   const verifiedCount = withLinkedIn.filter(dm => dm.verification_status === 'verified').length;
   const catchAllCount = withLinkedIn.filter(dm => dm.verification_status === 'catch_all').length;
-  const providerNote = findymailExhausted ? ' (Findymail exhausted, used Hunter.io)' : '';
+  const providerNote = isExhausted("findymail") ? ' (Findymail exhausted, used Hunter.io)' : '';
 
   const verificationSummary = {
     total_candidates: totalCandidates,
@@ -1407,7 +1427,7 @@ export async function quickDiscoverContacts(domain: string): Promise<{
 
   // ── Try Findymail first ──
   const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-  if (FINDYMAIL_API_KEY && !findymailExhausted) {
+  if (FINDYMAIL_API_KEY && !isExhausted("findymail")) {
     try {
       const params = new URLSearchParams({ domain, limit: "10" });
       const response = await fetch(
@@ -1447,7 +1467,7 @@ export async function quickDiscoverContacts(domain: string): Promise<{
 
   // ── Fallback to Hunter.io ──
   const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
-  if (HUNTER_API_KEY && !hunterExhausted) {
+  if (HUNTER_API_KEY && !isExhausted("hunter")) {
     try {
       const hunterResult = await hunterDomainSearch(domain, HUNTER_API_KEY, 10);
       if (hunterResult && hunterResult.contacts.length > 0) {
@@ -1672,7 +1692,7 @@ async function findDecisionMakerViaSerpApiMulti(input: EnrichmentInput): Promise
       status: "enriched",
       decision_makers: verifiedDMs,
       excluded_emails_found: [],
-      notes: `Found via Apollo.io, emails verified through ${findymailExhausted ? 'Hunter.io' : 'Findymail/Hunter'}.`,
+      notes: `Found via Apollo.io, emails verified through ${isExhausted("findymail") ? 'Hunter.io' : 'Findymail/Hunter'}.`,
       verification_summary: {
         total_candidates: totalCandidates,
         verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,
@@ -1781,7 +1801,7 @@ async function findDecisionMakerViaLinkedInMulti(input: EnrichmentInput): Promis
       status: "enriched",
       decision_makers: verifiedDMs,
       excluded_emails_found: [],
-      notes: `Found via LinkedIn, emails verified through ${findymailExhausted ? 'Hunter.io' : 'Findymail/Hunter'}.`,
+      notes: `Found via LinkedIn, emails verified through ${isExhausted("findymail") ? 'Hunter.io' : 'Findymail/Hunter'}.`,
       verification_summary: {
         total_candidates: totalCandidates,
         verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,

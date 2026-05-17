@@ -99,34 +99,47 @@ export async function processIncomingEmail(webhookData: any): Promise<void> {
 
     // Extract lead email from 'from' field
     const leadEmail = extractEmail(from);
-    
-    // Find the original sent email and lead
-    const originalEmail = await findOriginalEmail(to, leadEmail, inReplyTo);
-    
-    // Fallback: Try to find lead directly by email if original email lookup fails
+    // Recipient address — this is the user's sending mailbox and the
+    // ONLY reliable signal for which tenant this reply belongs to.
+    // Without it, a lookup by `from` alone matches across all tenants
+    // and silently flips the wrong user's lead to "Replied."
+    const recipientEmail = extractEmail(to);
+
+    // Find the original sent email by inReplyTo/References FIRST (most
+    // reliable), then by recipient+lead combination. Always scoped to
+    // a single tenant.
+    const originalEmail = await findOriginalEmail({
+      recipientEmail,
+      leadEmail,
+      inReplyTo,
+      references,
+    });
+
     let leadId = originalEmail?.leadId;
-    let campaignId = originalEmail?.campaignId || ''; // May be empty if not found
+    let campaignId = originalEmail?.campaignId || '';
     let emailId = originalEmail?.emailId || '';
+    let leadUserId: string | undefined = originalEmail?.userId;
 
-    let leadUserId: string | undefined;
-
-    // Get lead details
-    const { data: lead } = await supabase
-      .from('leads')
-      .select('user_id, id')
-      .eq('email', leadEmail)
-      .maybeSingle();
-
-    if (lead) {
-      leadUserId = lead.user_id;
-      // If we didn't find the original email, at least we have the lead ID now
-      if (!leadId) {
-         leadId = lead.id;
-      }
+    // If thread match didn't resolve the user, look up via the recipient
+    // address (campaign sender) — NOT by `from` alone, which would
+    // cross-tenant collide. We use the recipient to find the user_id,
+    // then look up the lead within that user's leads only.
+    if (!leadUserId && recipientEmail) {
+      leadUserId = await resolveUserIdFromRecipient(recipientEmail);
     }
 
-    if (!leadId) {
-      console.log('Could not match reply to original email or existing lead');
+    if (!leadId && leadUserId) {
+      const { data: lead } = await supabase
+        .from('leads')
+        .select('id')
+        .eq('user_id', leadUserId)   // ← critical: scope by tenant
+        .eq('email', leadEmail)
+        .maybeSingle();
+      if (lead) leadId = lead.id;
+    }
+
+    if (!leadId || !leadUserId) {
+      console.log(`[inbox] Could not match reply (from=${leadEmail}, to=${recipientEmail}, inReplyTo=${inReplyTo || 'none'}) — dropping`);
       return;
     }
 
@@ -218,55 +231,147 @@ export async function processIncomingEmail(webhookData: any): Promise<void> {
 }
 
 /**
- * Find original sent email to match with reply
+ * Resolve the tenant (user_id) for a reply by looking at the recipient
+ * mailbox. The recipient is the user's sending address — every send
+ * record on `emails` has a `from_email` field that uniquely identifies
+ * the owner. This is the only safe way to scope the reply to one tenant
+ * before doing any per-user lookups.
  */
-async function findOriginalEmail(
-  to: string, 
-  leadEmail: string,
-  inReplyTo?: string
-): Promise<{ leadId: string; campaignId: string; emailId: string } | null> {
+async function resolveUserIdFromRecipient(recipientEmail: string): Promise<string | undefined> {
+  if (!recipientEmail) return undefined;
   try {
-    // 1. Try to find in Postgres first (Source of Truth)
-    // We look for the most recent email sent TO the lead
-    const { data: lastEmail } = await supabase
+    const { data } = await supabase
       .from('emails')
-      .select('id, lead_id, campaign_id')
-      .eq('to_email', leadEmail)
-      .or('direction.eq.sent,direction.eq.outbound')
-      .order('created_at', { ascending: false })
+      .select('user_id')
+      .eq('from_email', recipientEmail)
       .limit(1)
       .maybeSingle();
+    return data?.user_id || undefined;
+  } catch (err) {
+    console.error('[inbox] resolveUserIdFromRecipient failed:', err);
+    return undefined;
+  }
+}
 
-    if (lastEmail) {
-      return {
-        leadId: lastEmail.lead_id,
-        campaignId: lastEmail.campaign_id,
-        emailId: lastEmail.id,
-      };
+/**
+ * Find the original sent email this reply belongs to.
+ *
+ * Lookup order (most → least reliable):
+ *  1. By `In-Reply-To` / `References` header against `emails.message_id`
+ *     — proper RFC-5322 threading, can't collide across tenants.
+ *  2. By (recipient sender address, lead address) — scoped to one
+ *     tenant via the recipient. Returns the most recent send.
+ *  3. KV legacy fallback, scoped by user_id when available.
+ *
+ * IMPORTANT: never look up by `to_email = leadEmail` alone. That ignores
+ * the tenant and will silently match another user's send.
+ */
+async function findOriginalEmail(opts: {
+  recipientEmail: string;
+  leadEmail: string;
+  inReplyTo?: string;
+  references?: string;
+}): Promise<{
+  leadId: string;
+  campaignId: string;
+  emailId: string;
+  userId: string;
+} | null> {
+  const { recipientEmail, leadEmail, inReplyTo, references } = opts;
+  try {
+    // 1. RFC-5322 threading via Message-ID. Resend stores the Message-ID
+    // it sent as `resend_id`. The In-Reply-To header arrives as either
+    // `<id>` or `<id@resend.com>`; we strip both the brackets and the
+    // optional `@resend.com` suffix and try both forms.
+    const candidateIds = collectMessageIds(inReplyTo, references);
+    if (candidateIds.length > 0) {
+      const { data: byMsgId } = await supabase
+        .from('emails')
+        .select('id, lead_id, campaign_id, user_id')
+        .in('resend_id', candidateIds)
+        .limit(1)
+        .maybeSingle();
+      if (byMsgId) {
+        return {
+          leadId: byMsgId.lead_id,
+          campaignId: byMsgId.campaign_id,
+          emailId: byMsgId.id,
+          userId: byMsgId.user_id,
+        };
+      }
     }
 
-    // 2. Fallback to KV (Legacy)
-    // Search sent emails
+    // 2. Tenant-scoped lookup: most recent send FROM the recipient TO
+    // the lead. The `from_email = recipientEmail` constraint scopes
+    // this to a single tenant (the owner of that mailbox).
+    if (recipientEmail) {
+      const { data: lastEmail } = await supabase
+        .from('emails')
+        .select('id, lead_id, campaign_id, user_id')
+        .eq('from_email', recipientEmail)
+        .eq('to_email', leadEmail)
+        .or('direction.eq.sent,direction.eq.outbound')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastEmail) {
+        return {
+          leadId: lastEmail.lead_id,
+          campaignId: lastEmail.campaign_id,
+          emailId: lastEmail.id,
+          userId: lastEmail.user_id,
+        };
+      }
+    }
+
+    // 3. KV legacy fallback — only match rows that have BOTH our lead
+    // email AND a matching sender (if we know it). Without a sender
+    // filter we'd be back to the cross-tenant bug.
     const sentEmailsData = await kv.getByPrefix('email:sent:');
-    
     for (const emailData of sentEmailsData) {
       const email = emailData as any;
-      
-      // Match by recipient email
-      if (email.to === leadEmail) {
+      const matchesLead = email.to === leadEmail;
+      const matchesSender = !recipientEmail || email.from === recipientEmail;
+      if (matchesLead && matchesSender) {
         return {
           leadId: email.leadId,
           campaignId: email.campaignId,
           emailId: email.id,
+          userId: email.userId || email.user_id,
         };
       }
     }
 
     return null;
   } catch (error) {
-    console.error('Error finding original email:', error);
+    console.error('[inbox] findOriginalEmail error:', error);
     return null;
   }
+}
+
+/** Parse Message-IDs out of In-Reply-To / References headers and return
+ *  every plausible form: the full `id@domain`, just `id`, and the
+ *  bracketless variants. We try them all against `emails.resend_id`. */
+function collectMessageIds(inReplyTo?: string, references?: string): string[] {
+  const ids = new Set<string>();
+  const extract = (raw: string | undefined) => {
+    if (!raw) return;
+    const matches = raw.match(/<[^>\s]+>|\S+@\S+/g);
+    if (!matches) return;
+    for (const m of matches) {
+      const cleaned = m.replace(/^<|>$/g, '').trim();
+      if (!cleaned) continue;
+      ids.add(cleaned);
+      // Also try the id part before @ — Resend's resend_id often does
+      // not include the domain suffix.
+      const at = cleaned.indexOf('@');
+      if (at > 0) ids.add(cleaned.slice(0, at));
+    }
+  };
+  extract(inReplyTo);
+  extract(references);
+  return Array.from(ids);
 }
 
 /**

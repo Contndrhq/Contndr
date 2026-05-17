@@ -2,6 +2,64 @@
 import * as kv from './kv-retry.tsx';
 
 /**
+ * Inspect a Resend `email.bounced` payload and decide whether to
+ * permanently suppress the address. Resend forwards EVERY bounce —
+ * including soft bounces (out-of-office, mailbox full, temporary DNS
+ * failure) which should NEVER trigger suppression. Treating those as
+ * permanent is the difference between losing a few percent of
+ * legitimate leads vs. quietly losing tens of percent.
+ *
+ * Payload shape:
+ *   data.bounce = { type: 'Permanent'|'Transient'|'Undetermined',
+ *                   subType: 'General'|'NoEmail'|'Suppressed'|...,
+ *                   message?: string }
+ *
+ * Returns:
+ *   - 'hard'   → permanent failure; suppress + mark lead bounced
+ *   - 'soft'   → transient; just log, keep lead active
+ *   - 'unknown'→ no info from provider; default to logging only
+ */
+export type BounceClass = 'hard' | 'soft' | 'unknown';
+
+export function classifyBounce(payload: any): BounceClass {
+  const bounce = payload?.data?.bounce || payload?.bounce || null;
+  const type = String(bounce?.type || '').toLowerCase();
+  const subType = String(bounce?.subType || bounce?.sub_type || '').toLowerCase();
+  const message = String(bounce?.message || payload?.data?.error || '').toLowerCase();
+
+  // Explicit hard signals
+  if (type === 'permanent' || type === 'hardbounce' || subType === 'hardbounce') return 'hard';
+  if (subType.includes('noemail') || subType.includes('no_email') || subType === 'general' && type === 'permanent') return 'hard';
+  if (
+    message.includes('does not exist') ||
+    message.includes('user unknown') ||
+    message.includes('no such user') ||
+    message.includes('mailbox unavailable') ||
+    message.includes('address rejected') ||
+    message.includes('recipient rejected')
+  ) {
+    return 'hard';
+  }
+
+  // Explicit soft signals
+  if (type === 'transient' || type === 'softbounce' || subType === 'softbounce') return 'soft';
+  if (
+    message.includes('mailbox full') ||
+    message.includes('out of office') ||
+    message.includes('vacation') ||
+    message.includes('temporarily') ||
+    message.includes('try again') ||
+    message.includes('greylisted') ||
+    message.includes('rate limit')
+  ) {
+    return 'soft';
+  }
+
+  // Undetermined / no payload info — be conservative: do NOT suppress.
+  return 'unknown';
+}
+
+/**
  * Mark a lead as bounced: sets `bounced=true` on the leads table,
  * logs the bounce to KV for admin visibility.
  * We no longer auto-delete — the user may want to update the email or

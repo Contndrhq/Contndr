@@ -9,7 +9,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 // enrichment_agent.tsx — lazy-loaded if needed
 import * as kv from "./kv-retry.tsx";
 import { recordAuditEvent } from "./audit-log.tsx";
-import { handleBounceAutoDelete, getBouncedLeads, purgeBouncedLeads, markLeadBouncedByEmail } from "./bounce-handler.tsx";
+import { handleBounceAutoDelete, getBouncedLeads, purgeBouncedLeads, markLeadBouncedByEmail, classifyBounce } from "./bounce-handler.tsx";
 import { checkDuplicatesAndFilter } from "./duplicate-check.tsx";
 // follow-ups.tsx — lazy-loaded on demand (transitively bundled via campaign-worker.tsx)
 import { processAutomationRule } from "./automation.tsx";
@@ -15227,11 +15227,47 @@ app.delete("/make-server-a8b2511f/campaigns/:id", async (c) => {
   }
 });
 
-// POST /webhook/resend - Handle Resend webhooks
+// POST /webhook/resend — Handle Resend webhooks.
+// REQUIRES Svix signature verification. Without it, anyone on the
+// internet can POST `email.bounced` events with arbitrary email IDs
+// and poison the suppression list. The signed handler below (mounted
+// at /webhook/resend/signed) is the long-term version; this endpoint
+// now also verifies the signature before doing anything.
 app.post("/make-server-a8b2511f/webhook/resend", async (c) => {
   try {
-    const payload = await c.req.json();
-    console.log('[WEBHOOK] Received Resend event:', payload.type);
+    const rawBody = await c.req.text();
+
+    // Svix signature verification — Resend signs every webhook.
+    const svixSig = c.req.header('svix-signature');
+    const svixId = c.req.header('svix-id');
+    const svixTs = c.req.header('svix-timestamp');
+    const webhookSecret = Deno.env.get('RESEND_WEBHOOK_SECRET');
+
+    if (!webhookSecret) {
+      console.error('[WEBHOOK] RESEND_WEBHOOK_SECRET not set — refusing unauthenticated webhook');
+      return c.json({ error: 'Webhook not configured' }, 503);
+    }
+
+    if (!svixSig || !svixId || !svixTs) {
+      console.warn('[WEBHOOK] Missing Svix headers — rejecting request');
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    try {
+      const svixMod: any = await import('npm:svix@1.21.0');
+      const wh = new svixMod.Webhook(webhookSecret);
+      wh.verify(rawBody, {
+        'svix-id': svixId,
+        'svix-timestamp': svixTs,
+        'svix-signature': svixSig,
+      });
+    } catch (verifyErr) {
+      console.warn('[WEBHOOK] Svix signature verification failed:', verifyErr);
+      return c.json({ error: 'Invalid signature' }, 401);
+    }
+
+    const payload = JSON.parse(rawBody);
+    console.log('[WEBHOOK] Received Resend event (verified):', payload.type);
 
     // Initialize Supabase admin client (service role) to bypass RLS
     const supabaseAdmin = getSupabaseAdmin();
@@ -15300,16 +15336,24 @@ app.post("/make-server-a8b2511f/webhook/resend", async (c) => {
       } catch (_) { /* non-fatal */ }
     }
     
-    // BOUNCE_MARKER_TOP — If bounced, auto-delete the lead and log for admin visibility
+    // BOUNCE_MARKER_TOP — Only HARD bounces flip the lead to bounced
+    // and add to the suppression list. Soft / undetermined bounces
+    // (out-of-office, mailbox full, temp DNS) just get logged on the
+    // email row via the status update above. Treating soft as hard
+    // was silently shrinking the user's lead list every day.
     if (status === 'bounced') {
-         const { data: emailData } = await supabaseAdmin
-            .from('emails')
-            .select('lead_id, user_id')
-            .eq('resend_id', resendId)
-            .single();
-            
-         if (emailData?.lead_id) {
+         const bounceClass = classifyBounce(payload);
+         if (bounceClass === 'hard') {
+           const { data: emailData } = await supabaseAdmin
+              .from('emails')
+              .select('lead_id, user_id')
+              .eq('resend_id', resendId)
+              .single();
+           if (emailData?.lead_id) {
              await handleBounceAutoDelete(supabaseAdmin, emailData.lead_id, emailData.user_id, resendId);
+           }
+         } else {
+           console.log(`[WEBHOOK] Soft/unknown bounce for ${resendId} (class=${bounceClass}) — logged but NOT suppressing.`);
          }
     }
 
@@ -15551,13 +15595,27 @@ const createResendWebhookHandler = (secretEnvName?: string) => async (c: any) =>
         console.error(`[WEBHOOK] Failed to create event log:`, evtError);
       }
       
-      // Handle Bounce Side-Effects
-      if ((status === 'bounced' || status === 'complained') && email.lead_id) {
+      // Handle Bounce Side-Effects — but only for HARD bounces (or
+      // any complaint, which is always a hard signal). Soft bounces
+      // get a status update on the email row only; the lead stays
+      // active so it can be retried next campaign.
+      if (status === 'complained' && email.lead_id) {
          await supabaseAdmin
             .from('leads')
             .update({ bounced: true, status: 'bounced', updated_at: new Date().toISOString() })
             .eq('id', email.lead_id);
-         console.log(`[WEBHOOK] Marked lead ${email.lead_id} as bounced (event: ${status})`);
+         console.log(`[WEBHOOK] Marked lead ${email.lead_id} as bounced (spam complaint)`);
+      } else if (status === 'bounced' && email.lead_id) {
+         const bounceClass = classifyBounce(payload);
+         if (bounceClass === 'hard') {
+           await supabaseAdmin
+              .from('leads')
+              .update({ bounced: true, status: 'bounced', updated_at: new Date().toISOString() })
+              .eq('id', email.lead_id);
+           console.log(`[WEBHOOK] Marked lead ${email.lead_id} as bounced (hard bounce)`);
+         } else {
+           console.log(`[WEBHOOK] Soft/unknown bounce for lead ${email.lead_id} (class=${bounceClass}) — keeping lead active.`);
+         }
       }
 
       // Pipeline auto-stage triggers based on email events
