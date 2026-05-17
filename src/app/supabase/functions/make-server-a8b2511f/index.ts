@@ -9206,19 +9206,52 @@ app.post("/make-server-a8b2511f/emails/inbound", async (c) => {
     const toMatch = toStr.match(/<(.+)>/);
     const toEmail = toMatch ? toMatch[1] : toStr;
     
-    // Find Lead (use limit(1) to avoid crash if multiple exist)
-    // We order by last_contacted DESC so the reply goes to the user who most recently emailed this lead
+    // ── Tenant resolution (CRITICAL) ────────────────────────────────────
+    // Previously this looked up the lead globally by `from` email and
+    // picked the most recently contacted one — which routinely matched
+    // ANOTHER tenant's lead and silently flipped their status to
+    // "Replied." Cross-tenant data corruption.
+    //
+    // Correct flow: derive the tenant (user_id) from the RECIPIENT
+    // address (your own sending mailbox), then look up the lead within
+    // that tenant only. If we can't resolve a tenant, we drop the
+    // webhook rather than risk attribution to the wrong user.
+
+    let tenantUserId: string | undefined;
+    if (toEmail) {
+      try {
+        const { data: ownerRow } = await supabase
+          .from('emails')
+          .select('user_id')
+          .eq('from_email', toEmail)
+          .limit(1)
+          .maybeSingle();
+        tenantUserId = ownerRow?.user_id;
+      } catch (resolveErr) {
+        console.warn('[INBOUND] Tenant resolution failed:', resolveErr);
+      }
+    }
+
+    if (!tenantUserId) {
+      console.warn(`[INBOUND] Could not resolve tenant for recipient ${toEmail} — dropping (refusing to risk cross-tenant attribution)`);
+      return c.json({ message: 'Unresolved tenant, dropped' });
+    }
+
+    // Find Lead — scoped to the resolved tenant. limit(1) for safety
+    // if duplicate emails-per-tenant exist; order by last_contacted so
+    // the reply goes to the most recently contacted instance.
     const { data: leads, error: leadError } = await supabase
         .from('leads')
         .select('id, user_id, business_name')
+        .eq('user_id', tenantUserId)           // ← CRITICAL: tenant scope
         .ilike('email', fromEmail)
         .order('last_contacted', { ascending: false })
         .limit(1);
-        
+
     const lead = leads?.[0];
-        
+
     if (leadError || !lead) {
-        console.log(`[INBOUND] No lead found for ${fromEmail}. Ignoring.`);
+        console.log(`[INBOUND] No lead found for ${fromEmail} within tenant ${tenantUserId}. Ignoring.`);
         return c.json({ message: 'No lead found, ignored' });
     }
     

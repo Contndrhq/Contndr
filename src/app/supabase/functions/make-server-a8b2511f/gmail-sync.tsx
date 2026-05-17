@@ -286,6 +286,45 @@ function isBounceNotification(fromEmail: string, fromRaw: string, subject: strin
 }
 
 /**
+ * Decide whether a Gmail bounce body indicates a HARD bounce (permanent
+ * — address doesn't exist, domain blocks us) vs a SOFT bounce (mailbox
+ * full, temp DNS failure, vacation). Suppressing soft bounces was
+ * silently shrinking the user's lead list every day.
+ */
+function classifyGmailBounceText(text: string, html: string): 'hard' | 'soft' | 'unknown' {
+  const combined = `${text} ${stripHtml(html)}`.toLowerCase();
+  // Permanent signals
+  if (
+    combined.includes('address not found') ||
+    combined.includes("recipient address rejected") ||
+    combined.includes('user unknown') ||
+    combined.includes('no such user') ||
+    combined.includes('does not exist') ||
+    combined.includes('account has been disabled') ||
+    combined.includes('mailbox unavailable') ||
+    combined.includes('account is disabled')
+  ) {
+    return 'hard';
+  }
+  // Soft signals
+  if (
+    combined.includes('mailbox full') ||
+    combined.includes('inbox full') ||
+    combined.includes('quota exceeded') ||
+    combined.includes('out of office') ||
+    combined.includes('vacation') ||
+    combined.includes('temporarily') ||
+    combined.includes('try again later') ||
+    combined.includes('greylisted') ||
+    combined.includes('rate limit') ||
+    combined.includes('throttled')
+  ) {
+    return 'soft';
+  }
+  return 'unknown';
+}
+
+/**
  * Extract bounced recipient email addresses from bounce notification body text.
  * Handles common bounce formats from Google, Microsoft, Postfix, etc.
  */
@@ -401,13 +440,27 @@ async function processBounceNotification(
   leadMap: Map<string, any>,
   subject: string,
   bodyPreview: string,
+  bounceClass: 'hard' | 'soft' | 'unknown' = 'unknown',
 ): Promise<number> {
   let bouncesProcessed = 0;
+
+  // SOFT bounces (mailbox full, vacation, temp failure) do NOT suppress
+  // the lead — we just log it. Only HARD bounces (address-not-found,
+  // account-disabled, recipient-rejected) get marked as permanently
+  // bounced and added to the suppression list. UNKNOWN is treated as
+  // soft to be conservative — better to retry next campaign than lose
+  // a real lead.
+  const isHard = bounceClass === 'hard';
 
   for (const bouncedEmail of bouncedRecipientEmails) {
     const lead = leadMap.get(bouncedEmail);
     if (!lead) {
-      console.log(`[BOUNCE-DETECT] Bounced email ${bouncedEmail} not found in leadMap — trying DB lookup`);
+      if (!isHard) {
+        console.log(`[BOUNCE-DETECT] Soft/unknown bounce for ${bouncedEmail} — logged, lead kept active.`);
+        bouncesProcessed++;
+        continue;
+      }
+      console.log(`[BOUNCE-DETECT] Hard bounce ${bouncedEmail} not found in leadMap — trying DB lookup`);
       // Try broader DB lookup in case the lead email casing differs
       await markLeadBouncedByEmail(supabase, bouncedEmail, userId);
       // Also find the lead by email to update outbound emails
@@ -442,13 +495,20 @@ async function processBounceNotification(
       continue;
     }
 
-    // Mark the lead as bounced
-    await supabase
-      .from("leads")
-      .update({ bounced: true, status: "bounced", updated_at: new Date().toISOString() })
-      .eq("id", lead.id);
+    // Mark the lead as bounced — HARD only. Soft bounces just get the
+    // email row flagged so the bounce shows in the inbox; the lead
+    // stays active so the next campaign retries.
+    if (isHard) {
+      await supabase
+        .from("leads")
+        .update({ bounced: true, status: "bounced", updated_at: new Date().toISOString() })
+        .eq("id", lead.id);
+    } else {
+      console.log(`[BOUNCE-DETECT] Soft/unknown bounce for lead ${lead.id} (${bouncedEmail}) — kept active.`);
+    }
 
-    // Mark outbound emails to this lead as bounced
+    // Mark outbound emails to this lead as bounced (status flag only
+    // — does not suppress; user can see the bounce attempt either way)
     const { data: updatedEmails, error: emailUpdateErr } = await supabase
       .from("emails")
       .update({ status: "bounced" })
@@ -792,10 +852,11 @@ export async function syncGmailInbox(userId: string, force = false): Promise<Syn
               const uniqueBouncedEmails = [...new Set(bouncedEmails)];
 
               if (uniqueBouncedEmails.length > 0) {
-                console.log(`[BOUNCE-DETECT] Gmail bounce found: "${subject}" → bounced: ${uniqueBouncedEmails.join(", ")}`);
+                const bounceClass = classifyGmailBounceText(bodyText, html);
+                console.log(`[BOUNCE-DETECT] Gmail bounce found (${bounceClass}): "${subject}" → ${uniqueBouncedEmails.join(", ")}`);
 
                 const processed = await processBounceNotification(
-                  supabase, userId, uniqueBouncedEmails, leadMap, subject, bodyText,
+                  supabase, userId, uniqueBouncedEmails, leadMap, subject, bodyText, bounceClass,
                 );
                 result.bouncesDetected += processed;
 
@@ -1074,9 +1135,10 @@ export async function syncOutlookInbox(userId: string, force = false): Promise<S
             const bouncedEmails = extractBouncedEmails(textBody, htmlBody);
 
             if (bouncedEmails.length > 0) {
-              console.log(`[BOUNCE-DETECT] Outlook bounce found: "${subject}" → bounced: ${bouncedEmails.join(", ")}`);
+              const bounceClass = classifyGmailBounceText(textBody, htmlBody);
+              console.log(`[BOUNCE-DETECT] Outlook bounce found (${bounceClass}): "${subject}" → ${bouncedEmails.join(", ")}`);
               const processed = await processBounceNotification(
-                supabase, userId, bouncedEmails, leadMap, subject, textBody,
+                supabase, userId, bouncedEmails, leadMap, subject, textBody, bounceClass,
               );
               result.bouncesDetected += processed;
 
