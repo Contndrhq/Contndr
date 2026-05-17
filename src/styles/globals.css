@@ -140,6 +140,41 @@ select:focus-visible {
   }
 }
 
+/* ═══ EMAIL-BODY RENDERING — incoming reply HTML ═══ */
+/* Keeps reply fidelity (paragraphs, lists, blockquotes, links) without
+   letting sender CSS leak into the app shell. Scoped by `.email-body`. */
+.email-body p { margin: 0 0 0.6em 0; }
+.email-body p:last-child { margin-bottom: 0; }
+.email-body br + br { display: block; content: ''; margin-top: 0.4em; }
+.email-body a { text-decoration: underline; text-underline-offset: 2px; word-break: break-word; }
+.email-body ul, .email-body ol { margin: 0.4em 0 0.6em 1.25em; padding: 0; }
+.email-body ul { list-style: disc; }
+.email-body ol { list-style: decimal; }
+.email-body li { margin: 0.15em 0; }
+.email-body blockquote {
+  margin: 0.5em 0;
+  padding-left: 0.75em;
+  border-left: 2px solid rgba(161, 161, 170, 0.4);
+  color: inherit;
+  opacity: 0.85;
+}
+.email-body pre, .email-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  background: rgba(161, 161, 170, 0.12);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.email-body pre { padding: 0.5em 0.75em; white-space: pre-wrap; overflow-x: auto; }
+.email-body img { max-width: 100%; height: auto; border-radius: 6px; margin: 0.4em 0; }
+.email-body table { border-collapse: collapse; max-width: 100%; }
+.email-body td, .email-body th { padding: 0.25em 0.5em; }
+/* Strip sender-injected huge top/bottom margins on the outer wrapper */
+.email-body > div:first-child > :first-child,
+.email-body-fresh > :first-child { margin-top: 0; }
+.email-body > div:last-child > :last-child,
+.email-body-fresh > :last-child { margin-bottom: 0; }
+
 /* ═══ SCROLL-AWAY HEADER UTILITIES ═══ */
 /* Hides header on scroll down, shows on scroll up — iOS Safari/native pattern */
 .scroll-header {

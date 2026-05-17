@@ -44,7 +44,10 @@ export type RealtimeEventType =
   | 'automation:triggered'
   | 'automation:completed'
   | 'group:updated'
-  | 'import:completed';
+  | 'import:completed'
+  | 'deal:won'
+  | 'payment:failed'
+  | 'call:completed';
 
 export interface RealtimeEvent {
   type: RealtimeEventType;
@@ -88,34 +91,40 @@ const CACHE_INVALIDATION_MAP: Record<string, string[]> = {
   'automation:completed':  ['automations:*', 'campaigns:*', 'analytics:*'],
   'group:updated':      ['crm:*', 'groups:*'],
   'import:completed':   ['crm:*', 'dashboard:*'],
+  'deal:won':           ['pipeline:*', 'dashboard:*', 'analytics:*', 'revenue:*'],
+  'payment:failed':     ['billing:*', 'settings:*', 'dashboard:*'],
+  'call:completed':     ['ai-calls:*', 'dashboard:*', 'crm:*'],
 };
 
 // ── Notification-worthy events ───────────────────────────────────────
 
 const NOTIFY_EVENTS: Partial<Record<RealtimeEventType, (e: RealtimeEvent, selfUserId: string) => void>> = {
-  'email:replied': (e, selfUserId) => {
-    if (e.userId === selfUserId) return; // Don't notify yourself
+  // Lead-action events (email replied/clicked/opened) — these are
+  // triggered BY the lead, so `userId` on the event is the campaign
+  // owner. We WANT to notify that owner (i.e. don't skip on
+  // userId === selfUserId), because they're the one who needs to know.
+  // The previous self-skip meant the user never got their own reply
+  // notifications, which is the single most important alert in the app.
+  'email:replied': (e) => {
     notificationService.notify(
       'email_replied',
-      'New Reply!',
+      '💬 New Reply!',
       `${e.payload?.leadName || 'A lead'} replied to "${e.payload?.campaignName || 'a campaign'}"`,
       e.payload
     );
   },
-  'email:clicked': (e, selfUserId) => {
-    if (e.userId === selfUserId) return;
+  'email:clicked': (e) => {
     notificationService.notify(
       'email_clicked',
-      'Link Clicked',
+      '🖱️ Link Clicked',
       `${e.payload?.leadName || 'A lead'} clicked a link in "${e.payload?.campaignName || 'your email'}"`,
       e.payload
     );
   },
-  'email:opened': (e, selfUserId) => {
-    if (e.userId === selfUserId) return;
+  'email:opened': (e) => {
     notificationService.notify(
       'email_opened',
-      'Email Opened',
+      '👀 Email Opened',
       `${e.payload?.leadName || 'A lead'} opened "${e.payload?.campaignName || 'your email'}"`,
       e.payload
     );
@@ -145,6 +154,39 @@ const NOTIFY_EVENTS: Partial<Record<RealtimeEventType, (e: RealtimeEvent, selfUs
   'pipeline:deal_moved': (e, selfUserId) => {
     if (e.userId === selfUserId) return;
     notificationService.notify('system', 'Deal Moved', `"${e.payload?.dealName || 'A deal'}" moved to ${e.payload?.stageName || 'a new stage'}`, e.payload);
+  },
+  // High-value events the user explicitly asked to surface as real
+  // notifications (system tray + native push when wired):
+  'deal:won': (e) => {
+    const amt = e.payload?.amount;
+    const amountText =
+      typeof amt === 'number' ? `$${amt.toLocaleString()}` : amt ? String(amt) : '';
+    notificationService.notify(
+      'deal_won',
+      '💰 Deal Won!',
+      `${e.payload?.customerName || 'A customer'}${amountText ? ` — ${amountText}` : ''}`,
+      e.payload,
+    );
+  },
+  'payment:failed': (e) => {
+    const amt = e.payload?.amount;
+    const attempt = e.payload?.attempt || 1;
+    const amountText =
+      typeof amt === 'number' ? `$${amt.toFixed(2)}` : amt ? String(amt) : '';
+    notificationService.notify(
+      'payment_failed',
+      '⚠️ Payment Failed',
+      `${amountText ? `${amountText} ` : ''}payment failed (attempt ${attempt}). Update your card to avoid losing access.`,
+      e.payload,
+    );
+  },
+  'call:completed': (e) => {
+    notificationService.notify(
+      'ai_call_completed',
+      '📞 AI Call Completed',
+      `${e.payload?.leadName || 'Lead'} — ${e.payload?.outcome || 'call ended'}`,
+      e.payload,
+    );
   },
 };
 

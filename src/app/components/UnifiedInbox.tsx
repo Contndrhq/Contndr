@@ -20,6 +20,8 @@ import { LeadAvatar } from './LeadAvatar';
 import { useDemoMode, DEMO_INBOX_THREADS, DEMO_INBOX_STATS } from './DemoContext';
 import { useTranslation } from 'react-i18next';
 import { decodeHtmlEntities } from '../lib/html-decode';
+import { renderEmailBody } from '../lib/email-body';
+import { EmailMessageBody } from './EmailMessageBody';
 
 // ─── Types (matching backend ConversationThread / EmailMessage) ──────────
 interface EmailMessage {
@@ -1883,13 +1885,11 @@ export function UnifiedInbox() {
                           {msg.subject}
                         </p>
                       )}
-                      <p
-                        className={`text-sm whitespace-pre-wrap leading-relaxed ${
-                          isSent ? 'text-zinc-100 dark:text-zinc-900' : 'text-zinc-800 dark:text-zinc-200'
-                        }`}
-                      >
-                        {decodeHtmlEntities(msg.body)}
-                      </p>
+                      <EmailMessageBody
+                        body={msg.body}
+                        htmlBody={msg.htmlBody}
+                        isSent={isSent}
+                      />
                       {/* Timestamp + tracking status */}
                       <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                         <p
