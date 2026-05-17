@@ -5852,26 +5852,28 @@ app.get("/make-server-a8b2511f/dashboard/stats", async (c) => {
     // immediately without hitting the database again.
     // force=1 skips KV so real-time refreshes always get truly fresh counts.
     const kvCacheKey = `dashboard:stats:kv:${user.id}:${brand}:${rangeKey}`;
-    if (!forceRefresh) {
-      try {
-        const kvCached = await kv.get(kvCacheKey);
-        if (kvCached && kvCached._ts && (Date.now() - kvCached._ts) < 55_000) {
-          setCache(cacheKey, kvCached, 55_000);
-          console.log(`[DASHBOARD] L2 KV cache hit for ${user.email} in ${Date.now() - t0}ms`);
-          return c.json(kvCached);
-        }
-      } catch (_kvErr) {
-        console.warn('[DASHBOARD] KV read failed (non-fatal), computing fresh stats');
-      }
+    const lockKey = `dashboard:stats:lock:${user.id}:${brand}:${rangeKey}`;
+    let lockAcquired = false;
+
+    // Parallelize the L2 cache check + stampede lock check. Previously
+    // these were sequential `await kv.get()` calls (~30ms each on KV
+    // roundtrips); running them together cuts ~30ms off every uncached
+    // dashboard request.
+    const [kvCached, existingLock] = await Promise.all([
+      forceRefresh ? Promise.resolve(null) : kv.get(kvCacheKey).catch(() => null),
+      kv.get(lockKey).catch(() => null),
+    ]);
+
+    if (kvCached && kvCached._ts && (Date.now() - kvCached._ts) < 55_000) {
+      setCache(cacheKey, kvCached, 55_000);
+      console.log(`[DASHBOARD] L2 KV cache hit for ${user.email} in ${Date.now() - t0}ms`);
+      return c.json(kvCached);
     }
 
     // ── Stampede guard ────────────────────────────────────────────────
     // If another isolate is already computing stats for this user, wait
     // briefly and serve from KV rather than both hammering the DB.
-    const lockKey = `dashboard:stats:lock:${user.id}:${brand}:${rangeKey}`;
-    let lockAcquired = false;
     try {
-      const existingLock = await kv.get(lockKey);
       if (existingLock && existingLock._at && (Date.now() - existingLock._at) < 8_000) {
         await new Promise(r => setTimeout(r, 1500));
         const retryKv = await kv.get(kvCacheKey).catch(() => null);

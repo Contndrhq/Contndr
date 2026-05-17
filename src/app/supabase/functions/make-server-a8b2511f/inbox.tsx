@@ -761,8 +761,42 @@ export async function getConversations(filters?: {
           if (em.lead_id) userLeadIds.add(em.lead_id);
         }
       }
-      const kvRepliesRaw = await kv.getByPrefixLimited('reply:', 2000, 0).catch(() => []);
-      const kvReplies = (kvRepliesRaw as EmailReply[]).filter(r => r?.leadId && userLeadIds.has(r.leadId));
+
+      // PRIMARY scan: per-user prefix (`reply:<userId>:`). Constant-time
+      // relative to total reply count in the system — only walks this
+      // user's replies. New replies always land here.
+      const perUserRaw = await kv
+        .getByPrefixLimited(`reply:${filters.userId}:`, 2000, 0)
+        .catch(() => []);
+      const perUserReplies = (perUserRaw as EmailReply[]).filter(
+        (r) => r?.leadId && userLeadIds.has(r.leadId),
+      );
+
+      // LEGACY scan: bare `reply:<id>` keys from before the migration to
+      // per-user keying. We still need to merge these for backward
+      // compatibility, but cap aggressively and skip entirely if the
+      // per-user scan already returned plenty of data — most tenants
+      // won't have legacy keys and shouldn't pay the cost.
+      let legacyReplies: EmailReply[] = [];
+      if (perUserReplies.length < 50) {
+        const legacyRaw = await kv
+          .getByPrefixLimited('reply:', 500, 0)
+          .catch(() => []);
+        legacyReplies = (legacyRaw as EmailReply[])
+          // Skip the per-user keys we already read (key format starts with `reply:<uuid>:`).
+          // We can't filter by key directly here without restructuring; instead dedupe by reply.id below.
+          .filter((r) => r?.leadId && userLeadIds.has(r.leadId));
+      }
+
+      // Dedupe by reply id (per-user scan wins over legacy)
+      const seenIds = new Set<string>();
+      const kvReplies: EmailReply[] = [];
+      for (const r of [...perUserReplies, ...legacyReplies]) {
+        if (r?.id && !seenIds.has(r.id)) {
+          seenIds.add(r.id);
+          kvReplies.push(r);
+        }
+      }
 
       for (const replyData of kvReplies) {
         const reply = replyData as EmailReply;
