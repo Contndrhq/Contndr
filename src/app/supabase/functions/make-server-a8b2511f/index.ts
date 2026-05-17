@@ -3438,9 +3438,13 @@ app.get("/make-server-a8b2511f/admin/audit-log", async (c) => {
     const action = c.req.query('action') || null;
     const target = c.req.query('target_id') || null;
 
+    // Column is `occurred_at` per the migration at
+    // 20260510000002_audit_log.sql — NOT `created_at`. Previous version
+    // queried the wrong column and every request 500'd silently, which
+    // is why the admin UI always rendered an empty audit log.
     let q = supabase.from('audit_log')
-      .select('id, created_at, actor_id, actor_email, action, resource, resource_id, metadata, ip', { count: 'exact' })
-      .order('created_at', { ascending: false })
+      .select('id, occurred_at, actor_id, actor_email, action, resource, resource_id, metadata, ip', { count: 'exact' })
+      .order('occurred_at', { ascending: false })
       .range(page * limit, page * limit + limit - 1);
     if (action) q = q.eq('action', action);
     if (target) q = q.eq('resource_id', target);
@@ -3450,8 +3454,15 @@ app.get("/make-server-a8b2511f/admin/audit-log", async (c) => {
       console.error('[ADMIN] audit-log query failed:', error);
       return c.json({ error: error.message }, 500);
     }
+    // Frontend expects `created_at` (existing UI convention). Project
+    // `occurred_at` → `created_at` so we don't have to touch every
+    // consumer of this response.
+    const entries = (data || []).map((row: any) => ({
+      ...row,
+      created_at: row.occurred_at,
+    }));
     c.header('Cache-Control', 'private, max-age=10, stale-while-revalidate=60');
-    return c.json({ entries: data || [], total: count || 0, page, hasMore: (page + 1) * limit < (count || 0) });
+    return c.json({ entries, total: count || 0, page, hasMore: (page + 1) * limit < (count || 0) });
   } catch (error: any) {
     console.error('[ADMIN] audit-log error:', error);
     return c.json({ error: error.message }, 500);
@@ -3570,18 +3581,19 @@ app.get("/make-server-a8b2511f/admin/users/:userId/timeline", async (c) => {
       }
     } catch {}
 
-    // Admin audit entries targeting this user (SQL audit_log table)
+    // Admin audit entries targeting this user (SQL audit_log table).
+    // Column is `occurred_at` per the migration, not `created_at`.
     try {
       const { data: auditRows } = await supabase
         .from('audit_log')
-        .select('action, actor_email, created_at, metadata')
+        .select('action, actor_email, occurred_at, metadata')
         .eq('resource', 'user')
         .eq('resource_id', userId)
-        .order('created_at', { ascending: false })
+        .order('occurred_at', { ascending: false })
         .limit(50);
       for (const a of (auditRows || [])) {
         events.push({
-          at: a.created_at,
+          at: a.occurred_at,
           type: `audit_${a.action}`,
           title: `Admin: ${a.action.replace(/^admin\./, '')}`,
           detail: a.actor_email ? `by ${a.actor_email}` : undefined,
