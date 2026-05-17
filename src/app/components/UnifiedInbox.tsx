@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Mail, RefreshCw, Send, Archive, Trash2, Search,
   ArrowLeft, ChevronRight, MessageSquare, Sparkles, Filter, X, Inbox,
@@ -1267,25 +1267,40 @@ export function UnifiedInbox() {
     });
   };
 
-  // ── Filtering ──
-  const filteredThreads = threads
-    .filter(t => !hiddenIds.has(t.threadId))
-    .filter((thread) => {
-      if (filter === 'unread' && thread.unreadCount === 0) return false;
-      if (filter === 'positive' && thread.sentiment !== 'positive') return false;
-      if (filter === 'negative' && thread.sentiment !== 'negative') return false;
-      if (filter === 'sent' && thread.messages.every((m) => m.direction !== 'sent')) return false;
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        return (
-          thread.leadName.toLowerCase().includes(q) ||
-          thread.leadEmail.toLowerCase().includes(q) ||
-          (thread.leadCompany?.toLowerCase().includes(q) ?? false) ||
-          thread.messages.some((m) => m.subject.toLowerCase().includes(q))
-        );
-      }
-      return true;
-    });
+  // ── Search debounce (150ms) ──
+  // Without debouncing, every keystroke re-runs the filter on every thread
+  // + every message subject — visible jank at >100 threads. The debounce
+  // collapses bursts of input into one filter pass.
+  const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 150);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // ── Filtering (memoized) ──
+  // Previously this ran on every render (state change, hover, etc.),
+  // building two new arrays and walking every thread's messages. Now
+  // it only recomputes when an actual input changes.
+  const filteredThreads = useMemo(() => {
+    return threads
+      .filter(t => !hiddenIds.has(t.threadId))
+      .filter((thread) => {
+        if (filter === 'unread' && thread.unreadCount === 0) return false;
+        if (filter === 'positive' && thread.sentiment !== 'positive') return false;
+        if (filter === 'negative' && thread.sentiment !== 'negative') return false;
+        if (filter === 'sent' && thread.messages.every((m) => m.direction !== 'sent')) return false;
+        if (debouncedSearch) {
+          const q = debouncedSearch.toLowerCase();
+          return (
+            thread.leadName.toLowerCase().includes(q) ||
+            thread.leadEmail.toLowerCase().includes(q) ||
+            (thread.leadCompany?.toLowerCase().includes(q) ?? false) ||
+            thread.messages.some((m) => m.subject.toLowerCase().includes(q))
+          );
+        }
+        return true;
+      });
+  }, [threads, hiddenIds, filter, debouncedSearch]);
 
   const unreadTotal = threads.reduce((s, t) => s + t.unreadCount, 0);
 

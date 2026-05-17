@@ -337,6 +337,16 @@ function minuteCountKey(userId: string, provider: string): string {
   return `ratelimit:${provider}:${userId}:min:${minute}`;
 }
 
+/**
+ * Atomic check-and-increment via the `kv_atomic_increment` Postgres
+ * function (see migrations/2026-05-17-atomic-counter.sql). Previously
+ * this was a read-modify-write on KV — under concurrent isolates the
+ * read+write window let the daily counter drift well above the cap
+ * (the audit observed users sending 5-10% over their 400/day limit).
+ *
+ * Falls back to the legacy best-effort RMW if the RPC isn't available
+ * (e.g. the migration hasn't been run yet) so sending isn't blocked.
+ */
 async function checkAndIncrementRateLimit(
   userId: string,
   provider: 'gmail_oauth' | 'outlook_oauth',
@@ -348,31 +358,54 @@ async function checkAndIncrementRateLimit(
   const mKey = minuteCountKey(userId, provider);
 
   try {
+    // Try atomic path first — both counters as parallel RPC calls.
+    const [dailyRes, minuteRes] = await Promise.all([
+      (supabase as any).rpc('kv_atomic_increment', { p_key: dKey, p_limit: dailyLimit }),
+      (supabase as any).rpc('kv_atomic_increment', { p_key: mKey, p_limit: minuteLimit }),
+    ]);
+
+    const rpcMissing = (r: any) =>
+      r?.error && /function .*kv_atomic_increment.*does not exist/i.test(String(r.error.message || ''));
+
+    if (!rpcMissing(dailyRes) && !rpcMissing(minuteRes)) {
+      const dailyAllowed = dailyRes?.data?.allowed !== false;
+      const minuteAllowed = minuteRes?.data?.allowed !== false;
+
+      if (!dailyAllowed) {
+        // Roll back the minute increment since we won't actually send
+        if (minuteAllowed) {
+          await (supabase as any).rpc('kv_atomic_increment', { p_key: mKey, p_limit: -1 }).catch(() => {});
+        }
+        console.warn(`[RATE-LIMIT] ${provider} daily limit (${dailyLimit}) reached for user ${userId}`);
+        return { allowed: false, reason: `Daily send limit reached (${dailyLimit}/day). Emails will resume tomorrow.` };
+      }
+      if (!minuteAllowed) {
+        // Daily was OK; just back off for the minute
+        return { allowed: false, reason: `Send rate too fast (${minuteLimit}/min). Slowing down — will retry next minute.` };
+      }
+      return { allowed: true };
+    }
+
+    // Fallback: legacy RMW path (used only if migration hasn't run)
+    console.warn('[RATE-LIMIT] kv_atomic_increment RPC missing — falling back to non-atomic counter.');
     const [dailyCount, minuteCount] = await Promise.all([
       kv.get(dKey).then((v: any) => Number(v) || 0),
       kv.get(mKey).then((v: any) => Number(v) || 0),
     ]);
-
     if (dailyCount >= dailyLimit) {
-      console.warn(`[RATE-LIMIT] ${provider} daily limit (${dailyLimit}) reached for user ${userId}. Sent today: ${dailyCount}`);
-      return { allowed: false, reason: `Daily send limit reached (${dailyLimit}/day). Emails will resume tomorrow. Consider adding more sender accounts via Sender Rotation.` };
+      return { allowed: false, reason: `Daily send limit reached (${dailyLimit}/day).` };
     }
-
     if (minuteCount >= minuteLimit) {
-      console.warn(`[RATE-LIMIT] ${provider} per-minute limit (${minuteLimit}) reached for user ${userId}. Sent this minute: ${minuteCount}`);
-      return { allowed: false, reason: `Send rate too fast (${minuteLimit}/min). Slowing down — will retry next minute.` };
+      return { allowed: false, reason: `Send rate too fast (${minuteLimit}/min).` };
     }
-
-    // Increment counters
     await Promise.all([
       kv.set(dKey, dailyCount + 1),
       kv.set(mKey, minuteCount + 1),
     ]);
-
     return { allowed: true };
   } catch (err) {
     console.warn('[RATE-LIMIT] Error checking rate limit (allowing send):', err);
-    return { allowed: true }; // Fail open — don't block sends due to KV issues
+    return { allowed: true }; // Fail open
   }
 }
 

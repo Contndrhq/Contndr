@@ -93,19 +93,79 @@ interface RawCompany {
   };
 }
 
+/**
+ * Search-time ICP fit (0-100). Prior version only counted "has phone,
+ * has address, decent rating" which made the LeadFinder sort by
+ * "completeness" instead of fit-for-the-user's-product. Now we layer
+ * in industry weight, enrichment quality (verified vs catch-all email
+ * mix), and contact-tier coverage so the top of the list actually
+ * reflects which leads are most likely to convert.
+ *
+ * Signals (scaled to roughly 0-100 cap):
+ *   Base presence (signal of a real business):
+ *     +20 has a real website (domain)
+ *     +10 has phone
+ *     +10 has address
+ *      +5 has description
+ *   Reputation:
+ *     +10 rating ≥ 3.5
+ *      +5 ≥ 5 reviews
+ *     +10 ≥ 20 reviews
+ *   ICP fit (industry):
+ *     +0..20 scaled from INDUSTRY_SCORES (defaults to 50 → +10)
+ *   Enrichment quality (set later by enrichment step; safe defaults):
+ *     +10 has ≥1 verified decision-maker contact
+ *      +5 has ≥1 derived/guessed decision-maker contact
+ *   Penalties:
+ *      -5 very long/suspicious domain
+ *      -5 mostly catch-all email domain (low deliverability)
+ */
 function scoreCompany(c: RawCompany): number {
   let score = 0;
-  if (c.domain) score += 30;                          // has a real website
-  if (c.phone) score += 10;                           // has phone
-  if (c.address) score += 10;                         // has address
-  if (c.rating && c.rating >= 3.5) score += 10;       // decent rating
-  if (c.reviews && c.reviews >= 5) score += 10;       // has reviews
-  if (c.reviews && c.reviews >= 20) score += 10;      // solid review count
-  if (c.description) score += 5;                      // has description
-  // Penalize generic-looking domains
-  if (c.domain && c.domain.length > 30) score -= 5;   // very long domain = suspicious
-  return score;
+
+  // Presence signals
+  if (c.domain) score += 20;
+  if (c.phone) score += 10;
+  if (c.address) score += 10;
+  if (c.description) score += 5;
+
+  // Reputation
+  if (c.rating && c.rating >= 3.5) score += 10;
+  if (c.reviews && c.reviews >= 5) score += 5;
+  if (c.reviews && c.reviews >= 20) score += 10;
+
+  // Industry ICP fit — INDUSTRY_SCORES is 0-100; map to 0-20 here.
+  const industryRaw = (c.industry && INDUSTRY_SCORES_LOCAL[c.industry]) || 50;
+  score += Math.round(industryRaw * 0.2);
+
+  // Enrichment quality (these fields get set after enrichLeadWithFindymail)
+  const dms = (c as any).discovered_contacts || [];
+  if (Array.isArray(dms) && dms.length > 0) {
+    const hasVerified = dms.some((d: any) => d.verification_status === 'verified');
+    const hasDerived  = dms.some((d: any) => d.verification_status === 'derived' || d.verification_status === 'guessed');
+    if (hasVerified) score += 10;
+    else if (hasDerived) score += 5;
+  }
+
+  // Penalties
+  if (c.domain && c.domain.length > 30) score -= 5;
+  if ((c as any).verification_summary?.catch_all > ((c as any).verification_summary?.verified || 0)) {
+    score -= 5;
+  }
+
+  // Clamp to 0-100
+  return Math.max(0, Math.min(100, score));
 }
+
+// Compact copy of lead-scoring.tsx's INDUSTRY_SCORES, local to this
+// module to avoid pulling the whole scoring module into the search hot
+// path. Keep in sync with src/.../lead-scoring.tsx.
+const INDUSTRY_SCORES_LOCAL: Record<string, number> = {
+  'SaaS': 100, 'Technology': 95, 'Finance': 90, 'Healthcare': 85,
+  'Legal': 80, 'Consulting': 80, 'Marketing': 75, 'E-commerce': 70,
+  'Real Estate': 65, 'Education': 60, 'Manufacturing': 55, 'Retail': 50,
+  'Hospitality': 45, 'Construction': 40, 'Media': 70,
+};
 
 // ── SerpAPI People Discovery Helpers ────────────────────────────────────
 interface DiscoveredPerson {
@@ -265,24 +325,98 @@ async function searchPeopleViaLinkedIn(
   }
 }
 
+/**
+ * Build a stable dedup key for a person's name so "John A. Smith",
+ * "John Smith", and "J. Smith" all collapse to the same entry. We:
+ *   - lowercase
+ *   - strip punctuation
+ *   - drop middle tokens (initials especially)
+ *   - keep first initial + full last name as the key
+ *
+ * Falls back to the raw lowercased name if we can't extract a usable
+ * first+last (single token, blank, etc.).
+ */
+export function personDedupKey(rawName: string | null | undefined): string {
+  if (!rawName) return '';
+  const cleaned = rawName.toLowerCase().replace(/[^a-z\s'-]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+  const tokens = cleaned.split(' ').filter(Boolean);
+  if (tokens.length === 1) return tokens[0];
+  const first = tokens[0];
+  const last = tokens[tokens.length - 1];
+  // Single-letter first initial collapses to just the initial
+  const firstKey = first.length === 1 ? first[0] : first[0]; // always first letter
+  return `${firstKey}|${last}`;
+}
+
+/**
+ * Common "noise" tokens that shouldn't count as matching evidence.
+ * "Acme Inc" vs "Acme Holdings" share both "inc"/"holdings"-like tokens
+ * but we want the match to fail; "Acme" vs "Acme Dental" should also
+ * fail (different businesses). Token-overlap with stop-token filtering
+ * is the standard trick.
+ */
+const COMPANY_STOPWORDS = new Set([
+  'inc', 'llc', 'ltd', 'co', 'corp', 'corporation', 'company', 'group',
+  'holdings', 'enterprises', 'partners', 'associates', 'services', 'solutions',
+  'the', 'and', 'of', 'for', 'a', 'an', 'global', 'international', 'pllc',
+  'plc', 'pty', 'gmbh', 'sa', 'spa', 'srl',
+]);
+
+function tokenizeCompanyName(s: string): string[] {
+  return s.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .map(t => t.trim())
+    .filter(t => t.length >= 2 && !COMPANY_STOPWORDS.has(t));
+}
+
+/**
+ * Match a discovered person to a company in the result set.
+ *
+ * Old impl used substring containment — "Acme" matched "Acme Dental",
+ * "Acme Holdings", "Acme Inc", etc. (silent attribution to the wrong
+ * company in saved leads). New impl requires either:
+ *   - Domain-base token match (highest confidence), OR
+ *   - Token-overlap ratio ≥ 0.6 after removing legal stopwords
+ *     (Inc/LLC/Holdings/Group/etc.)
+ *
+ * If we can't reach 0.6, return null — preferring "no attribution"
+ * over "wrong attribution."
+ */
 function matchPersonToCompany(person: DiscoveredPerson, companies: RawCompany[]): RawCompany | null {
   if (!person.company_hint) return null;
 
-  const hint = person.company_hint.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-  if (!hint || hint.length < 2) return null;
+  const hintTokens = tokenizeCompanyName(person.company_hint);
+  if (hintTokens.length === 0) return null;
+
+  const hintCompact = hintTokens.join('');
+
+  let best: { company: RawCompany; score: number } | null = null;
 
   for (const company of companies) {
-    const companyName = company.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-    const domainBase = company.domain.replace(/\.\w+$/, '').replace(/[^a-z0-9]/g, '');
+    const nameTokens = tokenizeCompanyName(company.name);
+    const domainBase = (company.domain || '').split('.')[0].replace(/[^a-z0-9]/g, '');
 
-    // Exact or contains match on name
-    if (companyName === hint || companyName.includes(hint) || hint.includes(companyName)) return company;
+    // Domain-base match (highest confidence — domains are uniquely identifying)
+    if (domainBase.length >= 3 && hintCompact.includes(domainBase)) {
+      return company;
+    }
 
-    // Domain base match
-    if (domainBase.length > 2 && (hint.includes(domainBase) || domainBase.includes(hint.replace(/\s/g, '')))) return company;
+    if (nameTokens.length === 0) continue;
+
+    // Token-overlap (Jaccard-like, asymmetric: we measure overlap relative
+    // to the SMALLER set so "Acme" against "Acme Dental" gets 0.5, not 1.0)
+    const hintSet = new Set(hintTokens);
+    const overlap = nameTokens.filter(t => hintSet.has(t)).length;
+    const score = overlap / Math.max(hintTokens.length, nameTokens.length);
+
+    if (score >= 0.6 && (!best || score > best.score)) {
+      best = { company, score };
+    }
   }
 
-  return null;
+  return best?.company || null;
 }
 
 // ── POST /search — Deep company discovery ───────────────────────────────
@@ -531,7 +665,7 @@ app.post("/search", async (c) => {
               if (company) {
                 if (!company.discovered_contacts) company.discovered_contacts = [];
                 for (const contact of result.value.contacts) {
-                  const alreadyFound = company.discovered_contacts.some(dc => dc.full_name.toLowerCase() === contact.full_name.toLowerCase());
+                  const alreadyFound = company.discovered_contacts.some(dc => personDedupKey(dc.full_name) === personDedupKey(contact.full_name));
                   if (!alreadyFound) {
                     company.discovered_contacts.push(contact);
                     if (company.discovered_contacts.length === 1) {
@@ -553,7 +687,7 @@ app.post("/search", async (c) => {
             if (matched) {
               if (!matched.discovered_contacts) matched.discovered_contacts = [];
               const alreadyFound = matched.discovered_contacts.some(
-                dc => dc.full_name.toLowerCase() === person.full_name.toLowerCase()
+                dc => personDedupKey(dc.full_name) === personDedupKey(person.full_name)
               );
               if (!alreadyFound) {
                 matched.discovered_contacts.push({
@@ -580,7 +714,7 @@ app.post("/search", async (c) => {
             if (matched) {
               if (!matched.discovered_contacts) matched.discovered_contacts = [];
               const alreadyFound = matched.discovered_contacts.some(
-                dc => dc.full_name.toLowerCase() === person.full_name.toLowerCase()
+                dc => personDedupKey(dc.full_name) === personDedupKey(person.full_name)
               );
               if (!alreadyFound) {
                 matched.discovered_contacts.push({
@@ -1002,7 +1136,7 @@ app.post("/search-stream", async (c) => {
                     if (company) {
                       if (!company.discovered_contacts) company.discovered_contacts = [];
                       for (const contact of result.value.contacts) {
-                        const alreadyFound = company.discovered_contacts.some(dc => dc.full_name.toLowerCase() === contact.full_name.toLowerCase());
+                        const alreadyFound = company.discovered_contacts.some(dc => personDedupKey(dc.full_name) === personDedupKey(contact.full_name));
                         if (!alreadyFound) {
                           company.discovered_contacts.push(contact);
                           if (company.discovered_contacts.length === 1) {
@@ -1024,7 +1158,7 @@ app.post("/search-stream", async (c) => {
                   const matched = matchPersonToCompany(person, qualified);
                   if (matched) {
                     if (!matched.discovered_contacts) matched.discovered_contacts = [];
-                    const alreadyFound = matched.discovered_contacts.some(dc => dc.full_name.toLowerCase() === person.full_name.toLowerCase());
+                    const alreadyFound = matched.discovered_contacts.some(dc => personDedupKey(dc.full_name) === personDedupKey(person.full_name));
                     if (!alreadyFound) {
                       matched.discovered_contacts.push({ full_name: person.full_name, title: person.title, linkedin_url: person.linkedin_url, source: person.source, role_tier: person.role_tier });
                       if (!matched.quality_score || matched.discovered_contacts.length === 1) {
@@ -1044,7 +1178,7 @@ app.post("/search-stream", async (c) => {
                   const matched = matchPersonToCompany(person, qualified);
                   if (matched) {
                     if (!matched.discovered_contacts) matched.discovered_contacts = [];
-                    const alreadyFound = matched.discovered_contacts.some(dc => dc.full_name.toLowerCase() === person.full_name.toLowerCase());
+                    const alreadyFound = matched.discovered_contacts.some(dc => personDedupKey(dc.full_name) === personDedupKey(person.full_name));
                     if (!alreadyFound) {
                       matched.discovered_contacts.push({ full_name: person.full_name, title: person.title, linkedin_url: person.linkedin_url, source: person.source, role_tier: person.role_tier });
                       if (!matched.quality_score || matched.discovered_contacts.length === 1) {
