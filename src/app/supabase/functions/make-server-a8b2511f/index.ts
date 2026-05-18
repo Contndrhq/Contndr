@@ -22748,6 +22748,114 @@ app.get("/make-server-a8b2511f/email-auth/check", async (c) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// Audience Segments — saved filter snapshots the user can name and
+// reload from the Campaign Builder. Stored under KV at
+// `segment:<userId>:<segmentId>` so reads are O(scan-by-prefix) and
+// completely tenant-isolated.
+// ═══════════════════════════════════════════════════════════════════
+
+interface SegmentRow {
+  id: string;
+  user_id: string;
+  name: string;
+  filters: Record<string, any>;   // opaque to the backend — the frontend defines the shape
+  created_at: string;
+  updated_at: string;
+}
+
+// GET /segments — list this user's saved segments
+app.get("/make-server-a8b2511f/segments", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const rows = await kv.getByPrefixLimited(`segment:${user.id}:`, 200, 0).catch(() => [] as any[]);
+    const segments = (rows as any[])
+      .filter((r) => r && r.id && r.name)
+      .sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+    c.header('Cache-Control', 'private, max-age=10');
+    return c.json({ segments });
+  } catch (error: any) {
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+// POST /segments — save a new segment OR update an existing one (when `id` is supplied)
+app.post("/make-server-a8b2511f/segments", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json().catch(() => ({}));
+    const name = (body.name || '').trim().slice(0, 80);
+    if (!name) return c.json({ error: 'Segment name is required' }, 400);
+    if (!body.filters || typeof body.filters !== 'object') return c.json({ error: 'filters object required' }, 400);
+
+    const id: string = body.id || crypto.randomUUID();
+    const now = new Date().toISOString();
+    const existing = body.id ? await kv.get(`segment:${user.id}:${id}`) : null;
+    const row: SegmentRow = {
+      id,
+      user_id: user.id,
+      name,
+      filters: body.filters,
+      created_at: (existing as any)?.created_at || now,
+      updated_at: now,
+    };
+    await kv.set(`segment:${user.id}:${id}`, row);
+    return c.json({ segment: row });
+  } catch (error: any) {
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+// DELETE /segments/:id — remove a saved segment
+app.delete("/make-server-a8b2511f/segments/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const id = c.req.param('id');
+    await kv.del(`segment:${user.id}:${id}`);
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+// GET /campaigns/active-lead-ids — return the set of lead IDs currently
+// enrolled in active or sending campaigns for this user. Used by the
+// audience builder's "Exclude leads already in another active campaign"
+// option so the user doesn't double-touch the same lead from two
+// campaigns running simultaneously. Capped to a reasonable size.
+app.get("/make-server-a8b2511f/campaigns/active-lead-ids", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+
+    // Fetch active/sending campaigns. KV is the source of truth for the
+    // leads array on each campaign — DB only has the campaign row.
+    const { data: rows } = await supabase
+      .from('campaigns')
+      .select('id')
+      .eq('user_id', user.id)
+      .in('status', ['active', 'sending', 'scheduled'])
+      .limit(50);
+    const ids: string[] = (rows || []).map((r: any) => r.id).filter(Boolean);
+
+    const leadSet = new Set<string>();
+    // Fan out reads — at most ~50 campaigns, each KV read is fast
+    await Promise.all(ids.map(async (cid) => {
+      try {
+        const campaign: any = await kv.get(`campaign:${user.id}:${cid}`);
+        const leadIds: string[] = Array.isArray(campaign?.leads) ? campaign.leads : [];
+        for (const lid of leadIds) {
+          if (typeof lid === 'string') leadSet.add(lid);
+        }
+      } catch { /* best-effort */ }
+    }));
+
+    c.header('Cache-Control', 'private, max-age=30');
+    return c.json({ lead_ids: [...leadSet], campaign_count: ids.length });
+  } catch (error: any) {
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
 app.get("/make-server-a8b2511f/compliance/stats", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);

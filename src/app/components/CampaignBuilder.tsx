@@ -281,6 +281,27 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
   const [engagementStates, setEngagementStates] = useState<EngagementState[]>([]);
   // Active preset name, so the UI can highlight which preset is on
   const [activePreset, setActivePreset] = useState<string | null>(null);
+  // ── Phase 2: lead score range (0–100) ──
+  // null = no score filter applied. The slider sets [min, max] inclusive.
+  const [scoreRange, setScoreRange] = useState<[number, number] | null>(null);
+  // ── Phase 2: recency filters ──
+  // `addedWithinDays` — only leads created in the last N days. null = no limit.
+  // `lastContactedRange` — { min?, max? } in days since now. min=60 means "contacted ≥60d ago".
+  const [addedWithinDays, setAddedWithinDays] = useState<number | null>(null);
+  const [lastContactedRange, setLastContactedRange] = useState<{ min?: number; max?: number } | null>(null);
+  // ── Phase 2: cross-campaign exclusion ──
+  // When true, leads currently enrolled in another active/sending/
+  // scheduled campaign are filtered out — prevents double-touch.
+  // `activeCampaignLeadIds` is fetched lazily from /campaigns/active-lead-ids
+  // and cached for the modal's lifetime.
+  const [excludeActiveCampaigns, setExcludeActiveCampaigns] = useState(false);
+  const [activeCampaignLeadIds, setActiveCampaignLeadIds] = useState<Set<string> | null>(null);
+  // ── Phase 2: saved segments ──
+  interface SavedSegment { id: string; name: string; filters: any; updated_at?: string; }
+  const [savedSegments, setSavedSegments] = useState<SavedSegment[]>([]);
+  const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
+  const [showSegmentMenu, setShowSegmentMenu] = useState(false);
+  const [savingSegment, setSavingSegment] = useState(false);
 
   const [hasSignature, setHasSignature] = useState(true);
   const [signatureText, setSignatureText] = useState<string>('');
@@ -298,7 +319,7 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
   // Reset visible count when filters change
   useEffect(() => {
     setVisibleLeadCount(50);
-  }, [searchQuery, selectedCities, selectedStates, selectedCountries, selectedIndustries, showOnlyUncontacted, engagementStates]);
+  }, [searchQuery, selectedCities, selectedStates, selectedCountries, selectedIndustries, showOnlyUncontacted, engagementStates, scoreRange, addedWithinDays, lastContactedRange, excludeActiveCampaigns]);
 
   // Debounced server-side search: re-fetch leads when filters change
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -718,8 +739,37 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
     if (engagementStates.length > 0) {
       leads = leads.filter(l => matchesEngagement(l, engagementStates));
     }
+    // ── Phase 2 filters ──
+    if (scoreRange) {
+      const [lo, hi] = scoreRange;
+      leads = leads.filter(l => {
+        const s = Number(l.lead_score ?? l.score ?? 0);
+        return s >= lo && s <= hi;
+      });
+    }
+    if (addedWithinDays != null) {
+      const cutoff = Date.now() - addedWithinDays * 24 * 60 * 60 * 1000;
+      leads = leads.filter(l => {
+        const t = new Date(l.created_at || 0).getTime();
+        return t >= cutoff;
+      });
+    }
+    if (lastContactedRange) {
+      const now = Date.now();
+      leads = leads.filter(l => {
+        const tRaw = l.last_contacted || l.contacted_at || l.last_email_at;
+        if (!tRaw) return false; // can't satisfy a "contacted N days ago" filter for never-contacted leads
+        const ageDays = (now - new Date(tRaw).getTime()) / (24 * 60 * 60 * 1000);
+        if (lastContactedRange.min != null && ageDays < lastContactedRange.min) return false;
+        if (lastContactedRange.max != null && ageDays > lastContactedRange.max) return false;
+        return true;
+      });
+    }
+    if (excludeActiveCampaigns && activeCampaignLeadIds) {
+      leads = leads.filter(l => !activeCampaignLeadIds.has(l.id));
+    }
     return leads;
-  }, [availableLeads, selectedCities, selectedStates, selectedCountries, selectedIndustries, engagementStates]);
+  }, [availableLeads, selectedCities, selectedStates, selectedCountries, selectedIndustries, engagementStates, scoreRange, addedWithinDays, lastContactedRange, excludeActiveCampaigns, activeCampaignLeadIds]);
 
   // Server-side filter options (loaded once from /filter-options endpoint)
   const [serverFilterOptions, setServerFilterOptions] = useState<{
@@ -1146,6 +1196,103 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
       costText: `~$${cost.toFixed(2)} est`,
     };
   }, [selectedLeads.length]);
+
+  // ─── Phase 2: load saved segments + active-campaign lead IDs ───────
+  // Both fire once on mount of the leads step (cheap KV scans).
+  // activeCampaignLeadIds stays null until the user toggles the
+  // exclusion option, but we eagerly fetch so the toggle responds
+  // instantly when clicked.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await authenticatedFetch(`https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/segments`);
+        if (r.ok && !cancelled) {
+          const j = await r.json();
+          setSavedSegments(Array.isArray(j.segments) ? j.segments : []);
+        }
+      } catch { /* non-fatal */ }
+      try {
+        const r = await authenticatedFetch(`https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/active-lead-ids`);
+        if (r.ok && !cancelled) {
+          const j = await r.json();
+          if (Array.isArray(j.lead_ids)) setActiveCampaignLeadIds(new Set(j.lead_ids));
+        }
+      } catch { /* non-fatal */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Save the current filter snapshot as a segment. Prompts for a name
+  // via window.prompt (deliberately simple — a richer dialog is Phase 3
+  // polish). The snapshot captures every Phase 1 + Phase 2 filter so
+  // reloading restores the audience exactly.
+  const saveCurrentAsSegment = useCallback(async () => {
+    const name = (typeof window !== 'undefined' && window.prompt('Name this segment:', '') || '').trim();
+    if (!name) return;
+    setSavingSegment(true);
+    try {
+      const filters = {
+        searchQuery,
+        selectedCities, selectedStates, selectedCountries, selectedIndustries,
+        engagementStates, scoreRange, addedWithinDays, lastContactedRange,
+        excludeActiveCampaigns, sampleSize, sampleMode,
+      };
+      const r = await authenticatedFetch(`https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/segments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, filters }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'save failed');
+      // Replace or append in local list
+      setSavedSegments(prev => {
+        const without = prev.filter(s => s.id !== j.segment.id);
+        return [j.segment, ...without];
+      });
+      setActiveSegmentId(j.segment.id);
+      toast.success(`Saved segment "${name}"`);
+    } catch (err: any) {
+      toast.error('Could not save segment', { description: err.message });
+    } finally {
+      setSavingSegment(false);
+    }
+  }, [searchQuery, selectedCities, selectedStates, selectedCountries, selectedIndustries,
+      engagementStates, scoreRange, addedWithinDays, lastContactedRange,
+      excludeActiveCampaigns, sampleSize, sampleMode]);
+
+  // Apply a saved segment's filters to the current state. We DON'T
+  // restore selectedLeads (which would be stale anyway) — only the
+  // filter shape. The user re-picks the sample size after loading.
+  const loadSegment = useCallback((seg: SavedSegment) => {
+    const f = seg.filters || {};
+    setSearchQuery(f.searchQuery || '');
+    setSelectedCities(Array.isArray(f.selectedCities) ? f.selectedCities : []);
+    setSelectedStates(Array.isArray(f.selectedStates) ? f.selectedStates : []);
+    setSelectedCountries(Array.isArray(f.selectedCountries) ? f.selectedCountries : []);
+    setSelectedIndustries(Array.isArray(f.selectedIndustries) ? f.selectedIndustries : []);
+    setEngagementStates(Array.isArray(f.engagementStates) ? f.engagementStates : []);
+    setScoreRange(Array.isArray(f.scoreRange) && f.scoreRange.length === 2 ? f.scoreRange : null);
+    setAddedWithinDays(typeof f.addedWithinDays === 'number' ? f.addedWithinDays : null);
+    setLastContactedRange(f.lastContactedRange && typeof f.lastContactedRange === 'object' ? f.lastContactedRange : null);
+    setExcludeActiveCampaigns(!!f.excludeActiveCampaigns);
+    setSampleMode(f.sampleMode === 'random' || f.sampleMode === 'top_score' ? f.sampleMode : 'first');
+    setActiveSegmentId(seg.id);
+    setShowSegmentMenu(false);
+    toast.success(`Loaded segment "${seg.name}"`);
+  }, []);
+
+  const deleteSegment = useCallback(async (seg: SavedSegment) => {
+    if (typeof window !== 'undefined' && !window.confirm(`Delete segment "${seg.name}"?`)) return;
+    try {
+      await authenticatedFetch(`https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/segments/${seg.id}`, { method: 'DELETE' });
+      setSavedSegments(prev => prev.filter(s => s.id !== seg.id));
+      if (activeSegmentId === seg.id) setActiveSegmentId(null);
+      toast.success(`Deleted segment`);
+    } catch (err: any) {
+      toast.error('Could not delete', { description: err.message });
+    }
+  }, [activeSegmentId]);
 
   // Select all leads from current city selection
   function selectByCurrentCities() {
@@ -2915,6 +3062,71 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
             })}
           </div>
 
+          {/* ─── Audience Builder v2 Phase 2: Saved segments ───
+              The user can save the current filter shape as a named
+              segment and reload it later. Dropdown lists existing
+              segments + "Save current as…" entry. Pure persistence
+              of the filter shape — selectedLeads is NOT stored. */}
+          {(savedSegments.length > 0 || true) && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-semibold">Segments</span>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowSegmentMenu(v => !v)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-full border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-white/30"
+                >
+                  {activeSegmentId
+                    ? (savedSegments.find(s => s.id === activeSegmentId)?.name || 'Segment')
+                    : (savedSegments.length === 0 ? 'No saved segments' : 'Load segment')}
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+                {showSegmentMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowSegmentMenu(false)} />
+                    <div className="absolute left-0 top-full mt-1.5 bg-white dark:bg-zinc-950 rounded-xl shadow-xl border border-zinc-200 dark:border-white/10 min-w-[220px] max-w-[320px] z-20 py-1.5 max-h-[280px] overflow-y-auto">
+                      {savedSegments.length === 0 && (
+                        <div className="px-3.5 py-2 text-[12px] text-zinc-500">No segments yet. Save your filters to reuse them.</div>
+                      )}
+                      {savedSegments.map(seg => (
+                        <div
+                          key={seg.id}
+                          className={`flex items-center justify-between gap-2 px-3 py-2 group hover:bg-zinc-50 dark:hover:bg-white/[0.04] cursor-pointer ${activeSegmentId === seg.id ? 'bg-zinc-50 dark:bg-white/[0.04]' : ''}`}
+                          onClick={() => loadSegment(seg)}
+                        >
+                          <span className="text-[12.5px] text-zinc-900 dark:text-white truncate flex-1">{seg.name}</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteSegment(seg); }}
+                            className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-500 transition-opacity"
+                            title="Delete segment"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={saveCurrentAsSegment}
+                disabled={savingSegment}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-full border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-white/30 disabled:opacity-50"
+              >
+                {savingSegment ? 'Saving…' : 'Save current'}
+              </button>
+              {activeSegmentId && (
+                <button
+                  onClick={() => setActiveSegmentId(null)}
+                  className="text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-white underline"
+                >
+                  clear
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Search Bar */}
           <div className="relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 dark:text-zinc-500" strokeWidth={2} />
@@ -3178,6 +3390,143 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
                 </div>
               )}
             </div>
+
+          {/* ─── Audience Builder v2 Phase 2: Power filters ───
+              Lead score range + recency + cross-campaign exclusion.
+              Sits between advanced location/industry filters and the
+              contact-status toggle so the visual flow is broad → fine. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-zinc-50/80 dark:bg-zinc-950 border border-zinc-200 dark:border-white/10 rounded-xl">
+            {/* Lead score range */}
+            <div>
+              <label className="flex items-center justify-between text-[12px] text-zinc-700 dark:text-zinc-300 mb-1.5 font-medium">
+                <span>Lead score</span>
+                <span className="text-zinc-400 dark:text-zinc-500 font-mono text-[11px]">
+                  {scoreRange ? `${scoreRange[0]}–${scoreRange[1]}` : 'any'}
+                </span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={scoreRange?.[0] ?? 0}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    const hi = scoreRange?.[1] ?? 100;
+                    setScoreRange([Math.min(v, hi), hi]);
+                  }}
+                  className="flex-1 h-1.5 bg-zinc-200 dark:bg-white/10 rounded-full appearance-none cursor-pointer accent-zinc-900 dark:accent-white"
+                />
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={scoreRange?.[1] ?? 100}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    const lo = scoreRange?.[0] ?? 0;
+                    setScoreRange([lo, Math.max(v, lo)]);
+                  }}
+                  className="flex-1 h-1.5 bg-zinc-200 dark:bg-white/10 rounded-full appearance-none cursor-pointer accent-zinc-900 dark:accent-white"
+                />
+                {scoreRange && (
+                  <button
+                    onClick={() => setScoreRange(null)}
+                    className="text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-white underline"
+                  >
+                    clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Added within (days) — quick chips */}
+            <div>
+              <label className="block text-[12px] text-zinc-700 dark:text-zinc-300 mb-1.5 font-medium">Added within</label>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { label: 'Any time', val: null as number | null },
+                  { label: '7d',  val: 7 },
+                  { label: '30d', val: 30 },
+                  { label: '90d', val: 90 },
+                  { label: '1y',  val: 365 },
+                ].map(opt => {
+                  const active = addedWithinDays === opt.val;
+                  return (
+                    <button
+                      key={String(opt.val)}
+                      type="button"
+                      onClick={() => setAddedWithinDays(opt.val)}
+                      className={`px-2.5 py-1 text-[11.5px] font-medium rounded-full border transition-all ${
+                        active
+                          ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-zinc-900 dark:border-white'
+                          : 'bg-white dark:bg-black text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/30'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Last contacted — for re-engagement campaigns */}
+            <div>
+              <label className="block text-[12px] text-zinc-700 dark:text-zinc-300 mb-1.5 font-medium">Last contacted</label>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { label: 'Any',           val: null as { min?: number; max?: number } | null },
+                  { label: 'Never',         val: { min: 99999 } },
+                  { label: '>30d ago',      val: { min: 30 } },
+                  { label: '>60d ago',      val: { min: 60 } },
+                  { label: '>90d ago',      val: { min: 90 } },
+                ].map(opt => {
+                  const active = JSON.stringify(lastContactedRange) === JSON.stringify(opt.val);
+                  return (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      onClick={() => setLastContactedRange(opt.val)}
+                      className={`px-2.5 py-1 text-[11.5px] font-medium rounded-full border transition-all ${
+                        active
+                          ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-zinc-900 dark:border-white'
+                          : 'bg-white dark:bg-black text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/30'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Cross-campaign exclusion */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <label className="block text-[12px] text-zinc-700 dark:text-zinc-300 font-medium">Exclude double-touches</label>
+                <p className="text-[10.5px] text-zinc-500 dark:text-zinc-500 mt-0.5 leading-snug">
+                  Skip leads in your other active campaigns
+                  {activeCampaignLeadIds ? ` (${activeCampaignLeadIds.size.toLocaleString()})` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={excludeActiveCampaigns}
+                onClick={() => setExcludeActiveCampaigns(v => !v)}
+                className={`relative w-10 h-6 rounded-full transition-colors flex-shrink-0 ${
+                  excludeActiveCampaigns ? 'bg-zinc-900 dark:bg-white' : 'bg-zinc-200 dark:bg-zinc-800'
+                }`}
+              >
+                <span
+                  className="absolute top-0.5 w-5 h-5 bg-white dark:bg-zinc-900 rounded-full shadow transition-transform"
+                  style={{ transform: excludeActiveCampaigns ? 'translateX(20px)' : 'translateX(2px)' }}
+                />
+              </button>
+            </div>
+          </div>
 
           {/* Contact Status Filter */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#1ED4A7]/5 dark:bg-[#1ED4A7]/5 border border-[#1ED4A7]/20 dark:border-[#1ED4A7]/15 rounded-xl">
