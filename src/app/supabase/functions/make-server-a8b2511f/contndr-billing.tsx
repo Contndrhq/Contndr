@@ -1109,6 +1109,24 @@ export async function handleStripeWebhook(req: Request) {
         ).catch(() => {});
       } catch (_) {}
 
+      // Native push to the affected user — this is the single most
+      // urgent notification the app emits (they're about to lose
+      // access if they don't fix their card).
+      if (failedUserId) {
+        (async () => {
+          try {
+            const { sendNativePush } = await import('./native-push.tsx');
+            await sendNativePush(failedUserId, {
+              title: '⚠️ Payment failed',
+              body: `$${amountDue.toFixed(2)} payment failed (attempt ${attemptCount}). Update your card to avoid losing access.`,
+              data: { type: 'payment_failed', amount: amountDue, attempt: attemptCount },
+            });
+          } catch (err) {
+            console.warn('[NATIVE-PUSH] payment-failed fanout failed:', (err as any)?.message);
+          }
+        })();
+      }
+
       // Auto-downgrade after threshold
       if (failedUserId && failures >= FAILURE_THRESHOLD) {
         try {

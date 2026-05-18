@@ -652,6 +652,26 @@ app.put("/deals/:id", async (c) => {
               email: deal.email,
               metadata: { dealId, value: deal.value, business: deal.business_name }
             }).catch(() => {});
+
+            // Native push to celebrate the win on the user's phone.
+            // Best moment to push them — they just made money and the
+            // app gets credit for surfacing it.
+            (async () => {
+              try {
+                const { sendNativePush } = await import('./native-push.tsx');
+                const customer = deal.contact_name || deal.business_name || 'Customer';
+                const amt = typeof deal.value === 'number' && deal.value > 0
+                  ? ` — $${Number(deal.value).toLocaleString()}`
+                  : '';
+                await sendNativePush(userId, {
+                  title: '💰 Deal won!',
+                  body: `${customer}${amt}`,
+                  data: { type: 'deal_won', deal_id: dealId, amount: deal.value || 0 },
+                });
+              } catch (err) {
+                console.warn('[NATIVE-PUSH] deal-won fanout failed:', (err as any)?.message);
+              }
+            })();
           }
         } catch (_) {}
       }

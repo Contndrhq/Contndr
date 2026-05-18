@@ -2062,6 +2062,26 @@ app.post('/webhooks/call-status', async (c) => {
             console.log(`🤖 AI call ${call.id} ended. ${conv.history?.length || 0} messages.`);
             await kv.set(convKey, { ...conv, completed_at: new Date().toISOString() });
           }
+
+          // Native push fanout — let the user know the call wrapped.
+          // Best-effort; web notifications are still primary via realtime.
+          const ownerId = call.user_id || call.ai_config?.user_id;
+          if (ownerId) {
+            (async () => {
+              try {
+                const { sendNativePush } = await import('./native-push.tsx');
+                const leadLabel = call.lead_name || call.business_name || call.to_number || 'a lead';
+                const outcome = call.outcome || (call.transfer ? 'transferred' : 'ended');
+                await sendNativePush(ownerId, {
+                  title: '📞 AI call completed',
+                  body: `${leadLabel} — ${outcome}`,
+                  data: { type: 'ai_call_completed', call_id: call.id, lead_id: call.lead_id || null },
+                });
+              } catch (err) {
+                console.warn('[NATIVE-PUSH] call-end fanout failed:', (err as any)?.message);
+              }
+            })();
+          }
         }
       } else if (call) {
         // Call exists but doesn't have ai_config - this is expected for non-AI calls
