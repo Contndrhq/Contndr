@@ -3006,29 +3006,59 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
               sees what they're about to send: count, estimated send
               window (given daily cap), and cost. Quietly hides when
               nothing is selected yet. */}
-          {audienceEstimate && (
-            <div className="rounded-xl border border-zinc-900/10 dark:border-white/10 bg-zinc-50/80 dark:bg-zinc-950 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-zinc-900 dark:bg-white flex items-center justify-center">
-                  <Users className="w-4 h-4 text-white dark:text-zinc-900" strokeWidth={2.2} />
+          {audienceEstimate && (() => {
+            // Daily cap visualizer — shows audience size as a fraction
+            // of the default 250/day cap, capped at 100% for visual.
+            // Color shifts from emerald (one-day) to amber (multi-day)
+            // to red (week+).
+            const dailyCap = 250;
+            const days = audienceEstimate.count / dailyCap;
+            const pct = Math.min(100, (audienceEstimate.count / dailyCap) * 100);
+            const tone = days <= 1 ? 'emerald' : days <= 7 ? 'amber' : 'red';
+            const toneBg: Record<string, string> = {
+              emerald: 'bg-emerald-500', amber: 'bg-amber-500', red: 'bg-red-500',
+            };
+            return (
+              <div className="rounded-xl border border-zinc-900/10 dark:border-white/10 bg-zinc-50/80 dark:bg-zinc-950 px-4 py-3 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-zinc-900 dark:bg-white flex items-center justify-center">
+                      <Users className="w-4 h-4 text-white dark:text-zinc-900" strokeWidth={2.2} />
+                    </div>
+                    <div className="leading-tight">
+                      <div className="text-[15px] font-semibold text-zinc-900 dark:text-white">
+                        {audienceEstimate.count.toLocaleString()} {audienceEstimate.count === 1 ? 'lead' : 'leads'} selected
+                      </div>
+                      <div className="text-[11.5px] text-zinc-500 dark:text-zinc-400">
+                        {audienceEstimate.timeText} <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span> {audienceEstimate.costText}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={deselectAllLeads}
+                    className="text-[12px] text-zinc-500 hover:text-zinc-900 dark:hover:text-white font-medium"
+                  >
+                    Clear
+                  </button>
                 </div>
-                <div className="leading-tight">
-                  <div className="text-[15px] font-semibold text-zinc-900 dark:text-white">
-                    {audienceEstimate.count.toLocaleString()} {audienceEstimate.count === 1 ? 'lead' : 'leads'} selected
+                {/* Daily-cap progress bar — visual feedback for how the
+                    audience compares to the configured send rate. Multi-
+                    day campaigns get amber/red so the user thinks twice
+                    before launching a slow burn. */}
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-1.5 rounded-full bg-zinc-200 dark:bg-white/10 overflow-hidden">
+                    <div
+                      className={`h-full ${toneBg[tone]} transition-all`}
+                      style={{ width: `${pct}%` }}
+                    />
                   </div>
-                  <div className="text-[11.5px] text-zinc-500 dark:text-zinc-400">
-                    {audienceEstimate.timeText} <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span> {audienceEstimate.costText}
-                  </div>
+                  <span className="text-[10.5px] text-zinc-500 dark:text-zinc-500 font-mono tabular-nums">
+                    {days <= 1 ? '<1 day' : days < 2 ? '~1 day' : `~${Math.ceil(days)} days`}
+                  </span>
                 </div>
               </div>
-              <button
-                onClick={deselectAllLeads}
-                className="text-[12px] text-zinc-500 hover:text-zinc-900 dark:hover:text-white font-medium"
-              >
-                Clear
-              </button>
-            </div>
-          )}
+            );
+          })()}
 
           {/* ─── Audience Builder v2: Smart presets ───
               One-click filter combos for the 90% of audiences users
@@ -3636,6 +3666,23 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
                 >
                   All
                 </button>
+                {/* Phase 3: 5% sample — quick A/B-style pre-run before
+                    committing the full audience. Default to Random mode
+                    on click so the sample is unbiased. */}
+                {filteredLeads.length >= 20 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const n = Math.max(1, Math.round(filteredLeads.length * 0.05));
+                      setSampleMode('random');
+                      applyAudienceSample(n, 'random');
+                    }}
+                    className="px-2.5 py-1 text-[12px] font-semibold rounded-md border bg-white dark:bg-black text-zinc-700 dark:text-zinc-300 border-dashed border-zinc-300 dark:border-white/15 hover:border-zinc-500 dark:hover:border-white/30 transition-all"
+                    title="Random 5% sample — good for testing before committing the full audience"
+                  >
+                    Test 5%
+                  </button>
+                )}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -3686,6 +3733,77 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
               </div>
             </div>
           </div>
+
+          {/* ─── Audience Builder v2 Phase 3: Active filters chip row ───
+              At-a-glance view of every filter currently narrowing the
+              audience, each with a small ✕ to remove just that filter.
+              HubSpot/Stripe/Linear convention. Only renders when at
+              least one filter is active. */}
+          {(() => {
+            const chips: Array<{ key: string; label: string; onRemove: () => void }> = [];
+            if (searchQuery) chips.push({ key: 'q', label: `Search: ${searchQuery}`, onRemove: () => setSearchQuery('') });
+            if (selectedIndustries.length > 0) chips.push({ key: 'ind', label: `${selectedIndustries.length} industr${selectedIndustries.length === 1 ? 'y' : 'ies'}`, onRemove: () => setSelectedIndustries([]) });
+            if (selectedCountries.length > 0) chips.push({ key: 'ctry', label: `${selectedCountries.length} countr${selectedCountries.length === 1 ? 'y' : 'ies'}`, onRemove: () => setSelectedCountries([]) });
+            if (selectedStates.length > 0) chips.push({ key: 'st', label: `${selectedStates.length} state${selectedStates.length === 1 ? '' : 's'}`, onRemove: () => setSelectedStates([]) });
+            if (selectedCities.length > 0) chips.push({ key: 'city', label: `${selectedCities.length} cit${selectedCities.length === 1 ? 'y' : 'ies'}`, onRemove: () => setSelectedCities([]) });
+            engagementStates.forEach(s => {
+              const labelMap: Record<string, string> = {
+                never_contacted: 'Never contacted',
+                opened: 'Opened', clicked: 'Clicked', replied: 'Replied',
+                bounced: 'Bounced', unsubscribed: 'Unsubscribed',
+              };
+              chips.push({
+                key: `e_${s}`,
+                label: labelMap[s] || s,
+                onRemove: () => setEngagementStates(prev => prev.filter(x => x !== s)),
+              });
+            });
+            if (scoreRange) chips.push({ key: 'score', label: `Score ${scoreRange[0]}–${scoreRange[1]}`, onRemove: () => setScoreRange(null) });
+            if (addedWithinDays != null) chips.push({ key: 'added', label: `Added in ${addedWithinDays}d`, onRemove: () => setAddedWithinDays(null) });
+            if (lastContactedRange) {
+              const lbl = lastContactedRange.min === 99999 ? 'Never contacted'
+                : lastContactedRange.min ? `Contacted >${lastContactedRange.min}d ago`
+                : 'Contacted recently';
+              chips.push({ key: 'lc', label: lbl, onRemove: () => setLastContactedRange(null) });
+            }
+            if (excludeActiveCampaigns) chips.push({ key: 'excl', label: 'Excl. active campaigns', onRemove: () => setExcludeActiveCampaigns(false) });
+            if (activePreset) chips.push({ key: 'preset', label: `Preset: ${activePreset.replace(/_/g, ' ')}`, onRemove: () => applyPreset('clear') });
+            if (chips.length === 0) return null;
+            return (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[10.5px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-semibold mr-1">Active filters</span>
+                {chips.map(c => (
+                  <span
+                    key={c.key}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-full bg-zinc-100 dark:bg-white/[0.08] text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-white/10"
+                  >
+                    {c.label}
+                    <button
+                      onClick={c.onRemove}
+                      className="hover:text-red-500 transition-colors"
+                      aria-label={`Remove filter ${c.label}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+                <button
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSelectedIndustries([]); setSelectedCountries([]);
+                    setSelectedStates([]); setSelectedCities([]);
+                    setEngagementStates([]); setScoreRange(null);
+                    setAddedWithinDays(null); setLastContactedRange(null);
+                    setExcludeActiveCampaigns(false); setActivePreset(null);
+                    setShowOnlyUncontacted(false);
+                  }}
+                  className="text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-white font-medium underline ml-1"
+                >
+                  clear all
+                </button>
+              </div>
+            );
+          })()}
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             {/* Count copy v2 — explicit "X match · Y loaded · Z selected"
