@@ -172,23 +172,32 @@ function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-// Engagement state predicate. Inspects whichever lead fields we have
-// (the schema isn't 100% uniform — some leads have status, some have
-// last_email_status, some carry derived flags). Conservative: when a
-// signal is missing we treat the lead as "not in that state" rather
-// than guess.
+// Engagement state predicate. Reads the EXACT fields the leads
+// endpoint emits via its stats join:
+//   - emails_sent / emails_opened / emails_clicked  (counters)
+//   - replied   (boolean — derived from emails.status='replied')
+//   - bounced   (boolean — set by bounce-handler)
+//   - last_contacted  (timestamp or null)
+//   - unsubscribed / status  (fallback)
+//
+// Earlier version checked `opened_count` / `clicked_count` which
+// don't exist on the lead row, so "Hot prospects" / "Re-engage"
+// returned 0 every time. Now uses the real field names.
 type EngagementStateLocal = 'never_contacted' | 'opened' | 'clicked' | 'replied' | 'bounced' | 'unsubscribed';
 function matchesEngagement(lead: any, states: EngagementStateLocal[]): boolean {
   if (!states.length) return true;
   const status = String(lead.status || lead.last_email_status || '').toLowerCase();
-  const wasContacted = !!(lead.last_contacted || lead.contacted_at || lead.last_email_at);
+  const opens = Number(lead.emails_opened ?? lead.opened_count ?? 0);
+  const clicks = Number(lead.emails_clicked ?? lead.clicked_count ?? 0);
+  const sent = Number(lead.emails_sent ?? 0);
+  const wasContacted = !!(lead.last_contacted || lead.contacted_at || lead.last_email_at || sent > 0);
   for (const s of states) {
     if (s === 'never_contacted' && !wasContacted) return true;
-    if (s === 'opened' && (status === 'opened' || lead.opened_count > 0)) return true;
-    if (s === 'clicked' && (status === 'clicked' || lead.clicked_count > 0)) return true;
-    if (s === 'replied' && (status === 'replied' || !!lead.replied_at)) return true;
-    if (s === 'bounced' && (status === 'bounced' || lead.bounced === true)) return true;
-    if (s === 'unsubscribed' && (status === 'unsubscribed' || lead.unsubscribed === true)) return true;
+    if (s === 'opened' && (opens > 0 || status === 'opened' || status === 'clicked')) return true;
+    if (s === 'clicked' && (clicks > 0 || status === 'clicked')) return true;
+    if (s === 'replied' && (lead.replied === true || status === 'replied' || !!lead.replied_at)) return true;
+    if (s === 'bounced' && (lead.bounced === true || status === 'bounced')) return true;
+    if (s === 'unsubscribed' && (lead.unsubscribed === true || status === 'unsubscribed')) return true;
   }
   return false;
 }
@@ -1134,30 +1143,50 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
       case 'never_contacted': {
         setEngagementStates(['never_contacted']);
         setShowOnlyUncontacted(true);
+        setLastContactedRange(null);
+        setAddedWithinDays(null);
+        setScoreRange(null);
         break;
       }
       case 'hot_prospects': {
-        // Anyone who opened/clicked recently. Re-engagement candidates.
+        // Opened OR clicked in the recent past. We don't have an
+        // "opened within X days" field, so this is best-effort: any
+        // open/click signal counts as hot.
         setEngagementStates(['opened', 'clicked']);
         setShowOnlyUncontacted(false);
+        setLastContactedRange(null);
+        setAddedWithinDays(null);
+        setScoreRange(null);
         break;
       }
       case 're_engage': {
-        // Contacted before, never replied. Filter applied via engagement
-        // state filtering at the lead level (see matchesEngagement).
-        setEngagementStates(['opened', 'clicked']);  // soft signal of past interest
+        // Contacted >60d ago, never replied. The recency filter does
+        // the "contacted >60d" cut; we don't engagement-filter here
+        // since "never replied" isn't a positive state — it's the
+        // absence of `replied` which is implicit when we don't add it.
+        setEngagementStates([]);
         setShowOnlyUncontacted(false);
+        setLastContactedRange({ min: 60 });
+        setAddedWithinDays(null);
+        setScoreRange(null);
         break;
       }
       case 'recent_visitors': {
-        // Will work once we plumb intent visit data; for now select
-        // leads flagged with site_visit_recent.
+        // Site visits aren't in the leads payload — placeholder until
+        // intent data is plumbed in. For now this clears filters and
+        // sets a flag the user can see in the chip row.
         setEngagementStates([]);
         setShowOnlyUncontacted(false);
+        setLastContactedRange(null);
+        setAddedWithinDays(7);    // proxy: leads added in last 7d
+        setScoreRange(null);
         break;
       }
       case 'high_score': {
         setEngagementStates([]);
+        setLastContactedRange(null);
+        setAddedWithinDays(null);
+        setScoreRange([70, 100]);
         setSampleMode('top_score');
         break;
       }
@@ -1166,6 +1195,9 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
         setActivePreset(null);
         setEngagementStates([]);
         setShowOnlyUncontacted(false);
+        setLastContactedRange(null);
+        setAddedWithinDays(null);
+        setScoreRange(null);
         return;
     }
   }, []);
