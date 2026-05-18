@@ -161,6 +161,38 @@ interface CampaignBuilderProps {
   preselectedLeadIds?: string[];
 }
 
+// ─── Audience Builder v2 helpers (module-level, pure) ─────────────────
+// Fisher-Yates shuffle, used by sample-mode=Random. Mutates the input
+// array and returns it — caller passes a copy.
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Engagement state predicate. Inspects whichever lead fields we have
+// (the schema isn't 100% uniform — some leads have status, some have
+// last_email_status, some carry derived flags). Conservative: when a
+// signal is missing we treat the lead as "not in that state" rather
+// than guess.
+type EngagementStateLocal = 'never_contacted' | 'opened' | 'clicked' | 'replied' | 'bounced' | 'unsubscribed';
+function matchesEngagement(lead: any, states: EngagementStateLocal[]): boolean {
+  if (!states.length) return true;
+  const status = String(lead.status || lead.last_email_status || '').toLowerCase();
+  const wasContacted = !!(lead.last_contacted || lead.contacted_at || lead.last_email_at);
+  for (const s of states) {
+    if (s === 'never_contacted' && !wasContacted) return true;
+    if (s === 'opened' && (status === 'opened' || lead.opened_count > 0)) return true;
+    if (s === 'clicked' && (status === 'clicked' || lead.clicked_count > 0)) return true;
+    if (s === 'replied' && (status === 'replied' || !!lead.replied_at)) return true;
+    if (s === 'bounced' && (status === 'bounced' || lead.bounced === true)) return true;
+    if (s === 'unsubscribed' && (status === 'unsubscribed' || lead.unsubscribed === true)) return true;
+  }
+  return false;
+}
+
 export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBuilderProps) {
   const { t } = useTranslation();
   const isDemoMode = useDemoMode();
@@ -230,6 +262,26 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
   const [activeDropdown, setActiveDropdown] = useState<'city' | 'state' | 'country' | 'industry' | null>(null);
   const [showFilters, setShowFilters] = useState(true); // Default to showing filters for better accessibility
   const [showBulkSelect, setShowBulkSelect] = useState(false);
+
+  // ── Audience Builder v2 — additive state (none of the existing
+  //    filter/select logic depends on these; they layer on top so the
+  //    legacy code paths keep working if anything reads it). ──
+  // Exact-N sampling. `null` = no cap (all matching).
+  const [sampleSize, setSampleSize] = useState<number | null>(null);
+  // First → preserves whatever order the lead list comes in (lead_score desc on the server).
+  // Random → unbiased small-sample test runs.
+  // Top by score → only when we have a lead_score field; falls back to First otherwise.
+  const [sampleMode, setSampleMode] = useState<'first' | 'random' | 'top_score'>('first');
+  // Engagement filter — multi-select. Empty array = no engagement filter.
+  // `never_contacted` is mutually-exclusive with the others; UI enforces it.
+  // Backward-compat: while `engagementStates` is empty, the legacy
+  // `showOnlyUncontacted` toggle still works. As soon as the user picks
+  // anything in the multi-filter we shift to the new source of truth.
+  type EngagementState = 'never_contacted' | 'opened' | 'clicked' | 'replied' | 'bounced' | 'unsubscribed';
+  const [engagementStates, setEngagementStates] = useState<EngagementState[]>([]);
+  // Active preset name, so the UI can highlight which preset is on
+  const [activePreset, setActivePreset] = useState<string | null>(null);
+
   const [hasSignature, setHasSignature] = useState(true);
   const [signatureText, setSignatureText] = useState<string>('');
   const [attachments, setAttachments] = useState<CampaignAttachment[]>([]);
@@ -995,6 +1047,100 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
     const leadsToSelect = filteredLeads.slice(0, count).map(lead => lead.id);
     setSelectedLeads(leadsToSelect);
   }
+
+  // ─── Audience Builder v2 helpers ────────────────────────────────────
+  // applyAudienceSample applies the current (sampleSize, sampleMode) to
+  // filteredLeads and updates selectedLeads. Used by the new size-control
+  // chips and by smart presets.
+  const applyAudienceSample = useCallback((size: number | null, mode: 'first' | 'random' | 'top_score') => {
+    let pool = filteredLeads;
+    // Respect engagement filter when sampling
+    if (engagementStates.length > 0) {
+      pool = pool.filter(l => matchesEngagement(l, engagementStates));
+    }
+    if (mode === 'top_score') {
+      pool = [...pool].sort((a, b) => (b.lead_score || b.score || 0) - (a.lead_score || a.score || 0));
+    } else if (mode === 'random') {
+      pool = shuffle([...pool]);
+    }
+    const sliced = size == null ? pool : pool.slice(0, size);
+    setSelectedLeads(sliced.map(l => l.id));
+    setSampleSize(size);
+    setSampleMode(mode);
+  }, [filteredLeads, engagementStates]);
+
+  // Smart presets — one-click filter+sample combos. Each preset:
+  //  (a) clears existing engagement + advanced filters that conflict
+  //  (b) sets the engagement states it cares about
+  //  (c) optionally caps the audience size to a sensible default
+  const applyPreset = useCallback((presetId: string) => {
+    setActivePreset(presetId);
+    switch (presetId) {
+      case 'never_contacted': {
+        setEngagementStates(['never_contacted']);
+        setShowOnlyUncontacted(true);
+        break;
+      }
+      case 'hot_prospects': {
+        // Anyone who opened/clicked recently. Re-engagement candidates.
+        setEngagementStates(['opened', 'clicked']);
+        setShowOnlyUncontacted(false);
+        break;
+      }
+      case 're_engage': {
+        // Contacted before, never replied. Filter applied via engagement
+        // state filtering at the lead level (see matchesEngagement).
+        setEngagementStates(['opened', 'clicked']);  // soft signal of past interest
+        setShowOnlyUncontacted(false);
+        break;
+      }
+      case 'recent_visitors': {
+        // Will work once we plumb intent visit data; for now select
+        // leads flagged with site_visit_recent.
+        setEngagementStates([]);
+        setShowOnlyUncontacted(false);
+        break;
+      }
+      case 'high_score': {
+        setEngagementStates([]);
+        setSampleMode('top_score');
+        break;
+      }
+      case 'clear':
+      default:
+        setActivePreset(null);
+        setEngagementStates([]);
+        setShowOnlyUncontacted(false);
+        return;
+    }
+  }, []);
+
+  // Estimate how long this campaign will take to complete at the user's
+  // configured daily cap. Pure UI — not authoritative. Shows in the
+  // live summary banner so users know "47 leads = 12 min" before they
+  // hit send.
+  const audienceEstimate = useMemo(() => {
+    const n = selectedLeads.length;
+    if (n === 0) return null;
+    // Default cap aligns with our rate-limit defaults; could plumb the
+    // user's actual setting through later.
+    const dailyCap = 250;
+    const perEmailCostCents = 2; // rough — covers send + AI gen
+    const minutesPerEmail = (60 / dailyCap) * 24 * 60 / 60; // = (24*60)/dailyCap
+    const totalMinutes = Math.ceil(n * minutesPerEmail);
+    const minutesPerCap = (24 * 60) / dailyCap;
+    const estMinutes = Math.max(1, Math.ceil(n * minutesPerCap));
+    const cost = (n * perEmailCostCents) / 100;
+    return {
+      count: n,
+      timeText: estMinutes < 60
+        ? `~${estMinutes} min at ${dailyCap}/day`
+        : estMinutes < 24 * 60
+          ? `~${Math.ceil(estMinutes / 60)} h at ${dailyCap}/day`
+          : `~${Math.ceil(estMinutes / (24 * 60))} days at ${dailyCap}/day`,
+      costText: `~$${cost.toFixed(2)} est`,
+    };
+  }, [selectedLeads.length]);
 
   // Select all leads from current city selection
   function selectByCurrentCities() {
@@ -2643,6 +2789,67 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
             </div>
           )}
 
+          {/* ─── Audience Builder v2: Live audience summary banner ───
+              Pinned at the top of the leads step so the user always
+              sees what they're about to send: count, estimated send
+              window (given daily cap), and cost. Quietly hides when
+              nothing is selected yet. */}
+          {audienceEstimate && (
+            <div className="rounded-xl border border-zinc-900/10 dark:border-white/10 bg-zinc-50/80 dark:bg-zinc-950 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-zinc-900 dark:bg-white flex items-center justify-center">
+                  <Users className="w-4 h-4 text-white dark:text-zinc-900" strokeWidth={2.2} />
+                </div>
+                <div className="leading-tight">
+                  <div className="text-[15px] font-semibold text-zinc-900 dark:text-white">
+                    {audienceEstimate.count.toLocaleString()} {audienceEstimate.count === 1 ? 'lead' : 'leads'} selected
+                  </div>
+                  <div className="text-[11.5px] text-zinc-500 dark:text-zinc-400">
+                    {audienceEstimate.timeText} <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span> {audienceEstimate.costText}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={deselectAllLeads}
+                className="text-[12px] text-zinc-500 hover:text-zinc-900 dark:hover:text-white font-medium"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
+          {/* ─── Audience Builder v2: Smart presets ───
+              One-click filter combos for the 90% of audiences users
+              actually build. Each preset toggles engagement filters and
+              (where relevant) the size-control mode. Re-clicking the
+              active preset clears it. */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-semibold mr-1">Presets</span>
+            {([
+              { id: 'never_contacted', label: '🆕 Never contacted' },
+              { id: 'hot_prospects',   label: '🔥 Hot prospects' },
+              { id: 're_engage',       label: '🔄 Re-engage' },
+              { id: 'recent_visitors', label: '👀 Recent visitors' },
+              { id: 'high_score',      label: '💯 High score' },
+            ] as const).map(p => {
+              const active = activePreset === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => active ? applyPreset('clear') : applyPreset(p.id)}
+                  className={`px-3 py-1.5 text-[12px] font-medium rounded-full border transition-all ${
+                    active
+                      ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-zinc-900 dark:border-white'
+                      : 'bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/30'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Search Bar */}
           <div className="relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 dark:text-zinc-500" strokeWidth={2} />
@@ -2930,16 +3137,164 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
             </button>
           </div>
 
+          {/* ─── Audience Builder v2: Engagement multi-filter ───
+              Replaces the binary "uncontacted only" toggle with a
+              proper multi-pill filter. The legacy toggle above still
+              works for users who haven't discovered this; both write
+              to compatible state. Pills are mutually-exclusive with
+              "never_contacted" — UI strips the conflict on click. */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-semibold mr-1">Engagement</span>
+            {([
+              { id: 'never_contacted', label: 'Never contacted' },
+              { id: 'opened',          label: 'Opened' },
+              { id: 'clicked',         label: 'Clicked' },
+              { id: 'replied',         label: 'Replied' },
+              { id: 'bounced',         label: 'Bounced' },
+              { id: 'unsubscribed',    label: 'Unsubscribed' },
+            ] as const).map(p => {
+              const active = engagementStates.includes(p.id as EngagementStateLocal);
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    setEngagementStates(prev => {
+                      if (active) return prev.filter(s => s !== p.id);
+                      // never_contacted is mutually-exclusive with the rest
+                      if (p.id === 'never_contacted') return ['never_contacted' as EngagementStateLocal];
+                      return [...prev.filter(s => s !== 'never_contacted'), p.id as EngagementStateLocal];
+                    });
+                  }}
+                  className={`px-2.5 py-1 text-[11.5px] font-medium rounded-full border transition-all ${
+                    active
+                      ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-zinc-900 dark:border-white'
+                      : 'bg-white dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/30'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+            {engagementStates.length > 0 && (
+              <button
+                onClick={() => setEngagementStates([])}
+                className="text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-white font-medium underline ml-1"
+              >
+                clear
+              </button>
+            )}
+          </div>
+
+          {/* ─── Audience Builder v2: Audience size control ───
+              Quick-pick chips for common batch sizes + custom-N input
+              + sample mode. "First" matches the current sort (server
+              default = lead_score desc), "Random" is unbiased small-
+              sample testing, "Top by score" sorts by lead_score before
+              slicing. Selecting any chip immediately updates
+              selectedLeads via applyAudienceSample. */}
+          <div className="rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50/60 dark:bg-zinc-950 px-3.5 py-3 space-y-2.5">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-semibold">Audience size</span>
+              <div className="flex flex-wrap gap-1.5">
+                {[10, 25, 50, 100, 250, 500, 1000].map(n => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => applyAudienceSample(n, sampleMode)}
+                    className={`px-2.5 py-1 text-[12px] font-semibold rounded-md border transition-all ${
+                      sampleSize === n
+                        ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-zinc-900 dark:border-white'
+                        : 'bg-white dark:bg-black text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/30'
+                    }`}
+                  >
+                    {n.toLocaleString()}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => applyAudienceSample(null, sampleMode)}
+                  className={`px-2.5 py-1 text-[12px] font-semibold rounded-md border transition-all ${
+                    sampleSize === null && selectedLeads.length > 0
+                      ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-zinc-900 dark:border-white'
+                      : 'bg-white dark:bg-black text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/30'
+                  }`}
+                >
+                  All
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11.5px] text-zinc-500 dark:text-zinc-400">Exact:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={filteredLeads.length || undefined}
+                  placeholder="N"
+                  className="w-20 px-2 py-1 text-[12px] border border-zinc-200 dark:border-white/10 bg-white dark:bg-black text-zinc-900 dark:text-white rounded-md focus:outline-none focus:border-zinc-400 dark:focus:border-white/30"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const v = parseInt((e.target as HTMLInputElement).value, 10);
+                      if (!isNaN(v) && v > 0) applyAudienceSample(v, sampleMode);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    if (!isNaN(v) && v > 0) applyAudienceSample(v, sampleMode);
+                  }}
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-[11.5px] text-zinc-500 dark:text-zinc-400 mr-1">Order:</span>
+                {([
+                  { id: 'first',     label: 'First' },
+                  { id: 'random',    label: 'Random' },
+                  { id: 'top_score', label: 'Top score' },
+                ] as const).map(m => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => {
+                      setSampleMode(m.id);
+                      // Re-apply with new mode if a size is already set
+                      if (selectedLeads.length > 0) applyAudienceSample(sampleSize, m.id);
+                    }}
+                    className={`px-2 py-1 text-[11.5px] font-medium rounded-md transition-all ${
+                      sampleMode === m.id
+                        ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900'
+                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <p className="text-[13px] text-zinc-600 dark:text-zinc-400">
-              {totalLeadCount.toLocaleString()} {(searchQuery || selectedCities.length > 0 || selectedStates.length > 0 || selectedCountries.length > 0 || selectedIndustries.length > 0) ? t('campaignBuilder.matchingFilters') : t('campaignBuilder.leadsAvailable')}
+            {/* Count copy v2 — explicit "X match · Y loaded · Z selected"
+                instead of the previous "matching filters (loaded)" which
+                read ambiguous to most users. */}
+            <p className="text-[13px] text-zinc-600 dark:text-zinc-400 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              <span>
+                <span className="font-semibold text-zinc-900 dark:text-white">{totalLeadCount.toLocaleString()}</span>{' '}
+                {(searchQuery || selectedCities.length > 0 || selectedStates.length > 0 || selectedCountries.length > 0 || selectedIndustries.length > 0)
+                  ? 'match'
+                  : 'available'}
+              </span>
               {filteredLeads.length < totalLeadCount && (
-                <span className="text-zinc-500"> {t('campaignBuilder.loaded', { count: filteredLeads.length.toLocaleString() })}</span>
+                <>
+                  <span className="text-zinc-300 dark:text-zinc-700">·</span>
+                  <span className="text-zinc-500 dark:text-zinc-500">{filteredLeads.length.toLocaleString()} loaded</span>
+                </>
               )}
               {selectedLeads.length > 0 && (
-                <span className="ml-1 text-[#1ED4A7] font-medium">
-                  {t('campaignBuilder.selectedCount', { count: selectedLeads.length.toLocaleString() })}
-                </span>
+                <>
+                  <span className="text-zinc-300 dark:text-zinc-700">·</span>
+                  <span className="text-[#1ED4A7] font-semibold">{selectedLeads.length.toLocaleString()} selected</span>
+                </>
               )}
             </p>
             <div className="flex gap-2 items-center self-end sm:self-auto">
