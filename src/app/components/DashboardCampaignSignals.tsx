@@ -119,7 +119,11 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
               // 400 from PostgREST. We compute the score from signal data
               // anyway (see s.score || matchedLead.engagement_score fallback),
               // so dropping it is safe.
-              .select('id, first_name, last_name, company, email, status, updated_at')
+              // Schema fix: the leads table has `contact_name` /
+              // `business_name`, NOT `last_name` / `company`. Selecting
+              // the non-existent columns returned a 400 from PostgREST
+              // and the dashboard signal panel always rendered empty.
+              .select('id, first_name, contact_name, business_name, email, status, updated_at')
               .eq('user_id', userId)
               .in('status', ['contacted', 'replied', 'meeting_scheduled', 'opened', 'clicked'])
               .order('updated_at', { ascending: false })
@@ -133,8 +137,10 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
           const leadsByCompany = new Map<string, any[]>();
           for (const lead of (leadsResult as any[])) {
             if (lead.email) leadsByEmail.set(lead.email.toLowerCase(), lead);
-            if (lead.company) {
-              const key = lead.company.toLowerCase().trim();
+            // Lead "company" lives on business_name in our schema.
+            const companyName = lead.business_name || lead.company;
+            if (companyName) {
+              const key = companyName.toLowerCase().trim();
               if (!leadsByCompany.has(key)) leadsByCompany.set(key, []);
               leadsByCompany.get(key)!.push(lead);
             }
@@ -160,11 +166,13 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
 
             // If matched to a lead, always show it
             if (matchedLead) {
-              const name = [matchedLead.first_name, matchedLead.last_name].filter(Boolean).join(' ');
+              // Schema: use contact_name (full name) or first_name + last fallback.
+              const name = matchedLead.contact_name
+                || [matchedLead.first_name, matchedLead.last_name].filter(Boolean).join(' ');
               enriched.push({
                 id: s.id || Math.random().toString(36),
                 leadId: matchedLead.id,
-                company: matchedLead.company || companyName || 'Unknown',
+                company: matchedLead.business_name || matchedLead.company || companyName || 'Unknown',
                 person: name || personName || undefined,
                 action: mapSignalAction(s),
                 icon: mapSignalIcon(s.signal_type, s.signal_detail),
@@ -196,14 +204,16 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
 
           // Fallback: build signals from campaign lead engagement directly
           const engagedLeads = (leadsResult as any[])
-            .filter((l: any) => l.status !== 'new' && l.company)
+            .filter((l: any) => l.status !== 'new' && (l.business_name || l.company))
             .slice(0, 8);
 
           return engagedLeads.map((lead: any) => ({
             id: lead.id,
             leadId: lead.id,
-            company: lead.company,
-            person: [lead.first_name, lead.last_name].filter(Boolean).join(' ') || undefined,
+            company: lead.business_name || lead.company,
+            person: lead.contact_name
+              || [lead.first_name, lead.last_name].filter(Boolean).join(' ')
+              || undefined,
             action: mapLeadStatusAction(lead.status),
             icon: mapLeadStatusIcon(lead.status),
             score: lead.engagement_score || undefined,

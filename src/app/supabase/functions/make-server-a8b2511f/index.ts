@@ -13190,6 +13190,45 @@ app.delete("/make-server-a8b2511f/campaigns/attachment", async (c) => {
   }
 });
 
+// GET /campaigns/active-lead-ids — return the set of lead IDs currently
+// enrolled in active/sending/scheduled campaigns for this user. Used by
+// the audience builder's "Exclude double-touches" toggle so we don't
+// re-target the same lead from two campaigns running simultaneously.
+//
+// CRITICAL: this route MUST be declared BEFORE `/campaigns/:id` below.
+// Hono routes match in declaration order; with :id first, the literal
+// segment "active-lead-ids" gets eaten by the :id parameter and the
+// request 404s.
+app.get("/make-server-a8b2511f/campaigns/active-lead-ids", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+
+    const { data: rows } = await supabase
+      .from('campaigns')
+      .select('id')
+      .eq('user_id', user.id)
+      .in('status', ['active', 'sending', 'scheduled'])
+      .limit(50);
+    const ids: string[] = (rows || []).map((r: any) => r.id).filter(Boolean);
+
+    const leadSet = new Set<string>();
+    await Promise.all(ids.map(async (cid) => {
+      try {
+        const campaign: any = await kv.get(`campaign:${user.id}:${cid}`);
+        const leadIds: string[] = Array.isArray(campaign?.leads) ? campaign.leads : [];
+        for (const lid of leadIds) {
+          if (typeof lid === 'string') leadSet.add(lid);
+        }
+      } catch { /* best-effort */ }
+    }));
+
+    c.header('Cache-Control', 'private, max-age=30');
+    return c.json({ lead_ids: [...leadSet], campaign_count: ids.length });
+  } catch (error: any) {
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
 // GET /campaigns/:id - Get a single campaign
 app.get("/make-server-a8b2511f/campaigns/:id", async (c) => {
   try {
@@ -22818,43 +22857,9 @@ app.delete("/make-server-a8b2511f/segments/:id", async (c) => {
   }
 });
 
-// GET /campaigns/active-lead-ids — return the set of lead IDs currently
-// enrolled in active or sending campaigns for this user. Used by the
-// audience builder's "Exclude leads already in another active campaign"
-// option so the user doesn't double-touch the same lead from two
-// campaigns running simultaneously. Capped to a reasonable size.
-app.get("/make-server-a8b2511f/campaigns/active-lead-ids", async (c) => {
-  try {
-    const { user, supabase } = await getAuthenticatedUser(c);
-
-    // Fetch active/sending campaigns. KV is the source of truth for the
-    // leads array on each campaign — DB only has the campaign row.
-    const { data: rows } = await supabase
-      .from('campaigns')
-      .select('id')
-      .eq('user_id', user.id)
-      .in('status', ['active', 'sending', 'scheduled'])
-      .limit(50);
-    const ids: string[] = (rows || []).map((r: any) => r.id).filter(Boolean);
-
-    const leadSet = new Set<string>();
-    // Fan out reads — at most ~50 campaigns, each KV read is fast
-    await Promise.all(ids.map(async (cid) => {
-      try {
-        const campaign: any = await kv.get(`campaign:${user.id}:${cid}`);
-        const leadIds: string[] = Array.isArray(campaign?.leads) ? campaign.leads : [];
-        for (const lid of leadIds) {
-          if (typeof lid === 'string') leadSet.add(lid);
-        }
-      } catch { /* best-effort */ }
-    }));
-
-    c.header('Cache-Control', 'private, max-age=30');
-    return c.json({ lead_ids: [...leadSet], campaign_count: ids.length });
-  } catch (error: any) {
-    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
-  }
-});
+// (Note: /campaigns/active-lead-ids was moved up to register BEFORE
+// the /campaigns/:id catch-all route. Hono matches routes in
+// declaration order, and :id was eating the literal segment.)
 
 app.get("/make-server-a8b2511f/compliance/stats", async (c) => {
   try {
