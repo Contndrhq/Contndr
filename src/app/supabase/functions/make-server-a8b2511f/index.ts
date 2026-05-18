@@ -803,6 +803,21 @@ async function maybeTriggerAgentHotVisitorCall(args: {
       return;
     }
 
+    // ── Race-safe dedup: claim the cooldown IMMEDIATELY ──
+    // The previous flow wrote the cooldown AFTER creating the campaign,
+    // which let two near-simultaneous visits (page view + email open
+    // arriving within the same second) both pass the read above, both
+    // create campaigns, and both call the lead. By writing the cooldown
+    // first we shrink the race window from "however long createCampaign
+    // takes" to "one KV roundtrip" — still not bulletproof without a
+    // CAS primitive, but cuts the observed duplicate rate dramatically.
+    await kvSetSafe(cooldownKey, {
+      lead_id: lead.id,
+      template_campaign_id: 'pending',
+      queued_at: new Date().toISOString(),
+      expires_at: new Date(now + cooldownHours * 60 * 60 * 1000).toISOString(),
+    });
+
     const dateKey = new Date().toISOString().split('T')[0];
     const dailyKey = `agent_hot_call_daily:${targetUserId}:${dateKey}`;
     const daily = (await kvGetSafe<any>(dailyKey)) || { date: dateKey, count: 0 };
@@ -865,6 +880,8 @@ async function maybeTriggerAgentHotVisitorCall(args: {
       url: visitData.url,
       queued_at: new Date().toISOString(),
     });
+    // Stamp the cooldown with the real template_id (was 'pending' from
+    // the race-claim write above). Same TTL; just enriches metadata.
     await kvSetSafe(cooldownKey, {
       lead_id: lead.id,
       template_campaign_id: templateIdForLogs,
@@ -20193,13 +20210,30 @@ app.get("/make-server-a8b2511f/today", async (c) => {
     ]);
 
     // ── Hot visitors on site right now ──
-    // Identified (has lead_id) + seen within HOT_WINDOW_MIN minutes
+    // Identified (has lead_id) + seen within HOT_WINDOW_MIN minutes.
+    // Skip "infrastructure" URLs that aren't real page visits — the
+    // tracking pixel sometimes records hits to /functions/v1/.../unsubscribe/<token>
+    // when a recipient clicks the unsubscribe link, which then surfaces
+    // as a "Known visitor on /functions/v1/..." entry. Filter those out
+    // so the panel only shows actual marketing page visits.
+    const isMeaningfulPage = (urlOrPath: string): boolean => {
+      const p = (urlOrPath || '').toLowerCase();
+      if (!p) return false;
+      if (p.includes('/functions/v1/')) return false;
+      if (p.includes('/unsubscribe/'))   return false;
+      if (p.includes('/track/open/'))    return false;
+      if (p.includes('/track/click/'))   return false;
+      if (p.includes('/api/'))           return false;
+      if (p.endsWith('.png') || p.endsWith('.jpg') || p.endsWith('.gif') || p.endsWith('.ico')) return false;
+      return true;
+    };
     const hotCutoff = nowMs - HOT_WINDOW_MIN * 60_000;
     const hotMap = new Map<string, any>();
     for (const v of (visitsRaw as any[])) {
       if (!v || !v.lead_id || v.lead_id === 'anonymous') continue;
       const ts = v.timestamp ? new Date(v.timestamp).getTime() : 0;
       if (ts < hotCutoff) continue;
+      if (!isMeaningfulPage(v.url || '')) continue;
       const prev = hotMap.get(v.lead_id);
       if (!prev || (prev._ts || 0) < ts) {
         let page = '';
