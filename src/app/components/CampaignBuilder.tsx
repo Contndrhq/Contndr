@@ -298,7 +298,7 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
   // Reset visible count when filters change
   useEffect(() => {
     setVisibleLeadCount(50);
-  }, [searchQuery, selectedCities, selectedStates, selectedCountries, selectedIndustries, showOnlyUncontacted]);
+  }, [searchQuery, selectedCities, selectedStates, selectedCountries, selectedIndustries, showOnlyUncontacted, engagementStates]);
 
   // Debounced server-side search: re-fetch leads when filters change
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -711,8 +711,15 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
         return true;
       });
     }
+    // Audience Builder v2 — engagement filter applies to the VISIBLE list,
+    // the counts, AND the sampler. Previously it only ran inside
+    // applyAudienceSample, which left contacted leads visible in the list
+    // even when "Never contacted" was active.
+    if (engagementStates.length > 0) {
+      leads = leads.filter(l => matchesEngagement(l, engagementStates));
+    }
     return leads;
-  }, [availableLeads, selectedCities, selectedStates, selectedCountries, selectedIndustries]);
+  }, [availableLeads, selectedCities, selectedStates, selectedCountries, selectedIndustries, engagementStates]);
 
   // Server-side filter options (loaded once from /filter-options endpoint)
   const [serverFilterOptions, setServerFilterOptions] = useState<{
@@ -1053,11 +1060,9 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
   // filteredLeads and updates selectedLeads. Used by the new size-control
   // chips and by smart presets.
   const applyAudienceSample = useCallback((size: number | null, mode: 'first' | 'random' | 'top_score') => {
+    // filteredLeads already has engagement filter applied. Just need
+    // to handle ordering + slicing here.
     let pool = filteredLeads;
-    // Respect engagement filter when sampling
-    if (engagementStates.length > 0) {
-      pool = pool.filter(l => matchesEngagement(l, engagementStates));
-    }
     if (mode === 'top_score') {
       pool = [...pool].sort((a, b) => (b.lead_score || b.score || 0) - (a.lead_score || a.score || 0));
     } else if (mode === 'random') {
@@ -1067,7 +1072,7 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
     setSelectedLeads(sliced.map(l => l.id));
     setSampleSize(size);
     setSampleMode(mode);
-  }, [filteredLeads, engagementStates]);
+  }, [filteredLeads]);
 
   // Smart presets — one-click filter+sample combos. Each preset:
   //  (a) clears existing engagement + advanced filters that conflict
@@ -2826,11 +2831,11 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-semibold mr-1">Presets</span>
             {([
-              { id: 'never_contacted', label: '🆕 Never contacted' },
-              { id: 'hot_prospects',   label: '🔥 Hot prospects' },
-              { id: 're_engage',       label: '🔄 Re-engage' },
-              { id: 'recent_visitors', label: '👀 Recent visitors' },
-              { id: 'high_score',      label: '💯 High score' },
+              { id: 'never_contacted', label: 'Never contacted' },
+              { id: 'hot_prospects',   label: 'Hot prospects' },
+              { id: 're_engage',       label: 'Re-engage' },
+              { id: 'recent_visitors', label: 'Recent visitors' },
+              { id: 'high_score',      label: 'High score' },
             ] as const).map(p => {
               const active = activePreset === p.id;
               return (
