@@ -242,6 +242,21 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
     body: string;
   } | null>(null);
   const [previewLeadName, setPreviewLeadName] = useState<string>('');
+
+  // ─── Step 3 v2: multi-recipient + variants + client preview ──────────
+  // currentPreviewIndex tracks which of the selectedLeads we're previewing.
+  // previewCache is a map<leadId, generated email> so prev/next doesn't
+  // re-fire the AI for leads we've already seen.
+  const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
+  const [previewCache, setPreviewCache] = useState<Record<string, { subject: string; preview: string; body: string; leadName: string }>>({});
+  // Subject variants — fires 3 parallel /emails/generate calls. Null = no
+  // variants requested yet; [] = loading; array of {subject, preview, body}
+  // = ready to pick.
+  const [subjectVariants, setSubjectVariants] = useState<Array<{ subject: string; preview: string; body: string }> | null>(null);
+  const [variantsLoading, setVariantsLoading] = useState(false);
+  // Client preview tab — visual chrome wrapping the body. Doesn't affect
+  // what gets sent, only what the user sees in the modal.
+  const [previewClient, setPreviewClient] = useState<'gmail' | 'outlook' | 'mobile'>('gmail');
   const [loading, setLoading] = useState(false);
   const [createdCampaignId, setCreatedCampaignId] = useState<string | null>(null);
   const [loadingGroupLeads, setLoadingGroupLeads] = useState(false);
@@ -1618,6 +1633,148 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
     } finally {
       setLoading(false);
     }
+  }
+
+  // ─── Step 3 v2 helpers ──────────────────────────────────────────────
+
+  // Build the AI generator request body for a specific lead. Pulled out
+  // of generatePreview so the multi-recipient cycle + variants can reuse
+  // it without duplicating the field list.
+  function buildGenerateBody(lead: any) {
+    return {
+      lead,
+      product: campaign.customProductName || campaign.product,
+      tone: campaign.tone,
+      landing_url: campaign.landingUrl,
+      price_summary: campaign.value,
+      sequence_number: 1,
+      sender_name: campaign.senderName,
+      sender_title: campaign.senderTitle,
+      campaign_knowledge: campaign.campaignKnowledge,
+      brand: campaign.brand,
+      from_email: campaign.fromEmail,
+      custom_instructions: campaign.customInstructions,
+      example_email: campaign.exampleEmail,
+      max_words: campaign.maxWords,
+    };
+  }
+
+  // Get the list of selected lead objects (not just IDs) in their
+  // selection order. Used by multi-recipient cycle.
+  const previewableLeads = useMemo(() => {
+    const set = selectedLeadSet;
+    return availableLeads.filter(l => set.has(l.id));
+  }, [availableLeads, selectedLeadSet]);
+
+  // Switch the preview to a specific lead. Hits cache first; only calls
+  // the AI if we haven't generated for that lead before.
+  async function previewForLead(idx: number) {
+    if (idx < 0 || idx >= previewableLeads.length) return;
+    setCurrentPreviewIndex(idx);
+    const lead = previewableLeads[idx];
+    if (!lead) return;
+
+    const cached = previewCache[lead.id];
+    if (cached) {
+      setPreviewEmail({ subject: cached.subject, preview: cached.preview, body: cached.body });
+      setPreviewLeadName(cached.leadName);
+      setSubjectVariants(null);
+      return;
+    }
+    setLoading(true);
+    try {
+      const headers = await getAuthHeaders();
+      const r = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/emails/generate`,
+        { method: 'POST', headers, body: JSON.stringify(buildGenerateBody(lead)) },
+      );
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      const leadName = lead.business_name || lead.contact_name || lead.email || 'Lead';
+      const result = { subject: data.email.subject, preview: data.email.preview, body: data.email.html_body, leadName };
+      setPreviewCache(prev => ({ ...prev, [lead.id]: result }));
+      setPreviewEmail({ subject: result.subject, preview: result.preview, body: result.body });
+      setPreviewLeadName(leadName);
+      setSubjectVariants(null);
+    } catch (err: any) {
+      toast.error('Preview failed', { description: err.message });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Generate 3 alternative subject lines for the CURRENT preview lead.
+  // Fires 3 parallel calls so we get diversity from the temperature jitter.
+  async function generateSubjectVariants() {
+    if (!previewEmail) return;
+    const lead = previewableLeads[currentPreviewIndex] || previewableLeads[0];
+    if (!lead) return;
+    setVariantsLoading(true);
+    setSubjectVariants([]);
+    try {
+      const headers = await getAuthHeaders();
+      const calls = [0, 1, 2].map(() =>
+        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/emails/generate`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(buildGenerateBody(lead)),
+        }).then(r => r.ok ? r.json() : null).catch(() => null),
+      );
+      const results = await Promise.all(calls);
+      const variants = results
+        .filter((r): r is any => !!r && !!r.email?.subject)
+        .map(r => ({ subject: r.email.subject, preview: r.email.preview, body: r.email.html_body }))
+        // Dedupe identical subjects (rare but possible at higher temps)
+        .filter((v, i, arr) => arr.findIndex(x => x.subject === v.subject) === i);
+      setSubjectVariants(variants);
+    } catch (err: any) {
+      toast.error('Could not generate variants', { description: err.message });
+      setSubjectVariants(null);
+    } finally {
+      setVariantsLoading(false);
+    }
+  }
+
+  // Spam-score heuristic. Pure client-side, fast. Returns:
+  //   { score: 0-100, level: 'pass'|'warn'|'fail', issues: string[] }
+  // where lower score = safer / better deliverability.
+  function computeSpamScore(subject: string, body: string) {
+    const issues: string[] = [];
+    let score = 0;
+    const subj = (subject || '').toString();
+    const bodyText = (body || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // ALL CAPS words in subject (3+ chars)
+    const capsWords = (subj.match(/\b[A-Z]{3,}\b/g) || []).length;
+    if (capsWords > 0) { score += capsWords * 10; issues.push(`${capsWords} ALL-CAPS word${capsWords > 1 ? 's' : ''} in subject`); }
+
+    // Exclamation marks
+    const exclaims = (subj.match(/!/g) || []).length + (bodyText.match(/!/g) || []).length;
+    if (exclaims > 0) { score += Math.min(20, exclaims * 5); issues.push(`${exclaims} exclamation mark${exclaims > 1 ? 's' : ''}`); }
+
+    // Spammy phrases
+    const SPAM_WORDS = [
+      'act now', 'apply now', 'buy now', 'call now', 'click here', 'free!', 'free offer',
+      'guarantee', 'guaranteed', 'limited time', 'no obligation', 'risk-free', 'urgent',
+      'winner', 'congratulations', 'cash bonus', '$$$', '100% free', 'this is not spam',
+      'unsubscribe at any time', 'work from home', 'make money',
+    ];
+    const lowerAll = `${subj} ${bodyText}`.toLowerCase();
+    for (const w of SPAM_WORDS) {
+      if (lowerAll.includes(w)) { score += 12; issues.push(`spammy phrase: "${w}"`); }
+    }
+
+    // Subject length
+    if (subj.length > 70) { score += 10; issues.push(`subject too long (${subj.length} chars)`); }
+    if (subj.length < 10) { score += 5; issues.push(`subject very short`); }
+
+    // Excessive punctuation
+    const dollar = (subj.match(/\$/g) || []).length + (bodyText.match(/\$/g) || []).length;
+    if (dollar > 3) { score += 10; issues.push('many "$" symbols'); }
+
+    score = Math.min(100, score);
+    const level = score < 20 ? 'pass' : score < 50 ? 'warn' : 'fail';
+    return { score, level: level as 'pass' | 'warn' | 'fail', issues };
   }
 
   async function handleAttachmentUpload(files: FileList | null) {
@@ -4050,30 +4207,85 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
 
       {step === 'preview' && previewEmail && (
         <div className="space-y-5 flex-1 flex flex-col">
+          {/* ─── Step 3 v2: Multi-recipient cycle banner ───
+              Replaces the single-lead "Preview for X" line with a
+              navigable header. Prev/next cycle through every
+              selected lead; we cache per-lead generations so
+              navigation doesn't re-hit the AI. */}
           <div className="p-4 rounded-xl bg-zinc-50/80 dark:bg-zinc-950 border border-zinc-200 dark:border-white/10">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/5 flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+            <div className="flex flex-wrap items-center gap-3 justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-white/5 flex items-center justify-center flex-shrink-0">
+                  <Sparkles className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-zinc-700 dark:text-zinc-300 text-[13px] leading-tight">
+                    <span className="text-zinc-500 dark:text-zinc-400">Preview for</span>{' '}
+                    <span className="font-semibold text-zinc-900 dark:text-white">{previewLeadName}</span>
+                  </p>
+                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
+                    Each lead gets a unique version
+                    {campaign.customInstructions && <> · custom instructions applied</>}
+                    {campaign.exampleEmail && <> · mimicking example style</>}
+                  </p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-zinc-700 dark:text-zinc-300 text-[13px] leading-relaxed pt-1">
-                  {t('campaignBuilder.previewFor')} <span className="font-semibold text-zinc-900 dark:text-white">{previewLeadName}</span>. {t('campaignBuilder.eachLeadUnique')}
-                  {campaign.customInstructions && (
-                    <span className="text-zinc-400 dark:text-zinc-500"> · {t('campaignBuilder.usingCustomInstructions')}</span>
-                  )}
-                  {campaign.exampleEmail && (
-                    <span className="text-zinc-400 dark:text-zinc-500"> · {t('campaignBuilder.mimickingExampleStyle')}</span>
-                  )}
-                </p>
+              <div className="flex items-center gap-1.5">
+                {previewableLeads.length > 1 && (
+                  <>
+                    <button
+                      onClick={() => previewForLead(Math.max(0, currentPreviewIndex - 1))}
+                      disabled={currentPreviewIndex === 0 || loading}
+                      className="px-2 py-1 text-[12px] rounded-md border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-white/30 disabled:opacity-40"
+                    >
+                      ← Prev
+                    </button>
+                    <span className="text-[11px] text-zinc-500 dark:text-zinc-500 font-mono tabular-nums px-1.5">
+                      {currentPreviewIndex + 1} / {previewableLeads.length}
+                    </span>
+                    <button
+                      onClick={() => previewForLead(Math.min(previewableLeads.length - 1, currentPreviewIndex + 1))}
+                      disabled={currentPreviewIndex >= previewableLeads.length - 1 || loading}
+                      className="px-2 py-1 text-[12px] rounded-md border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-white/30 disabled:opacity-40"
+                    >
+                      Next →
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => { setStep('details'); }}
+                  className="ml-1 text-[11px] font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-white underline hover:no-underline transition-colors"
+                >
+                  {t('campaignBuilder.editInstructions')}
+                </button>
               </div>
-              <button
-                onClick={() => { setStep('details'); }}
-                className="text-[11px] font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-white underline hover:no-underline transition-colors flex-shrink-0 mt-1"
-              >
-                {t('campaignBuilder.editInstructions')}
-              </button>
             </div>
           </div>
+
+          {/* ─── Step 3 v2: Spam-score chip ───
+              Client-side heuristic. Pass / Warn / Fail with hover
+              detail. Catches ALL-CAPS subjects, spammy phrases,
+              excessive exclamation, etc. before send. */}
+          {(() => {
+            const sc = computeSpamScore(previewEmail.subject, previewEmail.body);
+            const bg = sc.level === 'pass'
+              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
+              : sc.level === 'warn'
+                ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30'
+                : 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30';
+            const labelMap: Record<string, string> = { pass: 'Looks clean', warn: 'Could improve', fail: 'Likely to land in spam' };
+            return (
+              <div className={`inline-flex items-start gap-2 px-3 py-2 rounded-lg border ${bg} text-[12px] font-medium`} title={sc.issues.join(' · ') || 'No issues detected'}>
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-current mt-1.5 flex-shrink-0" />
+                <div className="leading-tight">
+                  <div>Deliverability: <span className="font-semibold">{labelMap[sc.level]}</span> · score {sc.score}</div>
+                  {sc.issues.length > 0 && (
+                    <div className="text-[10.5px] opacity-80 mt-0.5">{sc.issues.slice(0, 3).join(' · ')}{sc.issues.length > 3 ? ` (+${sc.issues.length - 3} more)` : ''}</div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -4084,6 +4296,15 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
                   previewText={previewEmail.subject}
                   onInsert={(tag) => setPreviewEmail({ ...previewEmail, subject: previewEmail.subject + tag })}
                 />
+                <button
+                  onClick={generateSubjectVariants}
+                  disabled={variantsLoading || loading}
+                  className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-white border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 rounded-lg transition-colors disabled:opacity-50"
+                  title="Generate 3 alternative subject lines"
+                >
+                  {variantsLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                  Try variations
+                </button>
                 <button
                   onClick={() => setShowTemplateLibrary(true)}
                   className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 rounded-lg transition-colors"
@@ -4099,6 +4320,41 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
               onChange={e => setPreviewEmail({ ...previewEmail, subject: e.target.value })}
               className="w-full px-4 py-3 text-[14px] font-medium border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-white/30 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
             />
+            {/* Variant picker — appears below the subject input once
+                the user clicks "Try variations". Click a card to swap
+                the active subject with that variant. */}
+            {subjectVariants !== null && (
+              <div className="mt-2 space-y-1.5">
+                <p className="text-[10.5px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-semibold">Pick a variation</p>
+                {variantsLoading && subjectVariants.length === 0 && (
+                  <div className="text-[12px] text-zinc-500 dark:text-zinc-400 inline-flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin" /> generating 3 alternatives…
+                  </div>
+                )}
+                {subjectVariants.map((v, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setPreviewEmail({ ...previewEmail, subject: v.subject });
+                      setSubjectVariants(null);
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-lg border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-950 hover:border-zinc-400 dark:hover:border-white/30 transition-colors group"
+                  >
+                    <div className="text-[13px] text-zinc-900 dark:text-white font-medium truncate">{v.subject}</div>
+                    <div className="text-[10.5px] text-zinc-400 dark:text-zinc-500 mt-0.5">{v.subject.length} chars</div>
+                  </button>
+                ))}
+                {subjectVariants.length > 0 && (
+                  <button
+                    onClick={() => setSubjectVariants(null)}
+                    className="text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-white underline"
+                  >
+                    keep current
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <div>
@@ -4115,6 +4371,27 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
             <div className="flex items-center justify-between mb-2">
               <label className="block text-zinc-600 dark:text-zinc-400 font-medium tracking-wide uppercase text-[11px]">{t('campaignBuilder.body')} <span className="normal-case tracking-normal text-zinc-400 dark:text-zinc-600">{t('campaignBuilder.editable')}</span></label>
               <div className="flex items-center gap-2">
+                {/* ─── Step 3 v2: Client preview tabs ───
+                    Three visual surrounds (Gmail / Outlook / Mobile)
+                    that wrap the body without changing what gets sent.
+                    Lets users see how their email lands across
+                    clients before they hit send. */}
+                <div className="hidden sm:flex items-center gap-0.5 border border-zinc-200 dark:border-white/10 rounded-md p-0.5 bg-zinc-50/60 dark:bg-zinc-950">
+                  {(['gmail', 'outlook', 'mobile'] as const).map(c => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setPreviewClient(c)}
+                      className={`px-2 py-0.5 text-[10.5px] font-medium rounded transition-all ${
+                        previewClient === c
+                          ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900'
+                          : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {c === 'gmail' ? 'Gmail' : c === 'outlook' ? 'Outlook' : 'Mobile'}
+                    </button>
+                  ))}
+                </div>
                 <TokenInserter
                   compact
                   previewText={previewEmail.body}
@@ -4130,18 +4407,49 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
                 </button>
               </div>
             </div>
-            <div className="px-5 py-5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/10 rounded-xl shadow-sm">
-              <div 
-                className="text-[14px] text-zinc-900 dark:text-white leading-relaxed outline-none min-h-[120px]"
+            {/* Body wrapped with client-specific chrome. The actual
+                content + edit handler is identical; only the outer
+                styling changes (font family, padding, mobile widths). */}
+            <div className={`rounded-xl border shadow-sm transition-colors ${
+              previewClient === 'gmail'
+                ? 'bg-white dark:bg-zinc-950 border-zinc-200 dark:border-white/10 font-[\"Helvetica_Neue\",Arial,sans-serif]'
+                : previewClient === 'outlook'
+                  ? 'bg-white dark:bg-zinc-950 border-zinc-200 dark:border-white/10 font-[Calibri,Arial,sans-serif]'
+                  : 'bg-white dark:bg-zinc-950 border-zinc-200 dark:border-white/10 max-w-[420px] mx-auto font-[-apple-system,system-ui,sans-serif]'
+            }`}>
+              {previewClient === 'mobile' && (
+                <div className="px-4 py-1.5 border-b border-zinc-100 dark:border-white/[0.06] text-[10.5px] text-zinc-400 dark:text-zinc-500 text-center font-mono">
+                  iPhone preview · {previewEmail.subject.length} char subject
+                </div>
+              )}
+              <div
+                className={`text-zinc-900 dark:text-white leading-relaxed outline-none min-h-[120px] ${
+                  previewClient === 'mobile' ? 'px-4 py-4 text-[13px]' : 'px-5 py-5 text-[14px]'
+                }`}
                 contentEditable
                 suppressContentEditableWarning
                 onBlur={e => setPreviewEmail({ ...previewEmail, body: e.currentTarget.innerHTML })}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(previewEmail.body) }}
               />
             </div>
-            <p className="mt-2 text-[11px] text-zinc-400 dark:text-zinc-500">
-              {t('campaignBuilder.editBodyNote')}
-            </p>
+            <div className="mt-2 flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                {t('campaignBuilder.editBodyNote')}
+              </p>
+              {/* Step 3 v2: signature edit link — direct shortcut so
+                  users don't have to dig through Settings to fix a
+                  missing phone or website. */}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.dispatchEvent(new CustomEvent('navigate-to', { detail: 'settings' }));
+                  setTimeout(() => window.dispatchEvent(new CustomEvent('switch-settings-tab', { detail: 'signature' })), 150);
+                }}
+                className="text-[11px] font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-white underline hover:no-underline transition-colors"
+              >
+                Edit signature →
+              </button>
+            </div>
           </div>
 
           {/* CC/BCC Summary */}
