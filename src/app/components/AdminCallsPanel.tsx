@@ -36,6 +36,15 @@ interface AdminCall {
   summary: string | null;
   recording_url: string | null;
   convai_conversation_id: string | null;
+  // Populated when the AI warm-transferred the caller to another line
+  // (department / closer / billing). Captured at transfer time by
+  // telnyx.tsx and stamped onto the call record.
+  transfer?: {
+    to: string;
+    label: string;
+    transferred_at: string;
+    trigger: string | null;
+  } | null;
 }
 
 interface AdminCallsResponse {
@@ -214,6 +223,14 @@ export function AdminCallsPanel({ searchTerm = '' }: { searchTerm?: string }) {
                         {c.route === 'elevenlabs_convai' && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800">
                             ElevenLabs
+                          </span>
+                        )}
+                        {c.transfer?.to && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-400 border border-sky-200 dark:border-sky-900"
+                            title={`Transferred to ${c.transfer.label || c.transfer.to} at ${new Date(c.transfer.transferred_at).toLocaleString()}`}
+                          >
+                            → {c.transfer.label || c.transfer.to}
                           </span>
                         )}
                       </div>

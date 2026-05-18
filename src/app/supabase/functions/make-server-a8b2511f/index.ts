@@ -3640,6 +3640,9 @@ app.get("/make-server-a8b2511f/admin/ai-calls", async (c) => {
         summary: c.summary || null,
         recording_url: c.recording_url || null,
         convai_conversation_id: c.convai_conversation_id || null,
+        // Warm-transfer info (set by telnyx.tsx when the AI routed the
+        // caller to a department). Lets the admin panel show "→ Sales".
+        transfer: c.transfer || null,
       }))
       .sort((a, b) => new Date(b.started_at || 0).getTime() - new Date(a.started_at || 0).getTime())
       .slice(0, limit);
@@ -19969,12 +19972,27 @@ function sanitizeAICallPlaybook(input: any): any {
           label: typeof o.label === 'string' ? o.label.slice(0, 40) : undefined,
         }))
     : [];
+  // Transfer lines — org-level routing table. Each entry is what
+  // line/department + when the AI should suggest routing the caller
+  // there. The phone number gets normalized to a permissive shape;
+  // the call processor formats to E.164 at dial time.
+  const transfer_lines = Array.isArray(x.transfer_lines)
+    ? x.transfer_lines
+        .filter((t: any) => t && typeof t.phone === 'string' && t.phone.trim() && typeof t.label === 'string' && t.label.trim())
+        .slice(0, 8)
+        .map((t: any) => ({
+          label:      String(t.label).trim().slice(0, 40),
+          phone:      String(t.phone).trim().slice(0, 40),
+          when_to_use: typeof t.when_to_use === 'string' ? t.when_to_use.trim().slice(0, 200) : '',
+        }))
+    : [];
   return {
     qualifying_questions: arr(x.qualifying_questions, 5, 200),
     value_props: arr(x.value_props, 5, 200),
     meeting_options: typeof x.meeting_options === 'string' ? x.meeting_options.trim().slice(0, 120) : '',
     booking_link: typeof x.booking_link === 'string' ? x.booking_link.trim().slice(0, 300) : '',
     objections,
+    transfer_lines,
     close_style: x.close_style === 'direct' ? 'direct' : 'soft',
   };
 }

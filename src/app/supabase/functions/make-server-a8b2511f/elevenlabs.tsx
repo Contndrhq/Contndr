@@ -737,7 +737,15 @@ function buildAgentSystemPrompt(config: {
     for (const rule of config.transfer_rules) {
       prompt += `- When: "${rule.trigger}" → Transfer to ${rule.description || rule.phone}\n`;
     }
-    prompt += `\n`;
+    // Verbal-confirmation rule. Silent transfers (just yanking the
+    // caller to another line) feel deceptive and break trust. The
+    // prompt forces a single-sentence "want me to do that?" before
+    // the system actually dials.
+    prompt += `\nTRANSFER PROTOCOL — non-negotiable:\n`;
+    prompt += `1. NEVER transfer silently. Always ask first: "I can connect you to <name of line>. Would you like me to do that?"\n`;
+    prompt += `2. Wait for an affirmative answer ("yes", "please", "go ahead", "sure"). If they decline or hesitate, do not transfer.\n`;
+    prompt += `3. After they say yes, ONE confirming sentence: "Great — connecting you now, one moment." Then stop talking.\n`;
+    prompt += `4. Pick the SINGLE best line for the caller's need. Don't list options. Use the line's "When" guidance above.\n\n`;
   }
 
   if (config.qualification_questions?.length) {

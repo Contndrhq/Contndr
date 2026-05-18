@@ -212,6 +212,26 @@ export async function processCampaign(campaignId: string, userId: string, campai
       if (userPlaybook) {
         campaign.playbook = { ...userPlaybook, ...(campaign.playbook || {}) };
         console.log(`🎯 Loaded sales playbook for AI call campaign ${campaignId}`);
+
+        // Brain-level `transfer_lines` become the default routing table.
+        // Campaign-level `transfer_rules` (if explicitly set) wins;
+        // otherwise derive rules from Brain so every call has access to
+        // org-wide routing without per-campaign duplication.
+        const brainLines: any[] = Array.isArray((userPlaybook as any)?.transfer_lines)
+          ? (userPlaybook as any).transfer_lines
+          : [];
+        const hasCampaignRules = Array.isArray(campaign.transfer_rules) && campaign.transfer_rules.length > 0;
+        if (!hasCampaignRules && brainLines.length > 0) {
+          campaign.transfer_rules = brainLines.map((line) => ({
+            // The existing prompt builder reads {trigger, phone, description, transfer_message}.
+            // Map Brain's {label, phone, when_to_use} into that shape.
+            trigger: line.when_to_use || `caller asks for ${line.label}`,
+            phone: line.phone,
+            description: line.label,
+            transfer_message: `Let me connect you with ${line.label}. One moment.`,
+          }));
+          console.log(`🔀 Merged ${brainLines.length} Brain-level transfer line(s) into campaign ${campaignId}`);
+        }
       }
     } catch (pbErr: any) {
       console.warn('🎯 Playbook load failed (non-fatal):', pbErr?.message || pbErr);

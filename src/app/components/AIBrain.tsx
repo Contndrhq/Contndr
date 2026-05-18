@@ -9,17 +9,19 @@ const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-a8b2
 
 // ─── Shape mirrored from backend sanitizeAICallPlaybook ─────────────────────
 interface ObjectionEntry { trigger: string; response: string; label?: string; }
+interface TransferLine { label: string; phone: string; when_to_use: string; }
 interface AICallPlaybook {
   qualifying_questions: string[];
   value_props: string[];
   meeting_options: string;
   booking_link: string;
   objections: ObjectionEntry[];
+  transfer_lines: TransferLine[];
   close_style: 'soft' | 'direct';
 }
 const EMPTY_PLAYBOOK: AICallPlaybook = {
   qualifying_questions: [], value_props: [], meeting_options: '',
-  booking_link: '', objections: [], close_style: 'soft',
+  booking_link: '', objections: [], transfer_lines: [], close_style: 'soft',
 };
 const SUGGESTED_OBJECTIONS: ObjectionEntry[] = [
   { trigger: 'already have', response: "Totally fair — most teams I talk to already have something. What's the one thing it doesn't do well that you wish it did?", label: 'already_have' },
@@ -135,6 +137,13 @@ export function AIBrain() {
     toast.success('Added starter objections — edit to match your voice');
   };
 
+  // Transfer-line helpers
+  const updateLine = (i: number, f: keyof TransferLine, v: string) =>
+    setPlaybook(p => { const a = [...p.transfer_lines]; a[i] = { ...a[i], [f]: v }; return { ...p, transfer_lines: a }; });
+  const addLine = () => setPlaybook(p => ({ ...p, transfer_lines: [...p.transfer_lines, { label: '', phone: '', when_to_use: '' }] }));
+  const rmLine = (i: number) =>
+    setPlaybook(p => ({ ...p, transfer_lines: p.transfer_lines.filter((_, idx) => idx !== i) }));
+
   return (
     <div className="space-y-6 max-w-5xl">
       {/* Header */}
@@ -248,6 +257,65 @@ export function AIBrain() {
                     </div>
                   ))}
                   {playbook.objections.length < 12 && <AddBtn onClick={addObj} label="Add objection" />}
+                </div>
+              </div>
+
+              {/* Transfer lines — org routing table the AI uses to warm-route calls */}
+              <div className="px-4 py-3">
+                <div className="flex items-start justify-between mb-1.5 gap-3">
+                  <div>
+                    <p className="text-[12.5px] font-medium text-zinc-800 dark:text-zinc-200">
+                      Transfer lines <span className="text-zinc-400 dark:text-zinc-500 font-normal">— up to 8</span>
+                    </p>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 max-w-prose">
+                      Departments the AI can warm-transfer callers to. It asks first ("can I connect you to <em>Sales</em>?"), waits for a yes, then dials.
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2 mt-2">
+                  {playbook.transfer_lines.map((line, i) => (
+                    <div key={i} className="rounded-lg border border-zinc-200 dark:border-white/[0.08] p-2.5 bg-zinc-50/40 dark:bg-white/[0.02]">
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <input
+                            type="text"
+                            value={line.label}
+                            onChange={e => updateLine(i, 'label', e.target.value)}
+                            placeholder="Label (e.g. Sales)"
+                            className={inputClass}
+                            maxLength={40}
+                          />
+                          <input
+                            type="tel"
+                            value={line.phone}
+                            onChange={e => updateLine(i, 'phone', e.target.value)}
+                            placeholder="+1-305-555-0100"
+                            className={`${inputClass} font-mono`}
+                            maxLength={40}
+                          />
+                          <input
+                            type="text"
+                            value={line.when_to_use}
+                            onChange={e => updateLine(i, 'when_to_use', e.target.value)}
+                            placeholder="When to route here, e.g. buying questions, demos"
+                            className={inputClass}
+                            maxLength={200}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => rmLine(i)}
+                          className="p-1.5 text-zinc-400 hover:text-red-500"
+                          title="Remove"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {playbook.transfer_lines.length < 8 && (
+                    <AddBtn onClick={addLine} label="Add transfer line" />
+                  )}
                 </div>
               </div>
 

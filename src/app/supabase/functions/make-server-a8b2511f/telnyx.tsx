@@ -1965,6 +1965,7 @@ app.post('/webhooks/call-status', async (c) => {
                 const transferMsg = transferTarget.transfer_message || aiResponse;
                 await telnyxSpeak(callControlId, transferMsg, voiceName);
                 setTimeout(async () => {
+                  let transferOk = false;
                   try {
                     console.log(`🔀 Transferring call ${call.id} to ${transferTarget.phone}`);
                     await telnyxRequest(`/calls/${callControlId}/actions/transfer`, {
@@ -1973,8 +1974,54 @@ app.post('/webhooks/call-status', async (c) => {
                     });
                     conv.history.push({ role: 'system', content: `[Call transferred to ${transferTarget.description || transferTarget.phone}]` });
                     await kv.set(convKey, { ...conv, turn_count: turnCount, transferred_to: transferTarget.phone });
+                    transferOk = true;
+
+                    // Stamp the transfer onto the call record itself so
+                    // the admin AI Calls panel and per-call timeline can
+                    // surface it. Stays on the same row that already
+                    // tracks duration, outcome, etc.
+                    try {
+                      const callRecord: any = await kv.get(`call:${call.id}`);
+                      if (callRecord) {
+                        callRecord.transfer = {
+                          to: transferTarget.phone,
+                          label: transferTarget.description || transferTarget.phone,
+                          transferred_at: new Date().toISOString(),
+                          trigger: transferTarget.trigger || null,
+                        };
+                        callRecord.updated_at = new Date().toISOString();
+                        await kv.set(`call:${call.id}`, callRecord);
+                      }
+                    } catch { /* best-effort */ }
                   } catch (transferErr) {
                     console.error('Transfer failed:', transferErr);
+                  }
+
+                  // Audit-log the event regardless of outcome — both
+                  // successful and failed transfer attempts are useful
+                  // signal for "did the AI route my caller correctly".
+                  try {
+                    const { recordAuditEvent } = await import('./audit-log.tsx');
+                    await recordAuditEvent({
+                      // Hono context not in scope here — synthesize minimal
+                      // shape the helper actually reads (get + req.header).
+                      get: (k: string) => k === 'userId'
+                        ? (call.user_id || call.ai_config?.user_id)
+                        : null,
+                      req: { header: () => null },
+                    } as any, {
+                      action: transferOk ? 'ai_call.transfer' : 'ai_call.transfer_failed',
+                      resource: 'ai_call',
+                      resourceId: call.id,
+                      metadata: {
+                        to: transferTarget.phone,
+                        label: transferTarget.description || null,
+                        trigger: transferTarget.trigger || null,
+                        lead_phone: call.to_number || null,
+                      },
+                    });
+                  } catch (auditErr) {
+                    console.warn('[AUDIT] transfer audit log failed:', auditErr);
                   }
                 }, 6000);
                 return;
