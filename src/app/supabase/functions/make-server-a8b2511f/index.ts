@@ -13248,17 +13248,21 @@ app.delete("/make-server-a8b2511f/campaigns/attachment", async (c) => {
 // segment "active-lead-ids" gets eaten by the :id parameter and the
 // request 404s.
 app.get("/make-server-a8b2511f/campaigns/active-lead-ids", async (c) => {
+  const t0 = Date.now();
   try {
     const { user, supabase } = await getAuthenticatedUser(c);
 
+    const tDb0 = Date.now();
     const { data: rows } = await supabase
       .from('campaigns')
       .select('id')
       .eq('user_id', user.id)
       .in('status', ['active', 'sending', 'scheduled'])
       .limit(50);
+    const tDbMs = Date.now() - tDb0;
     const ids: string[] = (rows || []).map((r: any) => r.id).filter(Boolean);
 
+    const tKv0 = Date.now();
     const leadSet = new Set<string>();
     await Promise.all(ids.map(async (cid) => {
       try {
@@ -13269,10 +13273,19 @@ app.get("/make-server-a8b2511f/campaigns/active-lead-ids", async (c) => {
         }
       } catch { /* best-effort */ }
     }));
+    const tKvMs = Date.now() - tKv0;
+
+    const totalMs = Date.now() - t0;
+    // Structured perf log — queryable in Supabase Function Logs via
+    // event_message ~ '[PERF] active-lead-ids' to compute p50/p99 over
+    // any time window.
+    console.log(`[PERF] active-lead-ids user=${user.id.slice(0, 8)} campaigns=${ids.length} leads=${leadSet.size} db_ms=${tDbMs} kv_ms=${tKvMs} total_ms=${totalMs}`);
 
     c.header('Cache-Control', 'private, max-age=30');
-    return c.json({ lead_ids: [...leadSet], campaign_count: ids.length });
+    c.header('X-Perf-Total-Ms', String(totalMs));
+    return c.json({ lead_ids: [...leadSet], campaign_count: ids.length, _perf: { db_ms: tDbMs, kv_ms: tKvMs, total_ms: totalMs } });
   } catch (error: any) {
+    console.log(`[PERF] active-lead-ids ERROR total_ms=${Date.now() - t0} err=${error.message?.slice(0, 60)}`);
     return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
   }
 });
@@ -22869,16 +22882,61 @@ interface SegmentRow {
 }
 
 // GET /segments — list this user's saved segments
+// ═══════════════════════════════════════════════════════════════════
+// Native Push — device-token registration endpoints.
+// The Capacitor app calls these after the user grants notification
+// permission. Tokens are stored under `device_token:<userId>:<token>`;
+// the native-push module fans out to every token on send.
+// ═══════════════════════════════════════════════════════════════════
+
+app.post("/make-server-a8b2511f/devices/register", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json().catch(() => ({}));
+    const deviceToken: string = (body.device_token || body.token || '').trim();
+    const platformRaw: string = (body.platform || '').toLowerCase();
+    if (!deviceToken) return c.json({ error: 'device_token required' }, 400);
+    const platform: 'ios' | 'android' | 'unknown' =
+      platformRaw === 'ios' ? 'ios' :
+      platformRaw === 'android' ? 'android' : 'unknown';
+
+    const { registerDeviceToken } = await import('./native-push.tsx');
+    await registerDeviceToken(user.id, deviceToken, platform);
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
+app.delete("/make-server-a8b2511f/devices/register", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json().catch(() => ({}));
+    const deviceToken: string = (body.device_token || body.token || '').trim();
+    if (!deviceToken) return c.json({ error: 'device_token required' }, 400);
+    const { unregisterDeviceToken } = await import('./native-push.tsx');
+    await unregisterDeviceToken(user.id, deviceToken);
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
+  }
+});
+
 app.get("/make-server-a8b2511f/segments", async (c) => {
+  const t0 = Date.now();
   try {
     const { user } = await getAuthenticatedUser(c);
     const rows = await kv.getByPrefixLimited(`segment:${user.id}:`, 200, 0).catch(() => [] as any[]);
     const segments = (rows as any[])
       .filter((r) => r && r.id && r.name)
       .sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+    const totalMs = Date.now() - t0;
+    console.log(`[PERF] segments/list user=${user.id.slice(0, 8)} count=${segments.length} total_ms=${totalMs}`);
     c.header('Cache-Control', 'private, max-age=10');
+    c.header('X-Perf-Total-Ms', String(totalMs));
     return c.json({ segments });
   } catch (error: any) {
+    console.log(`[PERF] segments/list ERROR total_ms=${Date.now() - t0}`);
     return c.json({ error: error.message }, isAuthError(error) ? 401 : 500);
   }
 });

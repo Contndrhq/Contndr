@@ -226,6 +226,28 @@ export async function processIncomingEmail(webhookData: any): Promise<void> {
       }).catch(() => {});
     }
 
+    // ── Native push (iOS / Android via Capacitor) ──
+    // Browser notifications already fire via the realtime channel
+    // (client-side handler). For users with the native app installed,
+    // also fan out via APNs/FCM so they get a system push even when
+    // the app is fully closed. No-op when APNS/FCM aren't configured
+    // (sendNativePush silently returns 0/0).
+    if (leadUserId) {
+      (async () => {
+        try {
+          const { sendNativePush } = await import('./native-push.tsx');
+          const senderName = from?.split('<')[0]?.trim() || leadEmail || 'A lead';
+          await sendNativePush(leadUserId, {
+            title: '💬 New reply',
+            body: `${senderName} replied${subject ? `: "${subject.slice(0, 80)}"` : ''}`,
+            data: { type: 'email_replied', lead_id: leadId, email_id: emailId },
+          });
+        } catch (err) {
+          console.warn('[NATIVE-PUSH] reply fanout failed:', (err as any)?.message);
+        }
+      })();
+    }
+
     console.log(`Reply ${replyId} processed successfully`);
   } catch (error) {
     console.error('Error processing incoming email:', error);
