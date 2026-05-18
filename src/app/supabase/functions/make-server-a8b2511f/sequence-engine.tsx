@@ -617,11 +617,24 @@ RULES:
     const parsed = JSON.parse(content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
 
     let finalBody = parsed.body || '';
-    // Append signature
+    // Append signature. When a custom HTML signature is configured we
+    // use it as-is (Settings → Signature). Otherwise compose from the
+    // saved signature fields including the PHONE — previously the
+    // fallback ignored phone entirely so users who set it never saw
+    // it land in outbound.
     if (signatureBlock) {
       finalBody += `<br/>${signatureBlock}`;
-    } else if (seq.senderName) {
-      finalBody += `<br/><p>${closingLine},<br/>${seq.senderName}${seq.senderTitle ? `<br/><span style="color:#666">${seq.senderTitle}</span>` : ''}</p>`;
+    } else if (seq.senderName || sigSettings) {
+      const name = seq.senderName || sigSettings?.full_name || '';
+      const title = seq.senderTitle || sigSettings?.title || '';
+      const email = sigSettings?.email || '';
+      const phone = sigSettings?.phone || '';
+      const website = sigSettings?.website || seq.landingUrl || '';
+      const lines: string[] = [`${closingLine},`, name + (title ? ` | ${title}` : '')];
+      if (email)   lines.push(`E: ${email}`);
+      if (website) lines.push(`W: ${website.replace(/^https?:\/\//, '')}`);
+      if (phone)   lines.push(`P: ${phone}`);
+      finalBody += `<br/><p style="white-space:pre-line">${lines.join('\n')}</p>`;
     }
 
     return { subject: parsed.subject || 'Quick question', body: finalBody };

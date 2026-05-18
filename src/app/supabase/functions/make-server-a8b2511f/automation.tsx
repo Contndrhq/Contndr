@@ -344,8 +344,13 @@ async function buildBrandSignature(brand: string, campaign: any): Promise<string
   // Try to load sender name from campaign or user signature settings
   let senderName = campaign.sender_name || '';
   let senderTitle = campaign.sender_title || '';
-  
-  // If no sender name in campaign, try loading from user's signature settings in KV
+  // User-configured signature data — full_name, title, website, AND phone.
+  // Previously the phone was loaded but never rendered, so users
+  // who set a phone in Signature Settings saw it dropped on every
+  // outbound. Now it's pulled into a local var and appended below.
+  let userPhone = '';
+  let userWebsite = '';
+  let userClosingLine = 'Best Regards';
   if (campaign.user_id) {
     try {
       const sigRaw = await kv.get(`signature:${campaign.user_id}`);
@@ -353,6 +358,9 @@ async function buildBrandSignature(brand: string, campaign: any): Promise<string
         const sig = JSON.parse(sigRaw);
         if (!senderName) senderName = sig.full_name || '';
         senderTitle = senderTitle || sig.title || '';
+        userPhone = sig.phone || '';
+        userWebsite = sig.website || '';
+        if (sig.closing_line) userClosingLine = sig.closing_line;
       }
     } catch {
       // Non-fatal
@@ -362,51 +370,32 @@ async function buildBrandSignature(brand: string, campaign: any): Promise<string
   let sig = '';
 
   if (brandLower === 'covera' || brandLower.includes('covera')) {
-    sig = `Best Regards,\n${senderName || 'Covera Team'}`;
+    sig = `${userClosingLine},\n${senderName || 'Covera Team'}`;
     if (senderTitle) sig += ` | ${senderTitle}`;
-    sig += `\nE: ${fromEmail || 'or@covera.co'}\nW: covera.co\nP: 323-333-9600`;
+    sig += `\nE: ${fromEmail || 'or@covera.co'}\nW: covera.co\nP: ${userPhone || '323-333-9600'}`;
   } else if (brandLower === 'roadr' || brandLower.includes('roadr')) {
-    sig = `Best Regards,\n${senderName || 'Roadr Team'}`;
+    sig = `${userClosingLine},\n${senderName || 'Roadr Team'}`;
     if (senderTitle) sig += ` | ${senderTitle}`;
     sig += `\nE: ${fromEmail || 'or@roadr.com'}\nW: roadr.com`;
+    if (userPhone) sig += `\nP: ${userPhone}`;
   } else if (brandLower === 'sourcr' || brandLower.includes('sourcr')) {
-    sig = `Best Regards,\n${senderName || 'Sourcr Team'}`;
+    sig = `${userClosingLine},\n${senderName || 'Sourcr Team'}`;
     if (senderTitle) sig += ` | ${senderTitle}`;
-    sig += `\nE: ${fromEmail || 'or@sourcr.net'}\nW: sourcr.net\nP: +1 (305) 602-0230`;
+    sig += `\nE: ${fromEmail || 'or@sourcr.net'}\nW: sourcr.net\nP: ${userPhone || '+1 (305) 602-0230'}`;
   } else if (brandLower === 'contndr' || brandLower.includes('contndr')) {
-    sig = `Best Regards,\n${senderName || 'Contndr Team'}`;
+    sig = `${userClosingLine},\n${senderName || 'Contndr Team'}`;
     if (senderTitle) sig += ` | ${senderTitle}`;
     sig += `\nE: ${fromEmail || 'sales@contndr.com'}`;
-    // ✅ Affiliate tracking removed — always show plain contndr.com
     sig += `\nW: contndr.com`;
+    if (userPhone) sig += `\nP: ${userPhone}`;
   } else if (senderName) {
     // Generic / custom brand — external users see their own website, NEVER contndr.com
-    sig = `Best Regards,\n${senderName}`;
+    sig = `${userClosingLine},\n${senderName}`;
     if (senderTitle) sig += ` | ${senderTitle}`;
     if (fromEmail) sig += `\nE: ${fromEmail}`;
-    // ✅ REMOVED: if (affiliateSlug) { sig += `\nW: contndr.com/r/${affiliateSlug}`; }
-    // Try user's configured website from signature settings first
-    if (campaign.user_id) {
-      try {
-        const sigRaw = await kv.get(`signature:${campaign.user_id}`);
-        if (sigRaw) {
-          const sigData = JSON.parse(sigRaw);
-          if (sigData.website) {
-            sig += `\nW: ${sigData.website.replace(/^https?:\/\//, '')}`;
-          } else if (campaign.landing_url) {
-            sig += `\nW: ${campaign.landing_url.replace(/^https?:\/\//, '')}`;
-          }
-        } else if (campaign.landing_url) {
-          sig += `\nW: ${campaign.landing_url.replace(/^https?:\/\//, '')}`;
-        }
-      } catch {
-        if (campaign.landing_url) {
-          sig += `\nW: ${campaign.landing_url.replace(/^https?:\/\//, '')}`;
-        }
-      }
-    } else if (campaign.landing_url) {
-      sig += `\nW: ${campaign.landing_url.replace(/^https?:\/\//, '')}`;
-    }
+    const website = userWebsite || campaign.landing_url;
+    if (website) sig += `\nW: ${website.replace(/^https?:\/\//, '')}`;
+    if (userPhone) sig += `\nP: ${userPhone}`;
   }
 
   return sig;

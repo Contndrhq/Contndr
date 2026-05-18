@@ -12688,6 +12688,37 @@ Body: [Body]`;
       }
     }
 
+    // Universal subject-variety rules — the model trained-in pattern is
+    // to start every cold email with "Quick Note about ..." / "Quick
+    // Question About ..." which makes every campaign sound identical
+    // to its previous one. Append explicit anti-patterns so subjects
+    // actually differ across leads.
+    //
+    // We also vary the recipe based on a per-lead seed (lead.id slice)
+    // so the same campaign produces different subject styles across
+    // the audience even though each call is independent.
+    const variantSeed = (lead?.id || lead?.email || '').toString().slice(-1).charCodeAt(0) % 5;
+    const variantHints = [
+      'Subject style: a curious 4–6 word question. No greeting words.',
+      'Subject style: a single benefit statement, 3–5 words. No questions.',
+      'Subject style: name-drop the company in the subject. 4–7 words.',
+      'Subject style: a small, specific number or stat. 4–7 words.',
+      'Subject style: a one-word pattern interrupt + topic. 3–6 words.',
+    ];
+    systemMessage += `
+
+SUBJECT LINE RULES — non-negotiable:
+- NEVER start a subject with "Quick ", "Quick note", "Quick question",
+  "Just checking", "Touching base", "Following up", "Hi ", "Hello ",
+  or "Hey ".
+- NEVER use "About <topic>" as a fallback pattern.
+- ${variantHints[variantSeed]}
+- Lowercase the subject except for proper nouns (e.g. "saving 4 hours
+  a week" — NOT "Saving 4 Hours A Week").
+- Length: 3 to 8 words. Never more than 60 characters total.
+- Do NOT use exclamation marks.
+- Sound like a person writing one-off, not a marketing blast.`;
+
     // Generate email via AI provider (OpenAI) with retries
     let aiResult;
     try {
@@ -12696,7 +12727,7 @@ Body: [Body]`;
           { role: 'system', content: systemMessage },
           { role: 'user', content: userPrompt }
         ],
-        temperature: 0.7,
+        temperature: 0.85, // bumped from 0.7 for more subject diversity
         maxTokens: 800,
       }, 2);
       console.log(`[EMAIL GENERATE] Generated via ${aiResult.provider}`);
