@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Phone, 
   PhoneCall, 
@@ -25,7 +25,8 @@ import {
   Bot,
   ChevronDown,
   ChevronUp,
-  Loader2
+  Loader2,
+  Flame,
 } from 'lucide-react';
 import { getAuthHeaders } from '../lib/auth';
 import { toast } from 'sonner';
@@ -102,6 +103,24 @@ export function AICalls({
   const [loading, setLoading] = useState(true);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  // ─── Hot visitor stat (computed from campaigns) ──────────────────────
+  // Counts campaigns auto-created by Agent Mode's hot-visitor trigger
+  // (id starts with `agent-hot-` OR name starts with "Hot visitor:")
+  // that were created today. Surfaces in a dedicated stat card so users
+  // can track at-a-glance whether agent-mode is finding intent signal,
+  // separate from the manual-campaign Today count.
+  const hotVisitorsToday = useMemo(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    return campaigns.filter((c: any) => {
+      const isHot = String(c.id || '').startsWith('agent-hot-')
+        || String(c.name || '').startsWith('Hot visitor:');
+      if (!isHot) return false;
+      const t = new Date(c.created_at || 0).getTime();
+      return t >= todayStart.getTime();
+    }).length;
+  }, [campaigns]);
   const [deletingCampaign, setDeletingCampaign] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAgentConfig, setShowAgentConfig] = useState(false);
@@ -328,8 +347,9 @@ export function AICalls({
         </button>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
+      {/* Stats Grid — bumped to 7 columns to fit the Hot card */}
+      <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-7 gap-2 sm:gap-3">
+        <StatCard title="HOT" value={hotVisitorsToday.toString()} icon={Flame} color="text-orange-500" subtitle={hotVisitorsToday > 0 ? 'today' : 'no signal'} pulse={hotVisitorsToday > 0} />
         <StatCard title={t('aiCalls.stats.active')} value={stats.activeNow.toString()} icon={PhoneCall} color="text-[#1ED4A7]" pulse={stats.activeNow > 0} />
         <StatCard title={t('aiCalls.stats.today')} value={stats.totalToday.toString()} icon={Phone} color="text-zinc-500 dark:text-zinc-400" />
         <StatCard title={t('aiCalls.stats.connected')} value={stats.connected.toString()} icon={CheckCircle2} color="text-[#1ED4A7]" subtitle={stats.totalToday > 0 ? `${Math.round((stats.connected / stats.totalToday) * 100)}%` : '0%'} />
