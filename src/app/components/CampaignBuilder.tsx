@@ -1944,6 +1944,20 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
               </button>
             </div>
           )}
+
+          {/* ─── Section: Campaign basics ───────────────────────────────
+              Sender identity + recipient delivery. Existing fields are
+              unchanged — only the section header is new, providing
+              visual hierarchy across the previously flat scroll. */}
+          <div className="space-y-1">
+            <h3 className="text-[12px] font-semibold uppercase tracking-wider text-zinc-900 dark:text-white">
+              Campaign basics
+            </h3>
+            <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
+              Who's sending, what product, and where replies go.
+            </p>
+          </div>
+
           <div>
             <label className="block text-[13px] text-zinc-600 dark:text-zinc-400 mb-2 font-medium tracking-wide uppercase text-[11px]">{t('campaignBuilder.campaignName')}</label>
             <input
@@ -2540,6 +2554,9 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
             )}
           </div>
 
+          {/* Sender Name + Title — 2-col grid for tighter form on
+              desktop. Collapses to stacked single-col below sm. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <div>
             <label className="block text-zinc-600 dark:text-zinc-400 mb-2 font-medium tracking-wide uppercase text-[11px]">{t('campaignBuilder.senderName')}</label>
             {isAdmin ? (
@@ -2548,12 +2565,12 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
                 onChange={e => {
                   const newSenderName = e.target.value;
                   let newFromEmail = campaign.fromEmail;
-                  
+
                   // Auto-update email for specific senders
                   if (newSenderName === 'Zara Blake') {
                     newFromEmail = 'Zara@sourcr.net';
                   }
-                  
+
                   setCampaign({ ...campaign, senderName: newSenderName, fromEmail: newFromEmail });
                 }}
                 className="w-full px-4 py-3 text-[14px] border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-white/30 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
@@ -2598,6 +2615,21 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
                 className="w-full px-4 py-3 text-[14px] border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-white/30 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
               />
             )}
+          </div>
+          </div>
+
+          {/* ─── Section: How your AI writes ──────────────────────────
+              Tone, length, examples, brand context. The existing
+              Writing Control panel is unchanged below — only the
+              header is new, providing a visual handoff between the
+              identity block above and the writing controls. */}
+          <div className="pt-2 border-t border-zinc-100 dark:border-white/[0.06] space-y-1">
+            <h3 className="text-[12px] font-semibold uppercase tracking-wider text-zinc-900 dark:text-white pt-4">
+              How your AI writes
+            </h3>
+            <p className="text-[12px] text-zinc-500 dark:text-zinc-400">
+              Tone, length, the brand context behind every email.
+            </p>
           </div>
 
           {/* Signature Preview for non-admin users (only when no configured signature exists) */}
@@ -2694,15 +2726,43 @@ Email Goal: Schedule a consultation to discuss their digital needs. Include "See
                 <label className="block text-zinc-600 dark:text-zinc-400 mb-1.5 font-medium tracking-wide uppercase text-[11px]">
                   {t('campaignBuilder.tone')}
                 </label>
-                <select
-                  value={campaign.tone}
-                  onChange={e => setCampaign({ ...campaign, tone: e.target.value })}
-                  className="w-full px-3 py-2.5 text-[13px] border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white rounded-xl focus:outline-none focus:border-zinc-900 dark:focus:border-white/30 focus:ring-1 focus:ring-zinc-900/10 dark:focus:ring-white/10 transition-all"
-                >
-                  {toneOptions.map(opt => (
-                    <option key={opt.value} value={opt.value}>{t(`campaignBuilder.${opt.labelKey}`)} — {t(`campaignBuilder.${opt.descKey}`)}</option>
-                  ))}
-                </select>
+                {/* Tone — pill selector. Native <select> read cheap on
+                    this page where every other control is already a
+                    pill or chip. Same state shape, same options, just
+                    a richer touch target with the description shown
+                    on the active choice. */}
+                <div className="flex flex-wrap gap-1.5">
+                  {toneOptions.map(opt => {
+                    const active = campaign.tone === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setCampaign({ ...campaign, tone: opt.value })}
+                        title={t(`campaignBuilder.${opt.descKey}`)}
+                        className={`px-3 py-1.5 text-[12px] font-medium rounded-full border transition-all ${
+                          active
+                            ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-zinc-900 dark:border-white'
+                            : 'bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/30'
+                        }`}
+                      >
+                        {t(`campaignBuilder.${opt.labelKey}`)}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Description line — shows the active tone's blurb so the
+                    user still sees what they picked without having to
+                    hover. */}
+                {(() => {
+                  const active = toneOptions.find(o => o.value === campaign.tone);
+                  if (!active) return null;
+                  return (
+                    <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
+                      {t(`campaignBuilder.${active.descKey}`)}
+                    </p>
+                  );
+                })()}
               </div>
             </div>
           </div>
