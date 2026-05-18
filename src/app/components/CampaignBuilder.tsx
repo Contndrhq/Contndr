@@ -332,6 +332,10 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
 
   // Debounced server-side search: re-fetch leads when filters change
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Re-fetch when engagement-state OR score-needing filters change too —
+  // those switch the backend `skip_stats` flag and require a fresh
+  // payload with the full stats columns.
+  const needsEngagementStats = engagementStates.length > 0 || scoreRange != null || sampleMode === 'top_score';
   const initialLoadDone = useRef(false);
   useEffect(() => {
     // Skip the very first mount — loadLeads() handles the initial fetch
@@ -340,7 +344,7 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
       console.log(`[CAMPAIGN BUILDER] FILTER_EFFECT skip initial mount, showOnlyUncontacted=${showOnlyUncontacted}`);
       return;
     }
-    console.log(`[CAMPAIGN BUILDER] FILTER_EFFECT triggered: showOnlyUncontacted=${showOnlyUncontacted} search="${searchQuery}" cities=${selectedCities.length} states=${selectedStates.length} countries=${selectedCountries.length} industries=${selectedIndustries.length}`);
+    console.log(`[CAMPAIGN BUILDER] FILTER_EFFECT triggered: showOnlyUncontacted=${showOnlyUncontacted} search="${searchQuery}" cities=${selectedCities.length} states=${selectedStates.length} countries=${selectedCountries.length} industries=${selectedIndustries.length} needsStats=${needsEngagementStats}`);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => {
       console.log(`[CAMPAIGN BUILDER] FILTER_EFFECT debounce fired, calling fetchLeadsPage(1) with showOnlyUncontacted=${showOnlyUncontacted}`);
@@ -349,7 +353,7 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
       fetchLeadsPage(1, false);
     }, 300);
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
-  }, [searchQuery, selectedCities, selectedStates, selectedCountries, selectedIndustries, showOnlyUncontacted]);
+  }, [searchQuery, selectedCities, selectedStates, selectedCountries, selectedIndustries, showOnlyUncontacted, needsEngagementStats]);
 
   // Email config for non-admin users
   const [emailProvider, setEmailProvider] = useState<string>('resend');
@@ -555,8 +559,30 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
   // Build query string from current filters
   const buildFilterQuery = useCallback(() => {
     const params = new URLSearchParams();
-    params.set('skip_stats', 'true');
-    params.set('fields', lightFields);
+
+    // ── Audience Builder v2: stats are required for engagement filters ──
+    // `emails_opened`, `emails_clicked`, `emails_sent`, `replied` are
+    // computed by the backend stats join, NOT columns on the leads
+    // table. With skip_stats=true those fields come back undefined,
+    // which is why Opened / Clicked / Replied / Bounced filters showed
+    // 0 results (only Never contacted, which uses the real
+    // `last_contacted` column, was working).
+    //
+    // Strategy: skip the stats join when no engagement filter is
+    // active (cheaper / faster page loads — the common case), and
+    // request the full set when the user actually filters on it.
+    // Same applies to the sampler when sample mode is "top_score" —
+    // we need lead_score for that ordering.
+    const needsStats = engagementStates.length > 0
+      || scoreRange != null
+      || sampleMode === 'top_score';
+    if (!needsStats) {
+      params.set('skip_stats', 'true');
+      params.set('fields', lightFields);
+    }
+    // If stats are needed, omit `fields` so the backend returns the
+    // default richer column set (incl. computed engagement counters).
+
     params.set('per_page', String(LEADS_PER_PAGE));
     params.set('exclude_bounced', 'true');
     // CRITICAL: Only fetch leads with emails for campaign sending
@@ -569,7 +595,7 @@ export function CampaignBuilder({ onClose, preselectedLeadIds = [] }: CampaignBu
     if (showOnlyUncontacted) params.set('contacted', 'no');
     else params.set('contacted', 'all');
     return params.toString();
-  }, [searchQuery, selectedCities, selectedStates, selectedCountries, selectedIndustries, showOnlyUncontacted]);
+  }, [searchQuery, selectedCities, selectedStates, selectedCountries, selectedIndustries, showOnlyUncontacted, engagementStates, scoreRange, sampleMode]);
 
   async function fetchLeadsPage(page: number, append = false) {
     try {
