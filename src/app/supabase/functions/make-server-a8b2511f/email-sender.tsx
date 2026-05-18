@@ -65,6 +65,14 @@ interface EmailOptions {
    * silently routes to spam.
    */
   unsubscribeUrl?: string;
+  /**
+   * Bypass the per-recipient send-gap guard. Set to true for
+   * transactional / system mail (password reset, receipts, invite
+   * accept, etc.) where a second send within the gap window is
+   * intentional and expected. Outreach campaigns should leave this
+   * unset so the guard does its job.
+   */
+  _bypassRecentGuard?: boolean;
 }
 
 interface SendEmailResult {
@@ -469,6 +477,58 @@ async function isEmailSuppressed(toEmail: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
+// Per-recipient send-gap guard — prevent the same recipient from
+// receiving two different emails (typically from two different
+// campaigns/sequences) within a short window.
+//
+// User reported a lead receiving two near-identical emails at the
+// same minute. Root cause: the same lead existed in two active
+// campaigns, both batch-processed at the same tick. The existing
+// dedup (campaign_sent:<userId>:<campaignId>) only prevents the SAME
+// campaign from re-touching a lead — it doesn't talk across
+// campaigns. This guard adds a per-(user, recipient) cooldown:
+// after we send, we stamp `recent_send:<userId>:<email>` with TTL,
+// and any sendEmail call that finds the stamp returns success=false
+// with a "throttled" reason. Override via options._bypassRecentGuard
+// (used by transactional/system mail where double-send is intentional).
+//
+// 4-hour gap by default. Configurable via env if needed.
+const RECIPIENT_GAP_MS = (() => {
+  const raw = Deno.env.get('SEND_GAP_HOURS');
+  const h = raw ? parseFloat(raw) : 4;
+  if (!Number.isFinite(h) || h <= 0) return 4 * 60 * 60 * 1000;
+  return h * 60 * 60 * 1000;
+})();
+
+function recentSendKey(userId: string, email: string) {
+  return `recent_send:${userId}:${email.toLowerCase().trim()}`;
+}
+
+async function recentSendBlocks(userId: string, toEmail: string): Promise<{ blocked: boolean; sentAt?: string; ageMs?: number }> {
+  try {
+    const stamp: any = await kv.get(recentSendKey(userId, toEmail));
+    if (!stamp || !stamp.sent_at) return { blocked: false };
+    const ageMs = Date.now() - new Date(stamp.sent_at).getTime();
+    if (ageMs < RECIPIENT_GAP_MS) {
+      return { blocked: true, sentAt: stamp.sent_at, ageMs };
+    }
+    return { blocked: false };
+  } catch {
+    return { blocked: false }; // Fail open — never block a send on a KV outage
+  }
+}
+
+async function stampRecentSend(userId: string, toEmail: string, meta: { from?: string; subject?: string } = {}): Promise<void> {
+  try {
+    await kv.set(recentSendKey(userId, toEmail), {
+      sent_at: new Date().toISOString(),
+      from: meta.from || null,
+      subject: (meta.subject || '').slice(0, 200) || null,
+    });
+  } catch { /* non-fatal */ }
+}
+
+// ---------------------------------------------------------------------------
 // Main sendEmail dispatcher
 // ---------------------------------------------------------------------------
 
@@ -543,6 +603,22 @@ export async function sendEmail(
     return { success: false, error: `Email suppressed: ${options.to} has previously bounced. Skipping to protect sender reputation.` };
   }
 
+  // ── Per-recipient send-gap guard ──
+  // Prevents the same address from receiving multiple emails within
+  // RECIPIENT_GAP_MS (4h default). Stops cross-campaign collisions
+  // where a lead in two simultaneous campaigns gets double-touched.
+  if (!options._bypassRecentGuard) {
+    const block = await recentSendBlocks(userId, options.to);
+    if (block.blocked) {
+      const ageMin = Math.round((block.ageMs || 0) / 60000);
+      console.warn(`[EMAIL-SENDER] ⏸ Throttled: ${options.to} got an email ${ageMin}m ago (within ${Math.round(RECIPIENT_GAP_MS / 3600000)}h gap). Skipping.`);
+      return {
+        success: false,
+        error: `throttled: recipient received an email ${ageMin} minute(s) ago. Skipping to avoid double-touch.`,
+      };
+    }
+  }
+
   // ── Auto-attach unsubscribe URL ──
   // RFC 8058 List-Unsubscribe headers require a per-recipient URL.
   // Generate one here if the caller didn't supply it so every outbound
@@ -572,31 +648,39 @@ export async function sendEmail(
       }
     }
 
-    switch (resolved.provider) {
-      case "gmail_oauth":
-        return await sendViaGmailAPI(userId, options);
-
-      case "outlook_oauth":
-        return await sendViaOutlookAPI(userId, options);
-
-      case "smtp": {
-        const cfg = resolved.smtpConfig;
-        if (!cfg || !cfg.host || !cfg.password) {
-          return { success: false, error: "Missing SMTP credentials. Please check your email settings." };
+    // Dispatch to the right provider, then stamp recent-send on
+    // success so the gap guard catches the NEXT call. Wrapped in
+    // a helper so each provider path goes through the same stamping.
+    const dispatch = async (): Promise<SendEmailResult> => {
+      switch (resolved.provider) {
+        case "gmail_oauth":  return await sendViaGmailAPI(userId, options);
+        case "outlook_oauth": return await sendViaOutlookAPI(userId, options);
+        case "smtp": {
+          const cfg = resolved.smtpConfig;
+          if (!cfg || !cfg.host || !cfg.password) {
+            return { success: false, error: "Missing SMTP credentials. Please check your email settings." };
+          }
+          return await sendViaSMTP(options, {
+            host: cfg.host,
+            port: cfg.port,
+            username: cfg.username,
+            password: cfg.password,
+            fromName: cfg.fromName,
+          });
         }
-        return await sendViaSMTP(options, {
-          host: cfg.host,
-          port: cfg.port,
-          username: cfg.username,
-          password: cfg.password,
-          fromName: cfg.fromName,
-        });
+        case "resend":
+        default:
+          return await sendViaResend(options);
       }
+    };
 
-      case "resend":
-      default:
-        return await sendViaResend(options);
+    const result = await dispatch();
+    if (result.success && !options._bypassRecentGuard) {
+      // Stamp non-blocking — fire and forget so we don't slow the
+      // returned promise. The gap window absorbs minor write delay.
+      stampRecentSend(userId, options.to, { from: options.from, subject: options.subject }).catch(() => {});
     }
+    return result;
   } catch (error: any) {
     console.error('Error sending email:', error);
     return { success: false, error: error.message };
