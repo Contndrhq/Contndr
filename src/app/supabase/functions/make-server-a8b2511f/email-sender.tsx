@@ -648,9 +648,22 @@ export async function sendEmail(
       }
     }
 
-    // Dispatch to the right provider, then stamp recent-send on
-    // success so the gap guard catches the NEXT call. Wrapped in
-    // a helper so each provider path goes through the same stamping.
+    // ── Claim-first guard ──
+    // Stamp the recipient BEFORE dispatching, not after, so a concurrent
+    // sendEmail() call from a sibling campaign sees the stamp during its
+    // own recentSendBlocks() check and returns throttled. Without this,
+    // two campaigns scheduled at the same tick both pass the guard
+    // (empty read), then both dispatch, then both stamp — and the lead
+    // gets double-touched (Sebastian Alegrett + Victor Zambon dupes).
+    //
+    // If the actual provider call fails below, we leave the stamp in
+    // place — that's the right call: the lead just got "almost touched"
+    // and we shouldn't retry within the 4h window anyway.
+    if (!options._bypassRecentGuard) {
+      await stampRecentSend(userId, options.to, { from: options.from, subject: options.subject });
+    }
+
+    // Dispatch to the right provider.
     const dispatch = async (): Promise<SendEmailResult> => {
       switch (resolved.provider) {
         case "gmail_oauth":  return await sendViaGmailAPI(userId, options);
@@ -675,11 +688,6 @@ export async function sendEmail(
     };
 
     const result = await dispatch();
-    if (result.success && !options._bypassRecentGuard) {
-      // Stamp non-blocking — fire and forget so we don't slow the
-      // returned promise. The gap window absorbs minor write delay.
-      stampRecentSend(userId, options.to, { from: options.from, subject: options.subject }).catch(() => {});
-    }
     return result;
   } catch (error: any) {
     console.error('Error sending email:', error);
