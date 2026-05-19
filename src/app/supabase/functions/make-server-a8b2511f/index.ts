@@ -17907,6 +17907,110 @@ async function resolveTrackingGeo(c: any, lead?: any) {
   };
 }
 
+// ─── POST /admin/reclassify-opens ────────────────────────────────────
+// One-time cleanup that re-evaluates historical "opened" rows using
+// the updated bot classifier (Apple MPP, Outlook iOS prefetch now count
+// as bots instead of legitimate opens).
+//
+// Walks tracking_ua:<userId>:<emailId>:opened:<ts> KV entries, groups by
+// email_id, and if EVERY recorded UA classifies as bot under the new
+// rules — downgrades emails.status from 'opened' back to 'delivered'
+// and clears opened_at. Emails that ALSO have a human UA in the log
+// stay 'opened' (real human still saw it after the bot prefetch).
+//
+// Body: { dry_run?: boolean }  (default false)
+// Returns: { scanned, downgraded, kept, by_label }
+app.post("/make-server-a8b2511f/admin/reclassify-opens", async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ error: 'Unauthorized' }, 401);
+    const supabaseAuth = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: { user } } = await supabaseAuth.auth.getUser(authHeader.replace('Bearer ', ''));
+    if (!user || !isAdminEmail(user.email, user.id)) {
+      return c.json({ error: 'Admin only' }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const dryRun = !!body.dry_run;
+    const limitArg = Math.max(1, Math.min(50000, Number(body.limit) || 20000));
+
+    const supabase = getSupabaseAdmin();
+    const startTs = Date.now();
+
+    // Scan all UA tracking entries. Keys look like:
+    //   tracking_ua:<userId>:<emailId>:opened:<ts>
+    // We use a prefix scan and assemble a map emailId -> [classifications].
+    const rows = await kv.getByPrefixLimited('tracking_ua:', limitArg);
+    const perEmail = new Map<string, { hasHuman: boolean; labels: string[] }>();
+    let scannedOpens = 0;
+
+    for (const row of (rows as any[])) {
+      const key: string = row.key || row.name || '';
+      const val: any = row.value || row;
+      if (!key.includes(':opened:')) continue;
+      const parts = key.split(':');
+      const emailId = parts[3];
+      if (!emailId) continue;
+      scannedOpens++;
+
+      const ua: string = val?.ua || '';
+      const cls = classifyUserAgent(ua);
+      const entry = perEmail.get(emailId) || { hasHuman: false, labels: [] };
+      if (!cls.isBot) entry.hasHuman = true;
+      entry.labels.push(cls.label);
+      perEmail.set(emailId, entry);
+    }
+
+    // For every email where ALL recorded UAs classify as bot under the
+    // new rules, downgrade the row. We do this in chunks so we don't
+    // blow up Postgres with one massive IN().
+    const toDowngrade: string[] = [];
+    const byLabel: Record<string, number> = {};
+    for (const [emailId, entry] of perEmail) {
+      if (!entry.hasHuman) {
+        toDowngrade.push(emailId);
+        for (const l of entry.labels) byLabel[l] = (byLabel[l] || 0) + 1;
+      }
+    }
+
+    let downgraded = 0;
+    if (!dryRun && toDowngrade.length > 0) {
+      const CHUNK = 200;
+      for (let i = 0; i < toDowngrade.length; i += CHUNK) {
+        const slice = toDowngrade.slice(i, i + CHUNK);
+        try {
+          const { data, error } = await supabase
+            .from('emails')
+            .update({ status: 'delivered', opened_at: null })
+            .in('id', slice)
+            .eq('status', 'opened')  // only downgrade rows currently 'opened'
+            .select('id');
+          if (error) {
+            console.warn('[RECLASSIFY] chunk failed:', error.message);
+          } else if (data) {
+            downgraded += data.length;
+          }
+        } catch (e: any) {
+          console.warn('[RECLASSIFY] chunk error:', e?.message);
+        }
+      }
+    }
+
+    return c.json({
+      scanned_opens: scannedOpens,
+      unique_emails: perEmail.size,
+      candidates_for_downgrade: toDowngrade.length,
+      downgraded: dryRun ? 0 : downgraded,
+      dry_run: dryRun,
+      by_label: byLabel,
+      took_ms: Date.now() - startTs,
+    });
+  } catch (e: any) {
+    console.error('[RECLASSIFY] error:', e?.message);
+    return c.json({ error: 'reclassify failed', message: e?.message }, 500);
+  }
+});
+
 // GET /track/open/:id - Open tracking pixel endpoint (provider-agnostic)
 // Returns a 1x1 transparent GIF and records the open event.
 app.get("/make-server-a8b2511f/track/open/:id", async (c) => {
