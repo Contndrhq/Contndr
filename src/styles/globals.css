@@ -554,6 +554,24 @@ a, button, [role="button"], [tabindex] {
     color-scheme: light;
   }
 
+  /* Radix Switch — force a perfectly round track/thumb on iOS WebKit.
+     iOS's subpixel rendering on small rounded-full elements occasionally
+     drops the right or bottom edge to a flat side, making the toggle look
+     like a soft-cornered rectangle instead of a pill. Forcing the explicit
+     border-radius + transform: translateZ(0) hardware-accelerates the layer
+     so WebKit composites it as a single round shape. */
+  [data-slot="switch"] {
+    border-radius: 9999px !important;
+    /* Force WebKit to composite the switch on its own layer so the pill
+       shape stays clean at the subpixel boundaries on retina displays. */
+    transform: translateZ(0);
+    overflow: hidden;
+  }
+  [data-slot="switch-thumb"] {
+    border-radius: 9999px !important;
+    transform-origin: center;
+  }
+
   /* Dark mode: tell the browser to render native form controls dark */
   .dark input[type="checkbox"] {
     color-scheme: dark;
