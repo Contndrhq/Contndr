@@ -32,8 +32,101 @@ import { notificationService } from './notifications';
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f`;
 
 let initialized = false;
+let wkBridgeInstalled = false;
+
+/**
+ * WKWebView bridge for the native SwiftUI shell (separate from Capacitor).
+ *
+ * The iOS shell at ContndrApp.swift calls
+ *   window.__app.onDeviceTokenReceived(token)
+ * after APNs returns a device token. This installs that handler so the
+ * token gets POSTed to /devices/register with the current Supabase auth
+ * token attached. Safe to call repeatedly — installs once.
+ *
+ * Also wires window.__app.onNotificationTap(url) for deep-link routing
+ * when the user taps a backgrounded push.
+ */
+export function installWKWebViewBridge(): void {
+  if (typeof window === 'undefined' || wkBridgeInstalled) return;
+  wkBridgeInstalled = true;
+
+  const w: any = window;
+  w.__app = w.__app || {};
+
+  let pendingToken: string | null = null;
+  let registered = false;
+
+  const tryRegister = async (token: string): Promise<boolean> => {
+    try {
+      const res = await authenticatedFetch(`${API_BASE}/devices/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_token: token, platform: 'ios' }),
+      });
+      if (res.ok) {
+        console.log('[push] device token registered with backend');
+        return true;
+      }
+      // 401 = no auth yet (user not logged in). Anything else is a real failure.
+      console.warn('[push] register failed:', res.status);
+      return false;
+    } catch (err: any) {
+      console.warn('[push] register error:', err?.message || err);
+      return false;
+    }
+  };
+
+  // If the token arrives before the user logs in, hold it and retry on
+  // every focus / auth-state change until /devices/register succeeds.
+  const flushPending = async () => {
+    if (registered || !pendingToken) return;
+    const ok = await tryRegister(pendingToken);
+    if (ok) {
+      registered = true;
+      pendingToken = null;
+    }
+  };
+
+  // Retry hooks: re-attempt registration on tab focus and periodically
+  // while the token is pending (covers post-login transitions).
+  window.addEventListener('focus', () => { void flushPending(); });
+  const interval = setInterval(() => {
+    if (registered) {
+      clearInterval(interval);
+      return;
+    }
+    void flushPending();
+  }, 5000);
+
+  w.__app.onDeviceTokenReceived = (token: string) => {
+    if (!token || typeof token !== 'string') return true;
+    pendingToken = token;
+    void flushPending();
+    return true;  // tell native side we received it; we handle retry
+  };
+
+  w.__app.onNotificationTap = (url: string) => {
+    if (typeof url === 'string' && url) {
+      try { window.location.href = url; } catch {}
+    }
+  };
+
+  // Tell the native side we're ready, in case the token arrived before
+  // this handler was installed and is sitting in UserDefaults waiting.
+  try {
+    const native = w.webkit?.messageHandlers?.native;
+    if (native?.postMessage) {
+      native.postMessage({ type: 'WEB_READY' });
+    }
+  } catch {}
+}
 
 export async function initNativePush(): Promise<{ supported: boolean; reason?: string }> {
+  // Always install the WKWebView bridge — it's a no-op on web and harmless
+  // if running under Capacitor too. The iOS native shell polls every 3s
+  // until window.__app.onDeviceTokenReceived exists.
+  installWKWebViewBridge();
+
   if (initialized) return { supported: true };
   initialized = true;
 
