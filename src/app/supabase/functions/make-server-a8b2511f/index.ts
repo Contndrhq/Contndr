@@ -17945,6 +17945,32 @@ app.get("/make-server-a8b2511f/track/open/:id", async (c) => {
 
         const currentStatus = email.status;
         const now = new Date().toISOString();
+
+        // ── Bot-prefetch gate ──
+        // Apple Mail Privacy Protection, Outlook iOS prefetch, and other
+        // bots fetch the tracking pixel at delivery — counting those as
+        // "opens" inflates rates to 100%. Skip the status upgrade and
+        // intent-signal for bot UAs; still record the raw event below
+        // for forensics. If/when the SAME email is fetched again by a
+        // human UA, that call will upgrade the status normally.
+        if (uaClass.isBot) {
+          console.log(`[OPEN TRACK] Skipping bot/prefetch open for ${emailId} (UA: ${uaClass.label}) — recorded as raw event only`);
+          // Record the raw email_event so forensic queries see the bot
+          // hit, but don't change email.status / lead.status / intent.
+          try {
+            await supabase.from('email_events').insert({
+              email_id: emailId,
+              user_id: email.user_id,
+              event_type: 'opened_bot',
+              created_at: now,
+            });
+          } catch (_) { /* non-fatal */ }
+          // Return early — bot hits don't influence metrics
+          return new Response(TRACKING_PIXEL_GIF, {
+            headers: { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0' },
+          });
+        }
+
         // Only update if not already in a "higher" state
         if (currentStatus === 'sent' || currentStatus === 'delivered' || currentStatus === 'queued') {
           // Step 1: Update status (guaranteed column) — this MUST succeed

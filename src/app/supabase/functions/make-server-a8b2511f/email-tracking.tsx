@@ -412,12 +412,21 @@ export function classifyUserAgent(ua: string): UAClassification {
 
   for (const { pattern, label } of BOT_PATTERNS) {
     if (pattern.test(ua)) {
-      // Proxies (Google, Yahoo, Apple) still represent real user opens,
-      // but through a privacy proxy — classify differently from bots
-      const isProxy = label.includes('Proxy') || label.includes('Apple');
+      // Apple Mail Privacy Protection (MPP) — cfnetwork + AppleMail UAs —
+      // PREFETCHES every email at delivery time, before any human reads
+      // it. Counting those as "opens" inflates rates to ~100%. So Apple
+      // gets isBot:true even though it ostensibly fronts a real user.
+      //
+      // Gmail/Yahoo proxies cache images but only fetch them when the
+      // user actually views the email — those stay as legitimate opens.
+      const isApplePrefetch = label.includes('Apple') || /cfnetwork/i.test(ua);
+      const isGmailYahooProxy = /GoogleImageProxy|YahooMailProxy/i.test(ua);
+      if (isGmailYahooProxy) {
+        return { isBot: false, classification: 'proxy', label };
+      }
       return {
-        isBot: !isProxy,
-        classification: isProxy ? 'proxy' : 'bot',
+        isBot: true,
+        classification: isApplePrefetch ? 'proxy' : 'bot',
         label,
       };
     }
