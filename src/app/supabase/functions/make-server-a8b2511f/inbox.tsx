@@ -468,14 +468,96 @@ Respond in JSON format:
         } else if (analysis.tags.includes('Not now')) {
           newStatus = 'not_now';
         }
-        
+
         if (newStatus !== 'replied') {
           await updateLeadStatus(reply.leadId, newStatus);
+        }
+
+        // Escalation actions when the lead is actually INTERESTED.
+        // - Send a louder native push (the generic "💬 New reply" already
+        //   fired earlier; this is the high-intent follow-up).
+        // - Auto-create a pipeline deal so the lead lands in CRM as a
+        //   live opportunity, not stuck in lead-list limbo.
+        if (newStatus === 'interested') {
+          escalateInterestedReply(reply).catch((e) =>
+            console.warn('[INBOX] escalation failed:', (e as any)?.message),
+          );
         }
       }
     }
   } catch (error) {
     console.error('Error analyzing sentiment:', error);
+  }
+}
+
+/**
+ * Escalation when sentiment analysis tags a reply as "Interested".
+ * Two side-effects, both fire-and-forget so the analyzer stays fast:
+ *   1. Native push with stronger language than the generic "New reply"
+ *   2. Auto-create a pipeline deal so the prospect lands in CRM
+ */
+async function escalateInterestedReply(reply: EmailReply): Promise<void> {
+  try {
+    // Resolve the tenant by looking up the lead — EmailReply doesn't
+    // carry user_id directly so we go through the lead record.
+    if (!reply.leadId) return;
+    const lead: any = await kv.get(`lead:${reply.leadId}`);
+    const userId: string | undefined = lead?.user_id || lead?.userId;
+    if (!userId) return;
+
+    // Parse "Name <email>" from the `from` field for the push body.
+    const senderName = (reply.from || '').split('<')[0]?.trim() || (reply.from || '').trim() || 'A lead';
+    const snippet = (reply.body || '').toString().replace(/\s+/g, ' ').trim().slice(0, 100);
+
+    // 1) High-intent native push
+    try {
+      const { sendNativePush } = await import('./native-push.tsx');
+      await sendNativePush(userId, {
+        title: '🔥 Interested reply',
+        body: snippet ? `${senderName}: "${snippet}"` : `${senderName} is interested — check inbox.`,
+        data: {
+          type: 'email_interested',
+          lead_id: reply.leadId,
+          reply_id: reply.id,
+        },
+      });
+    } catch (e) {
+      console.warn('[INBOX] interested-push failed:', (e as any)?.message);
+    }
+
+    // 2) Auto-create pipeline deal (idempotent: skip if one already exists for this lead)
+    try {
+      const dealsKey = `pipeline:${userId}:deals`;
+      const raw: any = await kv.get(dealsKey);
+      const deals: any[] = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
+      const exists = deals.some((d) => d.lead_id === reply.leadId);
+      if (!exists) {
+        const now = new Date().toISOString();
+        const newDeal = {
+          id: crypto.randomUUID(),
+          contact_name: lead?.contact_name || lead?.name || senderName,
+          business_name: lead?.business_name || lead?.company || '',
+          email: lead?.email || reply.from || '',
+          stage: 'qualified', // skip "prospect_identified" — they replied, they're qualified
+          value: 0,
+          currency: 'USD',
+          notes: `Auto-created from positive reply on ${new Date().toLocaleDateString()}.`,
+          category: '',
+          lead_id: reply.leadId,
+          is_recurring: false,
+          created_at: now,
+          updated_at: now,
+          stage_history: [{ stage: 'qualified', entered_at: now, trigger: 'positive_reply' }],
+        };
+        deals.push(newDeal);
+        await kv.set(dealsKey, JSON.stringify(deals));
+        console.log(`[INBOX] Auto-created pipeline deal ${newDeal.id} from interested reply (lead ${reply.leadId})`);
+      }
+    } catch (e) {
+      console.warn('[INBOX] auto-deal create failed:', (e as any)?.message);
+    }
+  } catch (e) {
+    console.warn('[INBOX] escalateInterestedReply error:', (e as any)?.message);
   }
 }
 

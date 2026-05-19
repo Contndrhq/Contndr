@@ -504,11 +504,31 @@ app.get('/scheduled-events', async (c) => {
  */
 app.post('/webhook', async (c) => {
   try {
-    const payload = await c.req.json();
+    // ── Signature verification ──
+    // Calendly sends a `Calendly-Webhook-Signature` header with format
+    //   t=<unix_ts>,v1=<hex_hmac_sha256>
+    // signed over `t.<raw_body>` using CALENDLY_WEBHOOK_SIGNING_KEY.
+    // We read the raw body here (before JSON parse) so the HMAC matches.
+    const signingKey = Deno.env.get('CALENDLY_WEBHOOK_SIGNING_KEY');
+    const sigHeader = c.req.header('Calendly-Webhook-Signature') || c.req.header('calendly-webhook-signature') || '';
+    const rawBody = await c.req.text();
+
+    if (signingKey) {
+      const ok = await verifyCalendlySignature(sigHeader, rawBody, signingKey);
+      if (!ok) {
+        console.warn('[CALENDLY] ❌ Invalid webhook signature — rejecting');
+        return c.json({ error: 'invalid signature' }, 401);
+      }
+    } else {
+      // Soft warning: still process, but log so we notice.
+      console.warn('[CALENDLY] ⚠️ CALENDLY_WEBHOOK_SIGNING_KEY not set — webhook is unauthenticated. Set this secret in production.');
+    }
+
+    const payload = JSON.parse(rawBody);
     console.log('📅 Calendly webhook received:', payload.event);
 
     const event = payload.event;
-    
+
     // Note: Webhooks are global for now, but we process them based on UTM content
     // which allows us to find the correct lead in the DB.
 
@@ -518,26 +538,49 @@ app.post('/webhook', async (c) => {
         // New meeting booked
         const invitee = payload.payload;
         const eventUri = invitee.event;
-        
+
         console.log(`✅ New meeting booked: ${invitee.name} (${invitee.email})`);
 
         // Try to find the associated lead from UTM parameters
         const utmContent = invitee.tracking?.utm_content;
-        
+
+        let leadUserId: string | undefined;
+
         if (utmContent) {
-          // Update lead status in Supabase
-          const { error } = await supabase
+          // Update lead status in Supabase + grab the owner for push fanout
+          const { data: updated, error } = await supabase
             .from('leads')
-            .update({ 
+            .update({
               status: 'meeting_scheduled',
               calendly_event_uri: eventUri,
               meeting_scheduled_at: invitee.created_at,
             })
-            .eq('id', utmContent);
+            .eq('id', utmContent)
+            .select('user_id')
+            .single();
 
           if (!error) {
             console.log(`✓ Updated lead ${utmContent} status to meeting_scheduled`);
+            leadUserId = updated?.user_id;
           }
+        }
+
+        // Native push: phone buzz on meeting book
+        if (leadUserId) {
+          (async () => {
+            try {
+              const { sendNativePush } = await import('./native-push.tsx');
+              const when = (invitee.scheduled_event?.start_time || invitee.event_start_time || '').toString();
+              const whenLabel = when ? new Date(when).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+              await sendNativePush(leadUserId, {
+                title: '📅 Meeting booked',
+                body: whenLabel ? `${invitee.name} — ${whenLabel}` : `${invitee.name} just booked a meeting`,
+                data: { type: 'meeting_booked', lead_id: utmContent || '', event_uri: eventUri },
+              });
+            } catch (e) {
+              console.warn('[CALENDLY] meeting-push failed:', (e as any)?.message);
+            }
+          })();
         }
 
         // Store webhook event in KV for tracking
@@ -636,5 +679,47 @@ app.get('/lead/:leadId/meetings', async (c) => {
     return c.json({ error: 'Internal server error' }, 500);
   }
 });
+
+/**
+ * Calendly webhook HMAC verification.
+ *
+ * Header shape: `Calendly-Webhook-Signature: t=<ts>,v1=<hex>`
+ * Signed payload: `<ts>.<raw_body>` with HMAC-SHA256(signing_key).
+ * Reference: https://developer.calendly.com/api-docs/ZG9jOjE2OTYz-webhook-signatures
+ *
+ * Also enforces a ±5min replay window — if `t` is older than 5 minutes
+ * we reject, so an attacker can't replay a captured webhook indefinitely.
+ */
+async function verifyCalendlySignature(header: string, body: string, key: string): Promise<boolean> {
+  try {
+    if (!header) return false;
+    const parts = Object.fromEntries(header.split(',').map((p) => {
+      const i = p.indexOf('=');
+      return [p.slice(0, i).trim(), p.slice(i + 1).trim()];
+    })) as Record<string, string>;
+    const ts = parts['t'];
+    const sig = parts['v1'];
+    if (!ts || !sig) return false;
+    const age = Math.abs(Math.floor(Date.now() / 1000) - parseInt(ts, 10));
+    if (!Number.isFinite(age) || age > 300) {
+      console.warn('[CALENDLY] webhook timestamp out of window:', age, 's');
+      return false;
+    }
+    const enc = new TextEncoder();
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    );
+    const sigBytes = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(`${ts}.${body}`));
+    const hex = Array.from(new Uint8Array(sigBytes)).map((b) => b.toString(16).padStart(2, '0')).join('');
+    // constant-time compare
+    if (hex.length !== sig.length) return false;
+    let mismatch = 0;
+    for (let i = 0; i < hex.length; i++) mismatch |= hex.charCodeAt(i) ^ sig.charCodeAt(i);
+    return mismatch === 0;
+  } catch (e) {
+    console.warn('[CALENDLY] signature verify error:', (e as any)?.message);
+    return false;
+  }
+}
 
 export default app;
