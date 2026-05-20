@@ -15490,17 +15490,49 @@ app.get("/make-server-a8b2511f/campaigns/:id/bounced", async (c) => {
     const { user, supabase } = await getAuthenticatedUser(c);
     const campaignId = c.req.param('id');
 
-    const { data: bouncedEmails, error } = await supabase
-      .from('emails')
-      .select('id, lead_id, subject, text_body, sent_at, created_at, status')
-      .eq('campaign_id', campaignId)
-      .eq('status', 'bounced')
-      .order('created_at', { ascending: false })
-      .limit(200);
+    // Pass 1: emails for this campaign with status='bounced'
+    let bouncedEmails: any[] = [];
+    {
+      const { data, error } = await supabase
+        .from('emails')
+        .select('id, lead_id, subject, text_body, sent_at, created_at, status')
+        .eq('campaign_id', campaignId)
+        .eq('status', 'bounced')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) {
+        console.error('[CAMPAIGNS] Error fetching bounced emails:', error);
+        return c.json({ error: error.message }, 500);
+      }
+      bouncedEmails = data || [];
+    }
 
-    if (error) {
-      console.error('[CAMPAIGNS] Error fetching bounced emails:', error);
-      return c.json({ error: error.message }, 500);
+    // Pass 2 (fallback) — if Pass 1 came back empty but the campaign
+    // stat counter is reporting bounces, find them via the leads side.
+    // This catches cases where the email row's status didn't get
+    // updated to 'bounced' but the lead is flagged bounced=true.
+    if (bouncedEmails.length === 0) {
+      const { data: campaignEmails } = await supabase
+        .from('emails')
+        .select('id, lead_id, subject, sent_at, created_at, status')
+        .eq('campaign_id', campaignId)
+        .not('lead_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      const candidateLeadIds = [...new Set((campaignEmails || []).map((e: any) => e.lead_id))];
+      if (candidateLeadIds.length > 0) {
+        const { data: bouncedLeads } = await supabase
+          .from('leads')
+          .select('id')
+          .in('id', candidateLeadIds)
+          .eq('bounced', true);
+        const bouncedSet = new Set((bouncedLeads || []).map((l: any) => l.id));
+        bouncedEmails = (campaignEmails || []).filter((e: any) => bouncedSet.has(e.lead_id));
+        if (bouncedEmails.length > 0) {
+          console.log(`[CAMPAIGNS] /bounced fallback: found ${bouncedEmails.length} bounced via lead.bounced flag for campaign ${campaignId}`);
+        }
+      }
     }
 
     // Enrich with lead info

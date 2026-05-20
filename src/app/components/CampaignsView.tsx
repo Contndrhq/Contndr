@@ -1675,7 +1675,6 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                           <button
                             key={c.id}
                             onClick={() => {
-                              console.log('[CampaignsView] Drill row click:', { leadId: c.leadId, name: c.leadName, email: c.leadEmail });
                               if (c.leadId) {
                                 setDrillLeadId(c.leadId);
                               } else {
@@ -1754,7 +1753,6 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                           <button
                             key={c.id}
                             onClick={() => {
-                              console.log('[CampaignsView] Drill row click:', { leadId: c.leadId, name: c.leadName, email: c.leadEmail });
                               if (c.leadId) {
                                 setDrillLeadId(c.leadId);
                               } else {
@@ -1793,10 +1791,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
         )}
       </div>
       {drillLeadId && (
-        <>
-          {(() => { console.log('[CampaignsView/detail] Mounting LeadDetailModal for', drillLeadId); return null; })()}
-          <LeadDetailModal leadId={drillLeadId} onClose={() => { console.log('[CampaignsView/detail] LeadDetailModal close'); setDrillLeadId(null); }} />
-        </>
+        <LeadDetailModal leadId={drillLeadId} onClose={() => setDrillLeadId(null)} />
       )}
     </>
     );
@@ -2315,10 +2310,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
         )}
       </div>
       {drillLeadId && (
-        <>
-          {(() => { console.log('[CampaignsView] Mounting LeadDetailModal for', drillLeadId); return null; })()}
-          <LeadDetailModal leadId={drillLeadId} onClose={() => { console.log('[CampaignsView] LeadDetailModal close'); setDrillLeadId(null); }} />
-        </>
+        <LeadDetailModal leadId={drillLeadId} onClose={() => setDrillLeadId(null)} />
       )}
     </div>
   );
