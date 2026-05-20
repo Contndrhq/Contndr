@@ -29,6 +29,7 @@ import { getConversations, markConversationAsRead, getInboxStats } from "./inbox
 import { createKnowledgeBaseEntry, updateKnowledgeBaseEntry, deleteKnowledgeBaseEntry, getKnowledgeBaseByBrand, getKnowledgeBaseContext, getKBWritingOverrides, initializeKnowledgeBase } from "./knowledge-base.tsx";
 import telnyxApp from "./telnyx.tsx";
 import metaApp from "./meta-integration.tsx";
+import telegramApp from "./telegram-integration.tsx";
 import quoApp from "./quo.tsx";
 import quoWebrtcApp from "./quo-webrtc.tsx";
 import elevenLabsApp from "./elevenlabs.tsx";
@@ -1286,6 +1287,7 @@ import websiteConnectorApp from "./website-connector.tsx";
 app.route("/make-server-a8b2511f/wc", websiteConnectorApp);
 app.route("/make-server-a8b2511f/telnyx", telnyxApp);
 app.route("/make-server-a8b2511f", metaApp);
+app.route("/make-server-a8b2511f", telegramApp);
 app.route("/make-server-a8b2511f/quo", quoApp);
 app.route("/make-server-a8b2511f/quo-webrtc", quoWebrtcApp);
 app.route("/make-server-a8b2511f/elevenlabs", elevenLabsApp);
