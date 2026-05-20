@@ -195,6 +195,16 @@ export async function maybeRunScheduledTrigger(): Promise<boolean> {
           const resume = await resumeAllUsersCampaigns();
           console.log(`[CRON-OPP] Resume sent ${resume.totalSent} emails across ${resume.campaignsResumed} campaigns`);
         }
+        // Also dispatch any due callbacks (AI-scheduled redials)
+        try {
+          const { dispatchDueCallbacks } = await import('./telnyx.tsx');
+          const cb = await dispatchDueCallbacks();
+          if (cb.dispatched > 0 || cb.errors > 0) {
+            console.log(`[CRON-OPP] Callbacks dispatched=${cb.dispatched} errors=${cb.errors}`);
+          }
+        } catch (cbErr: any) {
+          console.warn('[CRON-OPP] callback dispatch failed:', cbErr?.message);
+        }
       } catch (err: any) {
         console.error('[CRON-OPP] Background opportunistic trigger error:', err?.message || err);
       }

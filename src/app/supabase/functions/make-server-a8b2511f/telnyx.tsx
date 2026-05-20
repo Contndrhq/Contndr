@@ -1971,6 +1971,24 @@ app.post('/webhooks/call-status', async (c) => {
 
               conv.history.push({ role: 'user', content: prospectSaid });
 
+              // ── Language detection ──
+              // If we haven't detected the prospect's language yet, peek at
+              // what they said and stash a language code on the conv. The
+              // AI prompt will switch to mirror it on the next turn, and
+              // we'll upgrade TTS to multilingual when non-English. We
+              // only set it once (sticky), so once Spanish is detected
+              // the rest of the call stays Spanish.
+              if (!conv.detected_language) {
+                const detected = detectLanguage(prospectSaid);
+                if (detected && detected !== 'en') {
+                  conv.detected_language = detected;
+                  console.log(`🌍 [LANG] Detected ${detected} for call ${call.id} — switching responses`);
+                } else if (detected === 'en' && (conv.history?.length || 0) >= 3) {
+                  // Lock to English after 2 prospect turns so we don't keep checking
+                  conv.detected_language = 'en';
+                }
+              }
+
               // End signals — split into HARD (auto-hangup) vs SOFT (let the LLM handle).
               //
               // Old behavior auto-hung-up on "not interested" / "no thanks" — which
@@ -2029,10 +2047,17 @@ app.post('/webhooks/call-status', async (c) => {
 
               // Generate AI response
               console.log(`🤖 Generating AI response for ${call.id}, turn ${turnCount}, prospect said: "${prospectSaid}"`);
-              const systemPrompt = buildSystemPrompt(call.ai_config, {
+              let systemPrompt = buildSystemPrompt(call.ai_config, {
                 name: call.lead_name || call.ai_config?.lead_name,
                 business: call.business_name || call.ai_config?.business_name,
               }, { stage, prospectSaid, matchedObjection });
+              // Language mirror — if we detected the prospect speaks
+              // non-English, append a language directive so GPT mirrors
+              // them naturally on every turn.
+              if (conv.detected_language && conv.detected_language !== 'en') {
+                const langName = LANGUAGE_NAMES[conv.detected_language] || conv.detected_language;
+                systemPrompt += `\n\nLANGUAGE: The prospect is speaking ${langName}. Respond ENTIRELY in ${langName} from now on. Use natural, conversational ${langName} (not formal/textbook).`;
+              }
               const aiResponse = await getAIResponse(systemPrompt, conv.history);
               conv.history.push({ role: 'assistant', content: aiResponse });
               await kv.set(convKey, { ...conv, turn_count: turnCount, stage });
@@ -2122,8 +2147,11 @@ app.post('/webhooks/call-status', async (c) => {
               }
 
               // Speak AI response — lock is held until call.speak.ended / call.playback.ended
-              console.log(`🤖 Speaking response for ${call.id}: "${aiResponse.substring(0, 80)}..." (voice: ${voiceName})`);
-              const speakResult = await telnyxSpeak(callControlId, aiResponse, voiceName);
+              // Use multilingual TTS model when the prospect isn't English so
+              // the voice doesn't sound like an English speaker reading Spanish.
+              const needsMultilingual = conv.detected_language && conv.detected_language !== 'en';
+              console.log(`🤖 Speaking response for ${call.id}: "${aiResponse.substring(0, 80)}..." (voice: ${voiceName}${needsMultilingual ? `, lang: ${conv.detected_language}` : ''})`);
+              const speakResult = await telnyxSpeak(callControlId, aiResponse, voiceName, needsMultilingual ? { highQuality: true } : undefined);
               if (speakResult === CALL_ENDED) {
                 console.log(`ℹ️ Call ${call.id} ended — not speaking response.`);
                 await releaseAILock(callControlId);
@@ -2949,6 +2977,15 @@ Return STRICT JSON only. No prose, no markdown fences.`;
       }).catch((e) => console.warn('[CLASSIFY] lead write-back failed:', e?.message));
     }
 
+    // Callback scheduling — if the prospect asked for a callback, queue
+    // it in the KV-backed dispatcher. The cron will redial at the
+    // requested time using the same lead + ai_config.
+    if (parsed.callback_request) {
+      await scheduleCallback(call, String(parsed.callback_request)).catch((e) =>
+        console.warn('[CLASSIFY] callback schedule failed:', e?.message),
+      );
+    }
+
     // Auto follow-up email for hot outcomes (booked / positive / engaged)
     if (['booked', 'positive', 'engaged'].includes(safe)) {
       const ownerId = call.user_id || call.ai_config?.user_id;
@@ -3077,6 +3114,181 @@ async function sendCallFollowupEmail(userId: string, call: any, analysis: { summ
 
 function escapeHtml(s: string): string {
   return String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] || ch));
+}
+
+// ============================================================================
+// Language detection
+// ============================================================================
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  es: 'Spanish',
+  pt: 'Portuguese',
+  fr: 'French',
+  de: 'German',
+  it: 'Italian',
+};
+
+/**
+ * Lightweight language ID using high-signal common words. Not perfect but
+ * cheap, deterministic, and zero LLM cost. Returns ISO 639-1 code or null.
+ *
+ * Recognizes Spanish, Portuguese, French, German, Italian — the most likely
+ * second languages in US sales outreach. Anything else falls through to
+ * 'en' which is fine because the AI defaults to English.
+ */
+function detectLanguage(text: string): string | null {
+  if (!text || text.length < 3) return null;
+  const t = ' ' + text.toLowerCase().replace(/[^a-záéíóúüñçàèìòùâêîôûäöü\s]/g, ' ') + ' ';
+
+  // Words/grams that strongly indicate a language. Each match = +1.
+  // English wins by default if nothing scores above a threshold.
+  const buckets: Record<string, string[]> = {
+    es: [' hola ', ' gracias ', ' buenos ', ' buenas ', ' sí ', ' no entiendo ', ' qué ', ' cómo ', ' está ', ' está bien ', ' por favor ', ' habla ', ' español ', ' usted ', ' bueno ', ' espera ', ' ahora ', ' tengo ', ' soy ', ' nosotros ', ' ustedes ', 'ción ', ' una ', ' una pregunta ', ' no me '],
+    pt: [' olá ', ' obrigado ', ' obrigada ', ' bom dia ', ' boa tarde ', ' sim ', ' não ', ' português ', ' você ', ' tudo bem ', ' está ', ' falar ', ' agora ', ' tenho ', ' sou ', 'ção ', ' uma ', ' aqui ', ' por favor '],
+    fr: [' bonjour ', ' merci ', ' oui ', ' non ', ' parlez ', ' français ', " s'il vous plaît ", ' comment ', ' où ', " c'est ", ' je suis ', ' nous ', ' avec ', ' pour '],
+    de: [' hallo ', ' danke ', ' guten tag ', ' ja ', ' nein ', ' deutsch ', ' bitte ', ' wie ', ' was ', ' ist ', ' und ', ' ich bin '],
+    it: [' ciao ', ' grazie ', ' buongiorno ', ' sì ', ' italiano ', ' per favore ', ' come ', ' sono ', ' siamo '],
+  };
+
+  const scores: Record<string, number> = { en: 0, es: 0, pt: 0, fr: 0, de: 0, it: 0 };
+  for (const [lang, words] of Object.entries(buckets)) {
+    for (const w of words) {
+      if (t.includes(w)) scores[lang]++;
+    }
+  }
+
+  // Pick highest non-English score if it clears 1 (single very strong word
+  // OR two weaker words). Otherwise return 'en'.
+  let best: string | null = null;
+  let bestScore = 0;
+  for (const [lang, n] of Object.entries(scores)) {
+    if (lang === 'en') continue;
+    if (n > bestScore) { best = lang; bestScore = n; }
+  }
+  if (best && bestScore >= 1) return best;
+  return 'en';
+}
+
+// ============================================================================
+// Callback scheduling
+// ============================================================================
+
+/**
+ * Queue a redial for a future time. Key format:
+ *   callback_queue:<userId>:<dueAtMs>:<callId>
+ * where dueAtMs is left-padded so lexicographic scans return due
+ * entries in chronological order.
+ *
+ * The dispatcher (dispatchDueCallbacks) sweeps this prefix every few
+ * minutes and re-initiates calls for entries past their due time.
+ */
+async function scheduleCallback(originalCall: any, callbackRequestIso: string): Promise<void> {
+  try {
+    const dueAt = new Date(callbackRequestIso).getTime();
+    if (!Number.isFinite(dueAt) || dueAt <= Date.now()) {
+      console.warn(`[CALLBACK] Invalid or past callback time: ${callbackRequestIso}`);
+      return;
+    }
+    // Don't queue more than 14 days out — likely an AI hallucination
+    if (dueAt - Date.now() > 14 * 24 * 60 * 60 * 1000) {
+      console.warn(`[CALLBACK] Skip — too far in future: ${callbackRequestIso}`);
+      return;
+    }
+    const userId = originalCall.user_id || originalCall.ai_config?.user_id;
+    if (!userId) return;
+    const padded = String(dueAt).padStart(15, '0');
+    const key = `callback_queue:${userId}:${padded}:${originalCall.id}`;
+    await kv.set(key, {
+      due_at: new Date(dueAt).toISOString(),
+      user_id: userId,
+      lead_id: originalCall.lead_id || null,
+      to_number: originalCall.to_number,
+      from_number: originalCall.from_number,
+      ai_config: originalCall.ai_config,
+      original_call_id: originalCall.id,
+      lead_name: originalCall.lead_name,
+      business_name: originalCall.business_name,
+      campaign_id: originalCall.campaign_id,
+      queued_at: new Date().toISOString(),
+    });
+    console.log(`📅 [CALLBACK] Queued redial for ${originalCall.to_number} at ${new Date(dueAt).toISOString()}`);
+  } catch (e: any) {
+    console.warn('[CALLBACK] scheduleCallback error:', e?.message);
+  }
+}
+
+/**
+ * Sweep the callback queue. Anything past its due_at gets redialed.
+ * Called opportunistically from the cron-scheduler hook.
+ */
+export async function dispatchDueCallbacks(): Promise<{ dispatched: number; errors: number }> {
+  let dispatched = 0;
+  let errors = 0;
+  try {
+    const now = Date.now();
+    // Scan all queued callbacks. We could prefix by user but the global
+    // scan is fine at our scale; the entries delete themselves on dispatch.
+    const supabase = (await import('npm:@supabase/supabase-js@2')).createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+    const { data, error } = await supabase
+      .from('kv_store_a8b2511f')
+      .select('key, value')
+      .like('key', 'callback_queue:%')
+      .limit(200);
+    if (error) {
+      console.warn('[CALLBACK] sweep query failed:', error.message);
+      return { dispatched: 0, errors: 1 };
+    }
+    for (const row of (data || []) as any[]) {
+      try {
+        const cb: any = row.value;
+        const dueMs = cb?.due_at ? new Date(cb.due_at).getTime() : 0;
+        if (!dueMs || dueMs > now) continue; // not yet due
+        // Re-initiate the call via the same endpoint the UI uses
+        const callerKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+        const baseUrl = Deno.env.get('SUPABASE_URL') || '';
+        const initRes = await fetch(`${baseUrl}/functions/v1/make-server-a8b2511f/telnyx/calls/initiate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${callerKey}`,
+            'X-Cron-As-User': cb.user_id,
+          },
+          body: JSON.stringify({
+            to_number: cb.to_number,
+            from_number: cb.from_number,
+            lead_id: cb.lead_id,
+            lead_name: cb.lead_name,
+            business_name: cb.business_name,
+            campaign_id: cb.campaign_id,
+            ai_config: cb.ai_config,
+            _is_callback: true,
+            _original_call_id: cb.original_call_id,
+          }),
+        });
+        if (initRes.ok) {
+          dispatched++;
+          console.log(`📞 [CALLBACK] Redialed ${cb.to_number} (was queued for ${cb.due_at})`);
+        } else {
+          errors++;
+          const txt = await initRes.text().catch(() => '');
+          console.warn(`[CALLBACK] Redial failed for ${cb.to_number}: ${initRes.status} ${txt.slice(0, 200)}`);
+        }
+        // Always delete the queue entry to prevent re-dispatch loops
+        await kv.del(row.key).catch(() => {});
+      } catch (e: any) {
+        errors++;
+        console.warn('[CALLBACK] dispatch entry error:', e?.message);
+      }
+    }
+  } catch (e: any) {
+    console.warn('[CALLBACK] dispatchDueCallbacks error:', e?.message);
+    errors++;
+  }
+  return { dispatched, errors };
 }
 
 export default app;
