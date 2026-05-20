@@ -15490,12 +15490,14 @@ app.get("/make-server-a8b2511f/campaigns/:id/bounced", async (c) => {
     const { user, supabase } = await getAuthenticatedUser(c);
     const campaignId = c.req.param('id');
 
-    // Pass 1: emails for this campaign with status='bounced'
+    // Pass 1: emails for this campaign with status='bounced'.
+    // We pull `to_email` too so we can render the recipient even when
+    // the lead row was deleted (orphan email) or has empty contact_name.
     let bouncedEmails: any[] = [];
     {
       const { data, error } = await supabase
         .from('emails')
-        .select('id, lead_id, subject, text_body, sent_at, created_at, status')
+        .select('id, lead_id, to_email, subject, text_body, sent_at, created_at, status')
         .eq('campaign_id', campaignId)
         .eq('status', 'bounced')
         .order('created_at', { ascending: false })
@@ -15514,7 +15516,7 @@ app.get("/make-server-a8b2511f/campaigns/:id/bounced", async (c) => {
     if (bouncedEmails.length === 0) {
       const { data: campaignEmails } = await supabase
         .from('emails')
-        .select('id, lead_id, subject, sent_at, created_at, status')
+        .select('id, lead_id, to_email, subject, sent_at, created_at, status')
         .eq('campaign_id', campaignId)
         .not('lead_id', 'is', null)
         .order('created_at', { ascending: false })
@@ -15558,11 +15560,17 @@ app.get("/make-server-a8b2511f/campaigns/:id/bounced", async (c) => {
       // Filter out placeholder values that the tracking system stores for anonymous/unidentified visitors
       const _rawContact = (lead.contact_name || '').trim();
       const contactName = ['Visitor', 'Unknown', 'Anonymous Visitor', 'Anonymous'].includes(_rawContact) ? '' : _rawContact;
+      // Email fallback chain — lead row may have been deleted or never
+      // had an email populated. The actual recipient string lives on
+      // the email row itself, so we use that as the last resort so
+      // every bounce shows AT LEAST the email it was sent to.
+      const fallbackEmail = lead.email || email.to_email || '';
+      const fallbackName = contactName || lead.business_name || (fallbackEmail ? fallbackEmail.split('@')[0] : '') || 'Unknown';
       return {
         id: email.id,
         leadId: email.lead_id,
-        leadName: contactName || lead.business_name || 'Unknown',
-        leadEmail: lead.email || '',
+        leadName: fallbackName,
+        leadEmail: fallbackEmail,
         leadCompany: lead.business_name || '',
         leadTitle: lead.job_title || lead.title || '',
         leadPhone: lead.phone || '',
