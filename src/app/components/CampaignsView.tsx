@@ -1673,11 +1673,17 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                         {openedContacts.map((c: any) => (
                           <button
                             key={c.id}
-                            onClick={() => c.leadId && setDrillLeadId(c.leadId)}
-                            onMouseEnter={() => c.leadId && preloadLeadDetailModal()}
-                            onFocus={() => c.leadId && preloadLeadDetailModal()}
-                            disabled={!c.leadId}
-                            className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors disabled:cursor-default"
+                            onClick={() => {
+                              console.log('[CampaignsView] Drill row click:', { leadId: c.leadId, name: c.leadName, email: c.leadEmail });
+                              if (c.leadId) {
+                                setDrillLeadId(c.leadId);
+                              } else {
+                                toast.error('Lead record not found in CRM for this contact');
+                              }
+                            }}
+                            onMouseEnter={() => preloadLeadDetailModal()}
+                            onFocus={() => preloadLeadDetailModal()}
+                            className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors cursor-pointer"
                           >
                             <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 flex-shrink-0">
                               {(c.leadName || c.leadEmail || '?').slice(0, 2).toUpperCase()}
@@ -1746,11 +1752,17 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                         {clickedContacts.map((c: any) => (
                           <button
                             key={c.id}
-                            onClick={() => c.leadId && setDrillLeadId(c.leadId)}
-                            onMouseEnter={() => c.leadId && preloadLeadDetailModal()}
-                            onFocus={() => c.leadId && preloadLeadDetailModal()}
-                            disabled={!c.leadId}
-                            className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors disabled:cursor-default"
+                            onClick={() => {
+                              console.log('[CampaignsView] Drill row click:', { leadId: c.leadId, name: c.leadName, email: c.leadEmail });
+                              if (c.leadId) {
+                                setDrillLeadId(c.leadId);
+                              } else {
+                                toast.error('Lead record not found in CRM for this contact');
+                              }
+                            }}
+                            onMouseEnter={() => preloadLeadDetailModal()}
+                            onFocus={() => preloadLeadDetailModal()}
+                            className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors cursor-pointer"
                           >
                             <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 flex-shrink-0">
                               {(c.leadName || c.leadEmail || '?').slice(0, 2).toUpperCase()}
@@ -2295,7 +2307,10 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
         )}
       </div>
       {drillLeadId && (
-        <LeadDetailModal leadId={drillLeadId} onClose={() => setDrillLeadId(null)} />
+        <>
+          {(() => { console.log('[CampaignsView] Mounting LeadDetailModal for', drillLeadId); return null; })()}
+          <LeadDetailModal leadId={drillLeadId} onClose={() => { console.log('[CampaignsView] LeadDetailModal close'); setDrillLeadId(null); }} />
+        </>
       )}
     </div>
   );
