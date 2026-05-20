@@ -19264,6 +19264,80 @@ app.post("/make-server-a8b2511f/admin/users/:userId/setup-link", async (c) => {
   }
 });
 
+// POST /admin/users/:userId/login-link — Send a one-shot magic-link to a
+// stuck user who can't sign in. Generates a Supabase magic-link, emails it
+// to them (and returns the URL so the admin can also copy/paste it).
+// Use cases: signup completed but client-side auto-signin failed, user
+// forgot password and never reset, etc.
+app.post("/make-server-a8b2511f/admin/users/:userId/login-link", async (c) => {
+  try {
+    const { user: caller, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(caller.email, caller.id)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+    const body = await c.req.json().catch(() => ({}));
+    const skipEmail = !!body.skip_email;
+
+    const { data: { user: targetUser } } = await supabase.auth.admin.getUserById(userId);
+    if (!targetUser || !targetUser.email) return c.json({ error: 'User not found or has no email' }, 404);
+
+    const origin = c.req.header('origin') || 'https://app.contndr.com';
+    const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email: targetUser.email,
+      options: { redirectTo: origin },
+    });
+    if (linkErr) {
+      console.error('[ADMIN] login-link generateLink failed:', linkErr);
+      return c.json({ error: linkErr.message }, 500);
+    }
+    const magicLink: string = (linkData as any)?.properties?.action_link || (linkData as any)?.action_link || '';
+    if (!magicLink) return c.json({ error: 'No action_link returned' }, 500);
+
+    // Email the link (best effort — admin still gets the URL in the response)
+    let emailed = false;
+    if (!skipEmail) {
+      try {
+        const { sendSystemEmail } = await import('./email-sender.tsx');
+        const name = targetUser.user_metadata?.name || targetUser.user_metadata?.full_name || 'there';
+        await sendSystemEmail({
+          from: 'Contndr <noreply@contndr.com>',
+          to: targetUser.email,
+          subject: 'Your Contndr sign-in link',
+          html: `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 40px auto; padding: 32px; background: #fff; border-radius: 12px;">
+              <h1 style="font-size: 22px; margin: 0 0 12px;">Hey ${name},</h1>
+              <p style="font-size: 15px; line-height: 1.5; color: #444; margin: 0 0 24px;">
+                We noticed you signed up but haven't logged in yet. Click below to jump straight into Contndr — no password needed.
+              </p>
+              <p style="margin: 0 0 24px;">
+                <a href="${magicLink}" style="display: inline-block; padding: 12px 24px; background: #000; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;">Sign in to Contndr</a>
+              </p>
+              <p style="font-size: 12px; color: #888; margin: 24px 0 0;">
+                This link is single-use and expires in 1 hour. If you didn't expect this email, ignore it.
+              </p>
+            </div>
+          `,
+          text: `Hey ${name}, sign in to Contndr: ${magicLink}\n\nLink expires in 1 hour.`,
+        });
+        emailed = true;
+      } catch (emailErr: any) {
+        console.warn('[ADMIN] login-link email failed (non-fatal — admin still has URL):', emailErr?.message);
+      }
+    }
+
+    logAdminEvent('login_link_sent', 'Login Link Sent', `Magic link generated for ${targetUser.email} by ${caller.email}`, {
+      email: targetUser.email,
+      metadata: { emailed, target_user_id: userId, admin: caller.email },
+    }).catch(() => {});
+
+    return c.json({ success: true, url: magicLink, emailed, expires_in: '1h' });
+  } catch (error: any) {
+    console.error('[ADMIN] login-link error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // GET /admin/users/inspect/:userId - Inspect raw KV data for a user (Admin Only)
 app.get("/make-server-a8b2511f/admin/users/inspect/:userId", async (c) => {
   try {

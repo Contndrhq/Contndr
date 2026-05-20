@@ -250,6 +250,29 @@ export function UserDetailSheet({
     }
   };
 
+  const [sendingLoginLink, setSendingLoginLink] = useState(false);
+  const sendLoginLink = async () => {
+    setSendingLoginLink(true);
+    try {
+      const r = await authenticatedFetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/${userId}/login-link`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      try {
+        await navigator.clipboard.writeText(j.url);
+        toast.success(j.emailed ? 'Sent + URL copied' : 'URL copied (email failed — paste it manually)');
+      } catch {
+        toast(j.emailed ? 'Login link emailed' : `Login link: ${j.url}`);
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Login link failed');
+    } finally {
+      setSendingLoginLink(false);
+    }
+  };
+
   const generateSetupLink = async () => {
     setGeneratingSetupLink(true);
     try {
@@ -577,6 +600,7 @@ export function UserDetailSheet({
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             <ActionBtn onClick={onEditPlan} icon={<Edit3 className="w-3.5 h-3.5" />}>Edit plan</ActionBtn>
             <ActionBtn onClick={impersonate} icon={<Users className="w-3.5 h-3.5" />}>Sign in as</ActionBtn>
+            <ActionBtn onClick={sendLoginLink} icon={sendingLoginLink ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}>Login link</ActionBtn>
             <ActionBtn onClick={onManageCredits} icon={<Zap className="w-3.5 h-3.5" />}>Credits</ActionBtn>
             <ActionBtn onClick={onInspectKv} icon={<Database className="w-3.5 h-3.5" />}>Inspect KV</ActionBtn>
             {onPromoteAdmin && (
