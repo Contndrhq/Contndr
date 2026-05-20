@@ -15534,6 +15534,85 @@ app.get("/make-server-a8b2511f/campaigns/:id/bounced", async (c) => {
   }
 });
 
+/**
+ * Shared helper: return enriched leads for a given email status filter.
+ * Used by /opened and /clicked so we don't duplicate the join logic.
+ */
+async function getCampaignEmailsByStatus(supabase: any, campaignId: string, statuses: string[], extraFilter?: (q: any) => any) {
+  let query = supabase
+    .from('emails')
+    .select('id, lead_id, subject, sent_at, opened_at, clicked_at, status, created_at')
+    .eq('campaign_id', campaignId)
+    .in('status', statuses);
+  if (extraFilter) query = extraFilter(query);
+  const { data: emails, error } = await query.order('opened_at', { ascending: false, nullsFirst: false }).limit(500);
+  if (error) throw error;
+
+  const leadIds = [...new Set((emails || []).map((e: any) => e.lead_id).filter(Boolean))];
+  let leadsMap: Record<string, any> = {};
+  if (leadIds.length > 0) {
+    const BATCH = 200;
+    for (let i = 0; i < leadIds.length; i += BATCH) {
+      const batch = leadIds.slice(i, i + BATCH);
+      const { data: leads } = await supabase.from('leads').select('*').in('id', batch);
+      if (leads) leads.forEach((l: any) => { leadsMap[l.id] = l; });
+    }
+  }
+
+  return (emails || []).map((email: any) => {
+    const lead = leadsMap[email.lead_id] || {};
+    const _rawContact = (lead.contact_name || '').trim();
+    const contactName = ['Visitor', 'Unknown', 'Anonymous Visitor', 'Anonymous'].includes(_rawContact) ? '' : _rawContact;
+    return {
+      id: email.id,
+      leadId: email.lead_id,
+      leadName: contactName || lead.business_name || 'Unknown',
+      leadEmail: lead.email || '',
+      leadCompany: lead.business_name || '',
+      leadTitle: lead.job_title || lead.title || '',
+      leadPhone: lead.phone || '',
+      leadCity: [lead.city, lead.state].filter(Boolean).join(', ') || '',
+      leadIndustry: lead.industry || lead.category || '',
+      leadLinkedin: lead.person_linkedin_url || lead.linkedin || '',
+      subject: email.subject || '',
+      sentAt: email.sent_at,
+      openedAt: email.opened_at,
+      clickedAt: email.clicked_at,
+    };
+  });
+}
+
+// GET /campaigns/:id/opened — leads who actually opened (delivered emails
+// whose status is opened/clicked OR have opened_at set)
+app.get("/make-server-a8b2511f/campaigns/:id/opened", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    // Status flow goes delivered → opened → clicked, so any later state
+    // also implies it was opened. Include both opened and clicked.
+    const enriched = await getCampaignEmailsByStatus(supabase, campaignId, ['opened', 'clicked'], (q: any) => q.not('opened_at', 'is', null));
+    return c.json({ opened: enriched, total: enriched.length });
+  } catch (error: any) {
+    console.error('[CAMPAIGNS] Error fetching opened emails:', error?.message);
+    if (error?.message?.includes('Authentication failed')) return c.json({ error: 'Unauthorized' }, 401);
+    return c.json({ error: error?.message || 'Failed to fetch opens' }, 500);
+  }
+});
+
+// GET /campaigns/:id/clicked — leads who clicked a link
+app.get("/make-server-a8b2511f/campaigns/:id/clicked", async (c) => {
+  try {
+    const { user, supabase } = await getAuthenticatedUser(c);
+    const campaignId = c.req.param('id');
+    const enriched = await getCampaignEmailsByStatus(supabase, campaignId, ['clicked'], (q: any) => q.not('clicked_at', 'is', null));
+    return c.json({ clicked: enriched, total: enriched.length });
+  } catch (error: any) {
+    console.error('[CAMPAIGNS] Error fetching clicked emails:', error?.message);
+    if (error?.message?.includes('Authentication failed')) return c.json({ error: 'Unauthorized' }, 401);
+    return c.json({ error: error?.message || 'Failed to fetch clicks' }, 500);
+  }
+});
+
 // ─── Live-event KV cleanup (throttled) ───────────────────────────────
 // Live broadcast events are kept in a bounded per-campaign KV list. Avoid
 // prefix scans here: those were the source of broadcast stalls under load.

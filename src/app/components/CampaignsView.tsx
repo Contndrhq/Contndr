@@ -96,6 +96,48 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
 
   // Bounced contacts state
   const [bouncedContacts, setBouncedContacts] = useState<any[]>([]);
+  const [openedContacts, setOpenedContacts] = useState<any[]>([]);
+  const [openedExpanded, setOpenedExpanded] = useState(false);
+  const [loadingOpened, setLoadingOpened] = useState(false);
+  const [clickedContacts, setClickedContacts] = useState<any[]>([]);
+  const [clickedExpanded, setClickedExpanded] = useState(false);
+  const [loadingClicked, setLoadingClicked] = useState(false);
+
+  async function loadOpenedContacts(campaignId: string) {
+    if (isDemoMode || loadingOpened) return;
+    setLoadingOpened(true);
+    try {
+      const response = await authenticatedFetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${campaignId}/opened`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setOpenedContacts(data.opened || []);
+      }
+    } catch (e) {
+      console.error('[OPENED] load error:', e);
+    } finally {
+      setLoadingOpened(false);
+    }
+  }
+
+  async function loadClickedContacts(campaignId: string) {
+    if (isDemoMode || loadingClicked) return;
+    setLoadingClicked(true);
+    try {
+      const response = await authenticatedFetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/campaigns/${campaignId}/clicked`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setClickedContacts(data.clicked || []);
+      }
+    } catch (e) {
+      console.error('[CLICKED] load error:', e);
+    } finally {
+      setLoadingClicked(false);
+    }
+  }
   const [bouncedExpanded, setBouncedExpanded] = useState(false);
   const [loadingBounced, setLoadingBounced] = useState(false);
   const [deletingBouncedId, setDeletingBouncedId] = useState<string | null>(null);
@@ -1569,6 +1611,136 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                           ))}
                         </div>
                       </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Opened Contacts Section ── */}
+            {campaignStats.emailStats.opened > 0 && (
+              <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm overflow-hidden">
+                <button
+                  onClick={() => {
+                    if (!openedExpanded) {
+                      setOpenedExpanded(true);
+                      if (openedContacts.length === 0) loadOpenedContacts(selectedCampaign);
+                    } else {
+                      setOpenedExpanded(false);
+                    }
+                  }}
+                  className="w-full flex items-center justify-between px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center flex-shrink-0">
+                      <Eye className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+                    </div>
+                    <div className="text-left">
+                      <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">
+                        Opened
+                        <span className="ml-2 text-xs font-normal text-zinc-500 dark:text-zinc-400">{campaignStats.emailStats.opened}</span>
+                      </h3>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">Leads who opened your email</p>
+                    </div>
+                  </div>
+                  {openedExpanded ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
+                </button>
+                {openedExpanded && (
+                  <div className="border-t border-zinc-100 dark:border-zinc-800/50">
+                    {loadingOpened ? (
+                      <div className="flex items-center justify-center py-8 gap-2">
+                        <RefreshCw className="w-4 h-4 animate-spin text-zinc-400" />
+                        <span className="text-sm text-zinc-500">Loading…</span>
+                      </div>
+                    ) : openedContacts.length === 0 ? (
+                      <div className="px-5 py-6 text-center text-sm text-zinc-400">No opens recorded yet.</div>
+                    ) : (
+                      <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+                        {openedContacts.map((c: any) => (
+                          <div key={c.id} className="px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950">
+                            <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 flex-shrink-0">
+                              {(c.leadName || c.leadEmail || '?').slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                <span className="font-medium text-sm text-zinc-900 dark:text-white truncate">{c.leadName}</span>
+                                {c.leadCompany && <span className="text-xs text-zinc-500">· {c.leadCompany}</span>}
+                              </div>
+                              <div className="text-xs text-zinc-500 truncate">{c.leadEmail}</div>
+                              {c.openedAt && (
+                                <div className="text-[11px] text-zinc-400 mt-0.5">
+                                  Opened {new Date(c.openedAt).toLocaleString()}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Clicked Contacts Section ── */}
+            {campaignStats.emailStats.clicked > 0 && (
+              <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm overflow-hidden">
+                <button
+                  onClick={() => {
+                    if (!clickedExpanded) {
+                      setClickedExpanded(true);
+                      if (clickedContacts.length === 0) loadClickedContacts(selectedCampaign);
+                    } else {
+                      setClickedExpanded(false);
+                    }
+                  }}
+                  className="w-full flex items-center justify-between px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center flex-shrink-0">
+                      <MousePointerClick className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+                    </div>
+                    <div className="text-left">
+                      <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">
+                        Clicked
+                        <span className="ml-2 text-xs font-normal text-zinc-500 dark:text-zinc-400">{campaignStats.emailStats.clicked}</span>
+                      </h3>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">Leads who clicked a link in your email</p>
+                    </div>
+                  </div>
+                  {clickedExpanded ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
+                </button>
+                {clickedExpanded && (
+                  <div className="border-t border-zinc-100 dark:border-zinc-800/50">
+                    {loadingClicked ? (
+                      <div className="flex items-center justify-center py-8 gap-2">
+                        <RefreshCw className="w-4 h-4 animate-spin text-zinc-400" />
+                        <span className="text-sm text-zinc-500">Loading…</span>
+                      </div>
+                    ) : clickedContacts.length === 0 ? (
+                      <div className="px-5 py-6 text-center text-sm text-zinc-400">No clicks recorded yet.</div>
+                    ) : (
+                      <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+                        {clickedContacts.map((c: any) => (
+                          <div key={c.id} className="px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950">
+                            <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 flex-shrink-0">
+                              {(c.leadName || c.leadEmail || '?').slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                <span className="font-medium text-sm text-zinc-900 dark:text-white truncate">{c.leadName}</span>
+                                {c.leadCompany && <span className="text-xs text-zinc-500">· {c.leadCompany}</span>}
+                              </div>
+                              <div className="text-xs text-zinc-500 truncate">{c.leadEmail}</div>
+                              {c.clickedAt && (
+                                <div className="text-[11px] text-zinc-400 mt-0.5">
+                                  Clicked {new Date(c.clickedAt).toLocaleString()}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 )}
