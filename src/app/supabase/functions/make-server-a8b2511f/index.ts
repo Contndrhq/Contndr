@@ -17939,26 +17939,45 @@ app.post("/make-server-a8b2511f/admin/reclassify-opens", async (c) => {
 
     // Scan all UA tracking entries. Keys look like:
     //   tracking_ua:<userId>:<emailId>:opened:<ts>
-    // We use a prefix scan and assemble a map emailId -> [classifications].
-    const rows = await kv.getByPrefixLimited('tracking_ua:', limitArg);
+    // We have to hit the KV table directly because kv.getByPrefixLimited()
+    // strips the keys and returns only values — and we need the key to
+    // extract the email_id.
     const perEmail = new Map<string, { hasHuman: boolean; labels: string[] }>();
     let scannedOpens = 0;
+    const PAGE = 1000;
+    let offset = 0;
+    while (offset < limitArg) {
+      const { data, error } = await supabase
+        .from('kv_store_a8b2511f')
+        .select('key, value')
+        .like('key', 'tracking_ua:%:opened:%')
+        .order('key', { ascending: false })
+        .range(offset, offset + PAGE - 1);
+      if (error) {
+        console.warn('[RECLASSIFY] KV scan error:', error.message);
+        break;
+      }
+      if (!data || data.length === 0) break;
 
-    for (const row of (rows as any[])) {
-      const key: string = row.key || row.name || '';
-      const val: any = row.value || row;
-      if (!key.includes(':opened:')) continue;
-      const parts = key.split(':');
-      const emailId = parts[3];
-      if (!emailId) continue;
-      scannedOpens++;
+      for (const row of data) {
+        const key: string = row.key || '';
+        const val: any = row.value || {};
+        const parts = key.split(':');
+        // tracking_ua:<userId>:<emailId>:opened:<ts>  → emailId at index 2
+        const emailId = parts[2];
+        if (!emailId) continue;
+        scannedOpens++;
 
-      const ua: string = val?.ua || '';
-      const cls = classifyUserAgent(ua);
-      const entry = perEmail.get(emailId) || { hasHuman: false, labels: [] };
-      if (!cls.isBot) entry.hasHuman = true;
-      entry.labels.push(cls.label);
-      perEmail.set(emailId, entry);
+        const ua: string = val?.ua || '';
+        const cls = classifyUserAgent(ua);
+        const entry = perEmail.get(emailId) || { hasHuman: false, labels: [] };
+        if (!cls.isBot) entry.hasHuman = true;
+        entry.labels.push(cls.label);
+        perEmail.set(emailId, entry);
+      }
+
+      if (data.length < PAGE) break;
+      offset += PAGE;
     }
 
     // For every email where ALL recorded UAs classify as bot under the
