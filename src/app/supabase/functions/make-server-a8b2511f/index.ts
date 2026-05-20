@@ -19892,9 +19892,55 @@ app.get("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
     
     const resolvedCampaigns = await activateDueAICallCampaigns(user.id, campaigns || []);
 
+    // ── Enrich each campaign with a derived call_outcome ──
+    // One shared call:* prefix scan, group by campaign_id, then classify
+    // the best (most positive) outcome per campaign. Avoids N+1 lookups.
+    let enriched = resolvedCampaigns || [];
+    try {
+      const allCalls = (await kv.getByPrefixLimited('call:', 5000, 0).catch(() => [])) as any[];
+      const callsByCampaign = new Map<string, any[]>();
+      for (const call of allCalls) {
+        if (!call || (call.user_id !== user.id && call.ai_config?.user_id !== user.id)) continue;
+        const cid = call.campaign_id;
+        if (!cid) continue;
+        const arr = callsByCampaign.get(cid) || [];
+        arr.push(call);
+        callsByCampaign.set(cid, arr);
+      }
+
+      // Rank: higher number = more positive outcome
+      const rank = (label: string) => ({
+        'booked': 5, 'positive': 4, 'transferred': 3, 'engaged': 2,
+        'answered': 1, 'voicemail': 0, 'no_answer': -1, 'failed': -2, 'pending': -3,
+      } as Record<string, number>)[label] ?? -3;
+
+      const classify = (call: any): string => {
+        if (call.outcome === 'booked' || call.booked === true) return 'booked';
+        if (call.outcome === 'positive' || call.outcome === 'interested') return 'positive';
+        if (call.outcome === 'transferred' || call.transfer) return 'transferred';
+        if (call.status === 'voicemail' || call.outcome === 'voicemail') return 'voicemail';
+        if (call.status === 'no-answer' || call.status === 'busy' || call.status === 'failed') return 'no_answer';
+        // Inspect conversation to differentiate engaged vs answered
+        return 'answered';
+      };
+
+      enriched = enriched.map((cmp: any) => {
+        const calls = callsByCampaign.get(cmp.id) || [];
+        if (calls.length === 0) return { ...cmp, call_outcome: 'pending', call_outcome_count: 0 };
+        let best = 'pending';
+        for (const call of calls) {
+          const label = classify(call);
+          if (rank(label) > rank(best)) best = label;
+        }
+        return { ...cmp, call_outcome: best, call_outcome_count: calls.length };
+      });
+    } catch (e: any) {
+      console.warn('[AI CAMPAIGNS] outcome enrichment failed (non-fatal):', e?.message);
+    }
+
     return c.json({
       success: true,
-      campaigns: resolvedCampaigns || []
+      campaigns: enriched
     });
   } catch (error) {
     console.error('[AI CAMPAIGNS] Error listing campaigns:', error);

@@ -25,6 +25,7 @@ import {
   Bot,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Loader2,
   Flame,
 } from 'lucide-react';
@@ -773,25 +774,60 @@ function ActiveCallCard({ call, formatDuration, onCallEnded }: { call: ActiveCal
 
 function CampaignRow({ campaign, onViewDetails }: { campaign: Campaign; onViewDetails: () => void }) {
   const { t } = useTranslation();
+
+  // Outcome chip — premium minimal design with a tinted dot + label.
+  // Backend supplies campaign.call_outcome from the call records.
+  // Falls back to 'pending' when no calls have been placed yet.
+  const outcome = (campaign as any).call_outcome || 'pending';
+  const outcomeMeta: Record<string, { label: string; dot: string; text: string }> = {
+    booked:      { label: 'Booked',      dot: 'bg-[#1ED4A7]',           text: 'text-[#1ED4A7]' },
+    positive:    { label: 'Interested',  dot: 'bg-[#1ED4A7]',           text: 'text-[#1ED4A7]' },
+    transferred: { label: 'Transferred', dot: 'bg-blue-400',            text: 'text-blue-400' },
+    engaged:     { label: 'Engaged',     dot: 'bg-emerald-400',         text: 'text-emerald-400' },
+    answered:    { label: 'Answered',    dot: 'bg-sky-400',             text: 'text-sky-400' },
+    voicemail:   { label: 'Voicemail',   dot: 'bg-amber-400',           text: 'text-amber-400' },
+    no_answer:   { label: 'No answer',   dot: 'bg-zinc-500',            text: 'text-zinc-500' },
+    failed:      { label: 'Failed',      dot: 'bg-rose-400',            text: 'text-rose-400' },
+    pending:     { label: '—',           dot: 'bg-zinc-700',            text: 'text-zinc-500' },
+  };
+  const oc = outcomeMeta[outcome] || outcomeMeta.pending;
+
   return (
-    <div className="px-3 sm:px-5 py-3 flex items-center justify-between gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 transition-colors">
+    <div
+      onClick={onViewDetails}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onViewDetails(); } }}
+      className="px-3 sm:px-5 py-3 flex items-center justify-between gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 transition-colors cursor-pointer group"
+    >
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 mb-0.5">
+        <div className="flex items-center gap-2 mb-0.5">
+          {/* Outcome dot — tiny, always visible, never noisy */}
+          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${oc.dot}`} aria-hidden="true" />
           <h3 className="text-xs sm:text-sm font-medium text-zinc-900 dark:text-white truncate">{campaign.name}</h3>
-          <span className={`px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold uppercase tracking-wide flex-shrink-0 ${
-            campaign.status === 'active' ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]' :
-            campaign.status === 'paused' && campaign.pause_reason === 'insufficient_credits' ? 'bg-amber-500/10 text-amber-400' :
-            campaign.status === 'paused' ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400' :
-            'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'
-          }`}>{campaign.status === 'paused' && campaign.pause_reason === 'insufficient_credits' ? t('aiCalls.noCredits') : campaign.status}</span>
+          {outcome !== 'pending' && (
+            <span className={`text-[10px] sm:text-[11px] font-semibold flex-shrink-0 ${oc.text}`}>
+              {oc.label}
+            </span>
+          )}
+          {campaign.status === 'active' && (
+            <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold uppercase tracking-wide flex-shrink-0 bg-[#1ED4A7]/10 text-[#1ED4A7]">
+              {campaign.status}
+            </span>
+          )}
+          {campaign.status === 'paused' && campaign.pause_reason === 'insufficient_credits' && (
+            <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold uppercase tracking-wide flex-shrink-0 bg-amber-500/10 text-amber-400">
+              {t('aiCalls.noCredits')}
+            </span>
+          )}
         </div>
-        <p className="text-[10px] sm:text-xs text-zinc-500 truncate">
+        <p className="text-[10px] sm:text-xs text-zinc-500 truncate ml-3.5">
           {campaign.calls_made}/{campaign.total_leads} {t('aiCalls.calls')}
           {(campaign.failed_calls || 0) > 0 ? ` · ${campaign.failed_calls} failed` : ''}
-          {campaign.last_error ? ` · ${campaign.last_error}` : ` · ${campaign.brand} · ${new Date(campaign.created_at).toLocaleDateString()}`}
+          {campaign.last_error ? ` · ${campaign.last_error}` : ` · ${new Date(campaign.created_at).toLocaleDateString()}`}
         </p>
       </div>
-      <button onClick={onViewDetails} className="px-2.5 py-1 sm:py-1.5 text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-white transition-colors flex-shrink-0">{t('aiCalls.details')}</button>
+      <ChevronRight className="w-4 h-4 text-zinc-400 dark:text-zinc-600 group-hover:text-zinc-700 dark:group-hover:text-zinc-300 transition-colors flex-shrink-0" />
     </div>
   );
 }
