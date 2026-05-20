@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Facebook, Key, Loader2, AlertCircle, CheckCircle, Trash2, ExternalLink } from 'lucide-react';
+import { Facebook, Key, Loader2, AlertCircle, CheckCircle, Trash2, ExternalLink, Plus } from 'lucide-react';
 import { getAuthHeaders } from '../lib/auth';
 import { projectId } from '../utils/supabase/info';
 import { LoadingSpinner } from './LoadingSpinner';
@@ -26,6 +26,7 @@ export function MetaSettings() {
   const [channelMessenger, setChannelMessenger] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   async function loadPages() {
     setLoading(true);
@@ -74,6 +75,7 @@ export function MetaSettings() {
       setPageId('');
       setPageName('');
       setPageAccessToken('');
+      setShowAddForm(false);
       loadPages();
     } catch (e: any) {
       setError(e?.message || 'Failed to connect');
@@ -276,8 +278,18 @@ export function MetaSettings() {
         </div>
       )}
 
-      {/* Connect form */}
-      {renderConnectForm()}
+      {/* Connect form — auto-collapsed once at least one page is connected */}
+      {pages.length === 0 || showAddForm ? (
+        renderConnectForm()
+      ) : (
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="w-full px-4 py-3 rounded-2xl border border-dashed border-gray-300 dark:border-white/10 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:border-gray-400 dark:hover:border-white/20 transition-colors flex items-center justify-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          Add another page
+        </button>
+      )}
     </div>
   );
 }
