@@ -423,30 +423,6 @@ export function AICalls({
       <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
         <div className="px-3 sm:px-5 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-white">{t('aiCalls.campaigns')}</h2>
-          {campaigns.some((c: any) => /^(test-call-|agent-hot-)/.test(c.id || '')) && (
-            <button
-              type="button"
-              onClick={async () => {
-                if (!confirm('Remove all test-call and hot-visitor campaigns? This only affects auto-generated ones; your real campaigns stay.')) return;
-                try {
-                  const headers = await getAuthHeaders();
-                  const res = await fetch(
-                    `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/ai-call-campaigns/clear-test-calls`,
-                    { method: 'POST', headers },
-                  );
-                  const json = await res.json();
-                  if (!res.ok) throw new Error(json.error || 'Failed');
-                  setCampaigns(prev => prev.filter((c: any) => !/^(test-call-|agent-hot-)/.test(c.id || '')));
-                  toast.success(`Cleared ${json.deleted} test campaigns`);
-                } catch (err: any) {
-                  toast.error('Could not clear test campaigns', { description: err.message });
-                }
-              }}
-              className="text-[11.5px] font-medium text-zinc-500 hover:text-red-500 dark:text-zinc-400 dark:hover:text-red-400"
-            >
-              Clear test calls
-            </button>
-          )}
         </div>
         {campaigns.length > 0 ? (
           <div className="divide-y divide-zinc-200/50 dark:divide-zinc-800/50">
