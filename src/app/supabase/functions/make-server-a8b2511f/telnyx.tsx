@@ -1884,28 +1884,86 @@ app.post('/webhooks/call-status', async (c) => {
                 return;
               }
 
-              // ── IVR / hold-message filter ──
-              // Phone systems frequently play "please hold while we direct
-              // your call" / "your call is important to us" / "all our
-              // representatives are busy". The ASR transcribes those as if
-              // they were the lead speaking. Detect + drop them so the AI
-              // doesn't reply "Got it, I'll wait" to a phone system.
+              // ── IVR / voicemail / hold-message filter ──
+              // Phone systems and voicemails get transcribed as if the lead
+              // were speaking. Detect them so the AI doesn't pitch a robot
+              // for 15 turns (real bug observed in production).
               const IVR_PHRASES = [
+                // Hold / transfer
                 'please hold', 'thank you for holding', 'thank you for calling',
                 'your call is important', 'all of our representatives',
-                'all our representatives', 'press one', 'press 1', 'press two', 'press 2',
-                'leave a message after', 'at the tone', 'after the beep',
-                'please leave your', "we'll get back to you", 'in the order',
-                'one moment please', 'please stay on the line',
+                'all our representatives', 'one moment please', 'please stay on the line',
                 'direct your call', 'transferring your call', 'connecting you',
-                'please listen carefully', 'our menu options',
+                'please listen carefully', 'our menu options', 'in the order',
+                // Voicemail prompts
+                'leave a message after', 'at the tone', 'after the beep',
+                'please leave your', "we'll get back to you",
+                'we are sorry', 'we’re sorry', "we're sorry",
+                'no one available', 'no one is available', 'unable to take your call',
+                'unable to come to', 'cannot come to', "can't come to the phone",
+                'record your message', 'press star', 'press the pound',
+                'press 1 to', 'press 2 to', 'press 3 to', 'press # to', 'press * to',
+                'press any digit', 'press any key',
+                // Voicemail end states
+                'message saved', 'your message has been', 'mailbox is full',
+                'thank you, goodbye', 'recording complete',
               ];
-              const lowerProspect = prospectSaid.toLowerCase();
+              const lowerProspect = prospectSaid.toLowerCase().trim();
               const looksLikeIVR = IVR_PHRASES.some(p => lowerProspect.includes(p));
-              if (looksLikeIVR) {
-                console.log(`🎙️ [TX] IVR/hold message detected, staying silent: "${prospectSaid.substring(0, 60)}"`);
+
+              // Pure transcription noise: very short utterance with no real
+              // content. "Beep", "Beep beep beep.", "Born.", etc. — these
+              // are usually ASR picking up audio artifacts from a voicemail
+              // line. We treat them like IVR (silent skip + count toward
+              // hangup heuristic below).
+              const NOISE_TOKENS = ['beep', 'ring', 'click', 'dial tone', 'hum', 'static', 'born'];
+              const wordCount = lowerProspect.split(/\s+/).filter(Boolean).length;
+              const allWordsAreNoise = wordCount > 0 && lowerProspect
+                .replace(/[^a-z\s]/g, '')
+                .split(/\s+/)
+                .filter(Boolean)
+                .every(w => NOISE_TOKENS.includes(w));
+              const tooShortToBeReal = wordCount <= 1 && lowerProspect.length < 5;
+              const looksLikeNoise = allWordsAreNoise || tooShortToBeReal;
+
+              if (looksLikeIVR || looksLikeNoise) {
+                // Track consecutive IVR/noise turns. If we see 2+ in a row
+                // we're almost certainly on a voicemail loop — leave a one-
+                // line message and hang up instead of continuing to pitch.
+                conv._ivr_streak = (conv._ivr_streak || 0) + 1;
+                await kv.set(convKey, conv);
+                console.log(`🎙️ [TX] IVR/noise detected (streak=${conv._ivr_streak}), staying silent: "${prospectSaid.substring(0, 60)}"`);
+
+                if (conv._ivr_streak >= 2) {
+                  // Voicemail loop confirmed — leave message + hangup
+                  console.log(`🎙️ [TX] Voicemail loop detected (${conv._ivr_streak} consecutive IVR turns). Leaving message and hanging up.`);
+                  try {
+                    const agentName = call.ai_config?.name || 'Alex';
+                    const brand = call.ai_config?.business_name || call.ai_config?.brand || 'Contndr';
+                    const leadName = call.lead_name || call.ai_config?.lead_name || '';
+                    const vmMsg = leadName
+                      ? `Hi ${leadName}, this is ${agentName} from ${brand}, I'll try you back later. Thanks.`
+                      : `Hi, this is ${agentName} from ${brand}, I'll try back later. Thanks.`;
+                    await telnyxSpeak(callControlId, vmMsg);
+                    conv.history.push({ role: 'assistant', content: vmMsg });
+                    conv.outcome = 'voicemail';
+                    await kv.set(convKey, conv);
+                    // Hang up shortly after the message finishes
+                    setTimeout(() => {
+                      telnyxRequest(`/calls/${callControlId}/actions/hangup`, { method: 'POST', body: JSON.stringify({}) }).catch(() => {});
+                    }, 4000);
+                  } catch (e) {
+                    console.warn('[TX] voicemail-hangup error:', (e as any)?.message);
+                  }
+                }
+
                 await releaseAILock(callControlId);
                 return;
+              }
+
+              // Real speech — reset the IVR streak counter
+              if (conv._ivr_streak) {
+                conv._ivr_streak = 0;
               }
 
               conv.history.push({ role: 'user', content: prospectSaid });
