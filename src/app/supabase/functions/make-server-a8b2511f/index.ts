@@ -19400,6 +19400,126 @@ app.post("/make-server-a8b2511f/admin/users/:userId/setup-link", async (c) => {
   }
 });
 
+// POST /admin/users/:userId/send-approval — One-click "you're in, finish
+// setup" email. Generates a magic-link AND (if no card on file) a Stripe
+// setup-mode checkout link, then sends a friendly welcome email with both
+// CTAs. Falls back gracefully if either link can't be generated.
+app.post("/make-server-a8b2511f/admin/users/:userId/send-approval", async (c) => {
+  try {
+    const { user: caller, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(caller.email, caller.id)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+
+    const { data: { user: targetUser } } = await supabase.auth.admin.getUserById(userId);
+    if (!targetUser || !targetUser.email) return c.json({ error: 'User not found or has no email' }, 404);
+
+    const name = (targetUser.user_metadata?.full_name || targetUser.user_metadata?.name || '').split(' ')[0] || 'there';
+    const origin = c.req.header('origin') || 'https://app.contndr.com';
+
+    // 1) Magic-link so they can land logged in
+    let magicLink = '';
+    try {
+      const { data: linkData } = await supabase.auth.admin.generateLink({
+        type: 'magiclink',
+        email: targetUser.email,
+        options: { redirectTo: origin },
+      });
+      magicLink = (linkData as any)?.properties?.action_link || (linkData as any)?.action_link || '';
+    } catch (e: any) {
+      console.warn('[ADMIN] send-approval magic link failed:', e?.message);
+    }
+
+    // 2) Stripe setup link if no card on file
+    let setupLink = '';
+    let hasCard = false;
+    try {
+      const customerId: any = await kv.get(`stripe_customer:${userId}`);
+      const stripeClient = await getStripe();
+      if (customerId && stripeClient) {
+        const methods = await stripeClient.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
+        hasCard = (methods.data || []).length > 0;
+      }
+      if (!hasCard && stripeClient) {
+        // Resolve / create Stripe customer
+        let cust = customerId;
+        if (!cust) {
+          const list = await stripeClient.customers.list({ email: targetUser.email, limit: 1 });
+          cust = list.data[0]?.id || null;
+          if (!cust) {
+            const created = await stripeClient.customers.create({
+              email: targetUser.email,
+              name: targetUser.user_metadata?.full_name || targetUser.user_metadata?.name || undefined,
+              metadata: { userId },
+            });
+            cust = created.id;
+          }
+          await kv.set(`stripe_customer:${userId}`, cust);
+          await kv.set(`stripe_customer_reverse:${cust}`, userId);
+        }
+        const session = await stripeClient.checkout.sessions.create({
+          mode: 'setup',
+          customer: cust,
+          payment_method_types: ['card'],
+          success_url: `${origin}/?billing=card_added`,
+          cancel_url: `${origin}/?billing=card_cancelled`,
+          metadata: { userId, intent: 'admin_approval_flow', admin: caller.email || '' },
+        });
+        setupLink = session.url || '';
+      }
+    } catch (e: any) {
+      console.warn('[ADMIN] send-approval setup link failed:', e?.message);
+    }
+
+    // 3) Send the email
+    const { sendSystemEmail } = await import('./email-sender.tsx');
+    const ctaPrimary = magicLink
+      ? `<a href="${magicLink}" style="display:inline-block;padding:12px 24px;background:#1ED4A7;color:#000;text-decoration:none;border-radius:10px;font-weight:600">Sign in to Contndr</a>`
+      : '';
+    const ctaSetup = !hasCard && setupLink
+      ? `<p style="margin:18px 0 0;font-size:13px;color:#555">
+           Next step: <a href="${setupLink}" style="color:#1ED4A7;font-weight:600">add a payment method</a> so we can activate your plan.
+         </p>`
+      : '';
+
+    await sendSystemEmail({
+      from: 'Contndr <noreply@contndr.com>',
+      to: targetUser.email,
+      subject: "You're in — let's get Contndr set up",
+      html: `
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:520px;margin:0 auto;padding:32px;color:#222">
+          <h1 style="font-size:22px;margin:0 0 12px;">Hey ${name},</h1>
+          <p style="font-size:15px;line-height:1.6;margin:0 0 18px;">
+            Good news — your Contndr access has been approved. We've cleared you off the waitlist and you can finish setting up your account whenever you're ready.
+          </p>
+          ${ctaPrimary ? `<p style="margin:18px 0">${ctaPrimary}</p>` : ''}
+          ${ctaSetup}
+          <p style="font-size:12px;color:#888;margin:24px 0 0;">
+            Reply to this email if you run into anything. ${magicLink ? 'The sign-in link above is single-use and expires in 1 hour.' : ''}
+          </p>
+        </div>
+      `,
+      text: `Hey ${name},\n\nYour Contndr access has been approved. Finish setup here: ${magicLink}\n\n${!hasCard && setupLink ? `Next: add a payment method — ${setupLink}\n\n` : ''}Reply to this email if you need anything.`,
+    });
+
+    logAdminEvent('approval_email_sent', 'Approval Sent', `Sent finish-setup email to ${targetUser.email}`, {
+      email: targetUser.email,
+      metadata: { target_user_id: userId, admin: caller.email, has_card: hasCard, setup_link_included: !!setupLink },
+    }).catch(() => {});
+
+    return c.json({
+      success: true,
+      sent_to: targetUser.email,
+      magic_link_included: !!magicLink,
+      setup_link_included: !!setupLink,
+      already_has_card: hasCard,
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] send-approval error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // POST /admin/users/:userId/retry-payment — Retry payment for either a
 // specific invoice (body.invoice_id) or all open/unpaid invoices on the
 // customer. Hits Stripe's invoices.pay() which attempts the default

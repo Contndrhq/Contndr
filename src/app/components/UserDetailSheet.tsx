@@ -34,6 +34,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { confirmAsync } from './ConfirmDialog';
 import { projectId } from '../utils/supabase/info';
 import { authenticatedFetch } from '../lib/auth';
 import { supabase } from '../lib/supabase';
@@ -153,6 +154,37 @@ export function UserDetailSheet({
   const [charging, setCharging] = useState(false);
   const [generatingSetupLink, setGeneratingSetupLink] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null); // 'all' or invoice_id
+  const [sendingApproval, setSendingApproval] = useState(false);
+
+  async function sendApprovalEmail() {
+    const ok = await confirmAsync({
+      title: 'Send finish-setup email?',
+      message: `Emails ${data?.user?.email || 'the user'} that they've been approved + includes a sign-in link${!data?.stripe?.payment_method ? ' and a "save card" link' : ''}.`,
+      confirmLabel: 'Send',
+    }).catch(() => true);
+    if (!ok) return;
+    setSendingApproval(true);
+    try {
+      const r = await authenticatedFetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/${userId}/send-approval`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+      );
+      const result = await r.json();
+      if (result.success) {
+        toast.success(`Sent to ${result.sent_to}`, {
+          description: result.setup_link_included
+            ? 'Sign-in + save-card link included.'
+            : result.already_has_card ? 'Card already on file — sign-in link included.' : 'Sign-in link included.'
+        });
+      } else {
+        toast.error(result.error || 'Failed to send');
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to send');
+    } finally {
+      setSendingApproval(false);
+    }
+  }
 
   async function retryPayment(invoiceId: string | null) {
     const key = invoiceId || 'all';
@@ -715,6 +747,13 @@ export function UserDetailSheet({
         {/* Actions footer */}
         <div className="flex-shrink-0 border-t border-zinc-200 dark:border-white/10 px-4 sm:px-6 py-3">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <ActionBtn
+              onClick={sendApprovalEmail}
+              icon={sendingApproval ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+              variant="primary"
+            >
+              {sendingApproval ? 'Sending…' : 'Send approval'}
+            </ActionBtn>
             <ActionBtn onClick={onEditPlan} icon={<Edit3 className="w-3.5 h-3.5" />}>Edit plan</ActionBtn>
             <ActionBtn onClick={impersonate} icon={<Users className="w-3.5 h-3.5" />}>Sign in as</ActionBtn>
             <ActionBtn onClick={sendLoginLink} icon={sendingLoginLink ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}>Login link</ActionBtn>
@@ -835,12 +874,14 @@ function KV({
 
 function ActionBtn({
   children, icon, onClick, variant,
-}: { children: React.ReactNode; icon?: React.ReactNode; onClick: () => void; variant?: 'amber' | 'danger' }) {
+}: { children: React.ReactNode; icon?: React.ReactNode; onClick: () => void; variant?: 'amber' | 'danger' | 'primary' }) {
   const base = 'px-2.5 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap';
   const cls = variant === 'danger'
     ? 'bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20'
     : variant === 'amber'
     ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20'
+    : variant === 'primary'
+    ? 'bg-[#1ED4A7] hover:bg-[#1bc99c] text-black border border-[#1ED4A7] font-semibold'
     : 'bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-white/10';
   return (
     <button onClick={onClick} className={`${base} ${cls}`}>
