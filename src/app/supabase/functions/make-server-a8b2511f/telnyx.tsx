@@ -2901,7 +2901,7 @@ app.post('/calls/:callId/listen', async (c) => {
  *
  * Webhook secret verification uses TELNYX_WEBHOOK_SECRET (HMAC).
  */
-app.post('/make-server-a8b2511f/webhooks/telnyx/sms', async (c) => {
+app.post('/webhooks/sms', async (c) => {
   try {
     const body = await c.req.json().catch(() => null);
     const data = body?.data || body;
@@ -3032,7 +3032,7 @@ app.post('/make-server-a8b2511f/webhooks/telnyx/sms', async (c) => {
  * Groups messages by threadKey (lead_id or remote phone). Returns the
  * most recent message per thread + unread count.
  */
-app.get('/make-server-a8b2511f/sms/threads', async (c) => {
+app.get('/sms/threads', async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -3075,7 +3075,7 @@ app.get('/make-server-a8b2511f/sms/threads', async (c) => {
 /**
  * GET /sms/threads/:threadKey — Get all messages in a thread
  */
-app.get('/make-server-a8b2511f/sms/threads/:threadKey', async (c) => {
+app.get('/sms/threads/:threadKey', async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -3114,7 +3114,7 @@ app.get('/make-server-a8b2511f/sms/threads/:threadKey', async (c) => {
  * Body: { to: string, text: string, lead_id?: string }
  * Returns: { ok, message_id, suppressed? }
  */
-app.post('/make-server-a8b2511f/sms/send', async (c) => {
+app.post('/sms/send', async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);

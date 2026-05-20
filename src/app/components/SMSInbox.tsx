@@ -70,7 +70,7 @@ export function SMSInbox() {
     else setRefreshing(true);
     try {
       const headers = await getAuthHeaders();
-      const r = await fetch(`${API_BASE}/sms/threads`, { headers });
+      const r = await fetch(`${API_BASE}/telnyx/sms/threads`, { headers });
       const data = await r.json();
       setThreads(data.threads || []);
     } catch (e: any) {
@@ -85,7 +85,7 @@ export function SMSInbox() {
     setLoadingMessages(true);
     try {
       const headers = await getAuthHeaders();
-      const r = await fetch(`${API_BASE}/sms/threads/${encodeURIComponent(threadKey)}`, { headers });
+      const r = await fetch(`${API_BASE}/telnyx/sms/threads/${encodeURIComponent(threadKey)}`, { headers });
       const data = await r.json();
       setMessages(data.messages || []);
       // Auto-scroll to bottom
@@ -110,7 +110,7 @@ export function SMSInbox() {
     setSending(true);
     try {
       const headers = await getAuthHeaders();
-      const r = await fetch(`${API_BASE}/sms/send`, {
+      const r = await fetch(`${API_BASE}/telnyx/sms/send`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
