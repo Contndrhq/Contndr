@@ -2361,10 +2361,12 @@ app.get('/active-calls', async (c) => {
 
     console.log(`📞 [Active Calls] Active calls after filtering: ${activeCalls.length}`);
 
-    // Calculate stats for today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayTimestamp = today.toISOString();
+    // Calculate "today" stats — use a rolling 24-hour window instead of
+    // since-UTC-midnight. UTC midnight cuts off real activity for users
+    // east of UTC (e.g. Eastern Time: 8 PM EDT = UTC midnight, so a call
+    // made at 2 PM gets booted to "yesterday" 6 hours later). Rolling 24h
+    // matches the way users actually think about "today's calls".
+    const todayTimestamp = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     // Exclude test/auto-generated calls from the dashboard stats (same
     // helper used above for the live-calls list). Testing the AI caller
@@ -2398,16 +2400,6 @@ app.get('/active-calls', async (c) => {
       noAnswer: todayCalls.filter(c => c.status === 'no-answer' || c.status === 'busy').length,
       booked: todayCalls.filter(c => c.outcome === 'booked' || c.booked === true).length,
       avgDuration,
-      // Debug breadcrumbs to diagnose "all zero" stat bugs. Shows up in
-      // the response so we can compare raw counts to filtered counts
-      // without needing Edge Function log access.
-      _debug: {
-        raw_count: allCallsRaw.length,
-        user_scoped_count: allCalls.length,
-        today_ts: todayTimestamp,
-        statuses_seen: Array.from(new Set(allCalls.map((c: any) => c?.status).filter(Boolean))),
-        sample_started: allCalls.slice(0, 3).map((c: any) => ({ id: c.id, started_at: c.started_at, campaign_id: c.campaign_id, status: c.status })),
-      },
     };
 
     console.log('📞 [Active Calls] Stats calculated:', stats);
