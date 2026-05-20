@@ -1261,6 +1261,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
     const campaign = campaigns.find(c => c.id === selectedCampaign);
     
     return (
+      <>
       <div className="h-full flex flex-col bg-zinc-50 dark:bg-black">
         {/* Header — always visible */}
         <div className="flex-shrink-0 p-4 sm:p-8 pb-0">
@@ -1791,6 +1792,13 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
           </div>
         )}
       </div>
+      {drillLeadId && (
+        <>
+          {(() => { console.log('[CampaignsView/detail] Mounting LeadDetailModal for', drillLeadId); return null; })()}
+          <LeadDetailModal leadId={drillLeadId} onClose={() => { console.log('[CampaignsView/detail] LeadDetailModal close'); setDrillLeadId(null); }} />
+        </>
+      )}
+    </>
     );
   }
 
