@@ -1,13 +1,17 @@
 import * as kv from "./kv-retry.tsx";
 import { getUserSubscriptionStatus } from "./contndr-billing.tsx";
 import { sendEmail, sendSystemEmail } from "./email-sender.tsx";
+import { PLAN_ENTITLEMENTS, normalizePlan } from "./plan-entitlements.ts";
 
-// Team Limits
-const TEAM_LIMITS = {
-  starter: 1, // Only the owner
-  professional: 5,
-  growth: 20
-};
+// Seat-per-plan resolver. Single source of truth = plan-entitlements.ts so
+// the team page never disagrees with the rest of the app. The old hardcoded
+// table here was missing Scale and Enterprise (fell through to default 1),
+// AND had stale values for Professional/Growth — both fixed by reading
+// directly from PLAN_ENTITLEMENTS.
+function getSeatLimit(plan: string): number {
+  const key = normalizePlan(plan);
+  return PLAN_ENTITLEMENTS[key].seats;
+}
 
 // Helper to get Team ID (Owner ID) for a user
 export async function getTeamId(userId: string): Promise<string> {
@@ -95,7 +99,7 @@ export async function getTeamMembers(user: any) {
     }
   }
 
-  const limit = TEAM_LIMITS[plan as keyof typeof TEAM_LIMITS] || 1;
+  const limit = getSeatLimit(plan);
   const used = members.length + invites.length;
 
   return {

@@ -173,8 +173,11 @@ export function TeamSettings() {
     );
   }
 
-  const seatsLeft = team.limit - team.usage;
-  const canInvite = seatsLeft > 0 && team.isOwner;
+  // limit === -1 means unlimited (Enterprise). seatsLeft is conceptually
+  // infinite; canInvite should always be true for owners on that plan.
+  const isUnlimited = team.limit === -1;
+  const seatsLeft = isUnlimited ? Infinity : team.limit - team.usage;
+  const canInvite = team.isOwner && (isUnlimited || seatsLeft > 0);
 
   const translateRole = (role: string): string => {
     const roleMap: Record<string, string> = {
@@ -225,13 +228,15 @@ export function TeamSettings() {
           <div>
             <p className="font-medium text-gray-900 dark:text-white capitalize">{team.plan} {t('teamSettings.plan', 'Plan')}</p>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {t('teamSettings.seatsIncluded', { count: team.limit, defaultValue: '{{count}} seats included' })}
+              {isUnlimited
+                ? t('teamSettings.unlimitedSeats', 'Unlimited seats')
+                : t('teamSettings.seatsIncluded', { count: team.limit, defaultValue: '{{count}} seats included' })}
             </p>
           </div>
         </div>
         <div className="text-right">
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {team.usage}<span className="text-zinc-400 text-lg font-normal">/{team.limit}</span>
+            {team.usage}<span className="text-zinc-400 text-lg font-normal">/{isUnlimited ? '∞' : team.limit}</span>
           </p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('teamSettings.seatsUsed', 'Seats Used')}</p>
         </div>
