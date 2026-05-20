@@ -661,7 +661,74 @@ async function getAuthenticatedUser(c: any) {
     c.set('userEmail', user.email || null);
   } catch { /* context.set may not be available in odd code paths */ }
 
+  // ── First-touch waitlist backfill for OAuth orphans ──
+  // OAuth signups create the auth.users row via Supabase's callback
+  // BEFORE our app-side code runs. If the user bails before completing
+  // the /auth/complete-oauth-profile screen, no contndr_sub or waitlist
+  // entry exists — they become an invisible orphan. Here, on every auth
+  // check, we lazily backfill those records. Once per server instance
+  // per user (in-memory dedup) so the cost is negligible.
+  if (!_backfillChecked.has(user.id)) {
+    _backfillChecked.add(user.id);
+    backfillOrphanUser(user).catch((e) => {
+      console.warn('[AUTH] Backfill check failed (non-fatal):', e?.message);
+    });
+  }
+
   return { user, supabase };
+}
+
+// Per-cold-start cache of users we've already backfill-checked.
+const _backfillChecked = new Set<string>();
+
+/**
+ * If a user has no contndr_sub and no waitlist entry, create a pending
+ * waitlist record so they show up in the admin queue. Fire-and-forget,
+ * idempotent — safe to call repeatedly.
+ */
+async function backfillOrphanUser(user: any): Promise<void> {
+  if (!user?.id || !user?.email) return;
+  try {
+    const email = user.email.toLowerCase().trim();
+    const [sub, waitlistId] = await Promise.all([
+      kv.get(`contndr_sub:${user.id}`).catch(() => null),
+      kv.get(`waitlist:email:${email}`).catch(() => null),
+    ]);
+    // Only backfill if BOTH are missing — never overwrite real data.
+    if (sub || waitlistId) return;
+
+    const provider = user.app_metadata?.provider || 'unknown';
+    const name = user.user_metadata?.full_name || user.user_metadata?.name || user.user_metadata?.user_name || email.split('@')[0];
+    const newWaitlistId = `wl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    await Promise.all([
+      kv.set(`contndr_sub:${user.id}`, {
+        status: 'pending',
+        plan: 'waitlist',
+        created_at: new Date().toISOString(),
+        signup_method: provider,
+        backfilled: true,
+      }),
+      kv.set(`waitlist:${newWaitlistId}`, {
+        id: newWaitlistId,
+        email,
+        name,
+        status: 'pending_signup',
+        created_at: user.created_at || new Date().toISOString(),
+        source: `oauth_${provider}_orphan_backfill`,
+        userId: user.id,
+      }),
+      kv.set(`waitlist:email:${email}`, newWaitlistId),
+    ]);
+
+    console.log(`[BACKFILL] Created waitlist entry for OAuth orphan ${email} (${provider})`);
+    logAdminEvent('orphan_backfilled', 'OAuth Orphan Detected', `${name} (${email}) created via ${provider} but never completed signup — backfilled to waitlist`, {
+      email,
+      metadata: { name, provider, user_id: user.id, source: 'auth_first_touch' },
+    }).catch(() => {});
+  } catch (e: any) {
+    console.warn('[BACKFILL] error:', e?.message);
+  }
 }
 
 // Module-level email→uid cache populated by getAuthenticatedUser().
@@ -19334,6 +19401,110 @@ app.post("/make-server-a8b2511f/admin/users/:userId/login-link", async (c) => {
     return c.json({ success: true, url: magicLink, emailed, expires_in: '1h' });
   } catch (error: any) {
     console.error('[ADMIN] login-link error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/users/orphans/scan — find OAuth orphans (auth users created
+// but never reached signup completion → no contndr_sub, no waitlist).
+// Body: { backfill?: boolean, delete_older_than_days?: number }
+//   - backfill: true     create pending waitlist entries for all orphans
+//   - delete_older_than_days: N  hard-delete auth users older than N days
+//     that have ZERO leads and last_sign_in_at IS NULL. Set with care.
+app.post("/make-server-a8b2511f/admin/users/orphans/scan", async (c) => {
+  try {
+    const { user: caller, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(caller.email, caller.id)) return c.json({ error: 'Unauthorized' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const doBackfill = !!body.backfill;
+    const deleteOlderDays = Number.isFinite(body.delete_older_than_days) ? Math.max(7, Number(body.delete_older_than_days)) : 0;
+
+    const { data: { users }, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 200 });
+    if (error) throw error;
+
+    const orphans: any[] = [];
+    for (const u of users) {
+      const email = (u.email || '').toLowerCase().trim();
+      if (!email) continue;
+      const [sub, waitlistId] = await Promise.all([
+        kv.get(`contndr_sub:${u.id}`).catch(() => null),
+        kv.get(`waitlist:email:${email}`).catch(() => null),
+      ]);
+      if (sub || waitlistId) continue; // not an orphan
+      orphans.push({
+        id: u.id,
+        email,
+        name: u.user_metadata?.full_name || u.user_metadata?.name || null,
+        provider: u.app_metadata?.provider || 'unknown',
+        created_at: u.created_at,
+        last_sign_in_at: u.last_sign_in_at,
+        age_days: Math.floor((Date.now() - new Date(u.created_at).getTime()) / 86400000),
+      });
+    }
+
+    let backfilled = 0;
+    let deleted = 0;
+    const deletedRows: any[] = [];
+
+    if (doBackfill && orphans.length > 0) {
+      for (const o of orphans) {
+        try {
+          await backfillOrphanUser({
+            id: o.id,
+            email: o.email,
+            user_metadata: { name: o.name },
+            app_metadata: { provider: o.provider },
+            created_at: o.created_at,
+          });
+          backfilled++;
+        } catch { /* fail-soft */ }
+      }
+    }
+
+    if (deleteOlderDays > 0 && orphans.length > 0) {
+      // Only delete users with: age >= N days, never signed in, AND zero leads
+      for (const o of orphans) {
+        if (o.age_days < deleteOlderDays) continue;
+        if (o.last_sign_in_at) continue; // they HAVE signed in — never delete
+        // Lead count safety check
+        const { count } = await supabase.from('leads').select('id', { count: 'estimated', head: true }).eq('user_id', o.id);
+        if ((count || 0) > 0) continue;
+        try {
+          const { error: delErr } = await supabase.auth.admin.deleteUser(o.id);
+          if (delErr) {
+            console.warn('[ORPHAN-DELETE] failed for', o.email, delErr.message);
+            continue;
+          }
+          // Best-effort: also clear the waitlist if backfill ran
+          if (doBackfill) {
+            const wlId = await kv.get(`waitlist:email:${o.email}`).catch(() => null);
+            if (wlId) {
+              await kv.del(`waitlist:${wlId}`).catch(() => {});
+              await kv.del(`waitlist:email:${o.email}`).catch(() => {});
+            }
+          }
+          deleted++;
+          deletedRows.push({ email: o.email, age_days: o.age_days });
+          logAdminEvent('orphan_deleted', 'Orphan Auth Row Deleted', `Deleted ${o.email} — created ${o.age_days}d ago, never signed in, no leads`, {
+            email: o.email,
+            metadata: { age_days: o.age_days, provider: o.provider, admin: caller.email },
+          }).catch(() => {});
+        } catch (e: any) {
+          console.warn('[ORPHAN-DELETE] exception for', o.email, e?.message);
+        }
+      }
+    }
+
+    return c.json({
+      total_orphans: orphans.length,
+      backfilled,
+      deleted,
+      deleted_rows: deletedRows,
+      orphans: orphans.slice(0, 50), // cap output size
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] orphans/scan error:', error);
     return c.json({ error: error.message }, 500);
   }
 });
