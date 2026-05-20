@@ -440,7 +440,10 @@ export function AICalls({
         {(() => {
           // Apply stat-card filter
           const ROLLING_DAY_MS = 24 * 60 * 60 * 1000;
-          const POSITIVE_OUTCOMES = new Set(['answered', 'engaged', 'transferred', 'positive', 'booked']);
+          // Mirror the backend resolveOutcome set so stat-card counts
+          // and filtered results always agree. Connected = ANY human
+          // pickup including "not interested" (they DID answer).
+          const HUMAN_PICKUPS = new Set(['booked', 'positive', 'engaged', 'answered', 'no_interest', 'transferred']);
           const filtered = !statFilter ? campaigns : campaigns.filter((c: any) => {
             const oc = c.call_outcome;
             switch (statFilter) {
@@ -452,7 +455,7 @@ export function AICalls({
                 const ts = c.created_at ? new Date(c.created_at).getTime() : 0;
                 return Date.now() - ts < ROLLING_DAY_MS;
               }
-              case 'connected':  return POSITIVE_OUTCOMES.has(oc);
+              case 'connected':  return HUMAN_PICKUPS.has(oc);
               case 'voicemail':  return oc === 'voicemail';
               case 'no_answer':  return oc === 'no_answer' || oc === 'failed';
               case 'booked':     return oc === 'booked';

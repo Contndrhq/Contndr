@@ -2413,14 +2413,21 @@ app.get('/active-calls', async (c) => {
       c && c.started_at && c.started_at >= todayTimestamp && !isTestCallEntry(c)
     );
 
-    // ── Connected = the prospect actually picked up at any point ──
-    // We use `answered_at` (set by the webhook on call.answered) as the
-    // authoritative signal because `status` flips through many values
-    // (speaking/listening/processing/ended) during the call lifecycle and
-    // ends at 'ended' rather than 'connected'. Falling back to status
-    // checks keeps legacy records that predate the answered_at field.
-    const isConnected = (c: any) => !!c.answered_at
-      || ['answered', 'speaking', 'listening', 'processing', 'completed', 'ended', 'voicemail'].includes(c.status);
+    // ── Unified outcome resolver ──
+    // Use the LLM transcript_outcome when available (most accurate), fall
+    // back to status/outcome heuristics for unclassified historical calls.
+    // The campaigns list endpoint uses the SAME logic so stat-card numbers
+    // and the filter results stay in sync.
+    const HUMAN_PICKUPS = new Set(['booked', 'positive', 'engaged', 'answered', 'no_interest', 'transferred']);
+    const resolveOutcome = (c: any): string => {
+      if (c.transcript_outcome) return String(c.transcript_outcome);
+      if (c.outcome === 'booked' || c.booked === true) return 'booked';
+      if (c.outcome === 'transferred' || c.transfer) return 'transferred';
+      if (c.outcome === 'positive' || c.outcome === 'interested') return 'positive';
+      if (c.outcome === 'voicemail' || c.status === 'voicemail') return 'voicemail';
+      if (c.status === 'no-answer' || c.status === 'busy' || c.status === 'failed') return 'no_answer';
+      return c.answered_at ? 'answered' : 'no_answer';
+    };
 
     // Avg duration over completed calls today (in seconds)
     const completedToday = todayCalls.filter(c => c.ended_at && c.started_at);
@@ -2430,13 +2437,18 @@ app.get('/active-calls', async (c) => {
     }, 0);
     const avgDuration = completedToday.length > 0 ? Math.round(totalDurationSec / completedToday.length) : 0;
 
+    // Pre-resolve once per call so we don't run the classifier 4× per card
+    const todayResolved = todayCalls.map((c: any) => ({ call: c, oc: resolveOutcome(c) }));
+
     const stats = {
       activeNow: activeCalls.length,
       totalToday: todayCalls.length,
-      connected: todayCalls.filter(isConnected).length,
-      voicemail: todayCalls.filter(c => c.status === 'voicemail').length,
-      noAnswer: todayCalls.filter(c => c.status === 'no-answer' || c.status === 'busy').length,
-      booked: todayCalls.filter(c => c.outcome === 'booked' || c.booked === true).length,
+      // Connected = ANY human pickup (whether they were interested or not).
+      // Excludes voicemail and no-answer.
+      connected: todayResolved.filter(x => HUMAN_PICKUPS.has(x.oc)).length,
+      voicemail: todayResolved.filter(x => x.oc === 'voicemail').length,
+      noAnswer:  todayResolved.filter(x => x.oc === 'no_answer').length,
+      booked:    todayResolved.filter(x => x.oc === 'booked').length,
       avgDuration,
     };
 
