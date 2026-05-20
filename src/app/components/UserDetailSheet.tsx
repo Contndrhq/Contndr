@@ -548,7 +548,7 @@ export function UserDetailSheet({
                         <button
                           onClick={() => retryPayment(null)}
                           disabled={retrying === 'all'}
-                          className="mt-1.5 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-[#1ED4A7] hover:bg-[#1bc99c] text-black text-xs font-semibold disabled:opacity-50"
+                          className="mt-1.5 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-zinc-900 dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black text-xs font-semibold disabled:opacity-50 transition-colors"
                         >
                           {retrying === 'all' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                           {retrying === 'all' ? 'Retrying…' : 'Retry failed payment'}
@@ -697,7 +697,7 @@ export function UserDetailSheet({
                               onClick={() => retryPayment(inv.id)}
                               disabled={retrying === inv.id || retrying === 'all'}
                               title="Retry this payment"
-                              className="text-[#1ED4A7] hover:text-[#1bc99c] disabled:opacity-50"
+                              className="text-zinc-500 hover:text-zinc-900 dark:hover:text-white disabled:opacity-50"
                             >
                               {retrying === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                             </button>
@@ -750,7 +750,6 @@ export function UserDetailSheet({
             <ActionBtn
               onClick={sendApprovalEmail}
               icon={sendingApproval ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
-              variant="primary"
             >
               {sendingApproval ? 'Sending…' : 'Send approval'}
             </ActionBtn>
