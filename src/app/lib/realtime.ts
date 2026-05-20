@@ -47,7 +47,9 @@ export type RealtimeEventType =
   | 'import:completed'
   | 'deal:won'
   | 'payment:failed'
-  | 'call:completed';
+  | 'call:completed'
+  | 'meeting:booked'
+  | 'email:interested';
 
 export interface RealtimeEvent {
   type: RealtimeEventType;
@@ -185,6 +187,24 @@ const NOTIFY_EVENTS: Partial<Record<RealtimeEventType, (e: RealtimeEvent, selfUs
       'ai_call_completed',
       '📞 AI Call Completed',
       `${e.payload?.leadName || 'Lead'} — ${e.payload?.outcome || 'call ended'}`,
+      e.payload,
+    );
+  },
+  'meeting:booked': (e) => {
+    notificationService.notify(
+      'system',
+      '📅 Meeting booked',
+      `${e.payload?.inviteeName || 'A lead'}${e.payload?.when ? ` — ${e.payload.when}` : ''}`,
+      e.payload,
+    );
+  },
+  'email:interested': (e) => {
+    notificationService.notify(
+      'high_engagement',
+      '🔥 Interested reply',
+      e.payload?.snippet
+        ? `${e.payload?.leadName || 'Lead'}: "${String(e.payload.snippet).slice(0, 100)}"`
+        : `${e.payload?.leadName || 'A lead'} is interested — check inbox.`,
       e.payload,
     );
   },

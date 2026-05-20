@@ -1125,6 +1125,18 @@ export async function handleStripeWebhook(req: Request) {
             console.warn('[NATIVE-PUSH] payment-failed fanout failed:', (err as any)?.message);
           }
         })();
+        (async () => {
+          try {
+            const { broadcastRealtime } = await import('./realtime-broadcast.tsx');
+            await broadcastRealtime({
+              channel: `contndr:${failedUserId}`,
+              type: 'payment:failed',
+              payload: { userId: failedUserId, amount: amountDue, attempt: attemptCount },
+            });
+          } catch (err) {
+            console.warn('[REALTIME] payment-failed broadcast failed:', (err as any)?.message);
+          }
+        })();
       }
 
       // Auto-downgrade after threshold

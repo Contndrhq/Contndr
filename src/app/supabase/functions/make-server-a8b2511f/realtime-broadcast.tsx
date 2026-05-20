@@ -23,7 +23,17 @@ export type BackendRealtimeEventType =
   | 'subscription:updated'
   | 'waitlist:status_changed'
   | 'admin:waitlist_changed'
-  | 'admin:user_changed';
+  | 'admin:user_changed'
+  // Async events the user wants surfaced as browser/native notifications.
+  // These match the frontend RealtimeEventType in src/app/lib/realtime.ts
+  // so the existing NOTIFY_EVENTS map fires browser notifications when
+  // the user's tab is open and notification permission is granted.
+  | 'email:replied'
+  | 'email:interested'
+  | 'deal:won'
+  | 'payment:failed'
+  | 'call:completed'
+  | 'meeting:booked';
 
 interface BroadcastInput {
   channel: string;          // e.g. "contndr:<userId>"

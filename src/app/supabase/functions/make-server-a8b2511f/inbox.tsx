@@ -233,10 +233,13 @@ export async function processIncomingEmail(webhookData: any): Promise<void> {
     // the app is fully closed. No-op when APNS/FCM aren't configured
     // (sendNativePush silently returns 0/0).
     if (leadUserId) {
+      const senderName = from?.split('<')[0]?.trim() || leadEmail || 'A lead';
+      // Native push for mobile + realtime broadcast for desktop browser
+      // (notificationService picks up email:replied and fires a browser
+      // Notification when permission is granted).
       (async () => {
         try {
           const { sendNativePush } = await import('./native-push.tsx');
-          const senderName = from?.split('<')[0]?.trim() || leadEmail || 'A lead';
           await sendNativePush(leadUserId, {
             title: '💬 New reply',
             body: `${senderName} replied${subject ? `: "${subject.slice(0, 80)}"` : ''}`,
@@ -244,6 +247,24 @@ export async function processIncomingEmail(webhookData: any): Promise<void> {
           });
         } catch (err) {
           console.warn('[NATIVE-PUSH] reply fanout failed:', (err as any)?.message);
+        }
+      })();
+      (async () => {
+        try {
+          const { broadcastRealtime } = await import('./realtime-broadcast.tsx');
+          await broadcastRealtime({
+            channel: `contndr:${leadUserId}`,
+            type: 'email:replied',
+            payload: {
+              userId: leadUserId,
+              leadName: senderName,
+              leadId,
+              emailId,
+              campaignName: subject ? subject.slice(0, 80) : '',
+            },
+          });
+        } catch (err) {
+          console.warn('[REALTIME] reply broadcast failed:', (err as any)?.message);
         }
       })();
     }
@@ -509,7 +530,7 @@ async function escalateInterestedReply(reply: EmailReply): Promise<void> {
     const senderName = (reply.from || '').split('<')[0]?.trim() || (reply.from || '').trim() || 'A lead';
     const snippet = (reply.body || '').toString().replace(/\s+/g, ' ').trim().slice(0, 100);
 
-    // 1) High-intent native push
+    // 1) High-intent native push + realtime broadcast
     try {
       const { sendNativePush } = await import('./native-push.tsx');
       await sendNativePush(userId, {
@@ -523,6 +544,16 @@ async function escalateInterestedReply(reply: EmailReply): Promise<void> {
       });
     } catch (e) {
       console.warn('[INBOX] interested-push failed:', (e as any)?.message);
+    }
+    try {
+      const { broadcastRealtime } = await import('./realtime-broadcast.tsx');
+      await broadcastRealtime({
+        channel: `contndr:${userId}`,
+        type: 'email:interested',
+        payload: { userId, leadName: senderName, leadId: reply.leadId, snippet },
+      });
+    } catch (e) {
+      console.warn('[INBOX] interested-broadcast failed:', (e as any)?.message);
     }
 
     // 2) Auto-create pipeline deal (idempotent: skip if one already exists for this lead)

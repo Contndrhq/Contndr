@@ -565,13 +565,13 @@ app.post('/webhook', async (c) => {
           }
         }
 
-        // Native push: phone buzz on meeting book
+        // Native push (mobile) + realtime broadcast (desktop browser notification)
         if (leadUserId) {
+          const when = (invitee.scheduled_event?.start_time || invitee.event_start_time || '').toString();
+          const whenLabel = when ? new Date(when).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
           (async () => {
             try {
               const { sendNativePush } = await import('./native-push.tsx');
-              const when = (invitee.scheduled_event?.start_time || invitee.event_start_time || '').toString();
-              const whenLabel = when ? new Date(when).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
               await sendNativePush(leadUserId, {
                 title: '📅 Meeting booked',
                 body: whenLabel ? `${invitee.name} — ${whenLabel}` : `${invitee.name} just booked a meeting`,
@@ -579,6 +579,18 @@ app.post('/webhook', async (c) => {
               });
             } catch (e) {
               console.warn('[CALENDLY] meeting-push failed:', (e as any)?.message);
+            }
+          })();
+          (async () => {
+            try {
+              const { broadcastRealtime } = await import('./realtime-broadcast.tsx');
+              await broadcastRealtime({
+                channel: `contndr:${leadUserId}`,
+                type: 'meeting:booked',
+                payload: { userId: leadUserId, inviteeName: invitee.name, when: whenLabel, eventUri, leadId: utmContent || '' },
+              });
+            } catch (e) {
+              console.warn('[CALENDLY] meeting-broadcast failed:', (e as any)?.message);
             }
           })();
         }

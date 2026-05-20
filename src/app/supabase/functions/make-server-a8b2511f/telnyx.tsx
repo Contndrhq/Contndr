@@ -2067,11 +2067,11 @@ app.post('/webhooks/call-status', async (c) => {
           // Best-effort; web notifications are still primary via realtime.
           const ownerId = call.user_id || call.ai_config?.user_id;
           if (ownerId) {
+            const leadLabel = call.lead_name || call.business_name || call.to_number || 'a lead';
+            const outcome = call.outcome || (call.transfer ? 'transferred' : 'ended');
             (async () => {
               try {
                 const { sendNativePush } = await import('./native-push.tsx');
-                const leadLabel = call.lead_name || call.business_name || call.to_number || 'a lead';
-                const outcome = call.outcome || (call.transfer ? 'transferred' : 'ended');
                 await sendNativePush(ownerId, {
                   title: '📞 AI call completed',
                   body: `${leadLabel} — ${outcome}`,
@@ -2079,6 +2079,18 @@ app.post('/webhooks/call-status', async (c) => {
                 });
               } catch (err) {
                 console.warn('[NATIVE-PUSH] call-end fanout failed:', (err as any)?.message);
+              }
+            })();
+            (async () => {
+              try {
+                const { broadcastRealtime } = await import('./realtime-broadcast.tsx');
+                await broadcastRealtime({
+                  channel: `contndr:${ownerId}`,
+                  type: 'call:completed',
+                  payload: { userId: ownerId, leadName: leadLabel, outcome, callId: call.id, leadId: call.lead_id || null },
+                });
+              } catch (err) {
+                console.warn('[REALTIME] call-end broadcast failed:', (err as any)?.message);
               }
             })();
           }

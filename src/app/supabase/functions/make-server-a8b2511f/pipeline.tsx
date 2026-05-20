@@ -672,6 +672,18 @@ app.put("/deals/:id", async (c) => {
                 console.warn('[NATIVE-PUSH] deal-won fanout failed:', (err as any)?.message);
               }
             })();
+            (async () => {
+              try {
+                const { broadcastRealtime } = await import('./realtime-broadcast.tsx');
+                await broadcastRealtime({
+                  channel: `contndr:${userId}`,
+                  type: 'deal:won',
+                  payload: { userId, customerName: deal.contact_name || deal.business_name || 'Customer', amount: deal.value || 0, dealId },
+                });
+              } catch (err) {
+                console.warn('[REALTIME] deal-won broadcast failed:', (err as any)?.message);
+              }
+            })();
           }
         } catch (_) {}
       }

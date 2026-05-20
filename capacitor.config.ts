@@ -22,7 +22,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
  * Supabase secrets).
  */
 const config: CapacitorConfig = {
-  appId: 'com.contndr.app',
+  appId: 'com.Contndr',
   appName: 'Contndr',
   webDir: 'dist',
   // Set `bundledWebRuntime: false` so Capacitor doesn't ship its own
@@ -61,11 +61,14 @@ const config: CapacitorConfig = {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
   },
-  // Uncomment for local development against the Vite dev server:
-  // server: {
-  //   url: 'http://localhost:5173',
-  //   cleartext: true,
-  // },
+  // Point the native webview at the live Vercel deployment so every
+  // web deploy ships to mobile instantly — no Xcode rebuild required.
+  // The native shell still handles push notifications, status bar,
+  // splash screen, etc.
+  server: {
+    url: 'https://app.contndr.com',
+    cleartext: false,
+  },
 };
 
 export default config;
