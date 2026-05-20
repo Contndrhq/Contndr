@@ -103,6 +103,36 @@ export function AICalls({
   const [loading, setLoading] = useState(true);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  // Per-campaign call transcripts loaded lazily when the user opens the modal
+  const [calls, setCalls] = useState<any[]>([]);
+  const [callsLoading, setCallsLoading] = useState(false);
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
+
+  // Fetch transcripts when the user opens a campaign's details modal
+  useEffect(() => {
+    if (!selectedCampaign?.id) { setCalls([]); setExpandedCallId(null); return; }
+    let cancelled = false;
+    (async () => {
+      setCallsLoading(true);
+      setExpandedCallId(null);
+      try {
+        const headers = await getAuthHeaders();
+        const r = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/ai-call-campaigns/${selectedCampaign.id}/calls`,
+          { headers },
+        );
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (!cancelled) setCalls(data.calls || []);
+      } catch (e) {
+        console.warn('[AI CALLS] transcript fetch failed:', e);
+        if (!cancelled) setCalls([]);
+      } finally {
+        if (!cancelled) setCallsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedCampaign?.id]);
 
   // ─── Hot visitor stat (computed from campaigns) ──────────────────────
   // Counts campaigns auto-created by Agent Mode's hot-visitor trigger
@@ -529,6 +559,85 @@ export function AICalls({
                   </div>
                   <p className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-white">{selectedCampaign.failed_calls || 0}</p>
                 </div>
+              </div>
+
+              {/* Call transcripts */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    Calls {calls.length > 0 && <span className="text-zinc-700 dark:text-zinc-300 ml-1 normal-case font-medium">({calls.length})</span>}
+                  </h3>
+                  {callsLoading && <RefreshCw className="w-3 h-3 animate-spin text-zinc-400" />}
+                </div>
+
+                {!callsLoading && calls.length === 0 ? (
+                  <div className="text-[11px] text-zinc-400 dark:text-zinc-600 italic px-2 py-3 bg-zinc-50 dark:bg-zinc-900/40 rounded-lg text-center">
+                    No calls yet for this campaign.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                    {calls.map((call) => {
+                      const isOpen = expandedCallId === call.id;
+                      const outcomeChip = call.outcome
+                        ? call.outcome === 'transferred' ? 'bg-blue-500/10 text-blue-400'
+                        : call.outcome === 'voicemail' ? 'bg-amber-500/10 text-amber-400'
+                        : call.outcome === 'connected' ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]'
+                        : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500'
+                        : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500';
+                      return (
+                        <div key={call.id} className="bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800/50 rounded-lg overflow-hidden">
+                          <button
+                            onClick={() => setExpandedCallId(isOpen ? null : call.id)}
+                            className="w-full flex items-center justify-between gap-2 p-2.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-medium text-zinc-900 dark:text-white truncate">{call.lead_name}</span>
+                                {call.outcome && (
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide flex-shrink-0 ${outcomeChip}`}>
+                                    {call.outcome}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5 text-[10px] text-zinc-500">
+                                {call.duration_seconds != null && (
+                                  <span>{Math.floor(call.duration_seconds / 60)}:{String(call.duration_seconds % 60).padStart(2, '0')}</span>
+                                )}
+                                {call.started_at && (
+                                  <span>{new Date(call.started_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                                )}
+                                <span className="text-zinc-400">· {call.turns.length} msg{call.turns.length === 1 ? '' : 's'}</span>
+                              </div>
+                            </div>
+                            <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                          </button>
+
+                          {isOpen && (
+                            <div className="border-t border-zinc-200 dark:border-zinc-800/50 px-2.5 py-2 space-y-1.5 max-h-48 overflow-y-auto bg-white dark:bg-black">
+                              {call.turns.length === 0 ? (
+                                <div className="text-[11px] text-zinc-400 italic">No transcript captured.</div>
+                              ) : (
+                                call.turns.map((turn: any, idx: number) => (
+                                  <div key={idx} className={`text-[11px] leading-relaxed ${turn.role === 'assistant' ? 'pl-2 border-l-2 border-[#1ED4A7]/40' : 'pl-2 border-l-2 border-zinc-300 dark:border-zinc-700'}`}>
+                                    <div className={`text-[9px] font-bold uppercase tracking-wide ${turn.role === 'assistant' ? 'text-[#1ED4A7]' : 'text-zinc-500'}`}>
+                                      {turn.role === 'assistant' ? 'AI' : 'Lead'}
+                                    </div>
+                                    <div className="text-zinc-700 dark:text-zinc-300 mt-0.5 whitespace-pre-wrap">{turn.content}</div>
+                                  </div>
+                                ))
+                              )}
+                              {call.transfer?.target && (
+                                <div className="mt-1.5 text-[10px] text-blue-400 italic">
+                                  ↳ Transferred to {call.transfer.target.description || call.transfer.target.phone}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Actions */}

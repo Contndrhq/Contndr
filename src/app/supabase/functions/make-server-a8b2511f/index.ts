@@ -19794,6 +19794,80 @@ async function activateDueAICallCampaigns(userId: string, campaigns: any[]) {
   return resolved;
 }
 
+// GET /ai-call-campaigns/:campaignId/calls — list all calls in a campaign
+// with their transcripts so the user can review what was said. Lightweight
+// version: returns id, lead_name, status, outcome, duration, transcript
+// (joined plain-text + structured turns).
+app.get("/make-server-a8b2511f/ai-call-campaigns/:campaignId/calls", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "AI-CALL-CALLS");
+    if (authError || !user) return c.json({ error: "Unauthorized" }, 401);
+
+    const campaignId = c.req.param('campaignId');
+    if (!campaignId) return c.json({ error: 'campaignId required' }, 400);
+
+    // Scan all calls — they're stored globally under call:<id>. The list
+    // is small enough per-user that a prefix scan is fine; this endpoint
+    // also filters by user_id to enforce tenant isolation.
+    const allCalls: any[] = await kv.getByPrefixLimited('call:', 2000, 0).catch((e: any) => {
+      console.warn('[AI CALLS] getByPrefix failed:', e?.message);
+      return [];
+    });
+
+    // Filter to this campaign + this user, then pull conversation for each
+    const owned = (allCalls || []).filter((c: any) =>
+      c && c.campaign_id === campaignId && (c.user_id === user.id || c.ai_config?.user_id === user.id)
+    );
+
+    // Fetch conversations in parallel
+    const conversations = await Promise.all(
+      owned.map((call: any) => kv.get(`ai_conv:${call.id}`).catch(() => null)),
+    );
+
+    const calls = owned.map((call: any, i: number) => {
+      const conv: any = conversations[i] || {};
+      const history: any[] = Array.isArray(conv.history) ? conv.history : [];
+      const transcript = history
+        .filter((t: any) => t?.role !== 'system')
+        .map((t: any) => `${t.role === 'assistant' ? 'AI' : 'Lead'}: ${(t.content || '').toString().trim()}`)
+        .join('\n');
+      const duration =
+        call.started_at && call.ended_at
+          ? Math.round((new Date(call.ended_at).getTime() - new Date(call.started_at).getTime()) / 1000)
+          : null;
+      return {
+        id: call.id,
+        lead_id: call.lead_id || null,
+        lead_name: call.lead_name || call.business_name || call.to_number || 'Lead',
+        business_name: call.business_name || null,
+        to_number: call.to_number || null,
+        status: call.status || 'unknown',
+        outcome: call.outcome || (call.transfer ? 'transferred' : null),
+        transfer: call.transfer || null,
+        started_at: call.started_at || null,
+        ended_at: call.ended_at || null,
+        duration_seconds: duration,
+        turns: history.filter((t: any) => t?.role !== 'system'),
+        transcript,
+      };
+    });
+
+    // Most recent first
+    calls.sort((a, b) => {
+      const at = a.started_at ? new Date(a.started_at).getTime() : 0;
+      const bt = b.started_at ? new Date(b.started_at).getTime() : 0;
+      return bt - at;
+    });
+
+    return c.json({ success: true, campaign_id: campaignId, count: calls.length, calls });
+  } catch (error: any) {
+    console.error('[AI CALLS] /campaigns/:id/calls error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // GET /ai-call-campaigns - List all AI call campaigns
 app.get("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
   try {
