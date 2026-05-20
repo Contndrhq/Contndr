@@ -1124,6 +1124,41 @@ function AppContent() {
     }
   }, [user]);
 
+  // ── Realtime: react to admin-driven subscription changes ──
+  // When admin approves/rejects a pending user from the dashboard, the
+  // backend broadcasts `subscription:updated` on the user's personal
+  // channel. We re-check billing immediately so the pending screen flips
+  // to dashboard (or vice-versa) without a manual refresh.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cleanup: (() => void) | null = null;
+    (async () => {
+      try {
+        const { supabase: sb } = await import('./lib/supabase');
+        // Subscribe to the same `contndr:<userId>` topic the rest of the
+        // app uses (src/app/lib/realtime.ts) — multiple subscribers on
+        // the same topic all receive broadcasts. We just filter for the
+        // billing-relevant type below.
+        const channel = (sb as any).channel(`contndr:${user.id}`, {
+          config: { broadcast: { self: false } },
+        });
+        channel
+          .on('broadcast', { event: 'sync' }, (msg: any) => {
+            const t = msg?.payload?.type || '';
+            if (t === 'subscription:updated') {
+              console.log('[BILLING] Realtime subscription:updated — re-checking');
+              checkSubscription();
+            }
+          })
+          .subscribe();
+        cleanup = () => { try { (sb as any).removeChannel(channel); } catch {} };
+      } catch (e) {
+        console.warn('[BILLING] realtime subscribe failed:', e);
+      }
+    })();
+    return () => { if (cleanup) cleanup(); };
+  }, [user?.id]);
+
   // Check for Stripe checkout return - recheck subscription after payment
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);

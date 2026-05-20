@@ -2930,14 +2930,33 @@ app.post("/make-server-a8b2511f/admin/waitlist/approve", async (c) => {
     }).catch(() => {});
     
     // Send invite email
+    let emailWarning: string | undefined;
     try {
       await sendInviteEmail(email, entry?.name || 'there');
     } catch (e) {
       console.error('[ADMIN] Failed to send invite email:', e);
-      return c.json({ success: true, warning: 'Approved but email failed to send' });
+      emailWarning = 'Approved but email failed to send';
     }
-    
-    return c.json({ success: true });
+
+    // Realtime fan-out: notify the user's own channel + the admin channel
+    // so the user's pending screen flips immediately AND any open admin
+    // dashboard refreshes without a manual reload.
+    (async () => {
+      try {
+        const { notifyUserStatusChange } = await import('./realtime-broadcast.tsx');
+        const targetUserId = entry?.userId || null;
+        if (targetUserId) {
+          await notifyUserStatusChange({
+            userId: targetUserId,
+            email: email.toLowerCase(),
+            newStatus: 'approved',
+            source: 'admin_waitlist_approve',
+          });
+        }
+      } catch (e) { console.warn('[REALTIME] approve broadcast failed:', (e as any)?.message); }
+    })();
+
+    return c.json({ success: true, ...(emailWarning ? { warning: emailWarning } : {}) });
   } catch (error) {
     console.error('[ADMIN] Error approving user:', error);
     return c.json({ error: error.message }, 500);
@@ -2964,7 +2983,22 @@ app.post("/make-server-a8b2511f/admin/waitlist/reject", async (c) => {
     if (entry?.email) {
        await kv.del(`whitelist:${entry.email.toLowerCase()}`);
     }
-    
+
+    // Realtime fan-out
+    (async () => {
+      try {
+        const { notifyUserStatusChange } = await import('./realtime-broadcast.tsx');
+        if (entry?.userId) {
+          await notifyUserStatusChange({
+            userId: entry.userId,
+            email: entry.email,
+            newStatus: 'rejected',
+            source: 'admin_waitlist_reject',
+          });
+        }
+      } catch (e) { console.warn('[REALTIME] reject broadcast failed:', (e as any)?.message); }
+    })();
+
     return c.json({ success: true });
   } catch (error) {
     console.error('[ADMIN] Error rejecting user:', error);

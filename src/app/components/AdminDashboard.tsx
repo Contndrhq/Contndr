@@ -1194,6 +1194,42 @@ export function AdminDashboard() {
     loadData({ silent: !isFirstLoad });
   }, [activeTab]);
 
+  // ── Realtime: admin channel ──
+  // Whenever the backend fires admin:waitlist_changed or admin:user_changed
+  // (waitlist approvals/rejections, orphan backfills, plan edits made from
+  // another admin's session, etc.), silently refresh the current tab so the
+  // dashboard always reflects truth without a manual reload.
+  useEffect(() => {
+    let cancelled = false;
+    let cleanup: (() => void) | null = null;
+    (async () => {
+      try {
+        const { supabase } = await import('../lib/supabase');
+        const channel = (supabase as any).channel('contndr:admin', {
+          config: { broadcast: { self: false } },
+        });
+        channel
+          .on('broadcast', { event: 'sync' }, (msg: any) => {
+            const t = msg?.payload?.type || '';
+            if (cancelled) return;
+            if (t === 'admin:waitlist_changed' || t === 'admin:user_changed') {
+              // Silent background refresh — no spinner flash
+              if (activeTab === 'waitlist') fetchWaitlist();
+              else if (activeTab === 'users') fetchUsers();
+            }
+          })
+          .subscribe();
+        cleanup = () => { try { (supabase as any).removeChannel(channel); } catch {} };
+      } catch (e) {
+        console.warn('[ADMIN] realtime subscribe failed (non-fatal):', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (cleanup) cleanup();
+    };
+  }, [activeTab]);
+
   async function loadData(opts: { silent?: boolean } = {}) {
     if (opts.silent) {
       // Background refresh — don't show full-page loader, just the spinner
@@ -1411,6 +1447,10 @@ export function AdminDashboard() {
   async function handleApprove(id: string, email: string) {
     if (!(await confirmAsync({ title: 'Approve applicant?', message: `${email} will receive an invitation email.`, confirmLabel: 'Approve & invite' }))) return;
     setProcessingId(id);
+    // Optimistic update — flip status locally so the chip changes instantly.
+    // On API failure we revert below.
+    const prev = waitlistEntries;
+    setWaitlistEntries(curr => curr.map(e => e.id === id ? { ...e, status: 'approved' as const, approved_at: new Date().toISOString() } : e));
     try {
       const headers = await getAuthHeaders();
       const response = await fetch(
@@ -1419,11 +1459,15 @@ export function AdminDashboard() {
       );
       if (response.ok) {
         toast.success('User Approved', { description: 'Invitation sent successfully.' });
+        // Quietly re-sync in case backend mutated other fields.
         fetchWaitlist();
       } else {
+        // Revert optimistic change
+        setWaitlistEntries(prev);
         toast.error('Failed to approve');
       }
     } catch (e) {
+      setWaitlistEntries(prev);
       toast.error('Error approving user');
     } finally {
       setProcessingId(null);
@@ -1433,6 +1477,8 @@ export function AdminDashboard() {
   async function handleReject(id: string) {
     if (!(await confirmAsync({ title: 'Reject application?', message: 'The applicant will not be invited.', confirmLabel: 'Reject', destructive: true }))) return;
     setProcessingId(id);
+    const prev = waitlistEntries;
+    setWaitlistEntries(curr => curr.map(e => e.id === id ? { ...e, status: 'rejected' as const } : e));
     try {
       const headers = await getAuthHeaders();
       const response = await fetch(
@@ -1443,9 +1489,11 @@ export function AdminDashboard() {
         toast.success('Application Rejected');
         fetchWaitlist();
       } else {
+        setWaitlistEntries(prev);
         toast.error('Failed to reject');
       }
     } catch (e) {
+      setWaitlistEntries(prev);
       toast.error('Error rejecting user');
     } finally {
       setProcessingId(null);
