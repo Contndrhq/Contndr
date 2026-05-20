@@ -109,6 +109,10 @@ export function AICalls({
   const [callsLoading, setCallsLoading] = useState(false);
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
 
+  // Stat-card filter — clicking a card narrows the campaign list below.
+  // null = show all. Mapping in filteredCampaigns below.
+  const [statFilter, setStatFilter] = useState<null | 'hot' | 'active' | 'today' | 'connected' | 'voicemail' | 'no_answer' | 'booked'>(null);
+
   // Fetch transcripts when the user opens a campaign's details modal
   useEffect(() => {
     if (!selectedCampaign?.id) { setCalls([]); setExpandedCallId(null); return; }
@@ -380,13 +384,13 @@ export function AICalls({
 
       {/* Stats Grid — bumped to 7 columns to fit the Hot card */}
       <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-7 gap-2 sm:gap-3">
-        <StatCard title="HOT" value={hotVisitorsToday.toString()} icon={Flame} color="text-orange-500" subtitle={hotVisitorsToday > 0 ? 'today' : 'no signal'} pulse={hotVisitorsToday > 0} />
-        <StatCard title={t('aiCalls.stats.active')} value={stats.activeNow.toString()} icon={PhoneCall} color="text-[#1ED4A7]" pulse={stats.activeNow > 0} />
-        <StatCard title={t('aiCalls.stats.today')} value={stats.totalToday.toString()} icon={Phone} color="text-zinc-500 dark:text-zinc-400" />
-        <StatCard title={t('aiCalls.stats.connected')} value={stats.connected.toString()} icon={CheckCircle2} color="text-[#1ED4A7]" subtitle={stats.totalToday > 0 ? `${Math.round((stats.connected / stats.totalToday) * 100)}%` : '0%'} />
-        <StatCard title={t('aiCalls.stats.voicemail')} value={stats.voicemail.toString()} icon={Mic} color="text-zinc-500 dark:text-zinc-400" />
-        <StatCard title={t('aiCalls.stats.noAnswer')} value={stats.noAnswer.toString()} icon={PhoneOff} color="text-zinc-500 dark:text-zinc-400" />
-        <StatCard title={t('aiCalls.stats.booked')} value={stats.booked.toString()} icon={UserPlus} color="text-[#1ED4A7]" subtitle={stats.connected > 0 ? `${Math.round((stats.booked / stats.connected) * 100)}%` : '0%'} />
+        <StatCard title="HOT"                       value={hotVisitorsToday.toString()} icon={Flame}        color="text-orange-500"               subtitle={hotVisitorsToday > 0 ? 'today' : 'no signal'} pulse={hotVisitorsToday > 0} active={statFilter === 'hot'}       onClick={() => setStatFilter(statFilter === 'hot' ? null : 'hot')} />
+        <StatCard title={t('aiCalls.stats.active')}  value={stats.activeNow.toString()}  icon={PhoneCall}    color="text-[#1ED4A7]"                pulse={stats.activeNow > 0}                                                             active={statFilter === 'active'}    onClick={() => setStatFilter(statFilter === 'active' ? null : 'active')} />
+        <StatCard title={t('aiCalls.stats.today')}   value={stats.totalToday.toString()} icon={Phone}        color="text-zinc-500 dark:text-zinc-400"                                                                                              active={statFilter === 'today'}     onClick={() => setStatFilter(statFilter === 'today' ? null : 'today')} />
+        <StatCard title={t('aiCalls.stats.connected')} value={stats.connected.toString()} icon={CheckCircle2} color="text-[#1ED4A7]"               subtitle={stats.totalToday > 0 ? `${Math.round((stats.connected / stats.totalToday) * 100)}%` : '0%'} active={statFilter === 'connected'} onClick={() => setStatFilter(statFilter === 'connected' ? null : 'connected')} />
+        <StatCard title={t('aiCalls.stats.voicemail')} value={stats.voicemail.toString()} icon={Mic}         color="text-zinc-500 dark:text-zinc-400"                                                                                              active={statFilter === 'voicemail'} onClick={() => setStatFilter(statFilter === 'voicemail' ? null : 'voicemail')} />
+        <StatCard title={t('aiCalls.stats.noAnswer')}  value={stats.noAnswer.toString()}  icon={PhoneOff}    color="text-zinc-500 dark:text-zinc-400"                                                                                              active={statFilter === 'no_answer'} onClick={() => setStatFilter(statFilter === 'no_answer' ? null : 'no_answer')} />
+        <StatCard title={t('aiCalls.stats.booked')}    value={stats.booked.toString()}    icon={UserPlus}    color="text-[#1ED4A7]"                subtitle={stats.connected > 0 ? `${Math.round((stats.booked / stats.connected) * 100)}%` : '0%'} active={statFilter === 'booked'}    onClick={() => setStatFilter(statFilter === 'booked' ? null : 'booked')} />
       </div>
 
       {/* ElevenLabs Voice & AI Panel (collapsible) */}
@@ -424,18 +428,58 @@ export function AICalls({
       <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
         <div className="px-3 sm:px-5 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-white">{t('aiCalls.campaigns')}</h2>
+          {statFilter && (
+            <button
+              onClick={() => setStatFilter(null)}
+              className="text-[11px] font-medium text-[#1ED4A7] hover:underline"
+            >
+              Clear filter
+            </button>
+          )}
         </div>
-        {campaigns.length > 0 ? (
-          <div className="divide-y divide-zinc-200/50 dark:divide-zinc-800/50">
-            {campaigns.map(campaign => (
-              <CampaignRow
-                key={campaign.id}
-                campaign={campaign}
-                onViewDetails={() => setSelectedCampaign(campaign)}
-              />
-            ))}
-          </div>
-        ) : (
+        {(() => {
+          // Apply stat-card filter
+          const ROLLING_DAY_MS = 24 * 60 * 60 * 1000;
+          const POSITIVE_OUTCOMES = new Set(['answered', 'engaged', 'transferred', 'positive', 'booked']);
+          const filtered = !statFilter ? campaigns : campaigns.filter((c: any) => {
+            const oc = c.call_outcome;
+            switch (statFilter) {
+              case 'hot':
+                return String(c.id || '').startsWith('agent-hot-') || String(c.name || '').startsWith('Hot visitor:');
+              case 'active':
+                return c.status === 'active';
+              case 'today': {
+                const ts = c.created_at ? new Date(c.created_at).getTime() : 0;
+                return Date.now() - ts < ROLLING_DAY_MS;
+              }
+              case 'connected':  return POSITIVE_OUTCOMES.has(oc);
+              case 'voicemail':  return oc === 'voicemail';
+              case 'no_answer':  return oc === 'no_answer' || oc === 'failed';
+              case 'booked':     return oc === 'booked';
+              default:           return true;
+            }
+          });
+          if (filtered.length === 0 && campaigns.length > 0) {
+            return (
+              <div className="px-4 py-10 text-center text-xs text-zinc-500">
+                No campaigns match this filter.
+                <button onClick={() => setStatFilter(null)} className="ml-2 text-[#1ED4A7] hover:underline">Clear</button>
+              </div>
+            );
+          }
+          return filtered.length > 0 ? (
+            <div className="divide-y divide-zinc-200/50 dark:divide-zinc-800/50">
+              {filtered.map(campaign => (
+                <CampaignRow
+                  key={campaign.id}
+                  campaign={campaign}
+                  onViewDetails={() => setSelectedCampaign(campaign)}
+                />
+              ))}
+            </div>
+          ) : null;
+        })()}
+        {campaigns.length === 0 && (
           <div className="px-4 py-10 sm:py-14 text-center">
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-center mx-auto mb-3">
               <Phone className="w-5 h-5 sm:w-6 sm:h-6 text-zinc-500" />
@@ -652,11 +696,24 @@ export function AICalls({
   );
 }
 
-function StatCard({ title, value, icon: Icon, color, subtitle, pulse }: { title: string, value: string, icon: any, color: string, subtitle?: string, pulse?: boolean }) {
+function StatCard({ title, value, icon: Icon, color, subtitle, pulse, active, onClick }: { title: string, value: string, icon: any, color: string, subtitle?: string, pulse?: boolean, active?: boolean, onClick?: () => void }) {
+  const interactive = !!onClick;
   return (
-    <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 p-3 sm:p-4 rounded-xl">
+    <div
+      onClick={onClick}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+      className={`bg-white dark:bg-black border p-3 sm:p-4 rounded-xl transition-colors ${
+        interactive ? 'cursor-pointer' : ''
+      } ${
+        active
+          ? 'border-[#1ED4A7]/50 bg-[#1ED4A7]/[0.03]'
+          : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
+      }`}
+    >
       <div className="flex items-center justify-between mb-2 sm:mb-3">
-        <span className="text-[10px] sm:text-xs font-medium text-zinc-500 uppercase tracking-wider">{title}</span>
+        <span className={`text-[10px] sm:text-xs font-medium uppercase tracking-wider ${active ? 'text-[#1ED4A7]' : 'text-zinc-500'}`}>{title}</span>
         <Icon className={`w-3.5 sm:w-4 h-3.5 sm:h-4 ${color} ${pulse ? 'animate-pulse' : ''}`} />
       </div>
       <p className="text-lg sm:text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">{value}</p>
