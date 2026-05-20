@@ -775,20 +775,21 @@ function ActiveCallCard({ call, formatDuration, onCallEnded }: { call: ActiveCal
 function CampaignRow({ campaign, onViewDetails }: { campaign: Campaign; onViewDetails: () => void }) {
   const { t } = useTranslation();
 
-  // Outcome chip — premium minimal design with a tinted dot + label.
-  // Backend supplies campaign.call_outcome from the call records.
-  // Falls back to 'pending' when no calls have been placed yet.
+  // Single-dot outcome indicator. Only Contndr green for positive
+  // outcomes — everything else stays grayscale so the eye is drawn
+  // exclusively to the calls that need attention. Full label lives
+  // in the tooltip / Details modal.
   const outcome = (campaign as any).call_outcome || 'pending';
-  const outcomeMeta: Record<string, { label: string; dot: string; text: string }> = {
-    booked:      { label: 'Booked',      dot: 'bg-[#1ED4A7]',           text: 'text-[#1ED4A7]' },
-    positive:    { label: 'Interested',  dot: 'bg-[#1ED4A7]',           text: 'text-[#1ED4A7]' },
-    transferred: { label: 'Transferred', dot: 'bg-blue-400',            text: 'text-blue-400' },
-    engaged:     { label: 'Engaged',     dot: 'bg-emerald-400',         text: 'text-emerald-400' },
-    answered:    { label: 'Answered',    dot: 'bg-sky-400',             text: 'text-sky-400' },
-    voicemail:   { label: 'Voicemail',   dot: 'bg-amber-400',           text: 'text-amber-400' },
-    no_answer:   { label: 'No answer',   dot: 'bg-zinc-500',            text: 'text-zinc-500' },
-    failed:      { label: 'Failed',      dot: 'bg-rose-400',            text: 'text-rose-400' },
-    pending:     { label: '—',           dot: 'bg-zinc-700',            text: 'text-zinc-500' },
+  const outcomeMeta: Record<string, { label: string; dot: string }> = {
+    booked:      { label: 'Booked',      dot: 'bg-[#1ED4A7]' },
+    positive:    { label: 'Interested',  dot: 'bg-[#1ED4A7]' },
+    engaged:     { label: 'Engaged',     dot: 'bg-[#1ED4A7]/60' },
+    transferred: { label: 'Transferred', dot: 'bg-[#1ED4A7]/60' },
+    answered:    { label: 'Answered',    dot: 'bg-zinc-400 dark:bg-zinc-500' },
+    voicemail:   { label: 'Voicemail',   dot: 'bg-zinc-500 dark:bg-zinc-600' },
+    no_answer:   { label: 'No answer',   dot: 'bg-zinc-300 dark:bg-zinc-800' },
+    failed:      { label: 'Failed',      dot: 'bg-zinc-300 dark:bg-zinc-800' },
+    pending:     { label: 'Pending',     dot: 'bg-zinc-200 dark:bg-zinc-900' },
   };
   const oc = outcomeMeta[outcome] || outcomeMeta.pending;
 
@@ -802,14 +803,13 @@ function CampaignRow({ campaign, onViewDetails }: { campaign: Campaign; onViewDe
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 mb-0.5">
-          {/* Outcome dot — tiny, always visible, never noisy */}
-          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${oc.dot}`} aria-hidden="true" />
+          {/* Single dot — Contndr green for positive, grayscale otherwise */}
+          <span
+            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${oc.dot}`}
+            title={oc.label}
+            aria-label={oc.label}
+          />
           <h3 className="text-xs sm:text-sm font-medium text-zinc-900 dark:text-white truncate">{campaign.name}</h3>
-          {outcome !== 'pending' && (
-            <span className={`text-[10px] sm:text-[11px] font-semibold flex-shrink-0 ${oc.text}`}>
-              {oc.label}
-            </span>
-          )}
           {campaign.status === 'active' && (
             <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold uppercase tracking-wide flex-shrink-0 bg-[#1ED4A7]/10 text-[#1ED4A7]">
               {campaign.status}
