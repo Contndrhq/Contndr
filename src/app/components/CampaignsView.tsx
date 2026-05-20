@@ -1,5 +1,5 @@
 // Rebuild trigger: 2026-02-23-campaigns-module-cache-fix
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Mail, Send, Eye, Users, Clock, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Zap, Plus, RefreshCw, Trash2, Download, Target, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, MousePointerClick, User, Radio, Play, Building2, Briefcase, Phone, MapPin, Globe } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { authenticatedFetch, getAuthHeaders } from '../lib/auth';
@@ -8,44 +8,13 @@ import { projectId } from '../utils/supabase/info';
 import { notifyEmailClicked, notifyEmailOpened } from '../lib/notifications';
 import { exportCampaigns } from '../lib/csvExport';
 import { FastMoneyTargets } from './FastMoneyTargets';
-// Lazy-load the heavy LeadDetailModal so its ~20 sub-components only
-// run when someone actually drills into a row. Same pattern the
-// dashboard uses. We also expose a preloadLeadDetailModal() helper to
-// warm the chunk on row HOVER — by the time the user finishes clicking,
-// the JS is parsed and ready, removing the cold-load lag.
-const leadModalImport = () => import('./LeadDetailModal');
-let leadModalPreloaded = false;
-function preloadLeadDetailModal() {
-  if (leadModalPreloaded) return;
-  leadModalPreloaded = true;
-  leadModalImport().catch(() => { leadModalPreloaded = false; });
-}
-const LeadDetailModal = lazy(() =>
-  leadModalImport().then((m) => ({ default: m.LeadDetailModal }))
-);
+import { LeadDetailModal } from './LeadDetailModal';
 
-// Lightweight skeleton shown while the modal chunk loads. Matches the
-// real modal's general layout so the screen doesn't jump.
-function LeadModalSkeleton() {
-  return (
-    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white dark:bg-zinc-950 w-full sm:max-w-2xl sm:rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 max-h-[90vh] flex flex-col">
-        <div className="flex items-center gap-3 p-5 border-b border-zinc-200 dark:border-zinc-800">
-          <div className="w-12 h-12 rounded-full bg-zinc-100 dark:bg-zinc-900 animate-pulse" />
-          <div className="flex-1 space-y-2">
-            <div className="h-4 w-40 bg-zinc-100 dark:bg-zinc-900 rounded animate-pulse" />
-            <div className="h-3 w-28 bg-zinc-100 dark:bg-zinc-900 rounded animate-pulse" />
-          </div>
-        </div>
-        <div className="p-5 space-y-3">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-3 bg-zinc-100 dark:bg-zinc-900 rounded animate-pulse" style={{ width: `${100 - i * 12}%` }} />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+// No-op preloader kept for API compatibility with the onMouseEnter
+// handlers below. The modal is now imported directly (same pattern as
+// BuyingIntent which works reliably), so hover preloading is unnecessary
+// but the hook stays in case we revert to lazy later.
+function preloadLeadDetailModal() { /* no-op */ }
 import { apiCache } from '../lib/api-cache';
 import { LoadingSpinner } from './LoadingSpinner';
 import { syncEmailStatuses } from '../utils/syncEmailStatuses';
@@ -2326,9 +2295,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
         )}
       </div>
       {drillLeadId && (
-        <Suspense fallback={<LeadModalSkeleton />}>
-          <LeadDetailModal leadId={drillLeadId} onClose={() => setDrillLeadId(null)} />
-        </Suspense>
+        <LeadDetailModal leadId={drillLeadId} onClose={() => setDrillLeadId(null)} />
       )}
     </div>
   );
