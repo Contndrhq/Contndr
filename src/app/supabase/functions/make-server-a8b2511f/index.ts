@@ -13052,6 +13052,66 @@ app.post("/make-server-a8b2511f/generate-followup-from-email", async (c) => {
   }
 });
 
+// POST /cron/tick — External-cron tick to activate scheduled campaigns
+//
+// The opportunistic trigger above only fires when a user hits the app.
+// If a customer schedules a campaign for off-hours and nobody opens
+// Contndr in the meantime, the campaign sits idle until someone does.
+// This endpoint lets an external cron service (Supabase Cron, GitHub
+// Actions, cron-job.org, EasyCron, etc.) ping us every 1-5 minutes to
+// guarantee scheduled campaigns fire on time regardless of traffic.
+//
+// Auth: shared-secret via either header X-Cron-Secret OR query ?secret=
+// Set CRON_SECRET in Supabase Edge Function secrets. Returns activation
+// summary so the cron operator can monitor.
+//
+// Example: */2 * * * * curl -X POST -H "X-Cron-Secret: $SECRET" \
+//   https://<project>.supabase.co/functions/v1/make-server-a8b2511f/cron/tick
+app.post("/make-server-a8b2511f/cron/tick", async (c) => {
+  try {
+    const provided = c.req.header('X-Cron-Secret')
+      || c.req.header('x-cron-secret')
+      || new URL(c.req.url).searchParams.get('secret')
+      || '';
+    const expected = Deno.env.get('CRON_SECRET') || '';
+    if (!expected) {
+      return c.json({ error: 'CRON_SECRET not configured on the server' }, 500);
+    }
+    if (provided !== expected) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const startMs = Date.now();
+    console.log('[CRON-TICK] External cron tick received');
+
+    // 1) Activate any campaigns whose scheduled_at has passed
+    const activation = await activateScheduledCampaigns();
+
+    // 2) If we activated any, immediately try to resume them so they send
+    let resumeResult: any = null;
+    if (activation.campaignsActivated > 0) {
+      console.log(`[CRON-TICK] Activated ${activation.campaignsActivated} — resuming sends`);
+      resumeResult = await resumeAllUsersCampaigns();
+    }
+
+    // 3) Always-on: clear the opportunistic-cooldown stamp so the next
+    //    user request also gets a fresh tick — belt and suspenders.
+    await kv.del('cron:scheduled_trigger_last_run').catch(() => {});
+
+    return c.json({
+      ok: true,
+      activated: activation.campaignsActivated,
+      activation_errors: activation.errors,
+      resumed: resumeResult ? resumeResult.campaignsResumed : 0,
+      sent: resumeResult ? resumeResult.totalSent : 0,
+      took_ms: Date.now() - startMs,
+    });
+  } catch (e: any) {
+    console.error('[CRON-TICK] error:', e?.message);
+    return c.json({ error: e?.message }, 500);
+  }
+});
+
 // GET /campaigns - List all campaigns
 app.get("/make-server-a8b2511f/campaigns", async (c) => {
   try {
