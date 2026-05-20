@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next';
 import { decodeHtmlEntities } from '../lib/html-decode';
 import { renderEmailBody } from '../lib/email-body';
 import { EmailMessageBody } from './EmailMessageBody';
+import { SMSInbox } from './SMSInbox';
 
 // ─── Types (matching backend ConversationThread / EmailMessage) ──────────
 interface EmailMessage {
@@ -427,6 +428,9 @@ export function UnifiedInbox() {
   // caused an immediate re-fetch that wiped the optimistic message before DB commit.
   const inboxRefreshKey = useRealtimeRefresh(['email:replied', 'inbox:new_message', 'campaign:completed']);
   const isDemoMode = useDemoMode();
+  // Channel switcher — Email vs SMS. SMS is rendered by SMSInbox to keep
+  // this component focused on email; clicking the tab swaps the view.
+  const [channel, setChannel] = useState<'email' | 'sms'>('email');
   const [threads, setThreads] = useState<ConversationThread[]>([]);
   const [stats, setStats] = useState<InboxStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1325,8 +1329,51 @@ export function UnifiedInbox() {
     }
   };
 
+  // Channel toggle at the very top — same for email + sms views
+  const channelTabs = (
+    <div className="flex-shrink-0 px-4 pt-3 flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[var(--bg-page)]">
+      <button
+        onClick={() => setChannel('email')}
+        className={`px-3 py-2 text-xs font-semibold rounded-t-md transition-colors ${
+          channel === 'email'
+            ? 'text-zinc-900 dark:text-white border-b-2 border-zinc-900 dark:border-white -mb-px'
+            : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+        }`}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <Mail className="w-3.5 h-3.5" /> Email
+        </span>
+      </button>
+      <button
+        onClick={() => setChannel('sms')}
+        className={`px-3 py-2 text-xs font-semibold rounded-t-md transition-colors ${
+          channel === 'sms'
+            ? 'text-zinc-900 dark:text-white border-b-2 border-zinc-900 dark:border-white -mb-px'
+            : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+        }`}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <MessageSquare className="w-3.5 h-3.5" /> SMS
+        </span>
+      </button>
+    </div>
+  );
+
+  if (channel === 'sms') {
+    return (
+      <div className="flex flex-col h-full bg-white dark:bg-[var(--bg-page)]">
+        {channelTabs}
+        <div className="flex-1 min-h-0">
+          <SMSInbox />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-full bg-[var(--bg-page)]">
+    <div className="flex flex-col h-full bg-[var(--bg-page)]">
+      {channelTabs}
+      <div className="flex flex-1 min-h-0">
       {/* ─── Thread List (left panel / full-width on mobile) ─── */}
       <div
         className={`
@@ -2435,6 +2482,7 @@ export function UnifiedInbox() {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
