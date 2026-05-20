@@ -19794,6 +19794,57 @@ async function activateDueAICallCampaigns(userId: string, campaigns: any[]) {
   return resolved;
 }
 
+// POST /ai-call-campaigns/classify-backfill — admin-triggered LLM
+// re-classification of historical calls that pre-date the auto-classifier.
+// Body: { limit?: number (default 50), force?: boolean }
+//   limit:  cap LLM calls per run (each call ~$0.0005)
+//   force:  re-classify even if transcript_outcome already exists
+app.post("/make-server-a8b2511f/ai-call-campaigns/classify-backfill", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseAdmin();
+    const { user, error: authError } = await (await import("./auth-helpers.tsx")).authGetUser(supabase, accessToken || '', "CLASSIFY-BACKFILL");
+    if (authError || !user) return c.json({ error: "Unauthorized" }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const limit = Math.max(1, Math.min(500, Number(body.limit) || 50));
+    const force = !!body.force;
+
+    const allCalls = (await kv.getByPrefixLimited('call:', 5000, 0).catch(() => [])) as any[];
+    const owned = allCalls.filter((c: any) => c && (c.user_id === user.id || c.ai_config?.user_id === user.id));
+    const candidates = owned.filter((c: any) => force || !c.transcript_outcome).slice(0, limit);
+
+    const { classifyCallOutcome } = await import('./telnyx.tsx');
+    let classified = 0;
+    const byOutcome: Record<string, number> = {};
+    for (const call of candidates) {
+      const conv: any = await kv.get(`ai_conv:${call.id}`).catch(() => null);
+      const history = Array.isArray(conv?.history) ? conv.history : [];
+      try {
+        await classifyCallOutcome(call, history);
+        // Re-read to get the persisted outcome label
+        const fresh: any = await kv.get(`call:${call.id}`);
+        const oc = fresh?.transcript_outcome || 'unknown';
+        byOutcome[oc] = (byOutcome[oc] || 0) + 1;
+        classified++;
+      } catch (e: any) {
+        console.warn(`[BACKFILL] classify failed for ${call.id}:`, e?.message);
+      }
+    }
+
+    return c.json({
+      success: true,
+      total_user_calls: owned.length,
+      candidates: candidates.length,
+      classified,
+      by_outcome: byOutcome,
+    });
+  } catch (error: any) {
+    console.error('[BACKFILL] error:', error?.message);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // GET /ai-call-campaigns/:campaignId/calls — list all calls in a campaign
 // with their transcripts so the user can review what was said. Lightweight
 // version: returns id, lead_name, status, outcome, duration, transcript
@@ -19845,6 +19896,10 @@ app.get("/make-server-a8b2511f/ai-call-campaigns/:campaignId/calls", async (c) =
         to_number: call.to_number || null,
         status: call.status || 'unknown',
         outcome: call.outcome || (call.transfer ? 'transferred' : null),
+        // Intelligent transcript-based outcome (LLM-rated)
+        transcript_outcome: call.transcript_outcome || null,
+        transcript_outcome_score: call.transcript_outcome_score || null,
+        transcript_outcome_reason: call.transcript_outcome_reason || null,
         transfer: call.transfer || null,
         started_at: call.started_at || null,
         ended_at: call.ended_at || null,
@@ -19910,17 +19965,21 @@ app.get("/make-server-a8b2511f/ai-call-campaigns", async (c) => {
 
       // Rank: higher number = more positive outcome
       const rank = (label: string) => ({
-        'booked': 5, 'positive': 4, 'transferred': 3, 'engaged': 2,
-        'answered': 1, 'voicemail': 0, 'no_answer': -1, 'failed': -2, 'pending': -3,
+        'booked': 6, 'positive': 5, 'transferred': 4, 'engaged': 3,
+        'answered': 2, 'no_interest': 1, 'voicemail': 0, 'no_answer': -1, 'failed': -2, 'pending': -3,
       } as Record<string, number>)[label] ?? -3;
 
       const classify = (call: any): string => {
+        // 1) Prefer the LLM transcript classification when present —
+        //    that's the intelligent signal based on what was actually said.
+        if (call.transcript_outcome) return String(call.transcript_outcome);
+        // 2) Fall back to explicit outcome / transfer markers
         if (call.outcome === 'booked' || call.booked === true) return 'booked';
         if (call.outcome === 'positive' || call.outcome === 'interested') return 'positive';
         if (call.outcome === 'transferred' || call.transfer) return 'transferred';
+        // 3) Status-based last resort
         if (call.status === 'voicemail' || call.outcome === 'voicemail') return 'voicemail';
         if (call.status === 'no-answer' || call.status === 'busy' || call.status === 'failed') return 'no_answer';
-        // Inspect conversation to differentiate engaged vs answered
         return 'answered';
       };
 

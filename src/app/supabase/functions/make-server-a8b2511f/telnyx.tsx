@@ -2152,6 +2152,13 @@ app.post('/webhooks/call-status', async (c) => {
           if (conv) {
             console.log(`🤖 AI call ${call.id} ended. ${conv.history?.length || 0} messages.`);
             await kv.set(convKey, { ...conv, completed_at: new Date().toISOString() });
+
+            // Intelligent transcript-based outcome classification.
+            // Fire-and-forget so hangup webhook stays fast — the result
+            // lands on the call record + drives the campaign-row chip.
+            classifyCallOutcome(call, conv.history || []).catch((e) => {
+              console.warn(`[CLASSIFY] failed for ${call.id}:`, e?.message);
+            });
           }
 
           // Native push fanout — let the user know the call wrapped.
@@ -2831,5 +2838,104 @@ app.post('/calls/:callId/listen', async (c) => {
     return c.json({ success: false, error: error.message }, 500);
   }
 });
+
+/**
+ * Intelligent call outcome classifier.
+ *
+ * Reads the prospect's actual words from the conversation history and
+ * uses an LLM to bucket the call into one of:
+ *   booked      — explicit "let's schedule", "send me a calendar invite"
+ *   positive    — clearly interested, asked qualifying questions
+ *   engaged     — neutral but conversational, multiple exchanges
+ *   answered    — picked up but minimal engagement (1-2 short replies)
+ *   no_interest — explicit decline, "not interested", "remove me"
+ *   voicemail   — only voicemail/IVR text, no human speech
+ *   no_answer   — call wasn't picked up at all
+ *
+ * Stores the verdict on the call record at:
+ *   call.transcript_outcome
+ *   call.transcript_outcome_score   (0-100, confidence)
+ *   call.transcript_outcome_reason  (one-line human-readable rationale)
+ *
+ * The /ai-call-campaigns enrichment prefers this field over the raw
+ * status/outcome heuristic when present.
+ */
+export async function classifyCallOutcome(call: any, history: any[]): Promise<void> {
+  if (!call?.id) return;
+
+  // Pull only the prospect's turns — that's what we're scoring on.
+  const userTurns: string[] = (history || [])
+    .filter((t: any) => t?.role === 'user' && t?.content)
+    .map((t: any) => String(t.content).trim())
+    .filter(Boolean);
+
+  // Heuristic shortcuts so we don't spend OpenAI tokens on obvious cases.
+  if (call.status === 'no-answer' || call.status === 'busy') {
+    await persistOutcome(call, 'no_answer', 100, 'Call did not connect.');
+    return;
+  }
+  if (call.outcome === 'voicemail' || userTurns.length === 0) {
+    await persistOutcome(call, 'voicemail', 95, userTurns.length === 0 ? 'No prospect speech captured.' : 'Marked voicemail.');
+    return;
+  }
+
+  // Build a compact transcript for the LLM
+  const transcript = (history || [])
+    .filter((t: any) => t?.role !== 'system')
+    .map((t: any) => `${t.role === 'assistant' ? 'AI' : 'Lead'}: ${String(t.content).trim()}`)
+    .join('\n')
+    .slice(0, 4000);
+
+  try {
+    const { generateAI } = await import('./ai-provider.tsx');
+    const sysPrompt = `You are an expert sales-call analyst. Bucket this AI outbound call by the prospect's intent.
+Categories:
+  booked       — prospect agreed to a meeting / calendar invite / demo
+  positive     — clearly interested, asked qualifying questions, wants to learn more
+  engaged      — conversational and curious but no commitment
+  answered     — picked up but minimal engagement (1-2 short replies)
+  no_interest  — explicit decline, asked to be removed, hostile
+  voicemail    — transcript is only voicemail prompts / IVR text
+Return STRICT JSON only: {"outcome":"<cat>","score":0-100,"reason":"<one short sentence>"}`;
+
+    const ai = await generateAI({
+      messages: [
+        { role: 'system', content: sysPrompt },
+        { role: 'user', content: `Transcript:\n${transcript}` },
+      ],
+      temperature: 0.2,
+      maxTokens: 120,
+      jsonMode: true,
+    });
+
+    const raw = (ai.text || '').replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(raw);
+    const outcome = String(parsed.outcome || 'answered').toLowerCase();
+    const valid = ['booked', 'positive', 'engaged', 'answered', 'no_interest', 'voicemail'];
+    const safe = valid.includes(outcome) ? outcome : 'answered';
+    const score = Math.max(0, Math.min(100, Number(parsed.score) || 50));
+    const reason = String(parsed.reason || '').slice(0, 200);
+    await persistOutcome(call, safe, score, reason);
+  } catch (e: any) {
+    console.warn(`[CLASSIFY] LLM failed for ${call.id}, defaulting to heuristic:`, e?.message);
+    // Heuristic fallback: turns count
+    const guess = userTurns.length >= 4 ? 'engaged' : 'answered';
+    await persistOutcome(call, guess, 40, 'LLM unavailable — heuristic from turn count.');
+  }
+}
+
+async function persistOutcome(call: any, outcome: string, score: number, reason: string): Promise<void> {
+  try {
+    const fresh = (await kv.get(`call:${call.id}`)) || call;
+    fresh.transcript_outcome = outcome;
+    fresh.transcript_outcome_score = score;
+    fresh.transcript_outcome_reason = reason;
+    fresh.transcript_classified_at = new Date().toISOString();
+    await kv.set(`call:${call.id}`, fresh);
+    console.log(`🎯 [CLASSIFY] ${call.id} → ${outcome} (${score}) — ${reason}`);
+  } catch (e: any) {
+    console.warn(`[CLASSIFY] persist failed for ${call.id}:`, e?.message);
+  }
+}
 
 export default app;

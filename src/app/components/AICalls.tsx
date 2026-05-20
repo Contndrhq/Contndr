@@ -599,11 +599,11 @@ export function AICalls({
                   <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
                     {calls.map((call) => {
                       const isOpen = expandedCallId === call.id;
-                      const outcomeChip = call.outcome
-                        ? call.outcome === 'transferred' ? 'bg-blue-500/10 text-blue-400'
-                        : call.outcome === 'voicemail' ? 'bg-amber-500/10 text-amber-400'
-                        : call.outcome === 'connected' ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]'
-                        : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500'
+                      // Prefer the intelligent transcript-based outcome, fall back to raw status/outcome
+                      const displayOutcome = call.transcript_outcome || call.outcome || (call.status === 'no-answer' ? 'no_answer' : call.status === 'voicemail' ? 'voicemail' : null);
+                      const isPositive = ['booked', 'positive', 'engaged', 'transferred'].includes(displayOutcome);
+                      const outcomeChip = isPositive
+                        ? 'bg-[#1ED4A7]/10 text-[#1ED4A7]'
                         : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500';
                       return (
                         <div key={call.id} className="bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800/50 rounded-lg overflow-hidden">
@@ -614,12 +614,17 @@ export function AICalls({
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5">
                                 <span className="text-xs font-medium text-zinc-900 dark:text-white truncate">{call.lead_name}</span>
-                                {call.outcome && (
+                                {displayOutcome && (
                                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide flex-shrink-0 ${outcomeChip}`}>
-                                    {call.outcome}
+                                    {String(displayOutcome).replace(/_/g, ' ')}
                                   </span>
                                 )}
                               </div>
+                              {call.transcript_outcome_reason && (
+                                <div className="mt-1 text-[10px] text-zinc-500 italic line-clamp-2">
+                                  AI: {call.transcript_outcome_reason}
+                                </div>
+                              )}
                               <div className="flex items-center gap-2 mt-0.5 text-[10px] text-zinc-500">
                                 {call.duration_seconds != null && (
                                   <span>{Math.floor(call.duration_seconds / 60)}:{String(call.duration_seconds % 60).padStart(2, '0')}</span>
@@ -838,15 +843,16 @@ function CampaignRow({ campaign, onViewDetails }: { campaign: Campaign; onViewDe
   // in the tooltip / Details modal.
   const outcome = (campaign as any).call_outcome || 'pending';
   const outcomeMeta: Record<string, { label: string; dot: string }> = {
-    booked:      { label: 'Booked',      dot: 'bg-[#1ED4A7]' },
-    positive:    { label: 'Interested',  dot: 'bg-[#1ED4A7]' },
-    engaged:     { label: 'Engaged',     dot: 'bg-[#1ED4A7]/60' },
-    transferred: { label: 'Transferred', dot: 'bg-[#1ED4A7]/60' },
-    answered:    { label: 'Answered',    dot: 'bg-zinc-400 dark:bg-zinc-500' },
-    voicemail:   { label: 'Voicemail',   dot: 'bg-zinc-500 dark:bg-zinc-600' },
-    no_answer:   { label: 'No answer',   dot: 'bg-zinc-300 dark:bg-zinc-800' },
-    failed:      { label: 'Failed',      dot: 'bg-zinc-300 dark:bg-zinc-800' },
-    pending:     { label: 'Pending',     dot: 'bg-zinc-200 dark:bg-zinc-900' },
+    booked:      { label: 'Booked',         dot: 'bg-[#1ED4A7]' },
+    positive:    { label: 'Interested',     dot: 'bg-[#1ED4A7]' },
+    engaged:     { label: 'Engaged',        dot: 'bg-[#1ED4A7]/60' },
+    transferred: { label: 'Transferred',    dot: 'bg-[#1ED4A7]/60' },
+    answered:    { label: 'Answered',       dot: 'bg-zinc-400 dark:bg-zinc-500' },
+    no_interest: { label: 'Not interested', dot: 'bg-zinc-500 dark:bg-zinc-600' },
+    voicemail:   { label: 'Voicemail',      dot: 'bg-zinc-500 dark:bg-zinc-600' },
+    no_answer:   { label: 'No answer',      dot: 'bg-zinc-300 dark:bg-zinc-800' },
+    failed:      { label: 'Failed',         dot: 'bg-zinc-300 dark:bg-zinc-800' },
+    pending:     { label: 'Pending',        dot: 'bg-zinc-200 dark:bg-zinc-900' },
   };
   const oc = outcomeMeta[outcome] || outcomeMeta.pending;
 
