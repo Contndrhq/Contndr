@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Contndr</string>
-    <string name="title_activity_main">Contndr</string>
-    <string name="package_name">com.contndr.app</string>
-    <string name="custom_url_scheme">com.contndr.app</string>
-</resources>
