@@ -8,6 +8,7 @@ import { projectId } from '../utils/supabase/info';
 import { notifyEmailClicked, notifyEmailOpened } from '../lib/notifications';
 import { exportCampaigns } from '../lib/csvExport';
 import { FastMoneyTargets } from './FastMoneyTargets';
+import { LeadDetailModal } from './LeadDetailModal';
 import { apiCache } from '../lib/api-cache';
 import { LoadingSpinner } from './LoadingSpinner';
 import { syncEmailStatuses } from '../utils/syncEmailStatuses';
@@ -96,6 +97,8 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
 
   // Bounced contacts state
   const [bouncedContacts, setBouncedContacts] = useState<any[]>([]);
+  // Lead ID currently shown in the LeadDetailModal — null = modal closed
+  const [drillLeadId, setDrillLeadId] = useState<string | null>(null);
   const [openedContacts, setOpenedContacts] = useState<any[]>([]);
   const [openedExpanded, setOpenedExpanded] = useState(false);
   const [loadingOpened, setLoadingOpened] = useState(false);
@@ -1499,7 +1502,11 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                         </div>
                         <div className="divide-y divide-zinc-100 dark:divide-zinc-800/30 max-h-[420px] overflow-y-auto">
                           {bouncedContacts.map((contact: any) => (
-                            <div key={contact.id} className="group px-5 py-3.5 hover:bg-zinc-50 dark:hover:bg-zinc-900/30 transition-colors">
+                            <div
+                              key={contact.id}
+                              onClick={() => contact.leadId && setDrillLeadId(contact.leadId)}
+                              className={`group px-5 py-3.5 hover:bg-zinc-50 dark:hover:bg-zinc-900/30 transition-colors ${contact.leadId ? 'cursor-pointer' : ''}`}
+                            >
                               <div className="flex items-start gap-3">
                                 {/* Avatar */}
                                 <div className="w-9 h-9 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -1657,7 +1664,12 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                     ) : (
                       <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
                         {openedContacts.map((c: any) => (
-                          <div key={c.id} className="px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950">
+                          <button
+                            key={c.id}
+                            onClick={() => c.leadId && setDrillLeadId(c.leadId)}
+                            disabled={!c.leadId}
+                            className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors disabled:cursor-default"
+                          >
                             <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 flex-shrink-0">
                               {(c.leadName || c.leadEmail || '?').slice(0, 2).toUpperCase()}
                             </div>
@@ -1673,7 +1685,8 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                                 </div>
                               )}
                             </div>
-                          </div>
+                            {c.leadId && <ChevronRight className="w-4 h-4 text-zinc-400 dark:text-zinc-600 flex-shrink-0 mt-1.5" />}
+                          </button>
                         ))}
                       </div>
                     )}
@@ -1722,7 +1735,12 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                     ) : (
                       <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
                         {clickedContacts.map((c: any) => (
-                          <div key={c.id} className="px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950">
+                          <button
+                            key={c.id}
+                            onClick={() => c.leadId && setDrillLeadId(c.leadId)}
+                            disabled={!c.leadId}
+                            className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors disabled:cursor-default"
+                          >
                             <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 flex-shrink-0">
                               {(c.leadName || c.leadEmail || '?').slice(0, 2).toUpperCase()}
                             </div>
@@ -1738,7 +1756,8 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                                 </div>
                               )}
                             </div>
-                          </div>
+                            {c.leadId && <ChevronRight className="w-4 h-4 text-zinc-400 dark:text-zinc-600 flex-shrink-0 mt-1.5" />}
+                          </button>
                         ))}
                       </div>
                     )}
@@ -2264,6 +2283,9 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
           </>
         )}
       </div>
+      {drillLeadId && (
+        <LeadDetailModal leadId={drillLeadId} onClose={() => setDrillLeadId(null)} />
+      )}
     </div>
   );
 }
