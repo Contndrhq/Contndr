@@ -2314,11 +2314,19 @@ app.get('/active-calls', async (c) => {
     // Helper used by both the live-calls list and the stats below to keep
     // test traffic out of the dashboard. Defined here (before the stats
     // block uses it) so we can reference it in both places.
+    //
+    // NOTE: agent-hot- campaigns are REAL production traffic (Agent Mode
+    // auto-creates them when a hot visitor lands on the marketing site).
+    // They used to be excluded here which made Today/Connected/Voicemail/
+    // No Answer/Booked all show zero even when hot calls fired — leaving
+    // admins confused about whether anything was actually happening.
+    // Only exclude calls explicitly marked _test_call:true or test-call-
+    // campaign IDs.
     const isTestCallEntry = (c: any) => {
       if (!c) return false;
       if (c._test_call === true) return true;
       const cid = String(c.campaign_id || '');
-      return cid.startsWith('test-call-') || cid.startsWith('agent-hot-');
+      return cid.startsWith('test-call-');
     };
 
     const activeCalls = allCalls
