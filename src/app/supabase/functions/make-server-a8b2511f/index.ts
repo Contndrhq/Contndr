@@ -19238,9 +19238,10 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
     const authUser = authUserRes?.data?.user || null;
     const stripeCustomerId = typeof stripeCustomerIdRaw === 'string' ? stripeCustomerIdRaw : null;
 
-    // Pull payment method + recent invoices from Stripe (best effort).
+    // Pull payment method + recent invoices + sub status from Stripe (best effort).
     let paymentMethod: any = null;
     let invoices: any[] = [];
+    let stripeSubStatus: any = null;
     if (stripeCustomerId) {
       try {
         const stripeClient = await getStripe();
@@ -19277,7 +19278,40 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
             created: inv.created,
             hosted_invoice_url: inv.hosted_invoice_url,
             pdf: inv.invoice_pdf,
+            // Retry-relevant fields for failed/unpaid invoices
+            paid: inv.paid === true || inv.status === 'paid',
+            attempted: inv.attempted === true,
+            next_payment_attempt: inv.next_payment_attempt || null,
+            subscription: inv.subscription || null,
           }));
+
+          // Pull the live subscription state — Stripe is the source of
+          // truth for "are they actually still subscribed?" vs the
+          // ambiguous KV `status: canceled`.
+          const subs = await stripeClient.subscriptions.list({
+            customer: stripeCustomerId,
+            status: 'all',
+            limit: 3,
+          }).catch(() => ({ data: [] }));
+          // Prefer the most recently updated non-incomplete sub
+          const liveSub = (subs.data || [])
+            .sort((a: any, b: any) => (b.current_period_end || 0) - (a.current_period_end || 0))[0];
+          if (liveSub) {
+            stripeSubStatus = {
+              id: liveSub.id,
+              status: liveSub.status,                                  // active / past_due / unpaid / canceled / trialing / incomplete
+              cancel_at_period_end: liveSub.cancel_at_period_end === true,
+              cancel_at: liveSub.cancel_at || null,
+              canceled_at: liveSub.canceled_at || null,
+              current_period_start: liveSub.current_period_start || null,
+              current_period_end: liveSub.current_period_end || null,
+              trial_end: liveSub.trial_end || null,
+              latest_invoice_id: liveSub.latest_invoice || null,
+              // Has access right now? Active OR canceled-but-period-not-yet-ended.
+              has_access: ['active', 'trialing'].includes(liveSub.status)
+                || (liveSub.status === 'canceled' && liveSub.current_period_end && liveSub.current_period_end * 1000 > Date.now()),
+            };
+          }
         }
       } catch (stripeErr: any) {
         console.warn('[ADMIN-DETAIL] Stripe lookup failed:', stripeErr?.message);
@@ -19302,6 +19336,7 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
         customer_id: stripeCustomerId,
         payment_method: paymentMethod,
         recent_invoices: invoices,
+        live_subscription: stripeSubStatus,
       },
       team_link: teamLink,
       ai_credits: credits || null,
@@ -19361,6 +19396,86 @@ app.post("/make-server-a8b2511f/admin/users/:userId/setup-link", async (c) => {
     return c.json({ url: session.url, customer_id: customerId });
   } catch (error: any) {
     console.error('[ADMIN] setup-link error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/users/:userId/retry-payment — Retry payment for either a
+// specific invoice (body.invoice_id) or all open/unpaid invoices on the
+// customer. Hits Stripe's invoices.pay() which attempts the default
+// payment method again. Returns per-invoice result for the UI.
+app.post("/make-server-a8b2511f/admin/users/:userId/retry-payment", async (c) => {
+  try {
+    const { user: caller, supabase } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(caller.email, caller.id)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+    const body = await c.req.json().catch(() => ({}));
+    const specificInvoiceId: string | null = body.invoice_id || null;
+
+    const stripeClient = await getStripe();
+    if (!stripeClient) return c.json({ error: 'Stripe not configured' }, 500);
+
+    const customerId = await kv.get(`stripe_customer:${userId}`);
+    if (!customerId) return c.json({ error: 'No Stripe customer linked to this user' }, 404);
+
+    // Pick invoices to retry: either the named one, or all open/unpaid.
+    let targets: any[] = [];
+    if (specificInvoiceId) {
+      const inv = await stripeClient.invoices.retrieve(specificInvoiceId).catch(() => null);
+      if (!inv) return c.json({ error: 'Invoice not found' }, 404);
+      if (inv.customer !== customerId) return c.json({ error: 'Invoice does not belong to this customer' }, 403);
+      targets = [inv];
+    } else {
+      const open = await stripeClient.invoices.list({ customer: customerId, status: 'open', limit: 10 }).catch(() => ({ data: [] }));
+      const uncollectible = await stripeClient.invoices.list({ customer: customerId, status: 'uncollectible', limit: 10 }).catch(() => ({ data: [] }));
+      targets = [...(open.data || []), ...(uncollectible.data || [])].filter((inv: any) => !inv.paid);
+    }
+
+    if (targets.length === 0) {
+      return c.json({ success: true, retried: 0, results: [], message: 'No retryable invoices found.' });
+    }
+
+    const results: any[] = [];
+    for (const inv of targets) {
+      try {
+        const paid = await stripeClient.invoices.pay(inv.id);
+        results.push({
+          invoice_id: inv.id,
+          number: inv.number || null,
+          amount: paid.amount_paid || inv.amount_due,
+          currency: inv.currency,
+          status: paid.status,
+          paid: paid.paid === true,
+          hosted_invoice_url: paid.hosted_invoice_url,
+        });
+      } catch (err: any) {
+        results.push({
+          invoice_id: inv.id,
+          number: inv.number || null,
+          amount: inv.amount_due,
+          currency: inv.currency,
+          status: 'failed',
+          paid: false,
+          error: err?.message || 'Retry failed',
+        });
+      }
+    }
+
+    const successCount = results.filter((r) => r.paid).length;
+    logAdminEvent('payment_retried', 'Payment retry', `Retried ${results.length} invoice(s) — ${successCount} succeeded`, {
+      email: undefined,
+      metadata: { target_user_id: userId, admin: caller.email, results },
+    }).catch(() => {});
+
+    return c.json({
+      success: successCount > 0,
+      retried: results.length,
+      succeeded: successCount,
+      results,
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] retry-payment error:', error);
     return c.json({ error: error.message }, 500);
   }
 });

@@ -80,7 +80,22 @@ interface DetailPayload {
       created: number;
       hosted_invoice_url: string;
       pdf: string;
+      paid?: boolean;
+      attempted?: boolean;
+      next_payment_attempt?: number | null;
     }>;
+    live_subscription?: {
+      id: string;
+      status: string;
+      cancel_at_period_end: boolean;
+      cancel_at: number | null;
+      canceled_at: number | null;
+      current_period_start: number | null;
+      current_period_end: number | null;
+      trial_end: number | null;
+      latest_invoice_id: string | null;
+      has_access: boolean;
+    } | null;
   };
   team_link: any;
   ai_credits: any;
@@ -137,6 +152,36 @@ export function UserDetailSheet({
   const [chargeInterval, setChargeInterval] = useState<'monthly' | 'yearly'>('monthly');
   const [charging, setCharging] = useState(false);
   const [generatingSetupLink, setGeneratingSetupLink] = useState(false);
+  const [retrying, setRetrying] = useState<string | null>(null); // 'all' or invoice_id
+
+  async function retryPayment(invoiceId: string | null) {
+    const key = invoiceId || 'all';
+    setRetrying(key);
+    try {
+      const r = await authenticatedFetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/${userId}/retry-payment`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(invoiceId ? { invoice_id: invoiceId } : {}),
+        }
+      );
+      const result = await r.json();
+      if (result.success) {
+        toast.success(`${result.succeeded}/${result.retried} invoice(s) paid`);
+        load();
+      } else if (result.retried === 0) {
+        toast.info(result.message || 'No retryable invoices');
+      } else {
+        const errMsg = (result.results || []).find((x: any) => x.error)?.error || 'Retry failed';
+        toast.error(errMsg);
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Retry failed');
+    } finally {
+      setRetrying(null);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -394,36 +439,97 @@ export function UserDetailSheet({
 
               {/* Subscription */}
               <Section title="Subscription">
-                <KV
-                  icon={<Crown className="w-3.5 h-3.5" />}
-                  label="Plan"
-                  value={
-                    <span className="inline-flex items-center gap-2">
-                      <span className="capitalize font-medium text-zinc-900 dark:text-zinc-100">{plan}</span>
-                      {sub?.status && (
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                          sub.status === 'active' ? 'bg-emerald-500/15 text-emerald-500'
-                          : sub.status === 'pending' ? 'bg-amber-500/15 text-amber-500'
-                          : 'bg-zinc-500/15 text-zinc-400'
-                        }`}>{sub.status}</span>
-                      )}
-                      {sub?.isWhitelisted && (
-                        <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800">Whitelisted</span>
-                      )}
-                    </span>
+                {(() => {
+                  // Prefer Stripe's live state over KV's `status: canceled`
+                  // since the latter is ambiguous (could mean canceling at
+                  // period end + still has access, OR fully terminated).
+                  const live = data.stripe?.live_subscription;
+                  const hasAccess = live?.has_access === true || sub?.status === 'active';
+                  let statusLabel = sub?.status || 'none';
+                  let statusCls = 'bg-zinc-500/15 text-zinc-400';
+                  let detail: string | null = null;
+
+                  if (live) {
+                    if (live.status === 'active' && !live.cancel_at_period_end) {
+                      statusLabel = 'active';
+                      statusCls = 'bg-emerald-500/15 text-emerald-500';
+                      if (live.current_period_end) detail = `Renews ${fmtDateShort(live.current_period_end)}`;
+                    } else if (live.status === 'active' && live.cancel_at_period_end) {
+                      statusLabel = 'canceling';
+                      statusCls = 'bg-amber-500/15 text-amber-500';
+                      detail = `Active until ${fmtDateShort(live.current_period_end || live.cancel_at!)}`;
+                    } else if (live.status === 'trialing') {
+                      statusLabel = 'trial';
+                      statusCls = 'bg-sky-500/15 text-sky-400';
+                      if (live.trial_end) detail = `Trial ends ${fmtDateShort(live.trial_end)}`;
+                    } else if (live.status === 'past_due') {
+                      statusLabel = 'past due';
+                      statusCls = 'bg-rose-500/15 text-rose-400';
+                      detail = 'Payment failed — retry below';
+                    } else if (live.status === 'unpaid') {
+                      statusLabel = 'unpaid';
+                      statusCls = 'bg-rose-500/15 text-rose-400';
+                      detail = 'Subscription unpaid — retry below';
+                    } else if (live.status === 'incomplete' || live.status === 'incomplete_expired') {
+                      statusLabel = 'incomplete';
+                      statusCls = 'bg-amber-500/15 text-amber-500';
+                      detail = 'Checkout never completed';
+                    } else if (live.status === 'canceled') {
+                      if (hasAccess) {
+                        statusLabel = 'canceling';
+                        statusCls = 'bg-amber-500/15 text-amber-500';
+                        detail = `Access ends ${fmtDateShort(live.current_period_end!)}`;
+                      } else {
+                        statusLabel = 'canceled';
+                        statusCls = 'bg-zinc-500/15 text-zinc-400';
+                        detail = live.canceled_at ? `Ended ${fmtDateShort(live.canceled_at)}` : null;
+                      }
+                    }
+                  } else if (sub?.status === 'active') {
+                    statusCls = 'bg-emerald-500/15 text-emerald-500';
+                  } else if (sub?.status === 'pending') {
+                    statusCls = 'bg-amber-500/15 text-amber-500';
                   }
-                />
+
+                  return (
+                    <>
+                      <KV
+                        icon={<Crown className="w-3.5 h-3.5" />}
+                        label="Plan"
+                        value={
+                          <span className="inline-flex items-center gap-2 flex-wrap">
+                            <span className="capitalize font-medium text-zinc-900 dark:text-zinc-100">{plan}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] capitalize ${statusCls}`}>{statusLabel}</span>
+                            {hasAccess && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                                Has access
+                              </span>
+                            )}
+                            {sub?.isWhitelisted && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800">Whitelisted</span>
+                            )}
+                          </span>
+                        }
+                      />
+                      {detail && <KV label="Status" value={<span className="text-zinc-700 dark:text-zinc-300">{detail}</span>} />}
+                      {(live?.status === 'past_due' || live?.status === 'unpaid') && (
+                        <button
+                          onClick={() => retryPayment(null)}
+                          disabled={retrying === 'all'}
+                          className="mt-1.5 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-[#1ED4A7] hover:bg-[#1bc99c] text-black text-xs font-semibold disabled:opacity-50"
+                        >
+                          {retrying === 'all' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                          {retrying === 'all' ? 'Retrying…' : 'Retry failed payment'}
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
                 {sub?.chosen_plan && sub.chosen_plan !== sub.plan && (
                   <KV label="Chosen plan" value={<span className="capitalize">{sub.chosen_plan}</span>} />
                 )}
                 {sub?.recommended_plan && (
                   <KV label="Recommended" value={<span className="capitalize">{sub.recommended_plan}</span>} />
-                )}
-                {sub?.current_period_end && (
-                  <KV label="Period ends" value={fmtDateShort(sub.current_period_end)} />
-                )}
-                {sub?.cancel_at_period_end && (
-                  <KV label="Cancel scheduled" value={<span className="text-amber-500">Yes — ends {fmtDateShort(sub.current_period_end)}</span>} />
                 )}
                 {sub?.updated_at && (
                   <KV label="Sub updated" value={fmtDate(sub.updated_at)} />
@@ -551,8 +657,19 @@ export function UserDetailSheet({
                           <span className={`px-1.5 py-0.5 rounded text-[10px] ${
                             inv.status === 'paid' ? 'bg-emerald-500/15 text-emerald-500'
                             : inv.status === 'open' ? 'bg-amber-500/15 text-amber-500'
+                            : inv.status === 'uncollectible' ? 'bg-rose-500/15 text-rose-400'
                             : 'bg-zinc-500/15 text-zinc-400'
                           }`}>{inv.status}</span>
+                          {(inv.status === 'open' || inv.status === 'uncollectible') && !inv.paid && (
+                            <button
+                              onClick={() => retryPayment(inv.id)}
+                              disabled={retrying === inv.id || retrying === 'all'}
+                              title="Retry this payment"
+                              className="text-[#1ED4A7] hover:text-[#1bc99c] disabled:opacity-50"
+                            >
+                              {retrying === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
                           {inv.hosted_invoice_url && (
                             <a href={inv.hosted_invoice_url} target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-zinc-900 dark:hover:text-white">
                               <ExternalLink className="w-3.5 h-3.5" />
