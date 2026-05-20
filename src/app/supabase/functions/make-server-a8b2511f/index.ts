@@ -863,27 +863,50 @@ async function maybeTriggerAgentHotVisitorCall(args: {
     // Per-lead cooldown (default 24h) so we never auto-call the same lead
     // twice on rapid repeat visits. Configurable on the Agent Mode config.
     const cooldownHours = Math.min(168, Math.max(1, Number(config.hotVisitorCooldownHours || 24)));
-    const cooldownKey = `agent_hot_call_cooldown:${targetUserId}:${lead.id}`;
-    const cooldown = await kvGetSafe<any>(cooldownKey);
-    if (cooldown?.expires_at && new Date(cooldown.expires_at).getTime() > now) {
-      console.log('[AGENT HOT CALL] Skipping visitor: cooldown active', { targetUserId, lead_id: lead.id, expires_at: cooldown.expires_at });
-      return;
+
+    // ── Multi-dimension dedup keys ──
+    // Originally only checked by lead.id, but our visitor tracker creates
+    // a NEW anonymous lead row on each unique IP/session, so the same
+    // company hits us with multiple lead.ids over time and the cooldown
+    // misses. Add secondary dedup on normalized company name, email,
+    // domain, and phone. Any of them tripping = skip.
+    const normCompany = String(lead.business_name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80);
+    const normEmail = String(lead.email || '').trim().toLowerCase();
+    const normPhone = String(lead.phone || '').replace(/[^\d+]/g, '');
+    const normDomain = (() => {
+      const raw = String(lead.website || lead.domain || '').toLowerCase();
+      try { return new URL(raw.startsWith('http') ? raw : `https://${raw}`).hostname.replace(/^www\./, ''); } catch { return ''; }
+    })();
+    const dedupKeys = [
+      `agent_hot_call_cooldown:${targetUserId}:${lead.id}`,
+      normCompany ? `agent_hot_call_cooldown:${targetUserId}:co:${normCompany}` : null,
+      normEmail   ? `agent_hot_call_cooldown:${targetUserId}:em:${normEmail}` : null,
+      normPhone   ? `agent_hot_call_cooldown:${targetUserId}:ph:${normPhone}` : null,
+      normDomain  ? `agent_hot_call_cooldown:${targetUserId}:dn:${normDomain}` : null,
+    ].filter(Boolean) as string[];
+
+    for (const key of dedupKeys) {
+      const cd = await kvGetSafe<any>(key);
+      if (cd?.expires_at && new Date(cd.expires_at).getTime() > now) {
+        console.log('[AGENT HOT CALL] Skipping visitor: cooldown active', { key, expires_at: cd.expires_at });
+        return;
+      }
     }
 
-    // ── Race-safe dedup: claim the cooldown IMMEDIATELY ──
-    // The previous flow wrote the cooldown AFTER creating the campaign,
-    // which let two near-simultaneous visits (page view + email open
-    // arriving within the same second) both pass the read above, both
-    // create campaigns, and both call the lead. By writing the cooldown
-    // first we shrink the race window from "however long createCampaign
-    // takes" to "one KV roundtrip" — still not bulletproof without a
-    // CAS primitive, but cuts the observed duplicate rate dramatically.
-    await kvSetSafe(cooldownKey, {
+    // ── Race-safe dedup: claim ALL dedup keys IMMEDIATELY ──
+    // Writing the cooldown BEFORE creating the campaign shrinks the race
+    // window from "however long createCampaign takes" to "one KV roundtrip".
+    // Writing all 5 keys at once means a parallel visit on a different
+    // dimension (e.g. same company but different anonymous lead row) also
+    // gets blocked.
+    const cooldownPayload = {
       lead_id: lead.id,
+      business_name: lead.business_name || null,
       template_campaign_id: 'pending',
       queued_at: new Date().toISOString(),
       expires_at: new Date(now + cooldownHours * 60 * 60 * 1000).toISOString(),
-    });
+    };
+    await Promise.all(dedupKeys.map((k) => kvSetSafe(k, cooldownPayload)));
 
     const dateKey = new Date().toISOString().split('T')[0];
     const dailyKey = `agent_hot_call_daily:${targetUserId}:${dateKey}`;
