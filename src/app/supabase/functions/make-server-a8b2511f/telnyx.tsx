@@ -2437,18 +2437,21 @@ app.get('/active-calls', async (c) => {
     }, 0);
     const avgDuration = completedToday.length > 0 ? Math.round(totalDurationSec / completedToday.length) : 0;
 
-    // Pre-resolve once per call so we don't run the classifier 4× per card
-    const todayResolved = todayCalls.map((c: any) => ({ call: c, oc: resolveOutcome(c) }));
+    // Outcome-based stats reflect ALL-TIME activity so the card count
+    // matches what you see when you click to filter the campaign list.
+    // Only "Today" stays in the rolling-24h scope.
+    const allResolved = allCalls
+      .filter((c: any) => !isTestCallEntry(c))
+      .map((c: any) => ({ call: c, oc: resolveOutcome(c) }));
 
     const stats = {
       activeNow: activeCalls.length,
-      totalToday: todayCalls.length,
-      // Connected = ANY human pickup (whether they were interested or not).
-      // Excludes voicemail and no-answer.
-      connected: todayResolved.filter(x => HUMAN_PICKUPS.has(x.oc)).length,
-      voicemail: todayResolved.filter(x => x.oc === 'voicemail').length,
-      noAnswer:  todayResolved.filter(x => x.oc === 'no_answer').length,
-      booked:    todayResolved.filter(x => x.oc === 'booked').length,
+      totalToday: todayCalls.length,                                  // 24h window
+      // The rest are lifetime totals — match the campaign-list filter scope.
+      connected: allResolved.filter(x => HUMAN_PICKUPS.has(x.oc)).length,
+      voicemail: allResolved.filter(x => x.oc === 'voicemail').length,
+      noAnswer:  allResolved.filter(x => x.oc === 'no_answer').length,
+      booked:    allResolved.filter(x => x.oc === 'booked').length,
       avgDuration,
     };
 

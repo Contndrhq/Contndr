@@ -146,14 +146,15 @@ export function AICalls({
   // can track at-a-glance whether agent-mode is finding intent signal,
   // separate from the manual-campaign Today count.
   const hotVisitorsToday = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    // Rolling 24h window — same as the other stat counters. Local
+    // midnight cuts off late-evening activity for users east of UTC.
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     return campaigns.filter((c: any) => {
       const isHot = String(c.id || '').startsWith('agent-hot-')
         || String(c.name || '').startsWith('Hot visitor:');
       if (!isHot) return false;
       const t = new Date(c.created_at || 0).getTime();
-      return t >= todayStart.getTime();
+      return t >= cutoff;
     }).length;
   }, [campaigns]);
   const [deletingCampaign, setDeletingCampaign] = useState(false);
@@ -452,8 +453,14 @@ export function AICalls({
               case 'active':
                 return c.status === 'active';
               case 'today': {
-                const ts = c.created_at ? new Date(c.created_at).getTime() : 0;
-                return Date.now() - ts < ROLLING_DAY_MS;
+                // Match the "Today" stat card — campaign whose LATEST call
+                // (or campaign creation if no calls) was in the last 24h
+                const candidates: number[] = [];
+                if (c.created_at) candidates.push(new Date(c.created_at).getTime());
+                if ((c as any).last_call_at) candidates.push(new Date((c as any).last_call_at).getTime());
+                if (c.updated_at) candidates.push(new Date(c.updated_at).getTime());
+                const latest = Math.max(...candidates, 0);
+                return latest > 0 && Date.now() - latest < ROLLING_DAY_MS;
               }
               case 'connected':  return HUMAN_PICKUPS.has(oc);
               case 'voicemail':  return oc === 'voicemail';
