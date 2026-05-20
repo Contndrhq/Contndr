@@ -639,24 +639,92 @@ export function AICalls({
                           </button>
 
                           {isOpen && (
-                            <div className="border-t border-zinc-200 dark:border-zinc-800/50 px-2.5 py-2 space-y-1.5 max-h-48 overflow-y-auto bg-white dark:bg-black">
-                              {call.turns.length === 0 ? (
-                                <div className="text-[11px] text-zinc-400 italic">No transcript captured.</div>
-                              ) : (
-                                call.turns.map((turn: any, idx: number) => (
-                                  <div key={idx} className={`text-[11px] leading-relaxed ${turn.role === 'assistant' ? 'pl-2 border-l-2 border-[#1ED4A7]/40' : 'pl-2 border-l-2 border-zinc-300 dark:border-zinc-700'}`}>
-                                    <div className={`text-[9px] font-bold uppercase tracking-wide ${turn.role === 'assistant' ? 'text-[#1ED4A7]' : 'text-zinc-500'}`}>
-                                      {turn.role === 'assistant' ? 'AI' : 'Lead'}
+                            <div className="border-t border-zinc-200 dark:border-zinc-800/50 bg-white dark:bg-black">
+                              {/* AI Analysis Block — summary, next action, extracted CRM data */}
+                              {(call.transcript_summary || call.transcript_next_action || call.extracted_budget || call.extracted_timeline || call.extracted_decision_maker || (call.extracted_objections || []).length > 0 || call.extracted_callback_at) && (
+                                <div className="px-2.5 py-2 border-b border-zinc-200/50 dark:border-zinc-800/30 space-y-1.5 bg-zinc-50 dark:bg-zinc-950">
+                                  {call.transcript_summary && (
+                                    <div>
+                                      <div className="text-[9px] font-bold uppercase tracking-wide text-zinc-500">Summary</div>
+                                      <div className="text-[11px] text-zinc-700 dark:text-zinc-300 mt-0.5">{call.transcript_summary}</div>
                                     </div>
-                                    <div className="text-zinc-700 dark:text-zinc-300 mt-0.5 whitespace-pre-wrap">{turn.content}</div>
-                                  </div>
-                                ))
-                              )}
-                              {call.transfer?.target && (
-                                <div className="mt-1.5 text-[10px] text-blue-400 italic">
-                                  ↳ Transferred to {call.transfer.target.description || call.transfer.target.phone}
+                                  )}
+                                  {call.transcript_next_action && (
+                                    <div>
+                                      <div className="text-[9px] font-bold uppercase tracking-wide text-[#1ED4A7]">Next Action</div>
+                                      <div className="text-[11px] text-zinc-700 dark:text-zinc-300 mt-0.5">{call.transcript_next_action}</div>
+                                    </div>
+                                  )}
+                                  {(call.extracted_budget || call.extracted_timeline || call.extracted_decision_maker) && (
+                                    <div className="grid grid-cols-3 gap-2 pt-1">
+                                      {call.extracted_budget && (
+                                        <div>
+                                          <div className="text-[9px] font-bold uppercase tracking-wide text-zinc-500">Budget</div>
+                                          <div className="text-[10px] text-zinc-700 dark:text-zinc-300 truncate" title={call.extracted_budget}>{call.extracted_budget}</div>
+                                        </div>
+                                      )}
+                                      {call.extracted_timeline && (
+                                        <div>
+                                          <div className="text-[9px] font-bold uppercase tracking-wide text-zinc-500">Timeline</div>
+                                          <div className="text-[10px] text-zinc-700 dark:text-zinc-300 truncate" title={call.extracted_timeline}>{call.extracted_timeline}</div>
+                                        </div>
+                                      )}
+                                      {call.extracted_decision_maker && (
+                                        <div>
+                                          <div className="text-[9px] font-bold uppercase tracking-wide text-zinc-500">Decider</div>
+                                          <div className="text-[10px] text-zinc-700 dark:text-zinc-300 truncate" title={call.extracted_decision_maker}>{call.extracted_decision_maker}</div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                  {(call.extracted_objections || []).length > 0 && (
+                                    <div>
+                                      <div className="text-[9px] font-bold uppercase tracking-wide text-zinc-500">Objections</div>
+                                      <div className="flex flex-wrap gap-1 mt-0.5">
+                                        {call.extracted_objections.map((obj: string, i: number) => (
+                                          <span key={i} className="px-1.5 py-0.5 rounded text-[9px] bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">{obj}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {call.extracted_callback_at && (
+                                    <div>
+                                      <div className="text-[9px] font-bold uppercase tracking-wide text-amber-500">Callback Requested</div>
+                                      <div className="text-[10px] text-zinc-700 dark:text-zinc-300 mt-0.5">{call.extracted_callback_at}</div>
+                                    </div>
+                                  )}
+                                  {call.ai_quality_score != null && (
+                                    <div className="flex items-center gap-2 pt-1 border-t border-zinc-200/50 dark:border-zinc-800/30">
+                                      <span className="text-[9px] font-bold uppercase tracking-wide text-zinc-500">AI Performance</span>
+                                      <div className="flex-1 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                                        <div className="h-full bg-[#1ED4A7] transition-all" style={{ width: `${call.ai_quality_score}%` }} />
+                                      </div>
+                                      <span className="text-[10px] tabular-nums text-zinc-500">{call.ai_quality_score}/100</span>
+                                    </div>
+                                  )}
                                 </div>
                               )}
+
+                              {/* Turn-by-turn transcript */}
+                              <div className="px-2.5 py-2 space-y-1.5 max-h-48 overflow-y-auto">
+                                {call.turns.length === 0 ? (
+                                  <div className="text-[11px] text-zinc-400 italic">No transcript captured.</div>
+                                ) : (
+                                  call.turns.map((turn: any, idx: number) => (
+                                    <div key={idx} className={`text-[11px] leading-relaxed ${turn.role === 'assistant' ? 'pl-2 border-l-2 border-[#1ED4A7]/40' : 'pl-2 border-l-2 border-zinc-300 dark:border-zinc-700'}`}>
+                                      <div className={`text-[9px] font-bold uppercase tracking-wide ${turn.role === 'assistant' ? 'text-[#1ED4A7]' : 'text-zinc-500'}`}>
+                                        {turn.role === 'assistant' ? 'AI' : 'Lead'}
+                                      </div>
+                                      <div className="text-zinc-700 dark:text-zinc-300 mt-0.5 whitespace-pre-wrap">{turn.content}</div>
+                                    </div>
+                                  ))
+                                )}
+                                {call.transfer?.target && (
+                                  <div className="mt-1.5 text-[10px] text-[#1ED4A7] italic">
+                                    ↳ Transferred to {call.transfer.target.description || call.transfer.target.phone}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
                         </div>

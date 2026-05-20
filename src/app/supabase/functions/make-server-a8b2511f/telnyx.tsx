@@ -1235,6 +1235,9 @@ HARD RULES — follow exactly:
 12. GATEKEEPER / RECEPTIONIST (they say "this is [name], may I help you" or "[company], how can I help") → DO NOT pitch them. Say: "Hi [their name], this is ${agentName} from ${brand} — is ${leadContext?.name && leadContext.name !== 'Unknown' ? leadContext.name : 'the owner'} available?"
 13. SILENCE / "Hello?" / "Are you there?" → re-state name + reason ONCE: "Yeah hi — ${agentName} from ${brand}, calling about [reason]." Then your original question again.
 14. VOICEMAIL signal ("leave a message", "at the tone") → say "Hi, ${agentName} from ${brand} calling for ${leadContext?.name || 'you'} — I'll try back later." Then stop.
+15. RECORDING DISCLOSURE — If on FIRST exchange the prospect asks "is this being recorded?" or "is this a recorded line?", answer truthfully: "Yes, this call may be recorded for quality." Don't volunteer unless asked.
+16. ESCALATE — If they ask for a manager / supervisor / "talk to someone in charge", OR if they ask a complex technical/legal/billing question you're not certain about → say "Totally fair, let me connect you with someone who handles that." (System will route to the configured transfer number.)
+17. CALLBACK REQUEST — If they say "call me back at [time]" or "I'm busy now, try later" → confirm: "Got it, I'll have us follow up [restate their time]. Talk then!" then end.
 
 GOAL: ${objectiveInstructions[objective] || objectiveInstructions.book_call}
 
@@ -2863,7 +2866,6 @@ app.post('/calls/:callId/listen', async (c) => {
 export async function classifyCallOutcome(call: any, history: any[]): Promise<void> {
   if (!call?.id) return;
 
-  // Pull only the prospect's turns — that's what we're scoring on.
   const userTurns: string[] = (history || [])
     .filter((t: any) => t?.role === 'user' && t?.content)
     .map((t: any) => String(t.content).trim())
@@ -2871,32 +2873,38 @@ export async function classifyCallOutcome(call: any, history: any[]): Promise<vo
 
   // Heuristic shortcuts so we don't spend OpenAI tokens on obvious cases.
   if (call.status === 'no-answer' || call.status === 'busy') {
-    await persistOutcome(call, 'no_answer', 100, 'Call did not connect.');
+    await persistOutcome(call, { outcome: 'no_answer', score: 100, reason: 'Call did not connect.' });
     return;
   }
   if (call.outcome === 'voicemail' || userTurns.length === 0) {
-    await persistOutcome(call, 'voicemail', 95, userTurns.length === 0 ? 'No prospect speech captured.' : 'Marked voicemail.');
+    await persistOutcome(call, { outcome: 'voicemail', score: 95, reason: userTurns.length === 0 ? 'No prospect speech captured.' : 'Marked voicemail.' });
     return;
   }
 
-  // Build a compact transcript for the LLM
   const transcript = (history || [])
     .filter((t: any) => t?.role !== 'system')
     .map((t: any) => `${t.role === 'assistant' ? 'AI' : 'Lead'}: ${String(t.content).trim()}`)
     .join('\n')
-    .slice(0, 4000);
+    .slice(0, 5000);
 
   try {
     const { generateAI } = await import('./ai-provider.tsx');
-    const sysPrompt = `You are an expert sales-call analyst. Bucket this AI outbound call by the prospect's intent.
-Categories:
-  booked       — prospect agreed to a meeting / calendar invite / demo
-  positive     — clearly interested, asked qualifying questions, wants to learn more
-  engaged      — conversational and curious but no commitment
-  answered     — picked up but minimal engagement (1-2 short replies)
-  no_interest  — explicit decline, asked to be removed, hostile
-  voicemail    — transcript is only voicemail prompts / IVR text
-Return STRICT JSON only: {"outcome":"<cat>","score":0-100,"reason":"<one short sentence>"}`;
+    const sysPrompt = `You are an expert SDR call analyst. Read this outbound AI call transcript and return one JSON object with EXACTLY these fields:
+
+  outcome        — one of: booked, positive, engaged, answered, no_interest, voicemail
+  score          — 0-100 confidence in the outcome label
+  reason         — ONE short sentence justifying the outcome
+  summary        — ONE sentence describing what happened on the call (for the user reading at a glance)
+  next_action    — ONE concrete action the rep should take ("Send pricing PDF and Calendly link", "Call back Tuesday 2pm", "Mark do-not-call", etc.)
+  budget         — extracted budget if mentioned (e.g. "$50k/mo", "tight budget"), or null
+  timeline       — extracted timeline if mentioned (e.g. "Q3", "this quarter", "evaluating now"), or null
+  decision_maker — who decides if mentioned (e.g. "her partner", "CFO", "she decides"), or null
+  objections     — array of objections raised (e.g. ["price", "already using competitor"]), or []
+  callback_request — ISO datetime if prospect requested a callback ("call me at 3pm Tuesday"), else null
+  quality_score  — 0-100 how well the AI agent performed (asked qualifying questions, sounded natural, didn't push too hard)
+  quality_notes  — ONE sentence on what the AI did well / poorly
+
+Return STRICT JSON only. No prose, no markdown fences.`;
 
     const ai = await generateAI({
       messages: [
@@ -2904,7 +2912,7 @@ Return STRICT JSON only: {"outcome":"<cat>","score":0-100,"reason":"<one short s
         { role: 'user', content: `Transcript:\n${transcript}` },
       ],
       temperature: 0.2,
-      maxTokens: 120,
+      maxTokens: 500,
       jsonMode: true,
     });
 
@@ -2913,29 +2921,162 @@ Return STRICT JSON only: {"outcome":"<cat>","score":0-100,"reason":"<one short s
     const outcome = String(parsed.outcome || 'answered').toLowerCase();
     const valid = ['booked', 'positive', 'engaged', 'answered', 'no_interest', 'voicemail'];
     const safe = valid.includes(outcome) ? outcome : 'answered';
-    const score = Math.max(0, Math.min(100, Number(parsed.score) || 50));
-    const reason = String(parsed.reason || '').slice(0, 200);
-    await persistOutcome(call, safe, score, reason);
+
+    await persistOutcome(call, {
+      outcome: safe,
+      score: Math.max(0, Math.min(100, Number(parsed.score) || 50)),
+      reason: String(parsed.reason || '').slice(0, 200),
+      summary: String(parsed.summary || '').slice(0, 300),
+      next_action: String(parsed.next_action || '').slice(0, 200),
+      budget: parsed.budget || null,
+      timeline: parsed.timeline || null,
+      decision_maker: parsed.decision_maker || null,
+      objections: Array.isArray(parsed.objections) ? parsed.objections.slice(0, 6) : [],
+      callback_request: parsed.callback_request || null,
+      quality_score: Math.max(0, Math.min(100, Number(parsed.quality_score) || 50)),
+      quality_notes: String(parsed.quality_notes || '').slice(0, 200),
+    });
+
+    // CRM write-back: stamp extracted fields onto the lead record
+    if (call.lead_id) {
+      await writeAnalysisToLead(call.lead_id, {
+        budget: parsed.budget,
+        timeline: parsed.timeline,
+        decision_maker: parsed.decision_maker,
+        objections: parsed.objections,
+        callback_request: parsed.callback_request,
+        last_call_summary: String(parsed.summary || '').slice(0, 300),
+      }).catch((e) => console.warn('[CLASSIFY] lead write-back failed:', e?.message));
+    }
+
+    // Auto follow-up email for hot outcomes (booked / positive / engaged)
+    if (['booked', 'positive', 'engaged'].includes(safe)) {
+      const ownerId = call.user_id || call.ai_config?.user_id;
+      if (ownerId) {
+        sendCallFollowupEmail(ownerId, call, {
+          summary: String(parsed.summary || ''),
+          next_action: String(parsed.next_action || ''),
+          outcome: safe,
+        }).catch((e) => console.warn('[CLASSIFY] follow-up email failed:', e?.message));
+      }
+    }
   } catch (e: any) {
     console.warn(`[CLASSIFY] LLM failed for ${call.id}, defaulting to heuristic:`, e?.message);
-    // Heuristic fallback: turns count
     const guess = userTurns.length >= 4 ? 'engaged' : 'answered';
-    await persistOutcome(call, guess, 40, 'LLM unavailable — heuristic from turn count.');
+    await persistOutcome(call, { outcome: guess, score: 40, reason: 'LLM unavailable — heuristic from turn count.' });
   }
 }
 
-async function persistOutcome(call: any, outcome: string, score: number, reason: string): Promise<void> {
+async function persistOutcome(call: any, fields: Record<string, any>): Promise<void> {
   try {
     const fresh = (await kv.get(`call:${call.id}`)) || call;
-    fresh.transcript_outcome = outcome;
-    fresh.transcript_outcome_score = score;
-    fresh.transcript_outcome_reason = reason;
+    fresh.transcript_outcome = fields.outcome;
+    fresh.transcript_outcome_score = fields.score;
+    fresh.transcript_outcome_reason = fields.reason;
+    if (fields.summary !== undefined)        fresh.transcript_summary        = fields.summary;
+    if (fields.next_action !== undefined)    fresh.transcript_next_action    = fields.next_action;
+    if (fields.budget !== undefined)         fresh.extracted_budget          = fields.budget;
+    if (fields.timeline !== undefined)       fresh.extracted_timeline        = fields.timeline;
+    if (fields.decision_maker !== undefined) fresh.extracted_decision_maker  = fields.decision_maker;
+    if (fields.objections !== undefined)     fresh.extracted_objections      = fields.objections;
+    if (fields.callback_request !== undefined) fresh.extracted_callback_at   = fields.callback_request;
+    if (fields.quality_score !== undefined)  fresh.ai_quality_score          = fields.quality_score;
+    if (fields.quality_notes !== undefined)  fresh.ai_quality_notes          = fields.quality_notes;
     fresh.transcript_classified_at = new Date().toISOString();
     await kv.set(`call:${call.id}`, fresh);
-    console.log(`🎯 [CLASSIFY] ${call.id} → ${outcome} (${score}) — ${reason}`);
+    console.log(`🎯 [CLASSIFY] ${call.id} → ${fields.outcome} (${fields.score})${fields.next_action ? ` · next: ${fields.next_action}` : ''}`);
   } catch (e: any) {
     console.warn(`[CLASSIFY] persist failed for ${call.id}:`, e?.message);
   }
+}
+
+/**
+ * Write extracted CRM fields back to the lead record.
+ * Updates both Postgres `leads` table and the KV `lead:<id>` cache so
+ * the CRM UI reflects new info from the call immediately.
+ */
+async function writeAnalysisToLead(leadId: string, fields: Record<string, any>): Promise<void> {
+  try {
+    const { createClient } = await import('npm:@supabase/supabase-js@2');
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+    const updates: Record<string, any> = { last_activity_at: new Date().toISOString() };
+    // These columns may not all exist; we update what does via best-effort.
+    if (fields.budget)         updates.budget         = String(fields.budget).slice(0, 100);
+    if (fields.timeline)       updates.timeline       = String(fields.timeline).slice(0, 100);
+    if (fields.decision_maker) updates.decision_maker = String(fields.decision_maker).slice(0, 200);
+    if (fields.last_call_summary) updates.last_call_summary = fields.last_call_summary;
+    await supabase.from('leads').update(updates).eq('id', leadId);
+
+    // Update KV cache too
+    const lead: any = await kv.get(`lead:${leadId}`);
+    if (lead) {
+      Object.assign(lead, updates);
+      if (fields.objections) lead.objections = fields.objections;
+      if (fields.callback_request) lead.callback_request_at = fields.callback_request;
+      await kv.set(`lead:${leadId}`, lead);
+    }
+    console.log(`📝 [CLASSIFY] lead ${leadId} enriched with call data`);
+  } catch (e: any) {
+    console.warn(`[CLASSIFY] writeAnalysisToLead error:`, e?.message);
+  }
+}
+
+/**
+ * Auto follow-up email after positive/engaged/booked call. Best-effort;
+ * silently no-ops if the user has no email provider configured or no
+ * lead email on file. Includes a one-paragraph recap + next-step CTA.
+ */
+async function sendCallFollowupEmail(userId: string, call: any, analysis: { summary: string; next_action: string; outcome: string }): Promise<void> {
+  try {
+    const leadId = call.lead_id;
+    if (!leadId) return;
+    const lead: any = await kv.get(`lead:${leadId}`);
+    const toEmail = lead?.email;
+    if (!toEmail) {
+      console.log(`[FOLLOWUP] No email on lead ${leadId}, skipping`);
+      return;
+    }
+    // Skip if a follow-up was sent in the last 24h for this lead+call
+    const dedupKey = `followup_sent:${userId}:${leadId}:${call.id}`;
+    if (await kv.get(dedupKey)) return;
+
+    const { sendEmail } = await import('./email-sender.tsx');
+    const fromName = call.ai_config?.name || 'Alex';
+    const brand = call.ai_config?.business_name || call.ai_config?.brand || 'Contndr';
+    const leadName = (lead.contact_name || lead.name || '').split(' ')[0] || 'there';
+    const calendlyUrl = (await kv.get(`pipeline:${userId}:calendly_config`) as any)?.url || '';
+
+    const html = `
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#222">
+        <p>Hi ${leadName},</p>
+        <p>Thanks for the chat just now — quick recap:</p>
+        <p style="background:#f5f5f5;padding:12px;border-radius:8px;margin:16px 0;line-height:1.5">${escapeHtml(analysis.summary)}</p>
+        ${analysis.next_action ? `<p>Next step: ${escapeHtml(analysis.next_action)}</p>` : ''}
+        ${calendlyUrl ? `<p style="margin:20px 0"><a href="${calendlyUrl}" style="display:inline-block;padding:10px 18px;background:#1ED4A7;color:#000;text-decoration:none;border-radius:8px;font-weight:600">Book a time</a></p>` : ''}
+        <p>Talk soon,<br>${fromName} · ${brand}</p>
+      </div>
+    `;
+    const text = `Hi ${leadName},\n\nThanks for the chat. Quick recap:\n\n${analysis.summary}\n\n${analysis.next_action ? `Next step: ${analysis.next_action}\n\n` : ''}${calendlyUrl ? `Book a time: ${calendlyUrl}\n\n` : ''}Talk soon,\n${fromName} · ${brand}`;
+
+    await sendEmail(userId, {
+      to: toEmail,
+      from: `${fromName} <noreply@contndr.com>`,
+      subject: `Quick recap from our call`,
+      html,
+      text,
+    });
+    await kv.set(dedupKey, { sent_at: new Date().toISOString() });
+    console.log(`📧 [FOLLOWUP] Sent recap to ${toEmail} for call ${call.id}`);
+  } catch (e: any) {
+    console.warn(`[FOLLOWUP] sendCallFollowupEmail error:`, e?.message);
+  }
+}
+
+function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] || ch));
 }
 
 export default app;
