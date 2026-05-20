@@ -3144,12 +3144,41 @@ app.get("/make-server-a8b2511f/admin/users", async (c) => {
       leadCountMap[users[i].id] = leadCountValues[i];
     }
 
+    // ── Reverse-lookup team membership ──
+    // Some users have their `user:<id>:team` link missing (older signups,
+    // partial migrations, manual fixes). To catch those, scan every
+    // candidate owner's team:<id>:members roster and build an
+    // (memberId|memberEmail) -> ownerId map. Any user we find in those
+    // rosters gets treated as a team member even if their direct link
+    // is gone.
+    const teamRosters: ({ id?: string; email?: string; status?: string }[] | null)[] =
+      await Promise.all(users.map(u => kv.get(`team:${u.id}:members`).catch(() => null) as any));
+
+    const reverseTeamByEmail: Record<string, string> = {};
+    const reverseTeamById: Record<string, string> = {};
+    for (let i = 0; i < users.length; i++) {
+      const roster = teamRosters[i];
+      if (!Array.isArray(roster) || roster.length === 0) continue;
+      const ownerId = users[i].id;
+      for (const m of roster) {
+        if (m?.status && m.status !== 'active') continue;
+        if (m?.id && m.id !== ownerId) reverseTeamById[m.id] = ownerId;
+        if (m?.email) reverseTeamByEmail[(m.email || '').toLowerCase().trim()] = ownerId;
+      }
+    }
+
     // Build a lookup map keyed by user ID
     const subMap: Record<string, any> = {};
     for (let i = 0; i < users.length; i++) {
       const sub = subValues[i] || { status: 'none' };
-      const teamOwnerId = teamValues[i] || null;
-      
+      // Direct link first, then reverse-lookup fallback.
+      let teamOwnerId: string | null = (teamValues[i] || null) as string | null;
+      if (!teamOwnerId) {
+        const email = (users[i].email || '').toLowerCase().trim();
+        teamOwnerId = reverseTeamById[users[i].id] || reverseTeamByEmail[email] || null;
+        if (teamOwnerId) sub._teamLinkSource = 'roster_reverse_lookup';
+      }
+
       // If user is a team member, enrich their subscription with team info
       // so the admin dashboard can see they inherit from a team owner
       if (teamOwnerId && teamOwnerId !== users[i].id) {

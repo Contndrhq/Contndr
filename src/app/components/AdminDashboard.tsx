@@ -2375,13 +2375,27 @@ export function AdminDashboard() {
                               {av.initials}
                             </div>
                             <div className="min-w-0">
-                              <div className="font-medium text-sm text-zinc-900 dark:text-zinc-100 truncate">{name}</div>
+                              <div className="font-medium text-sm text-zinc-900 dark:text-zinc-100 truncate flex items-center gap-2">
+                                {name}
+                                {user.subscription?.isTeamMember && (
+                                  <span
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 uppercase tracking-wide flex-shrink-0"
+                                    title={`Team member of ${user.subscription.teamOwnerOrg || user.subscription.teamOwnerName || user.subscription.teamOwnerEmail || 'owner'}`}
+                                  >
+                                    <UsersIcon className="w-2.5 h-2.5" />
+                                    Team
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-xs text-zinc-500 truncate">{user.email}</div>
                             </div>
                           </div>
                           {user.subscription?.isTeamMember && (
                             <div className="text-[10px] text-zinc-400 dark:text-zinc-600 mt-1 ml-12 truncate" title={`Team owner: ${user.subscription.teamOwnerEmail || ''}`}>
                               on {user.subscription.teamOwnerOrg || user.subscription.teamOwnerName || user.subscription.teamOwnerEmail?.split('@')[0] || 'team'}&apos;s team
+                              {user.subscription._inheritedPlan && (
+                                <> · inherits <span className="capitalize text-indigo-400">{user.subscription._inheritedPlan}</span></>
+                              )}
                             </div>
                           )}
                         </td>
@@ -2390,6 +2404,14 @@ export function AdminDashboard() {
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${planChipCls}`}>
                               {planLabel}
                             </span>
+                            {user.subscription?.isTeamMember && user.subscription?._inheritedPlan && (
+                              <span
+                                className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/30"
+                                title={`Inherited from team owner — actual plan: ${user.subscription._inheritedPlan}`}
+                              >
+                                via team
+                              </span>
+                            )}
                             {isLegacyPlan && (
                               <span
                                 className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-500 border border-zinc-200 dark:border-zinc-800"
