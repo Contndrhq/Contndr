@@ -1,6 +1,6 @@
 // Rebuild trigger: 2026-02-23-campaigns-module-cache-fix
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
-import { Mail, Send, Eye, Users, Clock, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Zap, Plus, RefreshCw, Trash2, Download, Target, ChevronLeft, ChevronDown, ChevronUp, MousePointerClick, User, Radio, Play, Building2, Briefcase, Phone, MapPin, Globe } from 'lucide-react';
+import { Mail, Send, Eye, Users, Clock, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Zap, Plus, RefreshCw, Trash2, Download, Target, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, MousePointerClick, User, Radio, Play, Building2, Briefcase, Phone, MapPin, Globe } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { authenticatedFetch, getAuthHeaders } from '../lib/auth';
 import { confirmAsync } from './ConfirmDialog';
