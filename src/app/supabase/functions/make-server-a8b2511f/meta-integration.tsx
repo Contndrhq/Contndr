@@ -368,4 +368,124 @@ app.delete('/meta/pages/:pageId', async (c) => {
   }
 });
 
+/**
+ * GET /meta/threads — list IG DM + Messenger threads
+ */
+app.get('/meta/threads', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const { createClient } = await import('npm:@supabase/supabase-js@2');
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken || '');
+    if (error || !user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const all = await kv.getByPrefixLimited(`meta_message:${user.id}:`, 2000, 0).catch(() => []);
+    const byThread = new Map<string, any[]>();
+    for (const row of (all as any[])) {
+      if (!row || typeof row !== 'object') continue;
+      const key = row.sender_id || row.recipient_id;
+      if (!key) continue;
+      const arr = byThread.get(key) || [];
+      arr.push(row);
+      byThread.set(key, arr);
+    }
+
+    const threads = Array.from(byThread.entries()).map(([senderId, msgs]) => {
+      msgs.sort((a, b) => new Date(b.received_at || b.sent_at || 0).getTime() - new Date(a.received_at || a.sent_at || 0).getTime());
+      const latest = msgs[0];
+      const unread = msgs.filter((m: any) => m.direction === 'inbound' && !m.read).length;
+      return {
+        thread_key: senderId,
+        sender_id: senderId,
+        page_id: latest.page_id,
+        channel: latest.channel,                          // 'instagram_dm' | 'messenger'
+        sender_name: latest.sender_name || senderId,
+        latest_text: (latest.text || '').slice(0, 140),
+        latest_at: latest.received_at || latest.sent_at,
+        latest_direction: latest.direction,
+        message_count: msgs.length,
+        unread_count: unread,
+      };
+    }).sort((a, b) => new Date(b.latest_at || 0).getTime() - new Date(a.latest_at || 0).getTime());
+
+    return c.json({ threads });
+  } catch (e: any) {
+    return c.json({ error: e?.message }, 500);
+  }
+});
+
+/** GET /meta/threads/:senderId — full conversation */
+app.get('/meta/threads/:senderId', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const { createClient } = await import('npm:@supabase/supabase-js@2');
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken || '');
+    if (error || !user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const senderId = c.req.param('senderId');
+    const rows = await kv.getByPrefixLimited(`meta_message:${user.id}:${senderId}:`, 1000, 0).catch(() => []);
+    const messages = (rows as any[])
+      .filter((r) => r && typeof r === 'object')
+      .sort((a, b) => new Date(a.received_at || a.sent_at || 0).getTime() - new Date(b.received_at || b.sent_at || 0).getTime());
+    return c.json({ messages });
+  } catch (e: any) {
+    return c.json({ error: e?.message }, 500);
+  }
+});
+
+/**
+ * POST /meta/send — send a reply via Meta Send API
+ * Body: { page_id, sender_id, text, channel }
+ */
+app.post('/meta/send', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const { createClient } = await import('npm:@supabase/supabase-js@2');
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken || '');
+    if (error || !user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const { page_id, sender_id, text, channel } = await c.req.json();
+    if (!page_id || !sender_id || !text) return c.json({ error: 'page_id, sender_id, text required' }, 400);
+
+    const pageConfig: any = await kv.get(`meta:page:${page_id}`);
+    if (!pageConfig || pageConfig.user_id !== user.id) {
+      return c.json({ error: 'Page not connected to your account' }, 403);
+    }
+
+    const res = await fetch(`${META_GRAPH_BASE}/${page_id}/messages?access_token=${pageConfig.access_token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient: { id: sender_id },
+        message: { text },
+        messaging_type: 'RESPONSE',
+      }),
+    });
+    const j = await res.json();
+    if (!res.ok || j.error) {
+      return c.json({ ok: false, error: j.error?.message || 'Send failed' });
+    }
+
+    const ts = Date.now();
+    const messageId = j.message_id || `meta_out_${ts}`;
+    await kv.set(`meta_message:${user.id}:${sender_id}:${ts}`, {
+      id: messageId,
+      direction: 'outbound',
+      user_id: user.id,
+      channel: channel || pageConfig.channels?.[0] || 'messenger',
+      page_id,
+      recipient_id: sender_id,
+      sender_id,                                          // keep this so thread grouping works
+      text,
+      sent_at: new Date(ts).toISOString(),
+    });
+
+    return c.json({ ok: true, message_id: messageId });
+  } catch (e: any) {
+    return c.json({ error: e?.message }, 500);
+  }
+});
+
 export default app;

@@ -23,6 +23,8 @@ import { decodeHtmlEntities } from '../lib/html-decode';
 import { renderEmailBody } from '../lib/email-body';
 import { EmailMessageBody } from './EmailMessageBody';
 import { SMSInbox } from './SMSInbox';
+import { TelegramInbox } from './TelegramInbox';
+import { MetaInbox } from './MetaInbox';
 
 // ─── Types (matching backend ConversationThread / EmailMessage) ──────────
 interface EmailMessage {
@@ -428,9 +430,9 @@ export function UnifiedInbox() {
   // caused an immediate re-fetch that wiped the optimistic message before DB commit.
   const inboxRefreshKey = useRealtimeRefresh(['email:replied', 'inbox:new_message', 'campaign:completed']);
   const isDemoMode = useDemoMode();
-  // Channel switcher — Email vs SMS. SMS is rendered by SMSInbox to keep
-  // this component focused on email; clicking the tab swaps the view.
-  const [channel, setChannel] = useState<'email' | 'sms'>('email');
+  // Channel switcher — Email / SMS / Telegram / Meta. SMS+Telegram+Meta
+  // render via their own components to keep this file focused on email.
+  const [channel, setChannel] = useState<'email' | 'sms' | 'telegram' | 'meta'>('email');
   const [threads, setThreads] = useState<ConversationThread[]>([]);
   const [stats, setStats] = useState<InboxStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1356,6 +1358,30 @@ export function UnifiedInbox() {
           <MessageSquare className="w-3.5 h-3.5" /> SMS
         </span>
       </button>
+      <button
+        onClick={() => setChannel('telegram')}
+        className={`px-3 py-2 text-xs font-semibold rounded-t-md transition-colors ${
+          channel === 'telegram'
+            ? 'text-zinc-900 dark:text-white border-b-2 border-zinc-900 dark:border-white -mb-px'
+            : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+        }`}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <Send className="w-3.5 h-3.5" /> Telegram
+        </span>
+      </button>
+      <button
+        onClick={() => setChannel('meta')}
+        className={`px-3 py-2 text-xs font-semibold rounded-t-md transition-colors ${
+          channel === 'meta'
+            ? 'text-zinc-900 dark:text-white border-b-2 border-zinc-900 dark:border-white -mb-px'
+            : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+        }`}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <MessageSquare className="w-3.5 h-3.5" /> Meta
+        </span>
+      </button>
     </div>
   );
 
@@ -1363,9 +1389,23 @@ export function UnifiedInbox() {
     return (
       <div className="flex flex-col h-full bg-white dark:bg-[var(--bg-page)]">
         {channelTabs}
-        <div className="flex-1 min-h-0">
-          <SMSInbox />
-        </div>
+        <div className="flex-1 min-h-0"><SMSInbox /></div>
+      </div>
+    );
+  }
+  if (channel === 'telegram') {
+    return (
+      <div className="flex flex-col h-full bg-white dark:bg-[var(--bg-page)]">
+        {channelTabs}
+        <div className="flex-1 min-h-0"><TelegramInbox /></div>
+      </div>
+    );
+  }
+  if (channel === 'meta') {
+    return (
+      <div className="flex flex-col h-full bg-white dark:bg-[var(--bg-page)]">
+        {channelTabs}
+        <div className="flex-1 min-h-0"><MetaInbox /></div>
       </div>
     );
   }

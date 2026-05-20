@@ -312,4 +312,69 @@ app.post('/telegram/send', async (c) => {
   }
 });
 
+/**
+ * GET /telegram/threads — list threads grouped by chat_id with latest
+ * message preview, sender name, and unread counter.
+ */
+app.get('/telegram/threads', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const { createClient } = await import('npm:@supabase/supabase-js@2');
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken || '');
+    if (error || !user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const all = await kv.getByPrefixLimited(`telegram_message:${user.id}:`, 2000, 0).catch(() => []);
+    const byChat = new Map<string, any[]>();
+    for (const row of (all as any[])) {
+      if (!row || typeof row !== 'object' || !row.chat_id) continue;
+      const arr = byChat.get(row.chat_id) || [];
+      arr.push(row);
+      byChat.set(row.chat_id, arr);
+    }
+
+    const threads = Array.from(byChat.entries()).map(([chatId, msgs]) => {
+      msgs.sort((a, b) => new Date(b.received_at || b.sent_at || 0).getTime() - new Date(a.received_at || a.sent_at || 0).getTime());
+      const latest = msgs[0];
+      const unread = msgs.filter((m: any) => m.direction === 'inbound' && !m.read).length;
+      return {
+        thread_key: chatId,
+        chat_id: chatId,
+        bot_id: latest.bot_id,
+        sender_name: latest.sender_name || latest.sender_handle || chatId,
+        sender_handle: latest.sender_handle,
+        latest_text: (latest.text || '').slice(0, 140),
+        latest_at: latest.received_at || latest.sent_at,
+        latest_direction: latest.direction,
+        message_count: msgs.length,
+        unread_count: unread,
+      };
+    }).sort((a, b) => new Date(b.latest_at || 0).getTime() - new Date(a.latest_at || 0).getTime());
+
+    return c.json({ threads });
+  } catch (e: any) {
+    return c.json({ error: e?.message }, 500);
+  }
+});
+
+/** GET /telegram/threads/:chatId — full message history */
+app.get('/telegram/threads/:chatId', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const { createClient } = await import('npm:@supabase/supabase-js@2');
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken || '');
+    if (error || !user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const chatId = c.req.param('chatId');
+    const rows = await kv.getByPrefixLimited(`telegram_message:${user.id}:${chatId}:`, 1000, 0).catch(() => []);
+    const messages = (rows as any[])
+      .filter((r) => r && typeof r === 'object')
+      .sort((a, b) => new Date(a.received_at || a.sent_at || 0).getTime() - new Date(b.received_at || b.sent_at || 0).getTime());
+    return c.json({ messages });
+  } catch (e: any) {
+    return c.json({ error: e?.message }, 500);
+  }
+});
+
 export default app;
