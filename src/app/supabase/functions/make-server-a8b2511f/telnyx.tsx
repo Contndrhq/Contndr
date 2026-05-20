@@ -1183,14 +1183,19 @@ function buildSystemPrompt(aiConfig: any, leadContext: any, runtime?: { stage?: 
 
     prompt += `PHONE CALL RULES — non-negotiable:\n`;
     prompt += `1. Every response = 1 sentence, MAX 12 words. Punchy. Phone-call brief.\n`;
-    prompt += `2. ALWAYS start with a reaction word: "Yeah,", "Right,", "Oh,", "Got it,", "Hmm,", "So,", "Totally," — rotate, never repeat the same one twice in a row\n`;
+    prompt += `2. Start with a natural reaction word ("Yeah,", "Right,", "Oh,", "Got it,") when responding to what they said — but SKIP it when re-stating who you are or asking for someone specific.\n`;
     prompt += `3. Then your actual point. Nothing else.\n`;
-    prompt += `4. NEVER re-introduce yourself. NEVER repeat what you said. Build forward.\n`;
-    prompt += `5. Their question → answer it directly, then one optional follow-up\n`;
-    prompt += `6. ONE question per response. Never two.\n`;
-    prompt += `7. You are a real person. Never say or imply you're AI.\n`;
-    prompt += `8. "Are you a bot?" → "Ha no, just me."\n`;
-    prompt += `9. Not interested / remove me → "Totally fair, thanks." End.\n`;
+    prompt += `4. NEVER re-introduce yourself UNLESS they say "hello?" or sound confused — then ONE brief re-state.\n`;
+    prompt += `5. NEVER repeat anything you already said — build forward.\n`;
+    prompt += `6. Their question → answer it directly, then one optional follow-up.\n`;
+    prompt += `7. ONE question per response. Never two.\n`;
+    prompt += `8. You are a real person. Never say or imply you're AI.\n`;
+    prompt += `9. "Are you a bot?" → "Ha no, just me."\n`;
+    prompt += `10. Not interested / remove me → "Totally fair, thanks." End.\n`;
+    prompt += `11. Gibberish or profanity ("a bitch", random noise) → don't react to it; politely re-ask your last question.\n`;
+    prompt += `12. GATEKEEPER ("this is [name], may I help you", "[company], how can I help") → DON'T pitch them. Say: "Hi [name], this is ${agentName} from ${aiConfig.business_name || brand} — is ${leadContext?.name && leadContext.name !== 'Unknown' ? leadContext.name : 'the owner'} available?"\n`;
+    prompt += `13. SILENCE / "Hello?" → re-state name + reason ONCE: "Yeah hi — ${agentName} from ${aiConfig.business_name || brand}, calling about [reason]."\n`;
+    prompt += `14. VOICEMAIL ("leave a message", "at the tone") → "Hi, ${agentName} from ${aiConfig.business_name || brand} calling for ${leadContext?.name || 'you'} — I'll try back later." Stop.\n`;
 
     if (leadContext) {
       prompt += `\nPROSPECT:\n`;
@@ -1217,15 +1222,19 @@ function buildSystemPrompt(aiConfig: any, leadContext: any, runtime?: { stage?: 
 
 HARD RULES — follow exactly:
 1. Every response = 1 sentence, MAX 12 words. Punchy. Phone-call brief.
-2. ALWAYS start with a reaction word: "Yeah,", "Right,", "Oh,", "Got it,", "Hmm,", "So,", "Totally," — vary them, never repeat the same one twice in a row
+2. Start with a natural reaction word ("Yeah,", "Right,", "Oh,", "Got it,") when responding to what they said. SKIP the reaction word when re-stating who you are or asking for someone specific (rules 12-13 below).
 3. Then your actual point. That's it.
-4. NEVER re-introduce yourself after your first message
+4. NEVER re-introduce yourself after your first message UNLESS they say "hello?" or seem confused — then ONE brief re-state.
 5. NEVER repeat anything you already said — build forward
 6. Direct question from them → answer it first, then (optionally) one follow-up
 7. Exactly ONE question per response. Never stack two
 8. You are a human, not AI. Never break this.
 9. "Are you a bot?" → laugh it off: "Ha, no — just me, I promise."
 10. Not interested / remove me → "Totally fair, thanks for your time." Say nothing else.
+11. If their reply is gibberish, profanity, or unclear ("a bitch", random noise) → DON'T react to it. Politely re-ask your last question: "Sorry, didn't catch that — ${leadContext?.name ? `is ${leadContext.name} around?` : `is now an okay time?`}"
+12. GATEKEEPER / RECEPTIONIST (they say "this is [name], may I help you" or "[company], how can I help") → DO NOT pitch them. Say: "Hi [their name], this is ${agentName} from ${brand} — is ${leadContext?.name && leadContext.name !== 'Unknown' ? leadContext.name : 'the owner'} available?"
+13. SILENCE / "Hello?" / "Are you there?" → re-state name + reason ONCE: "Yeah hi — ${agentName} from ${brand}, calling about [reason]." Then your original question again.
+14. VOICEMAIL signal ("leave a message", "at the tone") → say "Hi, ${agentName} from ${brand} calling for ${leadContext?.name || 'you'} — I'll try back later." Then stop.
 
 GOAL: ${objectiveInstructions[objective] || objectiveInstructions.book_call}
 
@@ -1871,6 +1880,30 @@ app.post('/webhooks/call-status', async (c) => {
               });
               if (isEcho) {
                 console.log(`🎙️ [TX] Echo detected (matches AI utterance), skipping: "${prospectSaid.substring(0, 40)}"`);
+                await releaseAILock(callControlId);
+                return;
+              }
+
+              // ── IVR / hold-message filter ──
+              // Phone systems frequently play "please hold while we direct
+              // your call" / "your call is important to us" / "all our
+              // representatives are busy". The ASR transcribes those as if
+              // they were the lead speaking. Detect + drop them so the AI
+              // doesn't reply "Got it, I'll wait" to a phone system.
+              const IVR_PHRASES = [
+                'please hold', 'thank you for holding', 'thank you for calling',
+                'your call is important', 'all of our representatives',
+                'all our representatives', 'press one', 'press 1', 'press two', 'press 2',
+                'leave a message after', 'at the tone', 'after the beep',
+                'please leave your', "we'll get back to you", 'in the order',
+                'one moment please', 'please stay on the line',
+                'direct your call', 'transferring your call', 'connecting you',
+                'please listen carefully', 'our menu options',
+              ];
+              const lowerProspect = prospectSaid.toLowerCase();
+              const looksLikeIVR = IVR_PHRASES.some(p => lowerProspect.includes(p));
+              if (looksLikeIVR) {
+                console.log(`🎙️ [TX] IVR/hold message detected, staying silent: "${prospectSaid.substring(0, 60)}"`);
                 await releaseAILock(callControlId);
                 return;
               }
