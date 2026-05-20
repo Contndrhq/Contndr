@@ -13,7 +13,7 @@ export const PLAN_ENTITLEMENTS: Record<PlanKey, PlanEntitlement> = {
   starter: { monthlyLeadLimit: 2500, agentMode: false, aiCalling: false, intentAutoCall: false, seats: 1 },
   professional: { monthlyLeadLimit: 10000, agentMode: false, aiCalling: false, intentAutoCall: false, seats: 3 },
   growth: { monthlyLeadLimit: 10000, agentMode: true, aiCalling: false, intentAutoCall: false, seats: 5 },
-  scale: { monthlyLeadLimit: 50000, agentMode: true, aiCalling: true, intentAutoCall: true, seats: 15 },
+  scale: { monthlyLeadLimit: 50000, agentMode: true, aiCalling: true, intentAutoCall: true, seats: 10 },
   enterprise: { monthlyLeadLimit: -1, agentMode: true, aiCalling: true, intentAutoCall: true, seats: -1 },
 };
 

@@ -42,7 +42,7 @@ export const PLAN_ENTITLEMENTS: Record<PlanKey, PlanEntitlement> = {
     agentMode: true,
     aiCalling: true,
     intentAutoCall: true,
-    seats: 15,
+    seats: 10,
   },
   enterprise: {
     monthlyLeadLimit: -1,
