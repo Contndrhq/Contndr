@@ -3107,7 +3107,7 @@ async function sendCallFollowupEmail(userId: string, call: any, analysis: { summ
         <p>Thanks for the chat just now — quick recap:</p>
         <p style="background:#f5f5f5;padding:12px;border-radius:8px;margin:16px 0;line-height:1.5">${escapeHtml(analysis.summary)}</p>
         ${analysis.next_action ? `<p>Next step: ${escapeHtml(analysis.next_action)}</p>` : ''}
-        ${calendlyUrl ? `<p style="margin:20px 0"><a href="${calendlyUrl}" style="display:inline-block;padding:10px 18px;background:#1ED4A7;color:#000;text-decoration:none;border-radius:8px;font-weight:600">Book a time</a></p>` : ''}
+        ${calendlyUrl ? `<p style="margin:20px 0"><a href="${calendlyUrl}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;text-decoration:none;border-radius:8px;font-weight:600">Book a time</a></p>` : ''}
         <p>Talk soon,<br>${fromName} · ${brand}</p>
       </div>
     `;

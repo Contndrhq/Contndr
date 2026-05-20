@@ -19474,11 +19474,11 @@ app.post("/make-server-a8b2511f/admin/users/:userId/send-approval", async (c) =>
     // 3) Send the email
     const { sendSystemEmail } = await import('./email-sender.tsx');
     const ctaPrimary = magicLink
-      ? `<a href="${magicLink}" style="display:inline-block;padding:12px 24px;background:#1ED4A7;color:#000;text-decoration:none;border-radius:10px;font-weight:600">Sign in to Contndr</a>`
+      ? `<a href="${magicLink}" style="display:inline-block;padding:12px 24px;background:#111;color:#fff;text-decoration:none;border-radius:10px;font-weight:600">Sign in to Contndr</a>`
       : '';
     const ctaSetup = !hasCard && setupLink
       ? `<p style="margin:18px 0 0;font-size:13px;color:#555">
-           Next step: <a href="${setupLink}" style="color:#1ED4A7;font-weight:600">add a payment method</a> so we can activate your plan.
+           Next step: <a href="${setupLink}" style="color:#111;font-weight:600;text-decoration:underline">add a payment method</a> so we can activate your plan.
          </p>`
       : '';
 
