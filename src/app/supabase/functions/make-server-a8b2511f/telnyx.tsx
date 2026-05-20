@@ -2398,6 +2398,16 @@ app.get('/active-calls', async (c) => {
       noAnswer: todayCalls.filter(c => c.status === 'no-answer' || c.status === 'busy').length,
       booked: todayCalls.filter(c => c.outcome === 'booked' || c.booked === true).length,
       avgDuration,
+      // Debug breadcrumbs to diagnose "all zero" stat bugs. Shows up in
+      // the response so we can compare raw counts to filtered counts
+      // without needing Edge Function log access.
+      _debug: {
+        raw_count: allCallsRaw.length,
+        user_scoped_count: allCalls.length,
+        today_ts: todayTimestamp,
+        statuses_seen: Array.from(new Set(allCalls.map((c: any) => c?.status).filter(Boolean))),
+        sample_started: allCalls.slice(0, 3).map((c: any) => ({ id: c.id, started_at: c.started_at, campaign_id: c.campaign_id, status: c.status })),
+      },
     };
 
     console.log('📞 [Active Calls] Stats calculated:', stats);
