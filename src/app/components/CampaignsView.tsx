@@ -8,12 +8,44 @@ import { projectId } from '../utils/supabase/info';
 import { notifyEmailClicked, notifyEmailOpened } from '../lib/notifications';
 import { exportCampaigns } from '../lib/csvExport';
 import { FastMoneyTargets } from './FastMoneyTargets';
-// Lazy-load so the heavy modal (+ its deep dependency tree) doesn't run
-// at all unless someone actually drills into a row. Same pattern the
-// dashboard uses to avoid eager-import crashes.
+// Lazy-load the heavy LeadDetailModal so its ~20 sub-components only
+// run when someone actually drills into a row. Same pattern the
+// dashboard uses. We also expose a preloadLeadDetailModal() helper to
+// warm the chunk on row HOVER — by the time the user finishes clicking,
+// the JS is parsed and ready, removing the cold-load lag.
+const leadModalImport = () => import('./LeadDetailModal');
+let leadModalPreloaded = false;
+function preloadLeadDetailModal() {
+  if (leadModalPreloaded) return;
+  leadModalPreloaded = true;
+  leadModalImport().catch(() => { leadModalPreloaded = false; });
+}
 const LeadDetailModal = lazy(() =>
-  import('./LeadDetailModal').then((m) => ({ default: m.LeadDetailModal }))
+  leadModalImport().then((m) => ({ default: m.LeadDetailModal }))
 );
+
+// Lightweight skeleton shown while the modal chunk loads. Matches the
+// real modal's general layout so the screen doesn't jump.
+function LeadModalSkeleton() {
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-white dark:bg-zinc-950 w-full sm:max-w-2xl sm:rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 max-h-[90vh] flex flex-col">
+        <div className="flex items-center gap-3 p-5 border-b border-zinc-200 dark:border-zinc-800">
+          <div className="w-12 h-12 rounded-full bg-zinc-100 dark:bg-zinc-900 animate-pulse" />
+          <div className="flex-1 space-y-2">
+            <div className="h-4 w-40 bg-zinc-100 dark:bg-zinc-900 rounded animate-pulse" />
+            <div className="h-3 w-28 bg-zinc-100 dark:bg-zinc-900 rounded animate-pulse" />
+          </div>
+        </div>
+        <div className="p-5 space-y-3">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-3 bg-zinc-100 dark:bg-zinc-900 rounded animate-pulse" style={{ width: `${100 - i * 12}%` }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 import { apiCache } from '../lib/api-cache';
 import { LoadingSpinner } from './LoadingSpinner';
 import { syncEmailStatuses } from '../utils/syncEmailStatuses';
@@ -1510,6 +1542,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                             <div
                               key={contact.id}
                               onClick={() => contact.leadId && setDrillLeadId(contact.leadId)}
+                              onMouseEnter={() => contact.leadId && preloadLeadDetailModal()}
                               className={`group px-5 py-3.5 hover:bg-zinc-50 dark:hover:bg-zinc-900/30 transition-colors ${contact.leadId ? 'cursor-pointer' : ''}`}
                             >
                               <div className="flex items-start gap-3">
@@ -1672,6 +1705,8 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                           <button
                             key={c.id}
                             onClick={() => c.leadId && setDrillLeadId(c.leadId)}
+                            onMouseEnter={() => c.leadId && preloadLeadDetailModal()}
+                            onFocus={() => c.leadId && preloadLeadDetailModal()}
                             disabled={!c.leadId}
                             className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors disabled:cursor-default"
                           >
@@ -1743,6 +1778,8 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                           <button
                             key={c.id}
                             onClick={() => c.leadId && setDrillLeadId(c.leadId)}
+                            onMouseEnter={() => c.leadId && preloadLeadDetailModal()}
+                            onFocus={() => c.leadId && preloadLeadDetailModal()}
                             disabled={!c.leadId}
                             className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors disabled:cursor-default"
                           >
@@ -2289,7 +2326,7 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
         )}
       </div>
       {drillLeadId && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<LeadModalSkeleton />}>
           <LeadDetailModal leadId={drillLeadId} onClose={() => setDrillLeadId(null)} />
         </Suspense>
       )}
