@@ -2396,24 +2396,55 @@ export function AdminDashboard() {
                       const name = user.user_metadata?.name || (user.email || '').split('@')[0] || 'User';
                       const av = avatarFor(name);
                       const rawPlan = String(user.subscription?.plan || '').toLowerCase();
+                      const rawStatus = String(user.subscription?.status || '').toLowerCase();
                       const planKey = normalizePlanKey(user.subscription?.plan);
                       // Show the user's REAL plan name on the row, not the normalized
                       // tier. Admins need to see "Professional" vs "Scale" so they
                       // know who's on a legacy plan vs the current pricing.
-                      // normalizePlanLabel/Key is only used for picker UIs.
                       const isLegacyPlan = rawPlan && rawPlan !== planKey && rawPlan !== 'none';
-                      const planLabel = rawPlan && rawPlan !== 'none'
-                        ? rawPlan.charAt(0).toUpperCase() + rawPlan.slice(1)
-                        : 'None';
-                      const planActive = user.subscription?.status === 'active';
+                      const planActive = rawStatus === 'active';
+                      // Label resolver — "None" should ONLY mean a user who has never
+                      // had any subscription state at all. If they canceled, are past
+                      // due, etc., show the actual status instead so admins can tell at
+                      // a glance "this person USED to pay" vs "this person never did".
+                      const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+                      let planLabel: string;
+                      if (rawPlan && rawPlan !== 'none' && rawPlan !== 'waitlist') {
+                        planLabel = cap(rawPlan);
+                      } else if (rawStatus === 'canceled' || rawStatus === 'cancelled') {
+                        planLabel = 'Canceled';
+                      } else if (rawStatus === 'past_due') {
+                        planLabel = 'Past due';
+                      } else if (rawStatus === 'unpaid') {
+                        planLabel = 'Unpaid';
+                      } else if (rawStatus === 'paused') {
+                        planLabel = 'Paused';
+                      } else if (rawStatus === 'trialing') {
+                        planLabel = 'Trial';
+                      } else if (rawStatus === 'incomplete' || rawStatus === 'incomplete_expired') {
+                        planLabel = 'Incomplete';
+                      } else if (rawStatus === 'pending' || rawPlan === 'waitlist') {
+                        planLabel = 'Waitlist';
+                      } else {
+                        planLabel = 'None';
+                      }
                       const count = user.leadCount || 0;
                       const limit = user.leadLimit || 0;
                       const isUnlimited = limit === -1;
                       const pct = isUnlimited ? 0 : limit > 0 ? Math.min(100, Math.round((count / limit) * 100)) : 0;
                       const isAtLimit = !isUnlimited && pct >= 100;
                       const isNearLimit = !isUnlimited && pct >= 80;
+                      // Color-code the plan chip by what the label actually means
                       const planChipCls = planActive
                         ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                        : rawStatus === 'past_due' || rawStatus === 'unpaid'
+                        ? 'bg-rose-500/10 text-rose-500 border-rose-500/20'
+                        : rawStatus === 'canceled' || rawStatus === 'cancelled'
+                        ? 'bg-zinc-200 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700'
+                        : rawStatus === 'trialing'
+                        ? 'bg-sky-500/10 text-sky-500 border-sky-500/20'
+                        : rawStatus === 'paused' || rawStatus === 'incomplete' || rawStatus === 'incomplete_expired' || rawStatus === 'pending' || rawPlan === 'waitlist'
+                        ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
                         : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800';
                       return (
                       <tr key={user.id} onClick={() => setDetailUser(user)} className="hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors cursor-pointer">
