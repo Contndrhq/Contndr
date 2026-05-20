@@ -16,6 +16,8 @@ import DemoDataManager from './DemoDataManager';
 import LeadScoringManager from './LeadScoringManager';
 import { TrackingTab } from './TrackingTab';
 import { PreferencesSettings } from './PreferencesSettings';
+import { TelegramSettings } from './TelegramSettings';
+import { MetaSettings } from './MetaSettings';
 import { ComplianceSettings } from './ComplianceSettings';
 import { AgentModeSettings } from './AgentModeSettings';
 import { useTranslation } from 'react-i18next';
@@ -23,7 +25,7 @@ import { useTranslation } from 'react-i18next';
 // ─── Admin UIDs (supplement email-based checks) ─────────────────────
 const ADMIN_UIDS = ['004b2df9-3e3f-48ec-acfd-5374ab55b09f'];
 
-type SettingsTab = 'profile' | 'preferences' | 'signature' | 'email' | 'integrations' | 'tracking' | 'knowledge-base' | 'team' | 'affiliate' | 'billing' | 'diagnostics' | 'demo' | 'lead-scoring' | 'compliance' | 'agent-mode';
+type SettingsTab = 'profile' | 'preferences' | 'signature' | 'email' | 'integrations' | 'channels' | 'tracking' | 'knowledge-base' | 'team' | 'affiliate' | 'billing' | 'diagnostics' | 'demo' | 'lead-scoring' | 'compliance' | 'agent-mode';
 
 export function Settings() {
   const { t } = useTranslation();
@@ -99,6 +101,7 @@ export function Settings() {
     { id: 'email', label: t('settings.email', 'Email') },
     { id: 'signature', label: t('settings.signature', 'Signature') },
     { id: 'integrations', label: t('settings.integrations', 'Integrations') },
+    { id: 'channels', label: t('settings.channels', 'Channels') },
     { id: 'tracking', label: t('settings.tracking', 'Tracking') },
     { id: 'knowledge-base', label: t('settings.aiBrain', 'AI Brain') },
     { id: 'team', label: t('settings.team', 'Team') },
@@ -152,6 +155,25 @@ export function Settings() {
         {activeTab === 'knowledge-base' && <AIBrain />}
 
         {activeTab === 'integrations' && <IntegrationsTab />}
+
+        {activeTab === 'channels' && (
+          <div className="space-y-8">
+            <section>
+              <div className="flex items-baseline justify-between mb-4">
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white">Telegram</h2>
+                <span className="text-xs text-gray-500 dark:text-gray-400">Bot-based · 3-min setup</span>
+              </div>
+              <TelegramSettings />
+            </section>
+            <section>
+              <div className="flex items-baseline justify-between mb-4">
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white">Meta (Facebook + Instagram)</h2>
+                <span className="text-xs text-gray-500 dark:text-gray-400">Lead Ads + DMs</span>
+              </div>
+              <MetaSettings />
+            </section>
+          </div>
+        )}
 
         {activeTab === 'tracking' && <TrackingTab />}
 
