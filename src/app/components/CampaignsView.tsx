@@ -1,5 +1,5 @@
 // Rebuild trigger: 2026-02-23-campaigns-module-cache-fix
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { Mail, Send, Eye, Users, Clock, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Zap, Plus, RefreshCw, Trash2, Download, Target, ChevronLeft, ChevronDown, ChevronUp, MousePointerClick, User, Radio, Play, Building2, Briefcase, Phone, MapPin, Globe } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { authenticatedFetch, getAuthHeaders } from '../lib/auth';
@@ -8,7 +8,12 @@ import { projectId } from '../utils/supabase/info';
 import { notifyEmailClicked, notifyEmailOpened } from '../lib/notifications';
 import { exportCampaigns } from '../lib/csvExport';
 import { FastMoneyTargets } from './FastMoneyTargets';
-import { LeadDetailModal } from './LeadDetailModal';
+// Lazy-load so the heavy modal (+ its deep dependency tree) doesn't run
+// at all unless someone actually drills into a row. Same pattern the
+// dashboard uses to avoid eager-import crashes.
+const LeadDetailModal = lazy(() =>
+  import('./LeadDetailModal').then((m) => ({ default: m.LeadDetailModal }))
+);
 import { apiCache } from '../lib/api-cache';
 import { LoadingSpinner } from './LoadingSpinner';
 import { syncEmailStatuses } from '../utils/syncEmailStatuses';
@@ -2284,7 +2289,9 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
         )}
       </div>
       {drillLeadId && (
-        <LeadDetailModal leadId={drillLeadId} onClose={() => setDrillLeadId(null)} />
+        <Suspense fallback={null}>
+          <LeadDetailModal leadId={drillLeadId} onClose={() => setDrillLeadId(null)} />
+        </Suspense>
       )}
     </div>
   );
