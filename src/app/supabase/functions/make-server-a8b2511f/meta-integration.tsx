@@ -165,7 +165,13 @@ async function handleLeadgenEvent(pageId: string, value: any): Promise<void> {
   const fullName = fields['full_name'] || fields['name'] || [fields['first_name'], fields['last_name']].filter(Boolean).join(' ');
   const phone = fields['phone_number'] || fields['phone'] || '';
   const company = fields['company'] || fields['company_name'] || '';
-  const jobTitle = fields['job_title'] || fields['title'] || '';
+  const jobTitle = fields['job_title'] || fields['title'] || fields['position'] || '';
+  const website = fields['website'] || fields['company_website'] || '';
+  const city = fields['city'] || '';
+  const state = fields['state'] || fields['province'] || fields['state_province'] || '';
+  const country = fields['country'] || '';
+  const street = fields['street_address'] || fields['address'] || '';
+  const industry = fields['industry'] || fields['business_type'] || '';
 
   // Route through the shared importer so the lead gets cross-channel
   // de-duped (e.g. same email previously DMed → merges into existing).
@@ -181,6 +187,12 @@ async function handleLeadgenEvent(pageId: string, value: any): Promise<void> {
       contact_name: fullName,
       business_name: company,
       job_title: jobTitle,
+      website: website || null,
+      address: street || null,
+      city: city || null,
+      state: state || null,
+      country: country || null,
+      industry: industry || null,
       raw: { form_id: formId, page_id: pageId, fields },
     });
     leadId = result.lead_id;

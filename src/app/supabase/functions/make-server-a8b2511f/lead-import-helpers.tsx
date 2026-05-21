@@ -22,11 +22,24 @@ export interface ImportedLeadFields {
   source: string;
   /** Stable per-channel id (leadgen_id, sender_id, chat_id) for re-import idempotency */
   external_id?: string | null;
+  // ── Core CRM columns (must match the canonical schema used by
+  //    Lead Finder so imported leads slot into the same UI without
+  //    looking second-class) ──
   email?: string | null;
   phone?: string | null;
   contact_name?: string | null;
   business_name?: string | null;
   job_title?: string | null;
+  website?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  category?: string | null;
+  industry?: string | null;
+  linkedin?: string | null;
+  person_linkedin_url?: string | null;
+  // ── Channel context ──
   /** Whatever raw payload the channel had — stored on the lead for audit */
   raw?: Record<string, any>;
   /** First snippet of text we saw (e.g. opening DM) — drives initial summary */
@@ -166,6 +179,8 @@ export async function upsertImportedLead(fields: ImportedLeadFields): Promise<Up
     const lead = existing.lead;
     const updates: any = { updated_at: now, last_activity_at: now };
 
+    // Backfill any blank canonical fields with newly-arrived data, but
+    // never OVERWRITE — we trust the most-complete record we already have.
     if (normEmail && !lead.email) updates.email = normEmail;
     if (normPhone && !lead.phone) updates.phone = normPhone;
     if (fields.contact_name && (!lead.contact_name || lead.contact_name === "Unknown")) {
@@ -173,6 +188,17 @@ export async function upsertImportedLead(fields: ImportedLeadFields): Promise<Up
     }
     if (fields.business_name && !lead.business_name) updates.business_name = fields.business_name;
     if (fields.job_title && !lead.job_title) updates.job_title = fields.job_title;
+    if (fields.website && !lead.website) updates.website = fields.website;
+    if (fields.address && !lead.address) updates.address = fields.address;
+    if (fields.city && !lead.city) updates.city = fields.city;
+    if (fields.state && !lead.state) updates.state = fields.state;
+    if (fields.country && !lead.country) updates.country = fields.country;
+    if (fields.category && !lead.category) updates.category = fields.category;
+    if (fields.industry && !lead.industry) updates.industry = fields.industry;
+    if (fields.linkedin && !lead.linkedin) updates.linkedin = fields.linkedin;
+    if (fields.person_linkedin_url && !lead.person_linkedin_url) {
+      updates.person_linkedin_url = fields.person_linkedin_url;
+    }
 
     if (Object.keys(updates).length > 2) {
       await supabase.from("leads").update(updates).eq("id", existing.id);
@@ -207,20 +233,47 @@ export async function upsertImportedLead(fields: ImportedLeadFields): Promise<Up
     return { lead_id: "", created: false, merged: false, skipped_reason: limitCheck.reason };
   }
 
-  // Build the new lead row
+  // Build the new lead row using the SAME canonical schema Lead Finder
+  // uses, so imported leads are first-class in the CRM (no missing
+  // columns / second-class display). Channel-specific provenance lives
+  // in source + source_external_id + notes.
   const newLeadId = `${fields.source.replace(/_/g, "-")}-${fields.external_id || crypto.randomUUID()}`;
+  const channelMeta = sourceLabel(fields.source);
+  const notesLines = [
+    `Imported via ${channelMeta.emoji} ${channelMeta.label}.`,
+    fields.external_id ? `Channel ID: ${fields.external_id}` : null,
+    fields.initial_message ? `First message: ${fields.initial_message.slice(0, 240)}` : null,
+    fields.linkedin || fields.person_linkedin_url
+      ? `LinkedIn: ${fields.person_linkedin_url || fields.linkedin}`
+      : null,
+  ].filter(Boolean).join("\n");
+
   const newLead: any = {
     id: newLeadId,
     user_id: fields.user_id,
-    source: fields.source,
-    source_external_id: fields.external_id || null,
+    // Canonical CRM columns — match Lead Finder's insert shape exactly
+    business_name: fields.business_name || null,
+    contact_name: fields.contact_name || null,
     email: normEmail,
     phone: normPhone,
-    contact_name: fields.contact_name || null,
-    business_name: fields.business_name || null,
+    website: fields.website || null,
+    address: fields.address || null,
+    city: fields.city || null,
+    state: fields.state || null,
+    country: fields.country || null,
+    category: fields.category || null,
+    industry: fields.industry || null,
     job_title: fields.job_title || null,
-    status: "new",
+    linkedin: fields.linkedin || null,
+    person_linkedin_url: fields.person_linkedin_url || null,
+    notes: notesLines || null,
+    // Status uses the same case-sensitive vocabulary the rest of the
+    // CRM uses ('Cold' / 'Warm' / 'Hot'), so segment/filter views work.
+    status: "Cold",
     bounced: false,
+    // Channel attribution
+    source: fields.source,
+    source_external_id: fields.external_id || null,
     created_at: now,
     updated_at: now,
     last_activity_at: now,
