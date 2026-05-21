@@ -183,6 +183,30 @@ export function DesktopLeadRow({
                   {roleBadge}
                 </span>
               )}
+              {/* Source badge — Meta / Telegram / Lead Finder etc. so the
+                  user can tell at a glance where each lead came from. */}
+              {lead.source && lead.source !== 'manual' && (() => {
+                const map: Record<string, { label: string; emoji: string }> = {
+                  meta_lead_ad:      { label: 'Meta Ad',      emoji: '🎯' },
+                  meta_instagram_dm: { label: 'Instagram',    emoji: '📷' },
+                  meta_messenger:    { label: 'Messenger',    emoji: '💬' },
+                  telegram_dm:       { label: 'Telegram',     emoji: '✈️' },
+                  sms:               { label: 'SMS',          emoji: '📱' },
+                  lead_finder:       { label: 'Lead Finder',  emoji: '🔎' },
+                  import:            { label: 'Import',       emoji: '📥' },
+                };
+                const meta = map[lead.source as string];
+                if (!meta) return null;
+                return (
+                  <span
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 ring-1 ring-zinc-200/50 dark:ring-zinc-700/50 flex-shrink-0"
+                    title={`Imported from ${meta.label}`}
+                  >
+                    <span className="text-[9px]">{meta.emoji}</span>
+                    <span className="uppercase tracking-wide">{meta.label}</span>
+                  </span>
+                );
+              })()}
               {lead.is_shared && (
                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800/60 text-zinc-500 dark:text-zinc-400 ring-1 ring-zinc-200/50 dark:ring-zinc-700/50 flex-shrink-0">
                   <Globe2 className="w-2.5 h-2.5" />

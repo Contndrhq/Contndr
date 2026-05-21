@@ -167,45 +167,32 @@ async function handleLeadgenEvent(pageId: string, value: any): Promise<void> {
   const company = fields['company'] || fields['company_name'] || '';
   const jobTitle = fields['job_title'] || fields['title'] || '';
 
-  // Persist as a Contndr lead. Use a deterministic ID derived from the
-  // leadgen_id so re-deliveries from Meta don't create duplicates.
-  const leadId = `meta-${leadgenId}`;
-  const leadRecord: any = {
-    id: leadId,
-    user_id: userId,
-    source: 'meta_lead_ad',
-    source_form_id: formId,
-    source_page_id: pageId,
-    source_leadgen_id: leadgenId,
-    email: email.toLowerCase().trim() || null,
-    phone: phone || null,
-    contact_name: fullName || null,
-    business_name: company || null,
-    job_title: jobTitle || null,
-    raw_fields: fields,
-    status: 'new',
-    created_at: new Date().toISOString(),
-  };
-
+  // Route through the shared importer so the lead gets cross-channel
+  // de-duped (e.g. same email previously DMed → merges into existing).
+  let leadId = '';
   try {
-    const { createClient } = await import('npm:@supabase/supabase-js@2');
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    );
-    // Upsert so retries are idempotent
-    const { error } = await supabase.from('leads').upsert(leadRecord, { onConflict: 'id' });
-    if (error) {
-      console.warn('[META] lead upsert failed:', error.message);
-    } else {
-      console.log(`[META] ✅ Lead created/updated from Meta lead ad: ${leadId} (${email || 'no email'})`);
+    const { upsertImportedLead } = await import('./lead-import-helpers.tsx');
+    const result = await upsertImportedLead({
+      user_id: userId,
+      source: 'meta_lead_ad',
+      external_id: leadgenId,
+      email,
+      phone,
+      contact_name: fullName,
+      business_name: company,
+      job_title: jobTitle,
+      raw: { form_id: formId, page_id: pageId, fields },
+    });
+    leadId = result.lead_id;
+    if (result.skipped_reason) {
+      console.warn(`[META] lead ad ${leadgenId} dropped: ${result.skipped_reason}`);
+      return;
     }
+    console.log(`[META] ✅ Lead ${result.created ? 'created' : 'merged'} from Meta lead ad: ${leadId} (${email || 'no email'})`);
   } catch (e: any) {
     console.warn('[META] lead upsert error:', e?.message);
+    return;
   }
-
-  // KV mirror for app event stream
-  await kv.set(`lead:${leadId}`, leadRecord).catch(() => {});
 
   // Native push so the user knows a new lead landed
   try {
@@ -265,6 +252,26 @@ async function handleMessagingEvent(objectType: string, pageId: string, msg: any
     received_at: new Date(ts).toISOString(),
   };
   await kv.set(`meta_message:${userId}:${senderId}:${ts}`, record);
+
+  // First-message-creates-lead — same pattern as Telegram. The dedup
+  // logic in lead-import-helpers will merge by external_id if the
+  // same prospect DMs again (or if they were already imported via a
+  // Lead Ad form using the same email).
+  (async () => {
+    try {
+      const { upsertImportedLead } = await import('./lead-import-helpers.tsx');
+      await upsertImportedLead({
+        user_id: userId,
+        source: channel === 'instagram_dm' ? 'meta_instagram_dm' : 'meta_messenger',
+        external_id: senderId,
+        contact_name: senderName,
+        initial_message: text,
+        raw: { page_id: pageId, sender_id: senderId },
+      });
+    } catch (e: any) {
+      console.warn('[META] upsertImportedLead failed:', e?.message);
+    }
+  })();
 
   // Native push
   try {

@@ -91,6 +91,25 @@ app.post('/webhooks/telegram/:botId', async (c) => {
 
     await kv.set(`telegram_message:${userId}:${chatId}:${ts}`, record);
 
+    // First-message-creates-lead: if this is a new sender, create
+    // a lead so they show up in CRM, not just the inbox.
+    (async () => {
+      try {
+        const { upsertImportedLead } = await import('./lead-import-helpers.tsx');
+        await upsertImportedLead({
+          user_id: userId,
+          source: 'telegram_dm',
+          external_id: chatId,
+          contact_name: senderName,
+          business_name: null,
+          initial_message: text,
+          raw: { bot_id: botId, sender_id: senderId, sender_handle: senderHandle },
+        });
+      } catch (e: any) {
+        console.warn('[TELEGRAM] upsertImportedLead failed:', e?.message);
+      }
+    })();
+
     // Native push so the user sees it on their phone
     try {
       const { sendNativePush } = await import('./native-push.tsx');
