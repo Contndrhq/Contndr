@@ -61,7 +61,14 @@ class NotificationService {
     return 'Notification' in window && Notification.permission === 'granted';
   }
 
-  // Show a notification (both browser and in-app)
+  // Show a notification — visibility-aware so users don't get hit
+  // by an in-app toast AND a system push for the same event.
+  //
+  // Standard pattern (matches Slack / Linear / Notion):
+  //   • Tab is FOCUSED + VISIBLE → in-app toast only. User is right
+  //     here, no reason to spawn a heavy OS-level popup.
+  //   • Tab is HIDDEN / BACKGROUNDED → browser/OS notification only.
+  //     User isn't looking, the in-app toast would never be seen.
   notify(type: NotificationType, title: string, message: string, metadata?: any) {
     const notification: NotificationData = {
       id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -73,22 +80,33 @@ class NotificationService {
       metadata,
     };
 
-    // Add to history
+    // History always gets it so the bell shows accurate state
     this.notificationHistory.unshift(notification);
     if (this.notificationHistory.length > this.maxHistorySize) {
       this.notificationHistory = this.notificationHistory.slice(0, this.maxHistorySize);
     }
     this.saveHistory();
 
-    // Notify all listeners (for in-app notifications)
-    this.listeners.forEach(listener => listener(notification));
+    // Resolve visibility — defaults to "visible" if the API isn't there
+    const isVisible = typeof document === 'undefined'
+      ? true
+      : document.visibilityState !== 'hidden' && !document.hidden;
 
-    // Show browser notification if enabled
-    if (this.isEnabled()) {
+    if (isVisible) {
+      // Foreground: in-app toast only
+      this.listeners.forEach(listener => listener(notification));
+    } else if (this.isEnabled()) {
+      // Backgrounded: browser notification only
       this.showBrowserNotification(title, message, type);
+    } else {
+      // Backgrounded but permission denied — fall back to the in-app
+      // listener so when the user returns, the bell has the entry
+      this.listeners.forEach(listener => listener(notification));
     }
 
-    // Play notification sound
+    // Sound on every event regardless of which surface fired — that's
+    // the audible cue most users rely on, and it's consistent with
+    // how Mac / iOS native apps behave.
     this.playNotificationSound();
   }
 
