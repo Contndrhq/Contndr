@@ -125,7 +125,12 @@ export function DashboardCampaignSignals({ onNavigate }: { onNavigate: (view: st
               // and the dashboard signal panel always rendered empty.
               .select('id, first_name, contact_name, business_name, email, status, updated_at')
               .eq('user_id', userId)
-              .in('status', ['contacted', 'replied', 'meeting_scheduled', 'opened', 'clicked'])
+              // Only filter on actual lead statuses — 'opened' / 'clicked'
+              // are EMAIL statuses on the emails table, not lead statuses.
+              // Postgres was returning 400 because the leads.status enum
+              // rejects those values. Engagement signals from opens/clicks
+              // are computed separately via the emails join below.
+              .in('status', ['contacted', 'replied', 'interested', 'not_now', 'meeting_scheduled', 'customer'])
               .order('updated_at', { ascending: false })
               .limit(200)
               .then(r => r.data || [])
