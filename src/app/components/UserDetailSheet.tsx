@@ -254,7 +254,47 @@ export function UserDetailSheet({
   }, [onClose]);
 
   const chargeCard = async () => {
-    const confirmMsg = `Charge ${userEmail || 'this user'}'s card on file: ${chargePlan} ${chargeInterval === 'yearly' ? PLAN_PRICES[chargePlan].yearly + '/yr' : PLAN_PRICES[chargePlan].monthly + '/mo'}?\n\nThis creates or updates their Stripe subscription and charges immediately.`;
+    // STEP 1 — fetch Stripe's prorated preview so the admin sees the
+    // actual "amount due now" (could be much less than the full plan
+    // price when upgrading mid-cycle — Stripe credits unused time on
+    // the current plan and charges only the difference for the
+    // remainder of the current billing period).
+    let preview: any = null;
+    try {
+      const r = await authenticatedFetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/plan/preview`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, plan: chargePlan, interval: chargeInterval }),
+        },
+      );
+      preview = await r.json();
+      if (!r.ok) throw new Error(preview.error || `HTTP ${r.status}`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Preview failed — try again');
+      return;
+    }
+
+    const fmtMoney = (cents: number, currency = 'usd') =>
+      `${(currency || 'usd').toUpperCase() === 'USD' ? '$' : ''}${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    const dueNow = preview.amount_due_now_cents || 0;
+    const nextFull = preview.next_full_charge_cents || 0;
+    const lineLabel = preview.is_new_subscription ? 'New subscription' : 'Plan change (prorated)';
+    const lines = (preview.line_items || []).map((l: any) =>
+      `  • ${l.description}: ${l.amount_cents < 0 ? '-' : ''}${fmtMoney(Math.abs(l.amount_cents), preview.currency)}`,
+    ).join('\n');
+
+    const confirmMsg =
+      `${lineLabel} — ${userEmail || 'this user'}\n\n` +
+      (lines ? `${lines}\n\n` : '') +
+      `Amount due NOW: ${fmtMoney(dueNow, preview.currency)}\n` +
+      (nextFull && !preview.is_new_subscription
+        ? `Next full charge: ${fmtMoney(nextFull, preview.currency)}/${chargeInterval === 'yearly' ? 'yr' : 'mo'}\n\n`
+        : '\n') +
+      `Charge the card on file now?`;
+
     if (!confirm(confirmMsg)) return;
     setCharging(true);
     try {

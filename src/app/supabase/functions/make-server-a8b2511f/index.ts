@@ -3421,6 +3421,118 @@ app.post("/make-server-a8b2511f/admin/users/delete", async (c) => {
   }
 });
 
+// POST /admin/users/plan/preview — Show the prorated amount Stripe will
+// charge for the requested plan change BEFORE we commit. Returns the
+// upcoming-invoice preview so admin sees the real number (proration credit
+// for unused time on the current plan + new plan's prorated charge for the
+// remainder of the current cycle). Read-only — does not mutate Stripe.
+app.post("/make-server-a8b2511f/admin/users/plan/preview", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) return c.json({ error: 'Unauthorized' }, 403);
+
+    const { userId, plan, interval } = await c.req.json();
+    if (!userId || !plan) return c.json({ error: 'userId and plan required' }, 400);
+    const billingInterval: 'monthly' | 'yearly' = interval === 'yearly' ? 'yearly' : 'monthly';
+
+    const stripeClient = await getStripe();
+    if (!stripeClient) return c.json({ error: 'Stripe not configured' }, 500);
+
+    const customerId: any = await kv.get(`stripe_customer:${userId}`);
+    if (!customerId) {
+      return c.json({
+        is_new_subscription: true,
+        amount_due_now_cents: planMonthlyToCents(plan, billingInterval),
+        currency: 'usd',
+        line_items: [{ description: `New ${plan} subscription`, amount_cents: planMonthlyToCents(plan, billingInterval) }],
+      });
+    }
+
+    // Find the current active sub (if any)
+    const subs = await stripeClient.subscriptions.list({ customer: customerId, status: 'all', limit: 5 });
+    const STATUS_PRIORITY: Record<string, number> = {
+      active: 100, trialing: 90, past_due: 80, unpaid: 70, canceled: 60,
+      paused: 50, incomplete: 10, incomplete_expired: 0,
+    };
+    const currentSub = (subs.data || []).slice().sort((a: any, b: any) =>
+      (STATUS_PRIORITY[b.status] ?? 0) - (STATUS_PRIORITY[a.status] ?? 0),
+    )[0];
+
+    // Resolve the target price ID
+    const targetPriceId = await resolvePriceIdForPlan(plan, billingInterval);
+    if (!targetPriceId) return c.json({ error: `No Stripe price configured for ${plan} ${billingInterval}` }, 500);
+
+    if (!currentSub || ['canceled', 'incomplete_expired'].includes(currentSub.status)) {
+      // No existing sub — full charge for the new plan
+      return c.json({
+        is_new_subscription: true,
+        current_plan: null,
+        target_plan: plan,
+        target_interval: billingInterval,
+        amount_due_now_cents: planMonthlyToCents(plan, billingInterval),
+        currency: 'usd',
+        line_items: [{ description: `New ${plan} subscription (${billingInterval})`, amount_cents: planMonthlyToCents(plan, billingInterval) }],
+      });
+    }
+
+    // Existing sub — ask Stripe for the prorated upcoming invoice
+    const upcoming: any = await stripeClient.invoices.retrieveUpcoming({
+      customer: customerId,
+      subscription: currentSub.id,
+      subscription_items: [{
+        id: currentSub.items.data[0].id,
+        price: targetPriceId,
+      }],
+      subscription_proration_behavior: 'always_invoice',
+    }).catch((e: any) => ({ _error: e?.message }));
+
+    if (upcoming._error) {
+      return c.json({ error: `Stripe preview failed: ${upcoming._error}` }, 500);
+    }
+
+    return c.json({
+      is_new_subscription: false,
+      current_plan: currentSub.items?.data?.[0]?.price?.nickname || currentSub.items?.data?.[0]?.price?.id,
+      target_plan: plan,
+      target_interval: billingInterval,
+      amount_due_now_cents: upcoming.amount_due || 0,
+      subtotal_cents: upcoming.subtotal || 0,
+      tax_cents: upcoming.tax || 0,
+      currency: upcoming.currency || 'usd',
+      period_start: upcoming.period_start || null,
+      period_end: upcoming.period_end || null,
+      next_full_charge_cents: planMonthlyToCents(plan, billingInterval),
+      line_items: (upcoming.lines?.data || []).map((l: any) => ({
+        description: l.description || l.price?.nickname || 'Line item',
+        amount_cents: l.amount,
+        proration: !!l.proration,
+        period_start: l.period?.start || null,
+        period_end: l.period?.end || null,
+      })),
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] plan/preview error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// Helpers used by the preview endpoint above. Kept inline so this file
+// doesn't need a new module just for two tiny lookups.
+function planMonthlyToCents(plan: string, interval: 'monthly' | 'yearly'): number {
+  const monthly: Record<string, number> = { growth: 499_00, scale: 999_00, enterprise: 2500_00 };
+  const yearly:  Record<string, number> = { growth: 4990_00, scale: 9990_00, enterprise: 25000_00 };
+  return (interval === 'yearly' ? yearly[plan] : monthly[plan]) || 0;
+}
+async function resolvePriceIdForPlan(plan: string, interval: 'monthly' | 'yearly'): Promise<string | null> {
+  // Allow env override per (plan, interval). Falls back to KV lookup
+  // (set by the billing setup flow), then null.
+  const envKey = `STRIPE_PRICE_${plan.toUpperCase()}_${interval.toUpperCase()}`;
+  const envVal = Deno.env.get(envKey);
+  if (envVal) return envVal;
+  const kvVal = await kv.get(`stripe_price:${plan}:${interval}`).catch(() => null);
+  return (kvVal as any) || null;
+}
+
 // POST /admin/users/plan - Change user plan (Admin Only)
 app.post("/make-server-a8b2511f/admin/users/plan", async (c) => {
   try {
@@ -19497,11 +19609,30 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
           const subs = await stripeClient.subscriptions.list({
             customer: stripeCustomerId,
             status: 'all',
-            limit: 3,
+            limit: 5,
           }).catch(() => ({ data: [] }));
-          // Prefer the most recently updated non-incomplete sub
-          const liveSub = (subs.data || [])
-            .sort((a: any, b: any) => (b.current_period_end || 0) - (a.current_period_end || 0))[0];
+
+          // Status priority — an active sub ALWAYS beats a stale incomplete
+          // sub on the same customer. Previously we sorted only by
+          // current_period_end, which let an old failed checkout shadow
+          // the actual active subscription and surface "Incomplete /
+          // Checkout never completed" even after the customer paid.
+          const STATUS_PRIORITY: Record<string, number> = {
+            active: 100,
+            trialing: 90,
+            past_due: 80,
+            unpaid: 70,
+            canceled: 60,           // includes "active until period end"
+            paused: 50,
+            incomplete: 10,
+            incomplete_expired: 0,
+          };
+          const liveSub = (subs.data || []).slice().sort((a: any, b: any) => {
+            const pa = STATUS_PRIORITY[a.status] ?? 0;
+            const pb = STATUS_PRIORITY[b.status] ?? 0;
+            if (pa !== pb) return pb - pa;
+            return (b.current_period_end || 0) - (a.current_period_end || 0);
+          })[0];
           if (liveSub) {
             stripeSubStatus = {
               id: liveSub.id,
