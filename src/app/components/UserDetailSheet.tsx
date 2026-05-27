@@ -154,6 +154,41 @@ export function UserDetailSheet({
   const [charging, setCharging] = useState(false);
   const [generatingSetupLink, setGeneratingSetupLink] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null); // 'all' or invoice_id
+
+  // Live proration preview — fetched whenever the admin changes the
+  // plan/interval picker so they see the actual amount due now BEFORE
+  // clicking Charge. Read-only Stripe call, doesn't mutate anything.
+  const [preview, setPreview] = useState<any | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  useEffect(() => {
+    // Skip if the sheet hasn't loaded yet or there's no customer to bill
+    if (!data?.stripe?.customer_id && !data?.subscription) return;
+    let cancelled = false;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    (async () => {
+      try {
+        const r = await authenticatedFetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/plan/preview`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, plan: chargePlan, interval: chargeInterval }),
+          },
+        );
+        const j = await r.json();
+        if (cancelled) return;
+        if (!r.ok) { setPreviewError(j.error || `HTTP ${r.status}`); setPreview(null); }
+        else { setPreview(j); }
+      } catch (e: any) {
+        if (!cancelled) { setPreviewError(e?.message || 'Preview failed'); setPreview(null); }
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userId, chargePlan, chargeInterval, data?.stripe?.customer_id, data?.subscription]);
   const [sendingApproval, setSendingApproval] = useState(false);
 
   async function sendApprovalEmail() {
@@ -682,13 +717,65 @@ export function UserDetailSheet({
                         </button>
                       ))}
                     </div>
+
+                    {/* Inline proration preview — what Stripe will actually
+                        charge right now (vs the full recurring price). */}
+                    <div className="rounded-lg border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-white/[0.03] px-3 py-2.5 text-[11px]">
+                      {previewLoading ? (
+                        <div className="flex items-center gap-1.5 text-zinc-500">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Calculating proration…
+                        </div>
+                      ) : previewError ? (
+                        <div className="text-rose-500">⚠ {previewError}</div>
+                      ) : preview ? (
+                        <>
+                          <div className="flex items-baseline justify-between mb-1.5">
+                            <span className="text-zinc-500 dark:text-zinc-400">Amount due now</span>
+                            <span className="text-sm font-semibold text-zinc-900 dark:text-white tabular-nums">
+                              {(preview.currency || 'usd').toUpperCase() === 'USD' ? '$' : ''}
+                              {((preview.amount_due_now_cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          {!preview.is_new_subscription && preview.next_full_charge_cents > 0 && (
+                            <div className="flex items-baseline justify-between text-[10px] text-zinc-500 mb-1.5">
+                              <span>Then renews at</span>
+                              <span className="tabular-nums">
+                                ${(preview.next_full_charge_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                /{chargeInterval === 'yearly' ? 'yr' : 'mo'}
+                              </span>
+                            </div>
+                          )}
+                          {Array.isArray(preview.line_items) && preview.line_items.length > 0 && (
+                            <div className="border-t border-zinc-200 dark:border-white/5 pt-1.5 mt-1.5 space-y-0.5">
+                              {preview.line_items.map((l: any, i: number) => (
+                                <div key={i} className="flex items-baseline justify-between text-[10px] text-zinc-500 dark:text-zinc-400">
+                                  <span className="truncate pr-2">{l.description}{l.proration ? ' · prorated' : ''}</span>
+                                  <span className={`tabular-nums flex-shrink-0 ${l.amount_cents < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
+                                    {l.amount_cents < 0 ? '-' : ''}${(Math.abs(l.amount_cents) / 100).toFixed(2)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {preview.is_new_subscription && (
+                            <div className="text-[10px] text-zinc-500 mt-1">New subscription · no proration credit</div>
+                          )}
+                        </>
+                      ) : null}
+                    </div>
+
                     <button
                       onClick={chargeCard}
-                      disabled={charging}
+                      disabled={charging || previewLoading}
                       className="w-full mt-1 px-3 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white text-xs font-medium flex items-center justify-center gap-1.5"
                     >
                       {charging ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
-                      {charging ? 'Charging…' : `Charge ${chargeInterval === 'yearly' ? PLAN_PRICES[chargePlan].yearly + '/yr' : PLAN_PRICES[chargePlan].monthly + '/mo'}`}
+                      {charging
+                        ? 'Charging…'
+                        : preview && !previewError
+                          ? `Charge $${((preview.amount_due_now_cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} now`
+                          : `Charge ${chargeInterval === 'yearly' ? PLAN_PRICES[chargePlan].yearly + '/yr' : PLAN_PRICES[chargePlan].monthly + '/mo'}`}
                     </button>
                     <div className="text-[10px] text-zinc-500">
                       Creates or updates the Stripe subscription and bills the card immediately. Switching intervals re-bills with proration.

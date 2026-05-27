@@ -3524,11 +3524,21 @@ function planMonthlyToCents(plan: string, interval: 'monthly' | 'yearly'): numbe
   return (interval === 'yearly' ? yearly[plan] : monthly[plan]) || 0;
 }
 async function resolvePriceIdForPlan(plan: string, interval: 'monthly' | 'yearly'): Promise<string | null> {
-  // Allow env override per (plan, interval). Falls back to KV lookup
-  // (set by the billing setup flow), then null.
-  const envKey = `STRIPE_PRICE_${plan.toUpperCase()}_${interval.toUpperCase()}`;
-  const envVal = Deno.env.get(envKey);
-  if (envVal) return envVal;
+  // Naming convention in production matches the existing secrets:
+  //   monthly → STRIPE_PRICE_<PLAN>            (bare, no suffix)
+  //   yearly  → STRIPE_PRICE_<PLAN>_YEARLY
+  // (Both `_MONTHLY` and the bare key are tried so older deploys with
+  //  the explicit suffix keep working — first match wins.)
+  const PLAN = plan.toUpperCase();
+  const candidates = interval === 'yearly'
+    ? [`STRIPE_PRICE_${PLAN}_YEARLY`]
+    : [`STRIPE_PRICE_${PLAN}`, `STRIPE_PRICE_${PLAN}_MONTHLY`];
+  for (const key of candidates) {
+    const v = Deno.env.get(key);
+    if (v) return v;
+  }
+  // KV fallback for legacy deploys that stored price IDs via the billing
+  // setup wizard instead of env vars.
   const kvVal = await kv.get(`stripe_price:${plan}:${interval}`).catch(() => null);
   return (kvVal as any) || null;
 }
