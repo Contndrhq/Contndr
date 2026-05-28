@@ -302,6 +302,55 @@ export function UserDetailSheet({
   }, [onClose]);
 
   const chargeCard = async () => {
+    // CUSTOM mode short-circuit — don't touch the subscription, don't
+    // fetch a proration preview. Just confirm with the exact amount
+    // the admin typed and fire a raw PaymentIntent.
+    if (chargeMode === 'custom') {
+      const amt = customAmountCents || 0;
+      if (amt < 50) {
+        toast.error('Enter at least $0.50');
+        return;
+      }
+      const ok = confirm(
+        `Custom charge — ${userEmail || 'this user'}\n\n` +
+        `Amount: $${(amt / 100).toFixed(2)}\n` +
+        `Card on file (no subscription change).\n\n` +
+        `Charge now?`,
+      );
+      if (!ok) return;
+      setCharging(true);
+      try {
+        const r = await authenticatedFetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/charge-custom`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId,
+              amount_cents: amt,
+              description: `Manual charge — ${userEmail || userId}`,
+            }),
+          },
+        );
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        if (j.requires_action) {
+          toast.error('Card requires 3D Secure — customer must complete in their billing portal.');
+        } else if (j.status === 'succeeded') {
+          toast.success(`Charged $${(j.amount_charged_cents / 100).toFixed(2)}`);
+        } else {
+          toast.info(`Charge ${j.status}`);
+        }
+        onChargeUpdated?.();
+        await load();
+      } catch (e: any) {
+        toast.error(e?.message || 'Custom charge failed');
+      } finally {
+        setCharging(false);
+      }
+      return;
+    }
+
     // STEP 1 — fetch Stripe's prorated preview so the admin sees the
     // actual "amount due now" (could be much less than the full plan
     // price when upgrading mid-cycle — Stripe credits unused time on
@@ -345,42 +394,6 @@ export function UserDetailSheet({
 
     if (!confirm(confirmMsg)) return;
     setCharging(true);
-
-    // CUSTOM amount route → call charge-custom (raw PaymentIntent), don't
-    // touch the subscription at all. This bypasses Stripe's proration
-    // logic entirely so admin gets exactly the number they typed.
-    if (chargeMode === 'custom' && customAmountCents && customAmountCents > 0) {
-      try {
-        const r = await authenticatedFetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/charge-custom`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userId,
-              amount_cents: customAmountCents,
-              description: `Manual charge — ${userEmail || userId}`,
-            }),
-          },
-        );
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-        if (j.requires_action) {
-          toast.error('Card requires 3D Secure — customer must complete in their billing portal.');
-        } else if (j.status === 'succeeded') {
-          toast.success(`Charged $${(j.amount_charged_cents / 100).toFixed(2)}`);
-        } else {
-          toast.info(`Charge ${j.status}`);
-        }
-        onChargeUpdated?.();
-        await load();
-      } catch (e: any) {
-        toast.error(e?.message || 'Custom charge failed');
-      } finally {
-        setCharging(false);
-      }
-      return;
-    }
 
     try {
       const r = await authenticatedFetch(
