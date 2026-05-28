@@ -71,6 +71,8 @@ interface DetailPayload {
       exp_year: number;
       funding: string;
       country: string;
+      source?: string | null;
+      source_id?: string | null;
     } | null;
     recent_invoices: Array<{
       id: string;
@@ -658,6 +660,11 @@ export function UserDetailSheet({
                         <div className="text-[11px] text-zinc-500">
                           Exp {String(pm.exp_month).padStart(2, '0')}/{pm.exp_year} · {pm.funding} · {pm.country}
                         </div>
+                        {pm.source && (
+                          <div className="mt-0.5 text-[10px] text-zinc-400 font-mono truncate">
+                            Source: {pm.source}
+                          </div>
+                        )}
                       </div>
                     </div>
                     {data.stripe.customer_id && (

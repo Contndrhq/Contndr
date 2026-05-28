@@ -19564,100 +19564,201 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
     ]);
 
     const authUser = authUserRes?.data?.user || null;
-    const stripeCustomerId = typeof stripeCustomerIdRaw === 'string' ? stripeCustomerIdRaw : null;
+    const kvStripeCustomerId = typeof stripeCustomerIdRaw === 'string' ? stripeCustomerIdRaw : null;
+    let stripeCustomerId = kvStripeCustomerId;
 
     // Pull payment method + recent invoices + sub status from Stripe (best effort).
     let paymentMethod: any = null;
     let invoices: any[] = [];
     let stripeSubStatus: any = null;
-    if (stripeCustomerId) {
+    if (stripeCustomerId || sub?.stripe_sub_id || authUser?.email) {
       try {
         const stripeClient = await getStripe();
         if (stripeClient) {
+          const candidateCustomerIds: Array<{ id: string; source: string }> = [];
+          const addCandidateCustomer = (id: any, source: string) => {
+            const customerId = typeof id === 'string' ? id : id?.id;
+            if (!customerId || !String(customerId).startsWith('cus_')) return;
+            if (!candidateCustomerIds.some((candidate) => candidate.id === customerId)) {
+              candidateCustomerIds.push({ id: customerId, source });
+            }
+          };
+
+          if (sub?.stripe_sub_id) {
+            const subFromKv: any = await stripeClient.subscriptions.retrieve(sub.stripe_sub_id).catch((error: any) => {
+              console.warn('[ADMIN-DETAIL] Could not retrieve KV subscription customer:', {
+                userId,
+                stripe_sub_id: sub?.stripe_sub_id,
+                error: error?.message,
+              });
+              return null;
+            });
+            addCandidateCustomer(subFromKv?.customer, 'contndr_sub.stripe_sub_id.customer');
+          }
+
+          addCandidateCustomer(kvStripeCustomerId, 'kv.stripe_customer');
+
+          if (authUser?.email) {
+            const customersByEmail = await stripeClient.customers.list({ email: authUser.email, limit: 10 }).catch(() => ({ data: [] }));
+            for (const candidate of customersByEmail.data || []) {
+              addCandidateCustomer(candidate.id, 'stripe.customers.list.email');
+            }
+          }
+
+          if (!candidateCustomerIds.length) {
+            console.warn('[ADMIN-DETAIL] No Stripe customer candidates found', {
+              userId,
+              kvStripeCustomerId,
+              stripe_sub_id: sub?.stripe_sub_id || null,
+              email: authUser?.email || null,
+            });
+          }
+
+          const selectedCandidate = candidateCustomerIds[0] || null;
+          if (selectedCandidate) {
+            stripeCustomerId = selectedCandidate.id;
+            if (stripeCustomerId !== kvStripeCustomerId) {
+              console.warn('[ADMIN-DETAIL] Healing Stripe customer KV mapping from stronger source', {
+                userId,
+                previous_customer_id: kvStripeCustomerId,
+                resolved_customer_id: stripeCustomerId,
+                source: selectedCandidate.source,
+              });
+              await kv.set(`stripe_customer:${userId}`, stripeCustomerId).catch(() => {});
+              await kv.set(`stripe_customer_reverse:${stripeCustomerId}`, userId).catch(() => {});
+            }
+          }
+
+          if (!stripeCustomerId) {
+            throw new Error('No Stripe customer resolved for admin detail');
+          }
+
           const customer: any = await stripeClient.customers.retrieve(stripeCustomerId, {
             expand: ['invoice_settings.default_payment_method'],
           }).catch(() => null);
 
-          // Resolve the active card via multiple fallbacks. Real customers
-          // can have a working card on Stripe that doesn't show up via the
-          // canonical "customer.invoice_settings.default_payment_method"
-          // path — most often because the card was attached at the
-          // SUBSCRIPTION level (via Checkout) and never promoted to a
-          // customer-level default. Walk the full ladder:
-          //
-          //   1) customer.invoice_settings.default_payment_method
-          //   2) paymentMethods.list(customer)  — covers cards attached
-          //      to the customer but not set as default
-          //   3) the active subscription's default_payment_method
-          //   4) the most-recent PAID invoice's payment_intent.payment_method
-          //   5) customer.default_source (legacy Sources API)
-          //
-          // First hit wins. This is read-only so trying each is cheap.
-          let pm: any = customer?.invoice_settings?.default_payment_method;
-          const expandPm = async (val: any): Promise<any> => {
-            if (!val) return null;
-            if (typeof val === 'object' && val.card) return val;
-            try {
-              return await stripeClient.paymentMethods.retrieve(typeof val === 'string' ? val : val.id);
-            } catch { return null; }
+          // Resolve the active card via all Stripe locations that can pay a
+          // subscription. Checkout/Billing can charge successfully while the
+          // customer-level default is empty, because the usable source can live
+          // on a subscription, payment method attachment, invoice PaymentIntent,
+          // invoice Charge, or legacy Customer source.
+          const summarizeCard = (card: any, source: string, id?: string | null) => card ? ({
+            brand: card.brand || null,
+            last4: card.last4 || null,
+            exp_month: card.exp_month || null,
+            exp_year: card.exp_year || null,
+            funding: card.funding || null,
+            country: card.country || null,
+            source,
+            source_id: id || null,
+          }) : null;
+          const summarizePaymentMethod = async (value: any, source: string): Promise<any> => {
+            if (!value) return null;
+            let method = value;
+            if (typeof value === 'string' || !value.card) {
+              method = await stripeClient.paymentMethods.retrieve(typeof value === 'string' ? value : value.id).catch(() => null);
+            }
+            return method?.card ? summarizeCard(method.card, source, method.id) : null;
           };
-          if (typeof pm === 'string' || !pm?.card) pm = await expandPm(pm);
+          const summarizeCharge = async (value: any, source: string): Promise<any> => {
+            if (!value) return null;
+            let charge = value;
+            if (typeof value === 'string' || !value.payment_method_details) {
+              charge = await stripeClient.charges.retrieve(typeof value === 'string' ? value : value.id).catch(() => null);
+            }
+            const card = charge?.payment_method_details?.card || charge?.source;
+            return card ? summarizeCard(card, source, charge?.payment_method || charge?.source?.id || charge?.id) : null;
+          };
+          const summarizePaymentIntent = async (value: any, source: string): Promise<any> => {
+            if (!value) return null;
+            let intent = value;
+            if (typeof value === 'string' || (!value.payment_method && !value.latest_charge)) {
+              intent = await stripeClient.paymentIntents.retrieve(typeof value === 'string' ? value : value.id, {
+                expand: ['payment_method', 'latest_charge'],
+              }).catch(() => null);
+            }
+            return (await summarizePaymentMethod(intent?.payment_method, source))
+              || (await summarizeCharge(intent?.latest_charge, `${source}.latest_charge`));
+          };
 
-          // 2) Customer-attached payment methods
-          if (!pm || !pm.card) {
+          paymentMethod = await summarizePaymentMethod(customer?.invoice_settings?.default_payment_method, 'customer.invoice_settings.default_payment_method');
+
+          if (!paymentMethod) {
             const methods = await stripeClient.paymentMethods.list({ customer: stripeCustomerId, type: 'card', limit: 1 }).catch(() => ({ data: [] }));
-            pm = methods.data[0] || pm;
+            paymentMethod = await summarizePaymentMethod(methods.data?.[0], 'customer.payment_methods.card');
           }
 
-          // 3) Subscription-level default payment method
-          if (!pm || !pm.card) {
-            try {
-              const subs = await stripeClient.subscriptions.list({ customer: stripeCustomerId, status: 'all', limit: 5 });
-              const PRIO: Record<string, number> = { active: 100, trialing: 90, past_due: 80, unpaid: 70, canceled: 60, paused: 50, incomplete: 10, incomplete_expired: 0 };
-              const liveSubForPm = (subs.data || []).slice().sort((a: any, b: any) =>
-                (PRIO[b.status] ?? 0) - (PRIO[a.status] ?? 0),
-              )[0];
-              const subPm = liveSubForPm?.default_payment_method;
-              if (subPm) pm = await expandPm(subPm);
-            } catch (e: any) {
-              console.warn('[ADMIN-DETAIL] sub-level pm lookup failed:', e?.message);
+          const subs = await stripeClient.subscriptions.list({
+            customer: stripeCustomerId,
+            status: 'all',
+            limit: 5,
+            expand: ['data.default_payment_method', 'data.latest_invoice.payment_intent.payment_method', 'data.latest_invoice.payment_intent.latest_charge', 'data.latest_invoice.charge'],
+          }).catch(() => ({ data: [] }));
+          const STATUS_PRIORITY: Record<string, number> = {
+            active: 100,
+            trialing: 90,
+            past_due: 80,
+            unpaid: 70,
+            canceled: 60,
+            paused: 50,
+            incomplete: 10,
+            incomplete_expired: 0,
+          };
+          const sortedSubs = (subs.data || []).slice().sort((a: any, b: any) => {
+            const pa = STATUS_PRIORITY[a.status] ?? 0;
+            const pb = STATUS_PRIORITY[b.status] ?? 0;
+            if (pa !== pb) return pb - pa;
+            return (b.current_period_end || 0) - (a.current_period_end || 0);
+          });
+          const liveSub = sortedSubs[0];
+
+          for (const subForPm of sortedSubs) {
+            if (paymentMethod) break;
+            paymentMethod = await summarizePaymentMethod(subForPm?.default_payment_method, `subscription.${subForPm?.id}.default_payment_method`);
+            const latestInvoice: any = typeof subForPm?.latest_invoice === 'object' ? subForPm.latest_invoice : null;
+            paymentMethod = paymentMethod
+              || await summarizePaymentIntent(latestInvoice?.payment_intent, `subscription.${subForPm?.id}.latest_invoice.payment_intent`)
+              || await summarizeCharge(latestInvoice?.charge, `subscription.${subForPm?.id}.latest_invoice.charge`);
+          }
+
+          if (!paymentMethod) {
+            const paidList = await stripeClient.invoices.list({
+              customer: stripeCustomerId,
+              status: 'paid',
+              limit: 5,
+              expand: ['data.payment_intent.payment_method', 'data.payment_intent.latest_charge', 'data.charge'],
+            }).catch(() => ({ data: [] }));
+            for (const inv of paidList.data || []) {
+              paymentMethod = await summarizePaymentIntent(inv?.payment_intent, `invoice.${inv?.id}.payment_intent`)
+                || await summarizeCharge(inv?.charge, `invoice.${inv?.id}.charge`);
+              if (paymentMethod) break;
             }
           }
 
-          // 4) Last paid invoice → payment_intent.payment_method
-          if (!pm || !pm.card) {
-            try {
-              const paidList = await stripeClient.invoices.list({ customer: stripeCustomerId, status: 'paid', limit: 1 });
-              const lastPaid = paidList.data?.[0];
-              if (lastPaid?.payment_intent) {
-                const piId = typeof lastPaid.payment_intent === 'string' ? lastPaid.payment_intent : lastPaid.payment_intent.id;
-                const pi: any = await stripeClient.paymentIntents.retrieve(piId, { expand: ['payment_method'] }).catch(() => null);
-                if (pi?.payment_method) pm = typeof pi.payment_method === 'object' ? pi.payment_method : await expandPm(pi.payment_method);
-              }
-            } catch (e: any) {
-              console.warn('[ADMIN-DETAIL] invoice-pi pm lookup failed:', e?.message);
-            }
-          }
-
-          // 5) Legacy default_source (very old customers)
-          if ((!pm || !pm.card) && customer?.default_source) {
+          if (!paymentMethod && customer?.default_source) {
             try {
               const src: any = await stripeClient.customers.retrieveSource(stripeCustomerId, customer.default_source);
               if (src?.object === 'card') {
-                pm = { card: { brand: src.brand, last4: src.last4, exp_month: src.exp_month, exp_year: src.exp_year, funding: src.funding, country: src.country } };
+                paymentMethod = summarizeCard(src, 'customer.default_source', src.id);
               }
             } catch { /* non-fatal */ }
           }
 
-          if (pm && pm.card) {
-            paymentMethod = {
-              brand: pm.card.brand || null,
-              last4: pm.card.last4 || null,
-              exp_month: pm.card.exp_month || null,
-              exp_year: pm.card.exp_year || null,
-              funding: pm.card.funding || null,
-              country: pm.card.country || null,
-            };
+          if (paymentMethod) {
+            console.log('[ADMIN-DETAIL] Resolved payment method source', {
+              userId,
+              stripeCustomerId,
+              source: paymentMethod.source,
+              source_id: paymentMethod.source_id,
+            });
+          } else {
+            console.warn('[ADMIN-DETAIL] No payment method resolved for paid customer', {
+              userId,
+              stripeCustomerId,
+              has_customer_default_pm: !!customer?.invoice_settings?.default_payment_method,
+              has_customer_default_source: !!customer?.default_source,
+              subscription_count: sortedSubs.length,
+            });
           }
 
           const invList = await stripeClient.invoices.list({ customer: stripeCustomerId, limit: 5 }).catch(() => ({ data: [] }));
@@ -19681,33 +19782,6 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
           // Pull the live subscription state — Stripe is the source of
           // truth for "are they actually still subscribed?" vs the
           // ambiguous KV `status: canceled`.
-          const subs = await stripeClient.subscriptions.list({
-            customer: stripeCustomerId,
-            status: 'all',
-            limit: 5,
-          }).catch(() => ({ data: [] }));
-
-          // Status priority — an active sub ALWAYS beats a stale incomplete
-          // sub on the same customer. Previously we sorted only by
-          // current_period_end, which let an old failed checkout shadow
-          // the actual active subscription and surface "Incomplete /
-          // Checkout never completed" even after the customer paid.
-          const STATUS_PRIORITY: Record<string, number> = {
-            active: 100,
-            trialing: 90,
-            past_due: 80,
-            unpaid: 70,
-            canceled: 60,           // includes "active until period end"
-            paused: 50,
-            incomplete: 10,
-            incomplete_expired: 0,
-          };
-          const liveSub = (subs.data || []).slice().sort((a: any, b: any) => {
-            const pa = STATUS_PRIORITY[a.status] ?? 0;
-            const pb = STATUS_PRIORITY[b.status] ?? 0;
-            if (pa !== pb) return pb - pa;
-            return (b.current_period_end || 0) - (a.current_period_end || 0);
-          })[0];
           if (liveSub) {
             stripeSubStatus = {
               id: liveSub.id,
@@ -20217,6 +20291,39 @@ app.get("/make-server-a8b2511f/admin/users/inspect/:userId", async (c) => {
     if (stripeCustomer) {
       stripeReverse = await kv.get(`stripe_customer_reverse:${stripeCustomer}`).catch(() => null);
     }
+
+    let stripeDiagnostics: any = null;
+    try {
+      const stripeClient = await getStripe();
+      if (stripeClient) {
+        const targetUser = await supabase.auth.admin.getUserById(userId).catch(() => null);
+        const email = targetUser?.data?.user?.email || null;
+        const subCustomer = sub?.stripe_sub_id
+          ? await stripeClient.subscriptions.retrieve(sub.stripe_sub_id).then((stripeSub: any) =>
+              typeof stripeSub.customer === 'string' ? stripeSub.customer : stripeSub.customer?.id,
+            ).catch((error: any) => ({ error: error?.message || 'subscription lookup failed' }))
+          : null;
+        const emailCustomers = email
+          ? await stripeClient.customers.list({ email, limit: 10 }).then((list: any) =>
+              (list.data || []).map((customer: any) => ({
+                id: customer.id,
+                email: customer.email,
+                created: customer.created,
+                default_source: customer.default_source || null,
+                default_payment_method: customer.invoice_settings?.default_payment_method || null,
+              })),
+            ).catch(() => [])
+          : [];
+        stripeDiagnostics = {
+          kv_customer: stripeCustomer || null,
+          kv_reverse_maps_to: stripeReverse || null,
+          subscription_customer: subCustomer,
+          customers_by_email: emailCustomers,
+        };
+      }
+    } catch (error: any) {
+      stripeDiagnostics = { error: error?.message || 'Stripe diagnostics unavailable' };
+    }
     
     return c.json({
       userId,
@@ -20225,6 +20332,7 @@ app.get("/make-server-a8b2511f/admin/users/inspect/:userId", async (c) => {
       team_link: teamLink,
       stripe_customer: stripeCustomer,
       stripe_reverse_maps_to: stripeReverse,
+      stripe_diagnostics: stripeDiagnostics,
       team_members: teamMembers,
     });
   } catch (error) {
