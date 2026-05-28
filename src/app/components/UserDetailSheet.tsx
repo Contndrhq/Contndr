@@ -65,14 +65,17 @@ interface DetailPayload {
   stripe: {
     customer_id: string | null;
     payment_method: {
+      type?: string | null;
+      label?: string | null;
       brand: string;
-      last4: string;
-      exp_month: number;
-      exp_year: number;
-      funding: string;
-      country: string;
+      last4: string | null;
+      exp_month: number | null;
+      exp_year: number | null;
+      funding: string | null;
+      country: string | null;
       source?: string | null;
       source_id?: string | null;
+      reusable?: boolean;
     } | null;
     recent_invoices: Array<{
       id: string;
@@ -647,18 +650,20 @@ export function UserDetailSheet({
                 )}
               </Section>
 
-              {/* Payment method */}
-              <Section title="Payment method">
+              {/* Payment source */}
+              <Section title="Payment source">
                 {pm ? (
                   <div className="space-y-2">
                     <div className="flex items-center gap-3 rounded-lg bg-zinc-50 dark:bg-white/5 border border-zinc-200 dark:border-white/10 p-3">
                       <CreditCard className="w-5 h-5 text-zinc-500 flex-shrink-0" />
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-zinc-900 dark:text-white text-sm">
-                          {CARD_BRAND_GLYPHS[pm.brand?.toLowerCase() || 'unknown'] || pm.brand} · •••• {pm.last4}
+                          {pm.label || `${CARD_BRAND_GLYPHS[pm.brand?.toLowerCase() || 'unknown'] || pm.brand}${pm.last4 ? ` · •••• ${pm.last4}` : ''}`}
                         </div>
                         <div className="text-[11px] text-zinc-500">
-                          Exp {String(pm.exp_month).padStart(2, '0')}/{pm.exp_year} · {pm.funding} · {pm.country}
+                          {pm.type === 'card' && pm.exp_month && pm.exp_year
+                            ? <>Exp {String(pm.exp_month).padStart(2, '0')}/{pm.exp_year} · {pm.funding || 'card'} · {pm.country || '—'}</>
+                            : <>{pm.reusable === false ? 'Paid source detected · not saved for future charges' : 'Reusable payment method'}{pm.country ? ` · ${pm.country}` : ''}</>}
                         </div>
                         {pm.source && (
                           <div className="mt-0.5 text-[10px] text-zinc-400 font-mono truncate">
@@ -684,14 +689,14 @@ export function UserDetailSheet({
                 ) : (
                   <div className="text-xs text-zinc-500 italic flex items-center gap-2">
                     <AlertCircle className="w-3.5 h-3.5" />
-                    {data.stripe.customer_id ? 'No card on file' : 'No Stripe customer linked'}
+                    {data.stripe.customer_id ? 'No reusable payment source found' : 'No Stripe customer linked'}
                   </div>
                 )}
               </Section>
 
               {/* Charge / Collect card */}
-              <Section title={pm ? 'Charge card on file' : 'Collect payment method'}>
-                {pm ? (
+              <Section title={pm?.reusable !== false ? (pm ? 'Charge payment source' : 'Collect payment method') : 'Collect reusable payment method'}>
+                {pm && pm.reusable !== false ? (
                   <div className="space-y-2">
                     <div className="flex flex-wrap gap-1.5">
                       {(['growth', 'scale', 'enterprise'] as const).map((p) => (
@@ -797,7 +802,9 @@ export function UserDetailSheet({
                 ) : (
                   <div className="space-y-2">
                     <div className="text-xs text-zinc-500">
-                      User has no card on file. Generate a Stripe setup link — when they open it, they can save a card without being charged.
+                      {pm?.reusable === false
+                        ? 'This customer has paid through Stripe, but no reusable payment method is saved for future admin charges. Generate a setup link so they can save one.'
+                        : 'User has no reusable payment method on file. Generate a Stripe setup link — when they open it, they can save one without being charged.'}
                     </div>
                     <button
                       onClick={generateSetupLink}

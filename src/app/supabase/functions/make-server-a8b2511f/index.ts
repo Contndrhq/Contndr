@@ -19642,7 +19642,9 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
           // customer-level default is empty, because the usable source can live
           // on a subscription, payment method attachment, invoice PaymentIntent,
           // invoice Charge, or legacy Customer source.
-          const summarizeCard = (card: any, source: string, id?: string | null) => card ? ({
+          const summarizeCard = (card: any, source: string, id?: string | null, reusable = true) => card ? ({
+            type: 'card',
+            label: `${card.brand || 'Card'}${card.last4 ? ` •••• ${card.last4}` : ''}`,
             brand: card.brand || null,
             last4: card.last4 || null,
             exp_month: card.exp_month || null,
@@ -19651,14 +19653,52 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
             country: card.country || null,
             source,
             source_id: id || null,
+            reusable,
           }) : null;
+          const summarizePaymentSourceDetails = (details: any, source: string, id?: string | null, reusable = false) => {
+            const type = details?.type || details?.object || 'unknown';
+            if (details?.card) return summarizeCard(details.card, source, id, reusable);
+            if (details?.us_bank_account) {
+              const bank = details.us_bank_account;
+              return {
+                type: 'us_bank_account',
+                label: `${bank.bank_name || 'US bank account'}${bank.last4 ? ` •••• ${bank.last4}` : ''}`,
+                brand: bank.bank_name || 'Bank account',
+                last4: bank.last4 || null,
+                exp_month: null,
+                exp_year: null,
+                funding: bank.account_type || null,
+                country: 'US',
+                source,
+                source_id: id || null,
+                reusable,
+              };
+            }
+            if (type && type !== 'unknown') {
+              return {
+                type,
+                label: String(type).replace(/_/g, ' '),
+                brand: String(type).replace(/_/g, ' '),
+                last4: null,
+                exp_month: null,
+                exp_year: null,
+                funding: null,
+                country: null,
+                source,
+                source_id: id || null,
+                reusable,
+              };
+            }
+            return null;
+          };
           const summarizePaymentMethod = async (value: any, source: string): Promise<any> => {
             if (!value) return null;
             let method = value;
-            if (typeof value === 'string' || !value.card) {
+            if (typeof value === 'string' || (!value.card && !value.type)) {
               method = await stripeClient.paymentMethods.retrieve(typeof value === 'string' ? value : value.id).catch(() => null);
             }
-            return method?.card ? summarizeCard(method.card, source, method.id) : null;
+            if (method?.card) return summarizeCard(method.card, source, method.id, true);
+            return summarizePaymentSourceDetails({ type: method?.type, [method?.type]: method?.[method?.type] }, source, method?.id, true);
           };
           const summarizeCharge = async (value: any, source: string): Promise<any> => {
             if (!value) return null;
@@ -19666,8 +19706,10 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
             if (typeof value === 'string' || !value.payment_method_details) {
               charge = await stripeClient.charges.retrieve(typeof value === 'string' ? value : value.id).catch(() => null);
             }
-            const card = charge?.payment_method_details?.card || charge?.source;
-            return card ? summarizeCard(card, source, charge?.payment_method || charge?.source?.id || charge?.id) : null;
+            const details = charge?.payment_method_details;
+            const card = details?.card || charge?.source;
+            if (card) return summarizeCard(card, source, charge?.payment_method || charge?.source?.id || charge?.id, false);
+            return summarizePaymentSourceDetails(details, source, charge?.payment_method || charge?.id, false);
           };
           const summarizePaymentIntent = async (value: any, source: string): Promise<any> => {
             if (!value) return null;
@@ -19734,12 +19776,30 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
               if (paymentMethod) break;
             }
           }
+          if (!paymentMethod) {
+            const paidCount = await stripeClient.invoices.list({ customer: stripeCustomerId, status: 'paid', limit: 1 }).catch(() => ({ data: [] }));
+            if (paidCount.data?.length) {
+              paymentMethod = {
+                type: 'paid_invoice',
+                label: 'Paid via Stripe invoice',
+                brand: 'Stripe invoice',
+                last4: null,
+                exp_month: null,
+                exp_year: null,
+                funding: null,
+                country: null,
+                source: `invoice.${paidCount.data[0].id}.paid_without_reusable_payment_method`,
+                source_id: paidCount.data[0].id,
+                reusable: false,
+              };
+            }
+          }
 
           if (!paymentMethod && customer?.default_source) {
             try {
               const src: any = await stripeClient.customers.retrieveSource(stripeCustomerId, customer.default_source);
               if (src?.object === 'card') {
-                paymentMethod = summarizeCard(src, 'customer.default_source', src.id);
+                paymentMethod = summarizeCard(src, 'customer.default_source', src.id, true);
               }
             } catch { /* non-fatal */ }
           }
