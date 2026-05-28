@@ -162,6 +162,12 @@ export function UserDetailSheet({
   const [generatingSetupLink, setGeneratingSetupLink] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null); // 'all' or invoice_id
 
+  // Charge controls — let admin override the amount and pick how Stripe
+  // should handle proration. Default to prorated, default amount mirrors
+  // the live preview (so the input stays in sync when admin switches plan).
+  const [chargeMode, setChargeMode] = useState<'prorate' | 'full' | 'custom'>('prorate');
+  const [customAmountCents, setCustomAmountCents] = useState<number | null>(null);
+
   // Live proration preview — fetched whenever the admin changes the
   // plan/interval picker so they see the actual amount due now BEFORE
   // clicking Charge. Read-only Stripe call, doesn't mutate anything.
@@ -339,6 +345,43 @@ export function UserDetailSheet({
 
     if (!confirm(confirmMsg)) return;
     setCharging(true);
+
+    // CUSTOM amount route → call charge-custom (raw PaymentIntent), don't
+    // touch the subscription at all. This bypasses Stripe's proration
+    // logic entirely so admin gets exactly the number they typed.
+    if (chargeMode === 'custom' && customAmountCents && customAmountCents > 0) {
+      try {
+        const r = await authenticatedFetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/charge-custom`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId,
+              amount_cents: customAmountCents,
+              description: `Manual charge — ${userEmail || userId}`,
+            }),
+          },
+        );
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        if (j.requires_action) {
+          toast.error('Card requires 3D Secure — customer must complete in their billing portal.');
+        } else if (j.status === 'succeeded') {
+          toast.success(`Charged $${(j.amount_charged_cents / 100).toFixed(2)}`);
+        } else {
+          toast.info(`Charge ${j.status}`);
+        }
+        onChargeUpdated?.();
+        await load();
+      } catch (e: any) {
+        toast.error(e?.message || 'Custom charge failed');
+      } finally {
+        setCharging(false);
+      }
+      return;
+    }
+
     try {
       const r = await authenticatedFetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/plan`,
@@ -351,6 +394,7 @@ export function UserDetailSheet({
             plan: chargePlan,
             charge: true,
             interval: chargeInterval,
+            proration_mode: chargeMode,  // 'prorate' | 'full'
           }),
         },
       );
@@ -732,8 +776,57 @@ export function UserDetailSheet({
                       ))}
                     </div>
 
+                    {/* Charge mode picker — prorate (default), full plan
+                        price now, or custom dollar amount. */}
+                    <div className="flex flex-col gap-1">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wider px-0.5">Charge mode</div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {(['prorate', 'full', 'custom'] as const).map((m) => (
+                          <button
+                            key={m}
+                            onClick={() => setChargeMode(m)}
+                            className={`px-2 py-1.5 rounded-md text-[11px] font-medium border transition-colors ${
+                              chargeMode === m
+                                ? 'bg-zinc-900 dark:bg-white text-white dark:text-black border-zinc-900 dark:border-white'
+                                : 'bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/20'
+                            }`}
+                          >
+                            {m === 'prorate' ? 'Prorate' : m === 'full' ? 'Full price' : 'Custom $'}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="text-[10px] text-zinc-500 px-0.5 mt-0.5">
+                        {chargeMode === 'prorate' && 'Credits unused time on current plan. Stripe default.'}
+                        {chargeMode === 'full' && 'No proration credit — charges the full new-plan price at next renewal only.'}
+                        {chargeMode === 'custom' && 'Charges any amount via PaymentIntent. Subscription is NOT modified.'}
+                      </div>
+                    </div>
+
+                    {/* Custom amount input (only when mode === 'custom') */}
+                    {chargeMode === 'custom' && (
+                      <div className="flex flex-col gap-1">
+                        <div className="text-[10px] text-zinc-500 uppercase tracking-wider px-0.5">Amount (USD)</div>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">$</span>
+                          <input
+                            type="number"
+                            min="0.50"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={customAmountCents != null ? (customAmountCents / 100).toString() : ''}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value);
+                              setCustomAmountCents(Number.isFinite(v) && v > 0 ? Math.round(v * 100) : null);
+                            }}
+                            className="w-full pl-7 pr-3 py-2 rounded-md border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-zinc-400 dark:focus:border-white/30"
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     {/* Inline proration preview — what Stripe will actually
                         charge right now (vs the full recurring price). */}
+                    {chargeMode !== 'custom' && (
                     <div className="rounded-lg border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-white/[0.03] px-3 py-2.5 text-[11px]">
                       {previewLoading ? (
                         <div className="flex items-center gap-1.5 text-zinc-500">
@@ -780,20 +873,25 @@ export function UserDetailSheet({
                         </>
                       ) : null}
                     </div>
+                    )}
 
                     <button
                       onClick={chargeCard}
-                      disabled={charging || previewLoading}
+                      disabled={charging || previewLoading || (chargeMode === 'custom' && (!customAmountCents || customAmountCents < 50))}
                       className="w-full mt-1 px-3 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white text-xs font-medium flex items-center justify-center gap-1.5"
                     >
                       {charging ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
                       {charging
                         ? t('settings.billing.charging', 'Charging…')
-                        : preview && !previewError
-                          ? t('settings.billing.chargeAmountNow', 'Charge {{amount}} now', {
-                              amount: fmtCurrency(preview.amount_due_now_cents || 0, preview.currency || 'usd'),
-                            })
-                          : `Charge ${chargeInterval === 'yearly' ? PLAN_PRICES[chargePlan].yearly + '/yr' : PLAN_PRICES[chargePlan].monthly + '/mo'}`}
+                        : chargeMode === 'custom'
+                          ? customAmountCents && customAmountCents >= 50
+                            ? `Charge $${(customAmountCents / 100).toFixed(2)} now`
+                            : 'Enter amount'
+                          : preview && !previewError
+                            ? t('settings.billing.chargeAmountNow', 'Charge {{amount}} now', {
+                                amount: fmtCurrency(preview.amount_due_now_cents || 0, preview.currency || 'usd'),
+                              })
+                            : `Charge ${chargeInterval === 'yearly' ? PLAN_PRICES[chargePlan].yearly + '/yr' : PLAN_PRICES[chargePlan].monthly + '/mo'}`}
                     </button>
                     <div className="text-[10px] text-zinc-500">
                       Creates or updates the Stripe subscription and bills the card immediately. Switching intervals re-bills with proration.

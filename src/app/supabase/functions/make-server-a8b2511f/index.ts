@@ -3421,6 +3421,82 @@ app.post("/make-server-a8b2511f/admin/users/delete", async (c) => {
   }
 });
 
+// POST /admin/users/charge-custom — Bill the card on file for an arbitrary
+// dollar amount (admin-set). Used when the prorated subscription preview
+// doesn't fit what we actually want to charge — e.g. one-off setup fee,
+// manual upgrade-difference, or refund-recovery.
+//
+// Body: { userId, amount_cents, description?, currency? }
+// Returns: { ok, payment_intent_id, amount_charged_cents, status }
+app.post("/make-server-a8b2511f/admin/users/charge-custom", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) return c.json({ error: 'Unauthorized' }, 403);
+
+    const { userId, amount_cents, description, currency } = await c.req.json();
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+    const amt = Math.round(Number(amount_cents) || 0);
+    if (!Number.isFinite(amt) || amt < 50) {
+      return c.json({ error: 'amount_cents must be >= 50 (Stripe minimum)' }, 400);
+    }
+
+    const stripeClient = await getStripe();
+    if (!stripeClient) return c.json({ error: 'Stripe not configured' }, 500);
+
+    const customerId: any = await kv.get(`stripe_customer:${userId}`);
+    if (!customerId) return c.json({ error: 'No Stripe customer for this user' }, 400);
+
+    // Find the default payment method (PaymentIntent needs an explicit one
+    // for off_session charges — falls back to listing card-type methods)
+    const customer: any = await stripeClient.customers.retrieve(customerId, {
+      expand: ['invoice_settings.default_payment_method'],
+    });
+    let pmId: string | null =
+      customer?.invoice_settings?.default_payment_method?.id
+      || (typeof customer?.invoice_settings?.default_payment_method === 'string'
+        ? customer.invoice_settings.default_payment_method
+        : null);
+    if (!pmId) {
+      const methods = await stripeClient.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
+      pmId = methods.data[0]?.id || null;
+    }
+    if (!pmId) return c.json({ error: 'No card on file to charge' }, 400);
+
+    const pi: any = await stripeClient.paymentIntents.create({
+      customer: customerId,
+      payment_method: pmId,
+      amount: amt,
+      currency: (currency || 'usd').toLowerCase(),
+      confirm: true,
+      off_session: true,
+      description: description || 'Manual charge (admin)',
+      metadata: {
+        userId,
+        triggered_by: 'admin_custom_charge',
+        admin: user.email || '',
+      },
+    });
+
+    logAdminEvent('custom_charge', 'Custom Charge', `Charged $${(amt / 100).toFixed(2)} to ${userId}`, {
+      metadata: { userId, amount_cents: amt, payment_intent_id: pi.id, status: pi.status },
+    }).catch(() => {});
+
+    return c.json({
+      ok: true,
+      payment_intent_id: pi.id,
+      amount_charged_cents: pi.amount,
+      status: pi.status,                  // 'succeeded' | 'requires_action' | etc.
+      requires_action: pi.status === 'requires_action',
+      next_action: pi.next_action || null,
+    });
+  } catch (error: any) {
+    // Stripe declines come back here — surface the human-readable message
+    const msg = error?.raw?.message || error?.message || 'Charge failed';
+    console.error('[ADMIN] charge-custom error:', msg);
+    return c.json({ error: msg, code: error?.code || error?.raw?.code || null }, 400);
+  }
+});
+
 // POST /admin/users/plan/preview — Show the prorated amount Stripe will
 // charge for the requested plan change BEFORE we commit. Returns the
 // upcoming-invoice preview so admin sees the real number (proration credit
@@ -3586,9 +3662,19 @@ app.post("/make-server-a8b2511f/admin/users/plan", async (c) => {
           const itemId = sub.items.data[0]?.id;
           if (!itemId) return c.json({ error: "Stripe subscription has no billable item." }, 400);
 
+          // proration_mode (body field): 'prorate' (default — credits unused
+          // time on current plan) | 'full' (no proration, charge full new
+          // price at next cycle) | 'immediate_full' (cancel + recreate sub
+          // so customer gets billed the full new plan price right now)
+          const prorationMode = (body as any).proration_mode || 'prorate';
+          const prorationBehavior =
+            prorationMode === 'full' ? 'none'
+            : prorationMode === 'immediate_full' ? 'always_invoice'
+            : 'always_invoice';
+
           await stripeClient.subscriptions.update(stripeSubId, {
             items: [{ id: itemId, price: newPriceId }],
-            proration_behavior: 'always_invoice',
+            proration_behavior: prorationBehavior,
             payment_behavior: 'error_if_incomplete',
             metadata: {
               ...(sub.metadata || {}),
