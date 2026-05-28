@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   X,
   RefreshCw,
@@ -146,6 +147,7 @@ export function UserDetailSheet({
   onInspectKv,
   onChargeUpdated,
 }: UserDetailSheetProps) {
+  const { t } = useTranslation();
   const [data, setData] = useState<DetailPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -724,25 +726,24 @@ export function UserDetailSheet({
                       {previewLoading ? (
                         <div className="flex items-center gap-1.5 text-zinc-500">
                           <Loader2 className="w-3 h-3 animate-spin" />
-                          Calculating proration…
+                          {t('settings.billing.calculatingProration', 'Calculating proration…')}
                         </div>
                       ) : previewError ? (
                         <div className="text-rose-500">⚠ {previewError}</div>
                       ) : preview ? (
                         <>
                           <div className="flex items-baseline justify-between mb-1.5">
-                            <span className="text-zinc-500 dark:text-zinc-400">Amount due now</span>
+                            <span className="text-zinc-500 dark:text-zinc-400">{t('settings.billing.amountDueNow', 'Amount due now')}</span>
                             <span className="text-sm font-semibold text-zinc-900 dark:text-white tabular-nums">
-                              {(preview.currency || 'usd').toUpperCase() === 'USD' ? '$' : ''}
-                              {((preview.amount_due_now_cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {fmtCurrency(preview.amount_due_now_cents || 0, preview.currency || 'usd')}
                             </span>
                           </div>
                           {!preview.is_new_subscription && preview.next_full_charge_cents > 0 && (
                             <div className="flex items-baseline justify-between text-[10px] text-zinc-500 mb-1.5">
-                              <span>Then renews at</span>
+                              <span>{t('settings.billing.thenRenewsAt', 'Then renews at')}</span>
                               <span className="tabular-nums">
-                                ${(preview.next_full_charge_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                /{chargeInterval === 'yearly' ? 'yr' : 'mo'}
+                                {fmtCurrency(preview.next_full_charge_cents, preview.currency || 'usd')}
+                                /{chargeInterval === 'yearly' ? t('common.yearShort', 'yr') : t('common.monthShort', 'mo')}
                               </span>
                             </div>
                           )}
@@ -750,16 +751,19 @@ export function UserDetailSheet({
                             <div className="border-t border-zinc-200 dark:border-white/5 pt-1.5 mt-1.5 space-y-0.5">
                               {preview.line_items.map((l: any, i: number) => (
                                 <div key={i} className="flex items-baseline justify-between text-[10px] text-zinc-500 dark:text-zinc-400">
-                                  <span className="truncate pr-2">{l.description}{l.proration ? ' · prorated' : ''}</span>
+                                  <span className="truncate pr-2">
+                                    {l.description}
+                                    {l.proration ? ` · ${t('settings.billing.proratedSuffix', 'prorated')}` : ''}
+                                  </span>
                                   <span className={`tabular-nums flex-shrink-0 ${l.amount_cents < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
-                                    {l.amount_cents < 0 ? '-' : ''}${(Math.abs(l.amount_cents) / 100).toFixed(2)}
+                                    {l.amount_cents < 0 ? '-' : ''}{fmtCurrency(Math.abs(l.amount_cents), preview.currency || 'usd')}
                                   </span>
                                 </div>
                               ))}
                             </div>
                           )}
                           {preview.is_new_subscription && (
-                            <div className="text-[10px] text-zinc-500 mt-1">New subscription · no proration credit</div>
+                            <div className="text-[10px] text-zinc-500 mt-1">{t('settings.billing.newSubscriptionNoProration', 'New subscription · no proration credit')}</div>
                           )}
                         </>
                       ) : null}
@@ -772,9 +776,11 @@ export function UserDetailSheet({
                     >
                       {charging ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
                       {charging
-                        ? 'Charging…'
+                        ? t('settings.billing.charging', 'Charging…')
                         : preview && !previewError
-                          ? `Charge $${((preview.amount_due_now_cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} now`
+                          ? t('settings.billing.chargeAmountNow', 'Charge {{amount}} now', {
+                              amount: fmtCurrency(preview.amount_due_now_cents || 0, preview.currency || 'usd'),
+                            })
                           : `Charge ${chargeInterval === 'yearly' ? PLAN_PRICES[chargePlan].yearly + '/yr' : PLAN_PRICES[chargePlan].monthly + '/mo'}`}
                     </button>
                     <div className="text-[10px] text-zinc-500">

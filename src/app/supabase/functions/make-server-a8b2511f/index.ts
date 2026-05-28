@@ -19578,12 +19578,77 @@ app.get("/make-server-a8b2511f/admin/users/detail/:userId", async (c) => {
             expand: ['invoice_settings.default_payment_method'],
           }).catch(() => null);
 
+          // Resolve the active card via multiple fallbacks. Real customers
+          // can have a working card on Stripe that doesn't show up via the
+          // canonical "customer.invoice_settings.default_payment_method"
+          // path — most often because the card was attached at the
+          // SUBSCRIPTION level (via Checkout) and never promoted to a
+          // customer-level default. Walk the full ladder:
+          //
+          //   1) customer.invoice_settings.default_payment_method
+          //   2) paymentMethods.list(customer)  — covers cards attached
+          //      to the customer but not set as default
+          //   3) the active subscription's default_payment_method
+          //   4) the most-recent PAID invoice's payment_intent.payment_method
+          //   5) customer.default_source (legacy Sources API)
+          //
+          // First hit wins. This is read-only so trying each is cheap.
           let pm: any = customer?.invoice_settings?.default_payment_method;
-          // If not expanded into an object yet, try listing
-          if (!pm || typeof pm === 'string') {
+          const expandPm = async (val: any): Promise<any> => {
+            if (!val) return null;
+            if (typeof val === 'object' && val.card) return val;
+            try {
+              return await stripeClient.paymentMethods.retrieve(typeof val === 'string' ? val : val.id);
+            } catch { return null; }
+          };
+          if (typeof pm === 'string' || !pm?.card) pm = await expandPm(pm);
+
+          // 2) Customer-attached payment methods
+          if (!pm || !pm.card) {
             const methods = await stripeClient.paymentMethods.list({ customer: stripeCustomerId, type: 'card', limit: 1 }).catch(() => ({ data: [] }));
-            pm = methods.data[0] || null;
+            pm = methods.data[0] || pm;
           }
+
+          // 3) Subscription-level default payment method
+          if (!pm || !pm.card) {
+            try {
+              const subs = await stripeClient.subscriptions.list({ customer: stripeCustomerId, status: 'all', limit: 5 });
+              const PRIO: Record<string, number> = { active: 100, trialing: 90, past_due: 80, unpaid: 70, canceled: 60, paused: 50, incomplete: 10, incomplete_expired: 0 };
+              const liveSubForPm = (subs.data || []).slice().sort((a: any, b: any) =>
+                (PRIO[b.status] ?? 0) - (PRIO[a.status] ?? 0),
+              )[0];
+              const subPm = liveSubForPm?.default_payment_method;
+              if (subPm) pm = await expandPm(subPm);
+            } catch (e: any) {
+              console.warn('[ADMIN-DETAIL] sub-level pm lookup failed:', e?.message);
+            }
+          }
+
+          // 4) Last paid invoice → payment_intent.payment_method
+          if (!pm || !pm.card) {
+            try {
+              const paidList = await stripeClient.invoices.list({ customer: stripeCustomerId, status: 'paid', limit: 1 });
+              const lastPaid = paidList.data?.[0];
+              if (lastPaid?.payment_intent) {
+                const piId = typeof lastPaid.payment_intent === 'string' ? lastPaid.payment_intent : lastPaid.payment_intent.id;
+                const pi: any = await stripeClient.paymentIntents.retrieve(piId, { expand: ['payment_method'] }).catch(() => null);
+                if (pi?.payment_method) pm = typeof pi.payment_method === 'object' ? pi.payment_method : await expandPm(pi.payment_method);
+              }
+            } catch (e: any) {
+              console.warn('[ADMIN-DETAIL] invoice-pi pm lookup failed:', e?.message);
+            }
+          }
+
+          // 5) Legacy default_source (very old customers)
+          if ((!pm || !pm.card) && customer?.default_source) {
+            try {
+              const src: any = await stripeClient.customers.retrieveSource(stripeCustomerId, customer.default_source);
+              if (src?.object === 'card') {
+                pm = { card: { brand: src.brand, last4: src.last4, exp_month: src.exp_month, exp_year: src.exp_year, funding: src.funding, country: src.country } };
+              }
+            } catch { /* non-fatal */ }
+          }
+
           if (pm && pm.card) {
             paymentMethod = {
               brand: pm.card.brand || null,

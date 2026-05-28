@@ -1565,7 +1565,15 @@ export const en = {
       upgradeNow: "Upgrade Now",
       manageSubscription: "Manage Subscription",
       invoiceHistory: "Invoice History",
-      downloadInvoice: "Download Invoice"
+      downloadInvoice: "Download Invoice",
+      // Proration preview (admin charge card panel)
+      calculatingProration: "Calculating proration…",
+      amountDueNow: "Amount due now",
+      thenRenewsAt: "Then renews at",
+      newSubscriptionNoProration: "New subscription · no proration credit",
+      proratedSuffix: "prorated",
+      chargeAmountNow: "Charge {{amount}} now",
+      charging: "Charging…"
     },
     emailProvider: {
       title: "Email Provider",
