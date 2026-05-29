@@ -2907,8 +2907,8 @@ app.post("/find-people", async (c) => {
       const poolPeople = poolResult.people.filter((p: PersonResult) => {
         if (seenNames.has(p.name.toLowerCase())) return false;
         if (!isLikelyHumanName(p.name)) return false;
-        // Hunter/CRM/registry people don't need the LinkedIn snippet check
-        if (p.id.startsWith("hunter-") || p.id.startsWith("crm-") || p.id.startsWith("officer-") || p.id.startsWith("team-")) return true;
+        // Domain/CRM/registry people don't need the LinkedIn snippet check
+        if (p.id.startsWith("icypeas-") || p.id.startsWith("hunter-") || p.id.startsWith("crm-") || p.id.startsWith("officer-") || p.id.startsWith("team-")) return true;
         // LinkedIn/profile people: re-apply employer validation against the snippet we stored
         if (hasClearlyDifferentEmployer(p.title, p.snippet, company_name)) return false;
         if (!isCurrentEmployer(p.snippet, p.title, company_name)) return false;
@@ -2944,29 +2944,33 @@ app.post("/find-people", async (c) => {
       if (cached) {
         const parsed = typeof cached === "string" ? JSON.parse(cached) : cached;
         if (parsed._ts && Date.now() - parsed._ts < 3600000) {
-          console.log(`[FIND PEOPLE] Cache hit for "${company_name}"`);
-          const seenNames = new Set(crmPeople.map(p => p.name.toLowerCase()));
-          const cachedPeople = (parsed.people || []).filter((p: PersonResult) => {
-            if (seenNames.has(p.name.toLowerCase())) return false;
-            if (!isLikelyHumanName(p.name)) return false;
-            if (p.id.startsWith("hunter-") || p.id.startsWith("crm-") || p.id.startsWith("officer-") || p.id.startsWith("team-")) return true;
-            if (hasClearlyDifferentEmployer(p.title, p.snippet, company_name)) return false;
-            if (!isCurrentEmployer(p.snippet, p.title, company_name)) return false;
-            return true;
-          });
-          const mergedEmails = { ...crmEmailMap, ...trustedEmailResults(parsed.hunterEmails || {}) };
-          const cacheSortLoc = search_location || location || "";
-          let cachedAllPeople = [...crmPeople, ...cachedPeople];
-          if (cacheSortLoc) {
-            const inA: PersonResult[] = [], unk: PersonResult[] = [], outA: PersonResult[] = [];
-            for (const p of cachedAllPeople) {
-              if (!p.location) unk.push(p);
-              else if (isLocationInArea(p.location, cacheSortLoc)) inA.push(p);
-              else outA.push(p);
+          if (!Array.isArray(parsed.people) || parsed.people.length === 0) {
+            console.log(`[FIND PEOPLE] Ignoring empty cache for "${company_name}" — retrying live providers`);
+          } else {
+            console.log(`[FIND PEOPLE] Cache hit for "${company_name}"`);
+            const seenNames = new Set(crmPeople.map(p => p.name.toLowerCase()));
+            const cachedPeople = (parsed.people || []).filter((p: PersonResult) => {
+              if (seenNames.has(p.name.toLowerCase())) return false;
+              if (!isLikelyHumanName(p.name)) return false;
+              if (p.id.startsWith("icypeas-") || p.id.startsWith("hunter-") || p.id.startsWith("crm-") || p.id.startsWith("officer-") || p.id.startsWith("team-")) return true;
+              if (hasClearlyDifferentEmployer(p.title, p.snippet, company_name)) return false;
+              if (!isCurrentEmployer(p.snippet, p.title, company_name)) return false;
+              return true;
+            });
+            const mergedEmails = { ...crmEmailMap, ...trustedEmailResults(parsed.hunterEmails || {}) };
+            const cacheSortLoc = search_location || location || "";
+            let cachedAllPeople = [...crmPeople, ...cachedPeople];
+            if (cacheSortLoc) {
+              const inA: PersonResult[] = [], unk: PersonResult[] = [], outA: PersonResult[] = [];
+              for (const p of cachedAllPeople) {
+                if (!p.location) unk.push(p);
+                else if (isLocationInArea(p.location, cacheSortLoc)) inA.push(p);
+                else outA.push(p);
+              }
+              cachedAllPeople = [...inA, ...unk, ...outA];
             }
-            cachedAllPeople = [...inA, ...unk, ...outA];
+            return c.json({ people: attachCompanyPhone(cachedAllPeople, phone), crm_emails: mergedEmails, source: "cache", search_location: cacheSortLoc || undefined });
           }
-          return c.json({ people: attachCompanyPhone(cachedAllPeople, phone), crm_emails: mergedEmails, source: "cache", search_location: cacheSortLoc || undefined });
         }
       }
     } catch {}
@@ -2976,10 +2980,10 @@ app.post("/find-people", async (c) => {
       return c.json({ error: "SERPER_API_KEY not configured" }, 500);
     }
 
-    const HUNTER_API_KEY = "";
     const cleanDomain = domain ? domain.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "").trim() : "";
+    const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
 
-    // ── Run LinkedIn search + Hunter.io domain-search in parallel ──
+    // ── Run LinkedIn search + Icypeas domain contact search in parallel ──
     const titleKeywords = `(CEO OR CTO OR COO OR CFO OR "Vice President" OR VP OR "Managing Director" OR founder OR owner OR president OR partner OR director OR "General Manager" OR "Head of")`;
     // Use search_location (the user's search context) as primary location filter — more specific than the company HQ
     const effectiveLocation = search_location || location || "";
@@ -3063,53 +3067,57 @@ app.post("/find-people", async (c) => {
       }
     })();
 
-    // Hunter.io domain-search returns people at a company with verified emails
-    const hunterPromise = (async (): Promise<{ people: PersonResult[]; emails: Record<string, { email: string; source: string; confidence: string }> }> => {
-      if (!HUNTER_API_KEY || !cleanDomain) {
-        if (!HUNTER_API_KEY) console.log(`[FIND PEOPLE] Skipping Hunter.io: API key not configured`);
-        if (!cleanDomain) console.log(`[FIND PEOPLE] Skipping Hunter.io: no domain provided for "${company_name}"`);
+    // Icypeas domain search returns known company contacts and their emails.
+    const icypeasPeoplePromise = (async (): Promise<{ people: PersonResult[]; emails: Record<string, { email: string; source: string; confidence: string }> }> => {
+      if (!ICYPEAS_API_KEY || !cleanDomain) {
+        if (!ICYPEAS_API_KEY) console.log(`[FIND PEOPLE] Skipping Icypeas: API key not configured`);
+        if (!cleanDomain) console.log(`[FIND PEOPLE] Skipping Icypeas: no domain provided for "${company_name}"`);
         return { people: [], emails: {} };
       }
       try {
-        const hData = await hunterDomainSearch(cleanDomain, HUNTER_API_KEY, 20);
-        if (!hData) return { people: [], emails: {} };
-        const hunterEmails = hData.data?.emails || [];
-        const hunterPeople: PersonResult[] = [];
-        const hunterEmailMap: Record<string, { email: string; source: string; confidence: string }> = {};
+        const contacts = await icypeasDomainSearch(cleanDomain);
+        const icypeasPeople: PersonResult[] = [];
+        const rawEmailMap: Record<string, { email: string; source: string; confidence: string }> = {};
+        const seenEmails = new Set<string>();
 
-        for (const entry of hunterEmails) {
+        for (const entry of contacts) {
           const firstName = entry.first_name || "";
           const lastName = entry.last_name || "";
-          const fullName = `${firstName} ${lastName}`.trim();
+          const fullName = (entry.full_name || `${firstName} ${lastName}`).trim();
           if (!fullName || fullName.length < 2) continue;
-
-          const title = entry.position || "";
-          const seniorityLower = (entry.seniority || "").toLowerCase();
-          const titleLower = title.toLowerCase();
-          const isDecisionMaker = seniorityLower === "senior" || seniorityLower === "executive" || seniorityLower === "c_level" ||
-            /ceo|cto|coo|cfo|vp|vice president|director|founder|owner|president|partner|managing|head of|general manager|chief/i.test(titleLower);
-          if (!isDecisionMaker && title) continue;
           if (!isLikelyHumanName(fullName)) continue;
 
-          const personId = `hunter-${(entry.value || fullName).replace(/[^a-zA-Z0-9]/g, "").slice(0, 32)}`;
-          hunterPeople.push({
+          const title = entry.title || "";
+          const titleLower = title.toLowerCase();
+          const explicitlyNonDecisionMaker = /\b(assistant|associate|intern|coordinator|specialist|representative|receptionist|clerk|bookkeeper|staff|support)\b/i.test(titleLower);
+          if (title && explicitlyNonDecisionMaker) continue;
+          if (title && !isDecisionMakerTitle(title)) continue;
+
+          const email = (entry.email || "").toLowerCase();
+          if (email && seenEmails.has(email)) continue;
+          if (email) seenEmails.add(email);
+
+          const personId = `icypeas-${(email || entry.linkedin_url || fullName).replace(/[^a-zA-Z0-9]/g, "").slice(0, 32)}`;
+          icypeasPeople.push({
             id: personId,
             name: fullName,
-            title: title || (entry.department ? `${entry.department} Department` : "—"),
-            linkedin_url: entry.linkedin || "",
-            snippet: `Domain Search · ${cleanDomain}`,
+            title: title || "Executive",
+            linkedin_url: entry.linkedin_url || "",
+            snippet: `Icypeas Domain Search · ${cleanDomain}`,
             company_match: company_name,
           });
-          if (entry.value) {
-            const conf = (entry.confidence || 0) > 80 ? "high" : (entry.confidence || 0) > 50 ? "medium" : "low";
-            hunterEmailMap[personId] = { email: entry.value, source: "hunter", confidence: conf };
+          if (email) {
+            const numericConfidence = typeof entry.confidence === "number" ? entry.confidence : Number(entry.confidence || 0);
+            const conf = numericConfidence > 80 ? "high" : numericConfidence > 50 ? "medium" : "high";
+            rawEmailMap[personId] = { email, source: "icypeas_domain", confidence: conf };
           }
         }
 
-        console.log(`[FIND PEOPLE] Hunter.io found ${hunterPeople.length} people with ${Object.keys(hunterEmailMap).length} emails at "${cleanDomain}"`);
-        return { people: hunterPeople, emails: hunterEmailMap };
+        const emailMap = await deliverableEmailResults(trustedEmailResults(rawEmailMap));
+        console.log(`[FIND PEOPLE] Icypeas found ${icypeasPeople.length} people with ${Object.keys(emailMap).length} deliverable emails at "${cleanDomain}"`);
+        return { people: icypeasPeople, emails: emailMap };
       } catch (e: any) {
-        console.error("[FIND PEOPLE] Hunter.io domain-search error:", e.message);
+        console.error("[FIND PEOPLE] Icypeas domain-search error:", e.message);
         return { people: [], emails: {} };
       }
     })();
@@ -3222,12 +3230,12 @@ app.post("/find-people", async (c) => {
     })();
 
     // Wait for all sources in parallel
-    const [serpLinkedIn, hunterResult, profilePeople, registryPeople] = await Promise.all([linkedInPromise, hunterPromise, companyProfilePromise, registryPeoplePromise]);
+    const [serpLinkedIn, icypeasResult, profilePeople, registryPeople] = await Promise.all([linkedInPromise, icypeasPeoplePromise, companyProfilePromise, registryPeoplePromise]);
 
-    // Merge Hunter emails into the email map
-    const mergedEmailMap = { ...crmEmailMap, ...hunterResult.emails };
+    // Merge Icypeas emails into the email map
+    const mergedEmailMap = { ...crmEmailMap, ...icypeasResult.emails };
 
-    // Merge all people: CRM first, then LinkedIn, then Hunter, then profiles, then registry (deduped by name)
+    // Merge all people: CRM first, then LinkedIn, then Icypeas, then profiles, then registry (deduped by name)
     const seenNames = new Set(crmPeople.map(p => p.name.toLowerCase().trim()));
     const dedupedLinkedIn = serpLinkedIn.filter(p => {
       const key = p.name.toLowerCase().trim();
@@ -3235,7 +3243,7 @@ app.post("/find-people", async (c) => {
       seenNames.add(key);
       return true;
     });
-    const dedupedHunter = hunterResult.people.filter(p => {
+    const dedupedIcypeas = icypeasResult.people.filter(p => {
       const key = p.name.toLowerCase().trim();
       if (seenNames.has(key)) return false;
       seenNames.add(key);
@@ -3253,7 +3261,7 @@ app.post("/find-people", async (c) => {
       seenNames.add(key);
       return true;
     });
-    let allPeople = [...crmPeople, ...dedupedLinkedIn, ...dedupedHunter, ...dedupedProfile, ...dedupedRegistry];
+    let allPeople = [...crmPeople, ...dedupedLinkedIn, ...dedupedIcypeas, ...dedupedProfile, ...dedupedRegistry];
 
     // ── Location-aware sorting: in-area contacts first ──
     const sortLocation = search_location || location || "";
@@ -3270,18 +3278,18 @@ app.post("/find-people", async (c) => {
       console.log(`[FIND PEOPLE] Location sort (${sortLocation}): ${inArea.length} in-area, ${unknown.length} unknown, ${outOfArea.length} out-of-area`);
     }
 
-    console.log(`[FIND PEOPLE] Total: ${allPeople.length} decision makers (${crmPeople.length} CRM, ${dedupedLinkedIn.length} profiles, ${dedupedHunter.length} domain, ${dedupedProfile.length} company pages, ${dedupedRegistry.length} registry/team)`);
+    console.log(`[FIND PEOPLE] Total: ${allPeople.length} decision makers (${crmPeople.length} CRM, ${dedupedLinkedIn.length} profiles, ${dedupedIcypeas.length} icypeas, ${dedupedProfile.length} company pages, ${dedupedRegistry.length} registry/team)`);
 
     // Cache results in both short-lived cache AND pool intelligence
-    const apiPeople = [...dedupedLinkedIn, ...dedupedHunter, ...dedupedProfile, ...dedupedRegistry];
+    const apiPeople = [...dedupedLinkedIn, ...dedupedIcypeas, ...dedupedProfile, ...dedupedRegistry];
     try {
-      await kv.set(cacheKey, JSON.stringify({ people: apiPeople, hunterEmails: hunterResult.emails, _ts: Date.now() }));
+      await kv.set(cacheKey, JSON.stringify({ people: apiPeople, hunterEmails: icypeasResult.emails, _ts: Date.now() }));
     } catch {}
     // Store in pool intelligence for ALL users (only non-CRM people since CRM is per-user)
     if (apiPeople.length > 0) {
-      await poolStorePeople(company_name, cleanDomain, apiPeople, hunterResult.emails);
-      // Also store any Hunter emails individually in the email pool
-      for (const [personId, emailData] of Object.entries(hunterResult.emails)) {
+      await poolStorePeople(company_name, cleanDomain, apiPeople, icypeasResult.emails);
+      // Also store any Icypeas emails individually in the email pool
+      for (const [personId, emailData] of Object.entries(icypeasResult.emails)) {
         const person = apiPeople.find(p => p.id === personId);
         if (person && emailData.email) {
           const { first_name, last_name } = splitName(person.name);

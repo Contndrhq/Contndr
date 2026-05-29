@@ -1202,7 +1202,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
     let completed = 0;
     const headers = await getAuthHeaders();
 
-    // Process in parallel batches of 2 (reduced to respect Hunter.io rate limits)
+    // Process in small parallel batches to keep enrichment responsive.
     let totalPeopleFound = 0;
     let totalEmailsFound = 0;
     for (let i = 0; i < selected.length; i += 2) {
@@ -1217,7 +1217,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
 
           addActivity(`Searching decision makers at ${company.name}...`, 'info');
 
-          // Step 1: Find people (LinkedIn + Hunter.io domain-search in parallel)
+          // Step 1: Find people (LinkedIn, Icypeas domain contacts, CRM, and public sources)
           const peopleRes = await fetch(
             `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/company-search/find-people`,
             {
@@ -1250,7 +1250,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
             addActivity(`No decision makers found at ${company.name}`, 'info');
           }
 
-          // Seed with CRM + Hunter emails from find-people response
+          // Seed with CRM + Icypeas emails from find-people response
           let emailMap: Record<string, { email: string; source: string; confidence: string }> = {};
           if (peopleData.crm_emails) {
             emailMap = { ...peopleData.crm_emails };
@@ -1261,7 +1261,7 @@ export function CompanySearch({ onUpgrade }: CompanySearchProps) {
             }
           }
 
-          // Step 2: Enrich emails for people not already covered by CRM/Hunter
+          // Step 2: Enrich emails for people not already covered by CRM/Icypeas
           const cleanDomain = domain.replace(/^www\./, '').replace(/\/.*$/, '').trim();
           const needEmailPeople = people.filter(p => !emailMap[p.id]);
           if (needEmailPeople.length > 0 && cleanDomain) {
@@ -3080,7 +3080,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
       setSearchLocationContext(data.search_location || searchLocation || '');
       setHasFetchedPeople(true);
 
-      // Seed email map with CRM + Hunter emails returned from backend
+      // Seed email map with CRM + Icypeas emails returned from backend
       const returnedEmails: Record<string, { email: string; source: string; confidence: string }> = data.crm_emails || {};
       if (Object.keys(returnedEmails).length > 0) {
         setEmailMap(prev => ({ ...prev, ...returnedEmails }));
@@ -3101,7 +3101,7 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
       if (externalCount > 0) parts.push(`${externalCount} ${isFromPool ? 'from intelligence pool' : 'discovered'}`);
       toast.success(`Found ${foundPeople.length} decision maker${foundPeople.length !== 1 ? 's' : ''}${emailsAlready > 0 ? ` (${emailsAlready} with emails)` : ''}${parts.length > 0 ? ` — ${parts.join(', ')}` : ''}`);
 
-      // Step 2: Enrich remaining emails via Hunter.io email-finder + Findymail for people without emails
+      // Step 2: Enrich remaining emails via Icypeas for people without emails
       const cleanDomain = domain.replace(/^www\./, '').replace(/\/.*$/, '').trim();
       const peopleNeedingEmail = foundPeople.filter(p => !returnedEmails[p.id]);
       if (cleanDomain && peopleNeedingEmail.length > 0) {
@@ -3132,8 +3132,8 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
           console.error('[EMAIL ENRICH] Auto-enrich error (non-fatal):', emailErr);
         }
       } else if (emailsAlready > 0) {
-        // All emails already found via Hunter domain-search — no need for individual enrichment
-        console.log(`[FIND PEOPLE] All ${emailsAlready} emails already discovered via Hunter.io domain-search`);
+        // All emails already found via CRM/Icypeas domain search — no need for individual enrichment
+        console.log(`[FIND PEOPLE] All ${emailsAlready} emails already discovered via CRM/Icypeas`);
       }
 
       setFindPeopleStage('done');
@@ -3708,8 +3708,8 @@ function CompanyRow({ company, selected, expanded, onToggleSelect, onToggleExpan
                               {!isCrmPerson && person.id.startsWith('officer-') && (
                                 <span className="flex-shrink-0 text-[8px] font-bold px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700/50 text-zinc-500 dark:text-zinc-400">REGISTRY</span>
                               )}
-                              {!isCrmPerson && person.id.startsWith('hunter-') && (
-                                <span className="flex-shrink-0 text-[8px] font-bold px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700/50 text-zinc-500 dark:text-zinc-400">DOMAIN</span>
+                              {!isCrmPerson && person.id.startsWith('icypeas-') && (
+                                <span className="flex-shrink-0 text-[8px] font-bold px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700/50 text-zinc-500 dark:text-zinc-400">ICYPEAS</span>
                               )}
                               {person.linkedin_url && (
                                 <a href={person.linkedin_url} target="_blank" rel="noreferrer">
