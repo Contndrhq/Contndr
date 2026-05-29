@@ -3177,13 +3177,24 @@ app.post("/find-people", async (c) => {
     })();
 
     // ── 4th source: Website team pages + OpenCorporates officers ──
+    // Hard 4s timeout per sub-source — without it the website scrape's
+    // CPU-heavy HTML parsing could push the whole /find-people request
+    // over Supabase's wall-clock cap (observed as 'CPU Time exceeded'
+    // → 546 Worker Limit response). We'd rather skip a slow scrape
+    // than 546 the entire response.
+    const withTimeout = <T,>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
+      Promise.race([
+        p,
+        new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+      ]);
+
     const registryPeoplePromise = (async (): Promise<PersonResult[]> => {
       const results: PersonResult[] = [];
       try {
         // Run website team scrape and OpenCorporates officers in parallel
         const [webResult, ocResult] = await Promise.allSettled([
-          domain ? enhancedWebsiteScrape(domain) : Promise.resolve(null),
-          openCorporatesLookup(company_name, location),
+          domain ? withTimeout(enhancedWebsiteScrape(domain), 4000, null) : Promise.resolve(null),
+          withTimeout(openCorporatesLookup(company_name, location), 4000, null),
         ]);
 
         // Website team members
