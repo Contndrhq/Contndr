@@ -2033,35 +2033,17 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                     // pipeline only ran when results were exactly 0, so pool-only
                     // results (>0 but <requested) would short-circuit the entire
                     // broadening chain.
-                    const fromExternal = data.from_external ?? 0;
-                    if (!isDbOnly && found < requested && stage >= 1 && stage < 4 && fromExternal < (requested - found)) {
-                      const curSeniorities = effectiveSeniorities;
-                      const curIndustries = effectiveIndustries;
-                      const origIndustries = originalFiltersRef.current?.industries ?? curIndustries;
-                      const origIndustriesArr = Array.from(origIndustries);
-
-                      if (stage <= 1 && curSeniorities.size > 0) {
-                        console.log(`[FALLBACK] Stage 1→2: External found ${fromExternal} new, total ${found}/${requested} — dropping seniority filters`);
-                        toast.info(t('apolloProSearch.toastBroadeningSearch', { count: found }), { duration: 3000 });
-                        fallbackStageRef.current = 2;
-                        setSeniorities(new Set());
-                        setTimeout(() => handleSearchRef.current(undefined, true, true, { seniorities: new Set(), industries: curIndustries, forceExternal: true }), 300);
-                        break;
-                      } else if (stage <= 2 && curIndustries.size > 0) {
-                        console.log(`[FALLBACK] Stage 2→3: Still only ${found}/${requested} — relaxing industry filter`);
-                        toast.info(t('apolloProSearch.toastRelaxingIndustry', { count: found }), { duration: 3000 });
-                        fallbackStageRef.current = 3;
-                        setIndustries(new Set());
-                        const origArr = origIndustriesArr.length > 0 ? origIndustriesArr : undefined;
-                        setTimeout(() => handleSearchRef.current(undefined, true, true, {
-                          seniorities: new Set(),
-                          industries: new Set(),
-                          preferredIndustries: origArr,
-                          forceExternal: true,
-                        }), 300);
-                        break;
-                      }
-                      // If all broadening stages exhausted, fall through to show what we have
+                    // ── Auto-cascade DISABLED past stage 1 ──
+                    // Previously stage 1→2→3 fired sequentially, each
+                    // adding 5-15s of latency and burning more search
+                    // credits — total 30-60s when results were sparse.
+                    // Now we stop after the external scrape and let the
+                    // user explicitly click "Broaden filters" if they
+                    // want more results. Show the count we have and
+                    // surface the broaden CTA via NoResultsState below.
+                    if (!isDbOnly && found < requested && stage >= 1) {
+                      console.log(`[FALLBACK] Stopped at stage ${stage} with ${found}/${requested} — user can click Broaden to relax filters`);
+                      // Fall through to the success toast below so they see what we found
                     }
 
                     let msg = t('apolloProSearch.toastFoundLeads', { count: found.toLocaleString() });
@@ -2092,6 +2074,10 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                     const origIndustries = originalFiltersRef.current?.industries ?? curIndustries;
                     const origIndustriesArr = Array.from(origIndustries);
 
+                    // Only the DB→External upgrade auto-fires. Everything
+                    // past that requires a user click via the NoResultsState
+                    // CTA — keeps each Lead Finder run to at most 2 calls
+                    // instead of 4 sequential 10-15s scrapes.
                     if (wasDbOnly && stage === 0) {
                       console.log('[FALLBACK] Stage 0→1: DB-only returned 0 — expanding to full search');
                       toast.info(t('apolloProSearch.toastSearchingMatches'), { duration: 3000 });
@@ -2101,25 +2087,6 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                         originalFiltersRef.current = { seniorities: new Set(curSeniorities), industries: new Set(curIndustries) };
                       }
                       setTimeout(() => handleSearchRef.current(undefined, true, true, { seniorities: curSeniorities, industries: curIndustries, forceExternal: true }), 300);
-                    } else if (stage <= 1 && curSeniorities.size > 0) {
-                      console.log('[FALLBACK] Stage 1→2: Full search returned 0 — removing seniority filters');
-                      toast.info(t('apolloProSearch.toastRemovingSeniority'), { duration: 3000 });
-                      fallbackStageRef.current = 2;
-                      setSeniorities(new Set());
-                      setTimeout(() => handleSearchRef.current(undefined, true, true, { seniorities: new Set(), industries: curIndustries, forceExternal: true }), 300);
-                    } else if (stage <= 2 && curIndustries.size > 0) {
-                      console.log('[FALLBACK] Stage 2→3: Still 0 — removing strict industry filter, keeping as search hint');
-                      toast.info(t('apolloProSearch.toastRelaxingIndustryZero'), { duration: 3000 });
-                      fallbackStageRef.current = 3;
-                      setIndustries(new Set());
-                      // Pass original industries as preferred_industries so SerpAPI still targets
-                      // the right industry, but the backend won't apply a strict post-filter
-                      setTimeout(() => handleSearchRef.current(undefined, true, true, {
-                        seniorities: new Set(),
-                        industries: new Set(),
-                        preferredIndustries: origIndustriesArr.length > 0 ? origIndustriesArr : undefined,
-                        forceExternal: true,
-                      }), 300);
                     } else {
                       // Stage 4: All relaxations exhausted
                       fallbackStageRef.current = 4;
