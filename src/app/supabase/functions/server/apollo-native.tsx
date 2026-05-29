@@ -749,7 +749,7 @@ async function hybridEnrichPeople(
   send: (event: string, data: any) => void,
   isCancelledFn: () => boolean,
 ): Promise<{ people: ApolloLead[]; hunterFound: number; findymailFound: number; apolloRevealCount: number; phoneEnrichFound: number; hunterPhoneFound: number; patternGuessed: number; verified: number; verifiedValid: number; verifiedRisky: number; verifiedInvalid: number; creditsExhausted: boolean }> {
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const HUNTER_API_KEY = "";
   const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
   const sessionId = `enrich_${Date.now()}_${userId}`;
 
@@ -1792,7 +1792,7 @@ app.post("/reveal-selected", async (c) => {
     const transformed = revealedPeople.filter((r: any) => !r._revealFailed).map(transformApolloLead);
 
     // Quick phone fallback for leads without phone: try Hunter email-finder
-    const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+    const HUNTER_API_KEY = "";
     if (HUNTER_API_KEY) {
       const noPhone = transformed.filter(p => p.phone_numbers.length === 0 && p.organization?.website_url && p.first_name);
       if (noPhone.length > 0) {

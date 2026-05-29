@@ -150,7 +150,7 @@ function markHunterExhausted(status: number) {
 
 function getAvailableProviders(): ('findymail' | 'hunter')[] {
   const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const HUNTER_API_KEY = "";
   const providers: ('findymail' | 'hunter')[] = [];
   // Hunter.io is primary, Findymail is fallback
   if (HUNTER_API_KEY && !hunterExhausted) providers.push('hunter');
@@ -309,7 +309,7 @@ async function verifyEmailMultiProvider(email: string): Promise<VerificationResu
   }
 
   const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const HUNTER_API_KEY = "";
 
   // Try Hunter.io first (primary)
   if (HUNTER_API_KEY && !hunterExhausted) {
@@ -339,7 +339,7 @@ async function findVerifiedEmailMultiProvider(
   const lastName = nameParts.slice(1).join(" ");
 
   const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const HUNTER_API_KEY = "";
 
   // ── Strategy 1: Hunter.io email finder (primary) ──
   if (HUNTER_API_KEY && !hunterExhausted && firstName && lastName) {
@@ -643,7 +643,7 @@ async function findVerifiedEmail(
 
 export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<EnrichmentOutput> {
   const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const HUNTER_API_KEY = "";
 
   const providers = getAvailableProviders();
   console.log(`[ENRICH] Available providers: ${providers.length > 0 ? providers.join(', ') : 'NONE'}`);
@@ -1446,7 +1446,7 @@ export async function quickDiscoverContacts(domain: string): Promise<{
   }
 
   // ── Fallback to Hunter.io ──
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const HUNTER_API_KEY = "";
   if (HUNTER_API_KEY && !hunterExhausted) {
     try {
       const hunterResult = await hunterDomainSearch(domain, HUNTER_API_KEY, 10);

@@ -1762,7 +1762,7 @@ app.post("/search-stream", async (c) => {
       return c.json({ error: "SERPER_API_KEY not configured" }, 500);
     }
 
-    const HUNTER_KEY = Deno.env.get("HUNTER_API_KEY");
+    const HUNTER_KEY = "";
     const FINDYMAIL_KEY = Deno.env.get("FINDYMAIL_API_KEY");
     const TELNYX_KEY = Deno.env.get("TELNYX_API_KEY");
 
@@ -3410,7 +3410,7 @@ app.post("/enrich-linkedin", async (c) => {
 
     const SERPAPI_KEY = getSerpSearchKey();
     if (!SERPAPI_KEY) return c.json({ error: "Discovery engine not configured" }, 500);
-    const HUNTER_KEY = Deno.env.get("HUNTER_API_KEY");
+    const HUNTER_KEY = "";
     const FINDYMAIL_KEY = Deno.env.get("FINDYMAIL_API_KEY");
 
     // ══════════════════════════════════════════════════════════════
@@ -3995,7 +3995,7 @@ app.post("/reveal-preview", async (c) => {
     const batch = leads.slice(0, 50);
     console.log(`[DEEP PROSPECT REVEAL] Enriching ${batch.length} preview leads`);
 
-    const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+    const HUNTER_API_KEY = "";
     const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
 
     const enriched: any[] = [];

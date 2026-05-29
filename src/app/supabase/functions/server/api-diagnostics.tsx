@@ -22,7 +22,7 @@ interface DiagnosticReport {
  * Test Hunter.io API connectivity and functionality
  */
 async function testHunterIO(): Promise<ApiTestResult> {
-  const apiKey = Deno.env.get("HUNTER_API_KEY");
+  const apiKey = "";
   
   if (!apiKey) {
     return {

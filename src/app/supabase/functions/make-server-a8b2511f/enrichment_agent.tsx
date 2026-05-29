@@ -1,7 +1,7 @@
 // Contndr Lead Enrichment Agent v3.0
 // Production-grade email enrichment: every email MUST be verified before delivery.
 // Zero-tolerance for bounces. If it can't be verified, it's not returned as a contact.
-// Multi-provider: Hunter.io (primary) → Findymail (fallback) → Pattern+MX (last resort)
+// Email enrichment: Findymail first, then MX/pattern verification as a guarded fallback.
 
 export interface EnrichmentInput {
   company_name: string;
@@ -174,11 +174,10 @@ function isExhausted(provider: 'findymail' | 'hunter'): boolean {
 
 function getAvailableProviders(): ('findymail' | 'hunter')[] {
   const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const HUNTER_API_KEY = "";
   const providers: ('findymail' | 'hunter')[] = [];
-  // Hunter.io is primary, Findymail is fallback
-  if (HUNTER_API_KEY && !isExhausted('hunter')) providers.push('hunter');
   if (FINDYMAIL_API_KEY && !isExhausted('findymail')) providers.push('findymail');
+  if (HUNTER_API_KEY && !isExhausted('hunter')) providers.push('hunter');
   return providers;
 }
 
@@ -317,7 +316,7 @@ async function hunterDomainSearch(domain: string, apiKey: string, limit = 20): P
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// UNIFIED VERIFICATION — tries Hunter.io (primary), then Findymail (fallback)
+// UNIFIED VERIFICATION — Findymail is the active provider
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function verifyEmailMultiProvider(email: string): Promise<VerificationResult> {
@@ -333,9 +332,10 @@ async function verifyEmailMultiProvider(email: string): Promise<VerificationResu
   }
 
   const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const HUNTER_API_KEY = "";
 
-  // Try Hunter.io first (primary)
+  // Hunter.io is intentionally disabled. Keep this branch unreachable unless
+  // we explicitly re-enable it later.
   if (HUNTER_API_KEY && !isExhausted("hunter")) {
     const result = await hunterVerifyEmail(email, HUNTER_API_KEY);
     if (result.status !== 'unknown') return result;
@@ -352,7 +352,7 @@ async function verifyEmailMultiProvider(email: string): Promise<VerificationResu
 }
 
 /**
- * Unified email finder — tries Findymail finder, then Hunter finder, then pattern+verify.
+ * Unified email finder — tries Findymail finder, then pattern+verify.
  */
 async function findVerifiedEmailMultiProvider(
   fullName: string,
@@ -363,9 +363,9 @@ async function findVerifiedEmailMultiProvider(
   const lastName = nameParts.slice(1).join(" ");
 
   const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const HUNTER_API_KEY = "";
 
-  // ── Strategy 1: Hunter.io email finder (primary) ──
+  // ── Strategy 1: Hunter.io email finder (disabled) ──
   if (HUNTER_API_KEY && !isExhausted("hunter") && firstName && lastName) {
     const hunterResult = await hunterFindEmail(firstName, lastName, domain, HUNTER_API_KEY);
     if (hunterResult) {
@@ -377,7 +377,7 @@ async function findVerifiedEmailMultiProvider(
     }
   }
 
-  // ── Strategy 2: Findymail email finder (fallback) ──
+  // ── Strategy 1: Findymail email finder ──
   if (FINDYMAIL_API_KEY && !isExhausted("findymail") && firstName && lastName) {
     try {
       const params = new URLSearchParams({
@@ -667,7 +667,7 @@ async function findVerifiedEmail(
 
 export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<EnrichmentOutput> {
   const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const HUNTER_API_KEY = "";
 
   const providers = getAvailableProviders();
   console.log(`[ENRICH] Available providers: ${providers.length > 0 ? providers.join(', ') : 'NONE'}`);
@@ -689,7 +689,7 @@ export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<E
       success: false,
       company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
       status: "needs_review",
-      reason: "NO_ENRICHMENT_API_KEYS — set FINDYMAIL_API_KEY or HUNTER_API_KEY",
+      reason: "NO_ENRICHMENT_API_KEYS — set FINDYMAIL_API_KEY",
       decision_makers: [],
       excluded_emails_found: []
     };
@@ -713,7 +713,7 @@ export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<E
   // 2) Company intelligence in parallel
   const companyIntel = await searchCompanyIntelligence(input);
 
-  // 3) Domain search — try Hunter.io first (primary), then Findymail (fallback)
+  // 3) Domain search — Findymail is the active provider
   let domainSearchResult: EnrichmentOutput | null = null;
 
   if (HUNTER_API_KEY && !isExhausted("hunter")) {
@@ -721,7 +721,7 @@ export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<E
   }
 
   if (!domainSearchResult?.decision_makers?.length && FINDYMAIL_API_KEY && !isExhausted("findymail")) {
-    console.log(`[ENRICH] Hunter.io domain search yielded 0 contacts, trying Findymail fallback...`);
+    console.log(`[ENRICH] Trying Findymail domain search...`);
     domainSearchResult = await tryFindymailDomainSearch(input, FINDYMAIL_API_KEY);
   }
 
@@ -766,7 +766,7 @@ export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<E
 
   const verifiedCount = withLinkedIn.filter(dm => dm.verification_status === 'verified').length;
   const catchAllCount = withLinkedIn.filter(dm => dm.verification_status === 'catch_all').length;
-  const providerNote = isExhausted("findymail") ? ' (Findymail exhausted, used Hunter.io)' : '';
+  const providerNote = isExhausted("findymail") ? ' (Findymail exhausted)' : '';
 
   const verificationSummary = {
     total_candidates: totalCandidates,
@@ -1470,7 +1470,7 @@ export async function quickDiscoverContacts(domain: string): Promise<{
   }
 
   // ── Fallback to Hunter.io ──
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+  const HUNTER_API_KEY = "";
   if (HUNTER_API_KEY && !isExhausted("hunter")) {
     try {
       const hunterResult = await hunterDomainSearch(domain, HUNTER_API_KEY, 10);
@@ -1812,7 +1812,7 @@ async function findDecisionMakerViaSerpApiMulti(input: EnrichmentInput): Promise
       status: "enriched",
       decision_makers: verifiedDMs,
       excluded_emails_found: [],
-      notes: `Found via Apollo.io, emails verified through ${isExhausted("findymail") ? 'Hunter.io' : 'Findymail/Hunter'}.`,
+      notes: `Found via Apollo.io, emails verified through Findymail and mailbox verification.`,
       verification_summary: {
         total_candidates: totalCandidates,
         verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,
@@ -1921,7 +1921,7 @@ async function findDecisionMakerViaLinkedInMulti(input: EnrichmentInput): Promis
       status: "enriched",
       decision_makers: verifiedDMs,
       excluded_emails_found: [],
-      notes: `Found via LinkedIn, emails verified through ${isExhausted("findymail") ? 'Hunter.io' : 'Findymail/Hunter'}.`,
+      notes: `Found via LinkedIn, emails verified through Findymail and mailbox verification.`,
       verification_summary: {
         total_candidates: totalCandidates,
         verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,

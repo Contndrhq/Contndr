@@ -437,7 +437,7 @@ app.post("/search", async (c) => {
     if (!SERPAPI_API_KEY) {
       return c.json({ error: "Server configuration error: Search API key missing" }, 500);
     }
-    const HUNTER_API_KEY_NS = Deno.env.get("HUNTER_API_KEY");
+    const HUNTER_API_KEY_NS = "";
 
     // Determine how many pages to fetch based on depth
     const pageCounts: Record<string, number> = {
@@ -928,7 +928,7 @@ app.post("/search-stream", async (c) => {
       console.error(`[LEAD ENGINE SSE] SERPER_API_KEY not configured`);
       return c.json({ error: "Server configuration error: Search API key missing" }, 500);
     }
-    const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+    const HUNTER_API_KEY = "";
 
     const pageCounts: Record<string, number> = { standard: 1, deep: 3, maximum: 5 };
     const pages = pageCounts[depth] || 1;
@@ -2154,7 +2154,7 @@ app.post("/people-search", async (c) => {
     }
 
     const SERPAPI_API_KEY = getSerpSearchKey();
-    const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+    const HUNTER_API_KEY = "";
     const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
     
     console.log(`[LEAD ENGINE] People search: "${jobTitles.join(', ')}" in "${location}" (User: ${user.email})`);

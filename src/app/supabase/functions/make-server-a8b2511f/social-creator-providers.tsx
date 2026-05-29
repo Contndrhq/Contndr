@@ -38,7 +38,7 @@ export interface FetchedProfile {
 }
 
 const SERPAPI_API_KEY = () => getSerpSearchKey();
-const HUNTER_API_KEY = () => Deno.env.get("HUNTER_API_KEY") || "";
+const HUNTER_API_KEY = () => "" || "";
 const FINDYMAIL_API_KEY = () => Deno.env.get("FINDYMAIL_API_KEY") || "";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";

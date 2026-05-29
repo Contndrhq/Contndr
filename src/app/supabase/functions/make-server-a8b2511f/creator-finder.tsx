@@ -850,7 +850,7 @@ async function scrapeLinkedWebsitesForEmails(links: string[]): Promise<{ emails:
 // ENRICHMENT SOURCE 4: Hunter.io Domain Search
 // ══════════════════════════════════════════════════════════════════════════
 
-const HUNTER_API_KEY = () => Deno.env.get("HUNTER_API_KEY") || "";
+const HUNTER_API_KEY = () => "" || "";
 
 const FREE_EMAIL_DOMAINS = new Set([
   "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com",

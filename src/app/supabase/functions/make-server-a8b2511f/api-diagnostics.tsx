@@ -1,5 +1,5 @@
 // API Diagnostics Tool for Contndr
-// Tests Hunter.io, Findymail, and SerpAPI connectivity and functionality
+// Tests Findymail and Serper connectivity and functionality
 
 import { runSerpDiagnostics } from "./serp-adapter.tsx";
 
@@ -21,100 +21,15 @@ interface DiagnosticReport {
 }
 
 /**
- * Test Hunter.io API connectivity and functionality
+ * Hunter.io is intentionally disabled. Email enrichment should use Findymail
+ * plus the mailbox verification gate.
  */
 async function testHunterIO(): Promise<ApiTestResult> {
-  const apiKey = Deno.env.get("HUNTER_API_KEY");
-  
-  if (!apiKey) {
-    return {
-      service: "Hunter.io",
-      status: "not_configured",
-      message: "API key not configured in environment variables"
-    };
-  }
-
-  const startTime = Date.now();
-  
-  try {
-    // Test 1: Verify API key with account info endpoint
-    const accountResponse = await fetch(
-      `https://api.hunter.io/v2/account?api_key=${apiKey}`
-    );
-    
-    const responseTime = Date.now() - startTime;
-    
-    if (!accountResponse.ok) {
-      return {
-        service: "Hunter.io",
-        status: "error",
-        message: `API returned HTTP ${accountResponse.status}: ${accountResponse.statusText}`,
-        response_time_ms: responseTime,
-        details: await accountResponse.text()
-      };
-    }
-
-    const accountData = await accountResponse.json();
-    const data = accountData.data || {};
-    
-    // Check remaining requests
-    const requestsRemaining = data.requests?.searches?.available || 0;
-    const requestsUsed = data.requests?.searches?.used || 0;
-    const requestsLimit = (data.requests?.searches?.available || 0) + (data.requests?.searches?.used || 0);
-    
-    if (requestsRemaining === 0) {
-      return {
-        service: "Hunter.io",
-        status: "error",
-        message: "API key has exhausted all credits",
-        credits_remaining: 0,
-        response_time_ms: responseTime,
-        details: { requestsUsed, requestsLimit }
-      };
-    }
-
-    // Test 2: Perform a simple email verification
-    const testEmail = "test@example.com";
-    const verifyResponse = await fetch(
-      `https://api.hunter.io/v2/email-verifier?email=${encodeURIComponent(testEmail)}&api_key=${apiKey}`
-    );
-
-    if (!verifyResponse.ok) {
-      return {
-        service: "Hunter.io",
-        status: "warning",
-        message: "Account info accessible but verification endpoint failed",
-        credits_remaining: requestsRemaining,
-        response_time_ms: responseTime,
-        details: { error: await verifyResponse.text() }
-      };
-    }
-
-    return {
-      service: "Hunter.io",
-      status: "success",
-      message: `✅ Fully functional with ${requestsRemaining.toLocaleString()} credits remaining`,
-      credits_remaining: requestsRemaining,
-      rate_limit: data.plan_name || "Unknown plan",
-      response_time_ms: responseTime,
-      details: {
-        email: data.email,
-        firstName: data.first_name,
-        lastName: data.last_name,
-        requestsUsed,
-        requestsLimit,
-        resetDate: data.reset_date
-      }
-    };
-
-  } catch (error) {
-    return {
-      service: "Hunter.io",
-      status: "error",
-      message: `Connection failed: ${(error as Error).message}`,
-      response_time_ms: Date.now() - startTime
-    };
-  }
+  return {
+    service: "Hunter.io",
+    status: "not_configured",
+    message: "Disabled by Contndr configuration; Findymail is the active enrichment provider"
+  };
 }
 
 /**
@@ -279,6 +194,7 @@ export async function runFullDiagnostics(): Promise<DiagnosticReport> {
   const recommendations: string[] = [];
   
   for (const result of results) {
+    if (result.service === 'Hunter.io') continue;
     if (result.status === 'not_configured') {
       recommendations.push(`Configure ${result.service} API key in environment variables`);
     } else if (result.status === 'error') {
@@ -293,11 +209,11 @@ export async function runFullDiagnostics(): Promise<DiagnosticReport> {
   }
 
   // Check if at least one enrichment provider is working
-  const enrichmentProviders = [hunterResult, findymailResult];
+  const enrichmentProviders = [findymailResult];
   const hasWorkingEnrichmentProvider = enrichmentProviders.some(r => r.status === 'success');
   
   if (!hasWorkingEnrichmentProvider) {
-    recommendations.push('⚠️ CRITICAL: No working email enrichment provider (Hunter.io or Findymail). Lead enrichment will fail.');
+    recommendations.push('⚠️ CRITICAL: Findymail is not working. Email enrichment will fail.');
   }
 
   if (recommendations.length === 0) {

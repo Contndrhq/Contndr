@@ -673,7 +673,7 @@ async function deepEnrichCompany(
     const serpParams = new URLSearchParams({ engine: "google", q: serpQuery, api_key: SERPAPI_KEY, num: "5" });
 
     const cleanDomain = companyDomain?.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "").trim() || "";
-    const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+    const HUNTER_API_KEY = "";
 
     const [serpResult, hunterResult, secResult, ocResult, webResult] = await Promise.allSettled([
       // 1. SerpAPI knowledge graph + organic results
@@ -2971,7 +2971,7 @@ app.post("/find-people", async (c) => {
       return c.json({ error: "SERPER_API_KEY not configured" }, 500);
     }
 
-    const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+    const HUNTER_API_KEY = "";
     const cleanDomain = domain ? domain.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "").trim() : "";
 
     // ── Run LinkedIn search + Hunter.io domain-search in parallel ──
@@ -3438,7 +3438,7 @@ app.post("/enrich-people-email", async (c) => {
       console.log(`[EMAIL ENRICH] Force mode — skipping all caches for "${cleanDomain}"`);
     }
 
-    const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
+    const HUNTER_API_KEY = "";
     const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
     if (!HUNTER_API_KEY && !FINDYMAIL_API_KEY) {
       console.log("[EMAIL ENRICH] No external providers configured — using Contndr fallback enrichment only");
