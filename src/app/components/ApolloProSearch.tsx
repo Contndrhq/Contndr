@@ -2574,9 +2574,8 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
 
   // ── Filtering & Sorting ──
   const filteredResults = useMemo(() => {
-    // QUALITY GATE: main results must be usable contacts.
-    // Local-business discovery can return callable owner/manager leads when a
-    // personal email is unavailable, so allow a real phone number as contact.
+    // QUALITY GATE: People Finder results must have a usable person email.
+    // Phone/LinkedIn-only rows are discovery hints, not save-ready leads.
     const initialCount = results.length;
     const filterReasons = { genericEmail: 0, roleBasedEmail: 0, noName: 0, noCompany: 0, noContact: 0 };
     let filtered = results.filter(l => {
@@ -2589,11 +2588,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
       const companyName = (l.organization?.name || '').trim();
       const hasCompany = companyName.length >= 2 && companyName !== '—' && companyName !== '-';
       if (!hasCompany) { filterReasons.noCompany++; return false; }
-      // Lead is actionable if there's any way to reach the person:
-      // verified email, callable phone, OR a LinkedIn profile (which the
-      // user can DM or use to run "Find email" later). The previous gate
-      // dropped every tier-4 LinkedIn-only lead silently.
-      if (!hasUsableEmail(l) && !hasCallablePhone(l) && !hasLinkedinProfile(l)) { filterReasons.noContact++; return false; }
+      if (!hasUsableEmail(l)) { filterReasons.noContact++; return false; }
       // DEDUPLICATE against CRM — never show leads the user already has (by email)
       if (l.email && existingEmails.has(l.email.toLowerCase())) return false;
       return true;
@@ -3261,7 +3256,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
 
                   {/* Email Filter */}
                   <div className="hidden md:flex items-center gap-1">
-                    {(['all', 'verified', 'has_email', 'no_email'] as const).map(opt => {
+                    {(['all', 'verified', 'has_email'] as const).map(opt => {
                       const disabled = false;
                       return (
                         <button
@@ -3274,7 +3269,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                               : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                           }`}
                         >
-                          {opt === 'all' ? t('apolloProSearch.filterAll') : opt === 'verified' ? t('apolloProSearch.filterVerified') : opt === 'has_email' ? t('apolloProSearch.filterHasEmail') : t('apolloProSearch.filterNoEmail')}
+                          {opt === 'all' ? t('apolloProSearch.filterAll') : opt === 'verified' ? t('apolloProSearch.filterVerified') : t('apolloProSearch.filterHasEmail')}
                         </button>
                       );
                     })}
@@ -3360,7 +3355,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
           {/* Mobile filter chips */}
           {results.length > 0 && (
             <div className="md:hidden flex-shrink-0 flex items-center gap-1 px-4 py-1.5 border-b border-zinc-200 dark:border-zinc-800 overflow-x-auto">
-              {(['all', 'verified', 'has_email', 'no_email'] as const).map(opt => {
+              {(['all', 'verified', 'has_email'] as const).map(opt => {
                 const disabled = false;
                 return (
                   <button
@@ -3373,7 +3368,7 @@ export function ApolloProSearch({ onSaveProspects, embedded = false, onUpgrade, 
                         : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                     }`}
                   >
-                    {opt === 'all' ? t('apolloProSearch.filterAll') : opt === 'verified' ? t('apolloProSearch.filterVerified') : opt === 'has_email' ? t('apolloProSearch.filterHasEmail') : t('apolloProSearch.filterNoEmail')}
+                    {opt === 'all' ? t('apolloProSearch.filterAll') : opt === 'verified' ? t('apolloProSearch.filterVerified') : t('apolloProSearch.filterHasEmail')}
                   </button>
                 );
               })}

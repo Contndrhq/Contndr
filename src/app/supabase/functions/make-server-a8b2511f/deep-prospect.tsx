@@ -832,7 +832,7 @@ function filterEmailQualifiedPeople<T extends DeepLead>(people: T[], context: st
 async function filterMailboxSafePeople<T extends DeepLead>(
   people: T[],
   context: string,
-  options: { keepCallablePhoneFallback?: boolean; keepEmailless?: boolean; limit?: number } = {},
+  options: { keepCallablePhoneFallback?: boolean; limit?: number } = {},
 ): Promise<T[]> {
   // Concurrent mailbox verification — was the slowest step in the entire
   // search pipeline. Sequential 1-2s/email × 100 leads pushed the search
@@ -842,20 +842,13 @@ async function filterMailboxSafePeople<T extends DeepLead>(
   const filtered: T[] = [];
   let dropped = 0;
 
-  // Split into leads with email (need verification) and without (kept if
-  // they're actionable — LinkedIn-only or phone-only fallbacks).
+  // Split into leads with email (need verification) and without.
+  // People Finder is email-first: no-email rows are not returned here.
   const needsVerify: T[] = [];
   for (const lead of people) {
     const email = (lead.email || "").trim().toLowerCase();
     if (!email) {
-      const linkedinUrl = ((lead as any).linkedin_url || (lead as any).person_linkedin_url || "").toLowerCase();
-      const hasLinkedin = linkedinUrl.includes("linkedin.com/");
-      if (options.keepEmailless && (hasLinkedin || hasCallablePhone(lead))) {
-        // Tier 4 LinkedIn-only / actionable-without-email lead — keep it so
-        // the user can run "Find email" later instead of seeing no result.
-        if (!lead.email_status) (lead as any).email_status = "unavailable";
-        filtered.push(lead);
-      } else if (options.keepCallablePhoneFallback && hasCallablePhone(lead)) {
+      if (options.keepCallablePhoneFallback && hasCallablePhone(lead)) {
         filtered.push(lead);
       }
     } else {
@@ -2577,9 +2570,15 @@ app.post("/search-stream", async (c) => {
           let icypeasFound = 0;
 
           if (ICYPEAS_KEY && !isCancelled) {
-            const stillNoEmail = leads.filter(l => !l.email && l.organization.website_url);
+            const stillNoEmail = leads.filter(l =>
+              !l.email &&
+              l.first_name?.trim() &&
+              l.last_name?.trim() &&
+              l.organization.website_url
+            );
             if (stillNoEmail.length > 0) {
               send("phase", { phase: 6, name: `Advanced email search (${stillNoEmail.length})`, status: "processing" });
+              console.log(`[DEEP PROSPECT] Icypeas email search starting for ${stillNoEmail.length} people`);
 
               const FB = 5;
               for (let i = 0; i < stillNoEmail.length; i += FB) {
@@ -2593,8 +2592,12 @@ app.post("/search-stream", async (c) => {
                     try {
                       const result = await icypeasEmailSearch(lead.first_name, lead.last_name || "", domain);
                       if (result?.email) return { id: lead.id, email: result.email, status: "verified" };
+                      console.log(`[DEEP PROSPECT] Icypeas no email for ${lead.name} @ ${domain}`);
                       return null;
-                    } catch { return null; }
+                    } catch (err: any) {
+                      console.warn(`[DEEP PROSPECT] Icypeas error for ${lead.name}: ${err.message}`);
+                      return null;
+                    }
                   })
                 );
 
@@ -2621,6 +2624,8 @@ app.post("/search-stream", async (c) => {
               console.log(`[DEEP PROSPECT] Icypeas found ${icypeasFound} emails`);
               send("phase", { phase: 6, name: "Advanced email search", status: "complete" });
             }
+          } else if (!ICYPEAS_KEY) {
+            console.warn("[DEEP PROSPECT] Icypeas skipped: ICYPEAS_API_KEY is not configured");
           }
 
           // ══════════════════════════════════════════════════════════════
@@ -2971,32 +2976,17 @@ app.post("/search-stream", async (c) => {
           }
 
           // ═════════════════════════════════════════════════════════════
-          // FINAL: Merge pool + external, deduplicate, emit results
-          // Two-tier approach: prioritize leads WITH email, then fill
-          // remaining slots with leads that have name+company+title
-          // (still useful for LinkedIn outreach / manual research)
+          // FINAL: Merge pool + external, deduplicate, emit results.
+          // People Finder must only return leads with a usable person email.
+          // LinkedIn-only and phone-only rows are useful signals, but they
+          // should not appear in this table as if they are contact-ready.
           // ══════════════════════════════════════════════════════════════
           const mergedEmails = new Set<string>();
           const mergedNames = new Set<string>();
           const tier1People: DeepLead[] = []; // With email
-          const tier2People: DeepLead[] = []; // Phone-only email-qualified leads.
-          const tier3PhonePeople: DeepLead[] = []; // Local-business fallback: verified phone, no person email.
-          // Tier 4: leads with a LinkedIn URL but no discoverable email yet.
-          // Previously dropped silently — that's the "returns barely anything"
-          // bug. They're still actionable for outreach; the user can run
-          // "Find email" later. We mark email_status="unavailable" so the UI
-          // can render a "Find email" affordance instead of a verified badge.
-          const tier4LinkedinOnly: DeepLead[] = [];
-          const linkedinCandidateNames = new Set<string>();
-          const phoneCandidateNames = new Set<string>();
-
-          const hasLinkedinUrl = (lead: DeepLead): boolean => {
-            const li = (lead.linkedin_url || (lead as any).person_linkedin_url || "").toLowerCase();
-            return li.includes("linkedin.com/");
-          };
+          const tier2People: DeepLead[] = []; // Usable email + partial metadata.
 
           // Helper: check if lead has basic data (name + company + title) but no email
-          // More lenient for leads with LinkedIn URL — still actionable for outreach
           const isPartialQualityLead = (lead: DeepLead): boolean => {
             const name = (lead.name || "").trim();
             if (!name || name === "\u2014" || name === "-") return false;
@@ -3004,7 +2994,6 @@ app.post("/search-stream", async (c) => {
             // ── Name quality gate (same as full quality) ──
             if (!isCleanPersonName(lead.first_name, lead.last_name)) return false;
             const companyName = (lead.organization?.name || "").trim();
-            const hasLinkedIn = !!lead.linkedin_url;
             // Run through cleanCompanyName — rejects LinkedIn headlines, job titles, sentences
             const cleanedCo = cleanCompanyName(companyName);
             const JUNK_COMPANY = new Set([
@@ -3013,8 +3002,8 @@ app.post("/search-stream", async (c) => {
               "service", "services", "agency", "group", "corp", "inc", "linkedin",
             ]);
             if (!cleanedCo || cleanedCo === "\u2014" || cleanedCo === "-" || cleanedCo.length < 2) {
-              if (!hasLinkedIn) return false; // No company + no LinkedIn = reject
-            } else if (JUNK_COMPANY.has(cleanedCo.toLowerCase()) && !hasLinkedIn) {
+              return false;
+            } else if (JUNK_COMPANY.has(cleanedCo.toLowerCase())) {
               return false;
             }
             // Reject company names that are >80 chars (descriptions, not names)
@@ -3025,10 +3014,6 @@ app.post("/search-stream", async (c) => {
             // Reject title if it's a sentence (>8 words)
             if (titleClean.split(/\s+/).length > 8) return false;
             return true;
-          };
-
-          const hasCallablePhone = (lead: DeepLead): boolean => {
-            return !!(lead.phone_numbers?.some((phone) => (phone.raw_number || "").trim()) || lead.organization?.phone);
           };
 
           // When force_external, prioritize external leads (industry-targeted by SerpAPI)
@@ -3052,7 +3037,7 @@ app.post("/search-stream", async (c) => {
           // snippet locations (e.g. "Dallas, TX") didn't contain "United States".
           const externalLeadIds = new Set(leads.map(l => l.id));
 
-          let mergeStats = { industryRejected: 0, locationRejected: 0, qualityRejected: 0, partialRejected: 0, phoneFallback: 0 };
+          let mergeStats = { industryRejected: 0, locationRejected: 0, qualityRejected: 0, partialRejected: 0, noEmailRejected: 0 };
 
           for (const el of primarySource) {
             const dlead = el as DeepLead;
@@ -3073,23 +3058,10 @@ app.post("/search-stream", async (c) => {
               }
             } else if (hasUsablePersonEmail(dlead) && isPartialQualityLead(dlead) && !mergedNames.has(nameKey)) {
               mergedNames.add(nameKey);
-              if (!dlead.email) dlead.email_status = "unavailable";
               tier2People.push(dlead);
-            } else if (isLocalBusinessSearch && hasCallablePhone(dlead) && isPartialQualityLead(dlead) && !phoneCandidateNames.has(nameKey)) {
-              phoneCandidateNames.add(nameKey);
-              dlead.email_status = dlead.email_status || "unavailable";
-              tier3PhonePeople.push(dlead);
-              mergeStats.phoneFallback++;
-            } else if (hasLinkedinUrl(dlead) && isPartialQualityLead(dlead) && !linkedinCandidateNames.has(nameKey)) {
-              // Tier 4: still useful — has LinkedIn + name + company. Email
-              // can be discovered later via the "Find email" action.
-              linkedinCandidateNames.add(nameKey);
-              dlead.email = "";
-              dlead.email_status = "unavailable";
-              tier4LinkedinOnly.push(dlead);
             } else {
               if (email) mergeStats.qualityRejected++;
-              else mergeStats.partialRejected++;
+              else mergeStats.noEmailRejected++;
             }
           }
 
@@ -3113,25 +3085,14 @@ app.post("/search-stream", async (c) => {
               }
             } else if (hasUsablePersonEmail(dlead) && isPartialQualityLead(dlead) && !mergedNames.has(nameKey)) {
               mergedNames.add(nameKey);
-              if (!dlead.email) dlead.email_status = "unavailable";
               tier2People.push(dlead);
-            } else if (isLocalBusinessSearch && hasCallablePhone(dlead) && isPartialQualityLead(dlead) && !phoneCandidateNames.has(nameKey)) {
-              phoneCandidateNames.add(nameKey);
-              dlead.email_status = dlead.email_status || "unavailable";
-              tier3PhonePeople.push(dlead);
-              mergeStats.phoneFallback++;
-            } else if (hasLinkedinUrl(dlead) && isPartialQualityLead(dlead) && !linkedinCandidateNames.has(nameKey)) {
-              linkedinCandidateNames.add(nameKey);
-              dlead.email = "";
-              dlead.email_status = "unavailable";
-              tier4LinkedinOnly.push(dlead);
             } else {
               if (email) mergeStats.qualityRejected++;
-              else mergeStats.partialRejected++;
+              else mergeStats.noEmailRejected++;
             }
           }
 
-          console.log(`[DEEP PROSPECT] Merge filter stats: ${JSON.stringify(mergeStats)} (industryRejected=${mergeStats.industryRejected}, locationRejected=${mergeStats.locationRejected}, qualityRejected=${mergeStats.qualityRejected}, partialRejected=${mergeStats.partialRejected}, phoneFallback=${mergeStats.phoneFallback})`);
+          console.log(`[DEEP PROSPECT] Merge filter stats: ${JSON.stringify(mergeStats)} (industryRejected=${mergeStats.industryRejected}, locationRejected=${mergeStats.locationRejected}, qualityRejected=${mergeStats.qualityRejected}, partialRejected=${mergeStats.partialRejected}, noEmailRejected=${mergeStats.noEmailRejected})`);
 
           if (force_external) {
             console.log(`[DEEP PROSPECT] Merge priority: external leads first (${leads.length}), then pool leads (${poolLeads.length})`);
@@ -3141,7 +3102,7 @@ app.post("/search-stream", async (c) => {
           if (organization_industries?.length) {
             console.log(`[DEEP PROSPECT] Industry filter active: [${organization_industries.join(', ')}]`);
           }
-          console.log(`[DEEP PROSPECT] Four-tier merge: ${tier1People.length} primary email, ${tier2People.length} secondary email, ${tier3PhonePeople.length} local phone, ${tier4LinkedinOnly.length} linkedin-only, from ${preQualityCount} total candidates`);
+          console.log(`[DEEP PROSPECT] Email-qualified merge: ${tier1People.length} primary email, ${tier2People.length} secondary email, from ${preQualityCount} total candidates`);
 
           // Sort within each tier: leads WITH industry first, then without
           const sortByIndustry = (a: DeepLead, b: DeepLead) => {
@@ -3151,12 +3112,8 @@ app.post("/search-stream", async (c) => {
           };
           tier1People.sort(sortByIndustry);
           tier2People.sort(sortByIndustry);
-          tier3PhonePeople.sort(sortByIndustry);
-          tier4LinkedinOnly.sort(sortByIndustry);
 
-          // Fill real person emails first. For local-business searches, fill the
-          // remaining requested count with callable phone contacts instead of
-          // returning a misleading one-row result.
+          // Fill real person emails only.
           const finalPeople: DeepLead[] = [];
           const finalNameKeys = new Set<string>();
           const addFinal = (lead: DeepLead) => {
@@ -3178,50 +3135,14 @@ app.post("/search-stream", async (c) => {
               addFinal(p);
             }
           }
-          if (isLocalBusinessSearch && finalPeople.length < max_results) {
-            for (const p of tier3PhonePeople) {
-              if (finalPeople.length >= max_results) break;
-              addFinal(p);
-            }
-          }
-          // Tier 4 fallback: LinkedIn-only leads with no email yet. Always
-          // included (not just for local-business searches) because the most
-          // common "returns barely anything" complaint comes from B2B title
-          // searches where 60-80% of LinkedIn discoveries lack an email at
-          // discovery time. Better to show them with a "Find email" path than
-          // return an empty result set.
-          if (finalPeople.length < max_results) {
-            for (const p of tier4LinkedinOnly) {
-              if (finalPeople.length >= max_results) break;
-              addFinal(p);
-            }
-          }
 
-          const mailboxSafePeople = await filterMailboxSafePeople(finalPeople, "final output", {
-            keepCallablePhoneFallback: isLocalBusinessSearch,
-            // Tier 4 surfacing: keep LinkedIn-only / actionable leads even
-            // without a verified email so the result list isn't artificially
-            // empty when discovery finds people but enrichment hasn't run yet.
-            keepEmailless: true,
-            limit: max_results,
-          });
+          const mailboxSafePeople = await filterMailboxSafePeople(
+            filterEmailQualifiedPeople(finalPeople, "final pre-verification"),
+            "final output",
+            { limit: max_results },
+          );
           finalPeople.length = 0;
           finalPeople.push(...mailboxSafePeople);
-
-          // Backfill from tier 4 if mailbox verification dropped emails and
-          // left us short of max_results. Without this, a search asking for
-          // 10 leads can return 7 because 3 emails failed verification —
-          // even when 30+ LinkedIn-only leads were available to fill the gap.
-          if (finalPeople.length < max_results && tier4LinkedinOnly.length > 0) {
-            const alreadyIncluded = new Set(finalPeople.map(p => (p.name || "").toLowerCase()));
-            for (const p of tier4LinkedinOnly) {
-              if (finalPeople.length >= max_results) break;
-              const nameKey = (p.name || "").toLowerCase();
-              if (nameKey && alreadyIncluded.has(nameKey)) continue;
-              finalPeople.push(p);
-              if (nameKey) alreadyIncluded.add(nameKey);
-            }
-          }
 
           const withIndustry = finalPeople.filter(l => l.organization?.industry).length;
           const previewLeads = finalPeople.filter(l => (l as any)._preview).length;
