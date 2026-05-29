@@ -3421,6 +3421,105 @@ app.post("/make-server-a8b2511f/admin/users/delete", async (c) => {
   }
 });
 
+// ─── Saved Lists (per-user) ──────────────────────────────────────────
+// Lead Finder lets users save a search-result set as a named list to
+// reload later. Backend was missing — frontend was 404ing on every load,
+// save, and delete. KV-backed under `saved_lists:<userId>` so reads are
+// instant and rows survive an Edge Function cold start.
+
+interface SavedList {
+  id: string;
+  user_id: string;
+  type: 'companies' | 'people' | 'leads';
+  name: string;
+  items: any[];
+  created_at: string;
+  updated_at: string;
+}
+
+// GET /saved-lists — list this user's saved lists
+app.get("/make-server-a8b2511f/saved-lists", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const lists: SavedList[] = (await kv.get(`saved_lists:${user.id}`)) || [];
+    // Strip items[] from the response — the loader doesn't need them
+    // until the user picks a list. Keeps the payload small.
+    return c.json({
+      lists: lists.map(({ items, ...meta }) => ({ ...meta, item_count: items?.length || 0 })),
+    });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /saved-lists — create or update a list
+app.post("/make-server-a8b2511f/saved-lists", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const body = await c.req.json();
+    const { id, name, type, items } = body;
+    if (!name || !type) return c.json({ error: 'name and type required' }, 400);
+
+    const lists: SavedList[] = (await kv.get(`saved_lists:${user.id}`)) || [];
+    const now = new Date().toISOString();
+
+    if (id) {
+      // Update existing
+      const idx = lists.findIndex((l) => l.id === id && l.user_id === user.id);
+      if (idx === -1) return c.json({ error: 'List not found' }, 404);
+      lists[idx] = { ...lists[idx], name, type, items: items || lists[idx].items, updated_at: now };
+      await kv.set(`saved_lists:${user.id}`, lists);
+      return c.json({ ok: true, list: lists[idx] });
+    }
+
+    const newList: SavedList = {
+      id: `list_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      user_id: user.id,
+      type,
+      name,
+      items: items || [],
+      created_at: now,
+      updated_at: now,
+    };
+    lists.unshift(newList);
+    // Cap at 100 lists per user to keep KV reads bounded
+    if (lists.length > 100) lists.length = 100;
+    await kv.set(`saved_lists:${user.id}`, lists);
+    return c.json({ ok: true, list: newList });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /saved-lists/:id — fetch a single list with items
+app.get("/make-server-a8b2511f/saved-lists/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const id = c.req.param('id');
+    const lists: SavedList[] = (await kv.get(`saved_lists:${user.id}`)) || [];
+    const list = lists.find((l) => l.id === id && l.user_id === user.id);
+    if (!list) return c.json({ error: 'List not found' }, 404);
+    return c.json({ list });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// DELETE /saved-lists/:id — remove a list
+app.delete("/make-server-a8b2511f/saved-lists/:id", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const id = c.req.param('id');
+    const lists: SavedList[] = (await kv.get(`saved_lists:${user.id}`)) || [];
+    const filtered = lists.filter((l) => !(l.id === id && l.user_id === user.id));
+    if (filtered.length === lists.length) return c.json({ error: 'List not found' }, 404);
+    await kv.set(`saved_lists:${user.id}`, filtered);
+    return c.json({ ok: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // POST /enrich/email-find — On-demand single-person email lookup.
 // The frontend's "Retry" button under each 'No email found' row hits
 // this for ONE person at a time, so the per-request CPU budget can't

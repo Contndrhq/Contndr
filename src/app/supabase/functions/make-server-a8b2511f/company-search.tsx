@@ -3917,7 +3917,11 @@ app.post("/save-people-to-crm", async (c) => {
 // ══════════════════════════════════════════════════════════════════════════
 
 // ── GET /pool-stats — returns pool statistics (total entries, credits saved) ──
-app.get("/make-server-a8b2511f/pool-stats", async (c) => {
+// Sub-app is mounted at /make-server-a8b2511f/company-search so the route
+// path must be relative. Full prefix here double-mounted it as
+// /make-server-a8b2511f/company-search/make-server-a8b2511f/pool-stats and
+// the frontend (which hits /company-search/pool-stats) got 404.
+app.get("/pool-stats", async (c) => {
   try {
     const stats = await getPoolStats();
     
