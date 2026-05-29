@@ -437,7 +437,11 @@ app.post("/search", async (c) => {
     if (!SERPAPI_API_KEY) {
       return c.json({ error: "Server configuration error: Search API key missing" }, 500);
     }
-    const HUNTER_API_KEY_NS = "";
+    // Was hardcoded to "" during a debug session and never reverted —
+    // gated `if (HUNTER_API_KEY_NS && …)` everywhere below, so Hunter
+    // (the primary email-enrichment provider) literally never ran and
+    // every search came back with 'No email found'. Read from env.
+    const HUNTER_API_KEY_NS = Deno.env.get("HUNTER_API_KEY") || Deno.env.get("HUNTERIO_API_KEY") || "";
 
     // Determine how many pages to fetch based on depth
     const pageCounts: Record<string, number> = {
@@ -928,7 +932,9 @@ app.post("/search-stream", async (c) => {
       console.error(`[LEAD ENGINE SSE] SERPER_API_KEY not configured`);
       return c.json({ error: "Server configuration error: Search API key missing" }, 500);
     }
-    const HUNTER_API_KEY = "";
+    // See note above on the matching `_NS` line — was stuck at "" so
+    // the SSE path also never called Hunter. Read from env now.
+    const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY") || Deno.env.get("HUNTERIO_API_KEY") || "";
 
     const pageCounts: Record<string, number> = { standard: 1, deep: 3, maximum: 5 };
     const pages = pageCounts[depth] || 1;
@@ -2154,7 +2160,9 @@ app.post("/people-search", async (c) => {
     }
 
     const SERPAPI_API_KEY = getSerpSearchKey();
-    const HUNTER_API_KEY = "";
+    // See notes on lines 440/931 — this was the third hardcoded "" gating
+    // the People-search Hunter path. Read from env so it actually runs.
+    const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY") || Deno.env.get("HUNTERIO_API_KEY") || "";
     const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
     
     console.log(`[LEAD ENGINE] People search: "${jobTitles.join(', ')}" in "${location}" (User: ${user.email})`);
