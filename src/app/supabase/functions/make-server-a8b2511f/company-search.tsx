@@ -13,7 +13,8 @@ import { getTeamMemberIds } from "./team.tsx";
 import { secEdgarLookup, openCorporatesLookup, enhancedWebsiteScrape, detectTechStack } from "./gov-enrichment.tsx";
 import { generateAI } from "./ai-provider.tsx";
 import { verifyMailboxDeliverability } from "./email-verify.tsx";
-import { icypeasDomainSearch, icypeasEmailSearch } from "./icypeas.tsx";
+import { icypeasDomainSearch, icypeasEmailSearch, icypeasVerifyEmail } from "./icypeas.tsx";
+import { generateEmailCandidates } from "./email-verify.tsx";
 import { applyLocaleParams, expandLocalizedSearchTerms } from "./search-localization.tsx";
 
 const app = new Hono();
@@ -2752,8 +2753,10 @@ async function deliverableEmailResults(results: Record<string, { email: string; 
   for (const [id, value] of Object.entries(results || {})) {
     if (!value.email) continue;
     const mailbox = await verifyMailboxDeliverability(value.email);
-    if (!mailbox.safe_to_send) {
-      console.log(`[EMAIL ENRICH] Dropped ${value.email}: ${mailbox.deliverability} (${mailbox.reason})`);
+    // Match People Search behavior: only drop CONFIRMED undeliverable. Keep risky/unknown/catch-all
+    // (most corporate domains block SMTP probing, so risky just means "we can't confirm" — not "bad")
+    if (mailbox.deliverability === "undeliverable") {
+      console.log(`[EMAIL ENRICH] Dropped ${value.email}: undeliverable (${mailbox.reason})`);
       continue;
     }
     deliverable[id] = {
@@ -3694,10 +3697,43 @@ app.post("/enrich-people-email", async (c) => {
       }
     }
 
-    // Phase 3b: Explicitly do NOT invent first.last style emails. MX-valid only
-    // proves the domain can receive mail, not that this person's mailbox exists.
+    // Phase 3b: Pattern-guess + Icypeas Verify fallback (mirrors People Search behavior).
+    // For each remaining person, generate top email patterns and verify with Icypeas.
+    // Only accept emails that Icypeas confirms as valid or catch-all — these become
+    // "icypeas_verified" sourced (trusted, since a real verification provider confirmed).
     if (pending.size > 0 && cleanDomain) {
-      console.log(`[EMAIL ENRICH] ${pending.size} people remain without trusted emails — skipping guessed email generation`);
+      const icypeasKey = Deno.env.get("ICYPEAS_API_KEY");
+      if (!icypeasKey) {
+        console.log(`[EMAIL ENRICH] ${pending.size} people remain — ICYPEAS_API_KEY missing, cannot pattern-verify`);
+      } else {
+        console.log(`[EMAIL ENRICH] Phase 3b: pattern-guess + Icypeas verify for ${pending.size} remaining people`);
+        let patternFound = 0;
+        // Limit concurrency to keep CPU budget; process at most 12 people in this fallback
+        const pendingEntries = [...pending.entries()].slice(0, 12);
+        await Promise.all(pendingEntries.map(async ([id, { first_name, last_name }]) => {
+          if (!first_name || !last_name) return;
+          const candidates = generateEmailCandidates(first_name, last_name, cleanDomain).slice(0, 4);
+          for (const cand of candidates) {
+            try {
+              const v = await icypeasVerifyEmail(cand.email);
+              if (v.deliverable) {
+                results[id] = {
+                  email: cand.email,
+                  source: "icypeas_verified",
+                  confidence: v.status === "catch_all" ? "medium" : "high",
+                };
+                poolStoreEmail(first_name, last_name, cleanDomain, cand.email, "icypeas_verified", v.status === "catch_all" ? "medium" : "high");
+                pending.delete(id);
+                patternFound++;
+                return;
+              }
+            } catch (verr: any) {
+              console.warn(`[EMAIL ENRICH] Icypeas verify failed for ${cand.email}: ${verr.message}`);
+            }
+          }
+        }));
+        console.log(`[EMAIL ENRICH] Phase 3b found ${patternFound}/${pendingEntries.length} emails via pattern+verify`);
+      }
     }
 
     const filteredResults = await deliverableEmailResults(trustedEmailResults(results));
