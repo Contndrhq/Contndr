@@ -3984,15 +3984,25 @@ function NoResultsState({
   const { t } = useTranslation();
   const [autoCountdown, setAutoCountdown] = useState(autoEnabled ? 10 : -1);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Once we've auto-broadened once, never do it again in this session.
+  // Without this, a search returning 0 results would re-mount this
+  // component with autoEnabled=true → countdown restarts → another
+  // search → 0 results → another auto-broaden → infinite loop.
+  // The ref is intentionally module-level state via useRef so it
+  // survives re-renders of the same instance.
+  const alreadyBroadenedRef = useRef(false);
 
   useEffect(() => {
     if (!autoEnabled) return;
-    // Auto-trigger deep prospecting with broadened filters after countdown
+    if (alreadyBroadenedRef.current) return;          // already fired this session, never again
     countdownRef.current = setInterval(() => {
       setAutoCountdown(prev => {
         if (prev <= 1) {
           clearInterval(countdownRef.current!);
-          onBroaden();
+          if (!alreadyBroadenedRef.current) {
+            alreadyBroadenedRef.current = true;
+            onBroaden();
+          }
           return 0;
         }
         return prev - 1;
