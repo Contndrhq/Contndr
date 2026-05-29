@@ -1,8 +1,9 @@
 // Social Creator Providers — Instagram, TikTok, X (Twitter)
 // Discovery via SerpAPI Google search, profile scraping, email extraction
-// v3: Full multi-source email enrichment pipeline + Hunter email finder + SerpAPI fallback
+// v3: Full multi-source email enrichment pipeline + provider email finder + SerpAPI fallback
 
 import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
+import { getIcypeasApiKey, icypeasEmailSearch as searchIcypeasEmail } from "./icypeas.tsx";
 
 export type SocialPlatform = "instagram" | "tiktok" | "x";
 
@@ -39,7 +40,7 @@ export interface FetchedProfile {
 
 const SERPAPI_API_KEY = () => getSerpSearchKey();
 const HUNTER_API_KEY = () => "" || "";
-const FINDYMAIL_API_KEY = () => Deno.env.get("FINDYMAIL_API_KEY") || "";
+const ICYPEAS_API_KEY = () => getIcypeasApiKey();
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
@@ -346,13 +347,13 @@ export async function enrichSocialProfile(profile: DiscoveredProfile): Promise<F
         if (hunterEmailFinderResult.emails.length > 0) sourcesUsed.push("hunter_finder");
       }
 
-      // Step 5.5: Findymail email search (name + domain)
+      // Step 5.5: Icypeas email search (name + domain)
       if (hunterDomain && nameForHunter && Object.keys(emailSourceMap).length === 0) {
-        const findymailResult = await findymailEmailSearch(nameForHunter, hunterDomain);
-        for (const e of findymailResult.emails) {
-          if (!emailSourceMap[e]) emailSourceMap[e] = "findymail";
+        const icypeasResult = await icypeasCreatorEmailSearch(nameForHunter, hunterDomain);
+        for (const e of icypeasResult.emails) {
+          if (!emailSourceMap[e]) emailSourceMap[e] = "icypeas";
         }
-        if (findymailResult.emails.length > 0) sourcesUsed.push("findymail");
+        if (icypeasResult.emails.length > 0) sourcesUsed.push("icypeas");
       }
     }
 
@@ -1078,9 +1079,9 @@ export async function hunterEmailFinder(fullName: string, domain: string): Promi
   }
 }
 
-export async function findymailEmailSearch(fullName: string, domain: string): Promise<{ emails: string[]; source: string }> {
-  const empty = { emails: [], source: "findymail" };
-  const apiKey = FINDYMAIL_API_KEY();
+export async function icypeasCreatorEmailSearch(fullName: string, domain: string): Promise<{ emails: string[]; source: string }> {
+  const empty = { emails: [], source: "icypeas" };
+  const apiKey = ICYPEAS_API_KEY();
   if (!apiKey) return empty;
 
   if (FREE_EMAIL_DOMAINS.has(domain) || SKIP_WEBSITE_DOMAINS.has(domain)) return empty;
@@ -1093,38 +1094,17 @@ export async function findymailEmailSearch(fullName: string, domain: string): Pr
   const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
 
   try {
-    const res = await fetch("https://app.findymail.com/api/search/name", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        first_name: firstName,
-        last_name: lastName,
-        domain: domain,
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!res.ok) {
-      if (res.status === 402 || res.status === 429) {
-        console.warn(`[SOCIAL-PROVIDERS] Findymail limit/quota hit (${res.status}) for ${fullName}@${domain}`);
-      }
-      return empty;
-    }
-
-    const data = await res.json();
-    const email = data?.email?.toLowerCase();
+    const result = await searchIcypeasEmail(firstName, lastName, domain);
+    const email = result?.email?.toLowerCase();
 
     if (email && !EMAIL_BLOCKLIST.has(email)) {
-      console.log(`[SOCIAL-PROVIDERS] Findymail found: ${email}`);
-      return { emails: [email], source: "findymail" };
+      console.log(`[SOCIAL-PROVIDERS] Icypeas found: ${email}`);
+      return { emails: [email], source: "icypeas" };
     }
 
     return empty;
   } catch (err: any) {
-    console.warn(`[SOCIAL-PROVIDERS] Findymail error for ${fullName}@${domain}: ${err.message}`);
+    console.warn(`[SOCIAL-PROVIDERS] Icypeas error for ${fullName}@${domain}: ${err.message}`);
     return empty;
   }
 }

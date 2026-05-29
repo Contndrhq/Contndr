@@ -2,7 +2,7 @@ import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { enrichLeadWithFindymail, EnrichmentInput, quickDiscoverContacts, getRoleTier, isValidPersonName } from "./enrichment_agent.tsx";
+import { enrichLeadWithIcypeas, EnrichmentInput, quickDiscoverContacts, getRoleTier, isValidPersonName } from "./enrichment_agent.tsx";
 import * as kv from "./kv-retry.tsx";
 import { getTeamMemberIds, getTeamId } from "./team.tsx";
 import { toTitleCase } from "./apollo-native.tsx";
@@ -140,7 +140,7 @@ function scoreCompany(c: RawCompany): number {
   const industryRaw = (c.industry && INDUSTRY_SCORES_LOCAL[c.industry]) || 50;
   score += Math.round(industryRaw * 0.2);
 
-  // Enrichment quality (these fields get set after enrichLeadWithFindymail)
+  // Enrichment quality (these fields get set after enrichLeadWithIcypeas)
   const dms = (c as any).discovered_contacts || [];
   if (Array.isArray(dms) && dms.length > 0) {
     const hasVerified = dms.some((d: any) => d.verification_status === 'verified');
@@ -597,13 +597,13 @@ const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
     console.log(`[LEAD ENGINE] Final result: ${qualified.length} quality leads from ${allCompanies.length} total discovered`);
 
     // ── Phase 4: Decision Maker Discovery ──────────────────────────────
-    // Run Findymail domain search + Apollo people search + LinkedIn people search IN PARALLEL
+    // Run Icypeas domain search + Apollo people search + LinkedIn people search IN PARALLEL
     // to maximize contact coverage while minimizing total latency
     let companiesWithContacts = 0;
     let autoEnrichedCount = 0;
     if (qualified.length > 0) {
       // Bumped from 3/5/8 — too small; most searches returned 0
-      // contacts. Filter to companies with domains (Findymail/Hunter
+      // contacts. Filter to companies with domains (Icypeas/Hunter
       // need one) before slicing so we don't burn the cap.
       const numToDiscover = depth === 'maximum' ? 25 : depth === 'deep' ? 15 : 8;
       const topForDiscovery = qualified
@@ -614,8 +614,8 @@ const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
 
       try {
         // Run all four discovery sources in parallel
-        const [findymailSettled, hunterSettledNS, apolloSettled, linkedinSettled] = await Promise.allSettled([
-          // Source 1: Findymail domain search for each top company
+        const [icypeasSettled, hunterSettledNS, apolloSettled, linkedinSettled] = await Promise.allSettled([
+          // Source 1: Icypeas domain search for each top company
           Promise.allSettled(
             topForDiscovery.map(async (c) => {
               const cacheKey = `quick-discover:${c.domain}`;
@@ -665,16 +665,16 @@ const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
             : Promise.resolve([])
         ]);
 
-        // Apply Findymail results to companies
-        if (findymailSettled.status === 'fulfilled') {
-          const findymailResults = findymailSettled.value;
-          for (const result of findymailResults) {
+        // Apply Icypeas results to companies
+        if (icypeasSettled.status === 'fulfilled') {
+          const icypeasResults = icypeasSettled.value;
+          for (const result of icypeasResults) {
             if (result.status === 'fulfilled' && result.value.contacts?.length > 0) {
               const company = qualified.find(c => c.domain === result.value.domain);
               if (company) {
                 company.discovered_contacts = result.value.contacts.map((contact: any) => ({
                   ...contact,
-                  source: contact.source || 'findymail_discovery'
+                  source: contact.source || 'icypeas_discovery'
                 }));
                 company.quality_score = (company.quality_score || 0) + 25;
                 companiesWithContacts++;
@@ -819,7 +819,7 @@ const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
                 company_location: company.address
               };
 
-              const result = await enrichLeadWithFindymail(input);
+              const result = await enrichLeadWithIcypeas(input);
               if (result.success) {
                 await kv.set(cacheKey, { ...result, enriched_at: new Date().toISOString() }).catch(() => {});
               }
@@ -890,7 +890,7 @@ const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
         pages_searched: pages,
         sources: [
           'google_maps',
-          'findymail_discovery',
+          'icypeas_discovery',
           ...(HUNTER_API_KEY_NS ? ['hunter_discovery'] : []),
           ...(depth !== 'standard' ? ['google_organic', 'apollo_people', 'linkedin_people'] : []),
         ],
@@ -1105,7 +1105,7 @@ const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
             // Bump discovery caps so users actually get contacts. Was
             // 3 / 5 / 8 — way too small; most searches returned 0
             // companies with discovered contacts. Restrict to companies
-            // with a domain (Findymail/Hunter need one), and dedup
+            // with a domain (Icypeas/Hunter need one), and dedup
             // those before slicing so we don't burn cap on duplicates.
             const numToDiscover = depth === 'maximum' ? 25 : depth === 'deep' ? 15 : 8;
             const topForDiscovery = qualified
@@ -1114,8 +1114,8 @@ const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
 
             try {
               if (isCancelled) throw new Error("Cancelled");
-              const [findymailSettled, hunterSettled, apolloSettled, linkedinSettled] = await Promise.allSettled([
-                // Source 1: Findymail domain search
+              const [icypeasSettled, hunterSettled, apolloSettled, linkedinSettled] = await Promise.allSettled([
+                // Source 1: Icypeas domain search
                 Promise.allSettled(
                   topForDiscovery.map(async (c) => {
                     const cacheKey = `quick-discover:${c.domain}`;
@@ -1161,14 +1161,14 @@ const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
                 depth !== 'standard' ? searchPeopleViaLinkedIn(qualified, industry, location, SERPAPI_API_KEY) : Promise.resolve([])
               ]);
 
-              // Apply Findymail results
-              if (findymailSettled.status === 'fulfilled') {
-                for (const result of findymailSettled.value) {
+              // Apply Icypeas results
+              if (icypeasSettled.status === 'fulfilled') {
+                for (const result of icypeasSettled.value) {
                   if (result.status === 'fulfilled' && result.value.contacts?.length > 0) {
                     const company = qualified.find(c => c.domain === result.value.domain);
                     if (company) {
                       company.discovered_contacts = result.value.contacts.map((contact: any) => ({
-                        ...contact, source: contact.source || 'findymail_discovery'
+                        ...contact, source: contact.source || 'icypeas_discovery'
                       }));
                       company.quality_score = (company.quality_score || 0) + 25;
                       companiesWithContacts++;
@@ -1298,7 +1298,7 @@ const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
                     company_name: company.name, company_domain: company.domain,
                     company_website_url: company.website, company_location: company.address
                   };
-                  const result = await enrichLeadWithFindymail(input);
+                  const result = await enrichLeadWithIcypeas(input);
                   if (result.success) await kv.set(cacheKey, { ...result, enriched_at: new Date().toISOString() }).catch(() => {});
                   return { domain: company.domain, ...result };
                 })
@@ -1414,7 +1414,7 @@ const qualified = scored.filter(c => (c.quality_score || 0) >= 15);
               total: qualified.length, total_raw: allCompanies.length,
               filtered_out: allCompanies.length - qualified.length, depth,
               pages_searched: pages,
-              sources: ['google_maps', 'findymail_discovery', ...(HUNTER_API_KEY ? ['hunter_discovery'] : []), ...(depth !== 'standard' ? ['google_organic', 'apollo_people', 'linkedin_people'] : [])],
+              sources: ['google_maps', 'icypeas_discovery', ...(HUNTER_API_KEY ? ['hunter_discovery'] : []), ...(depth !== 'standard' ? ['google_organic', 'apollo_people', 'linkedin_people'] : [])],
               with_contacts: companiesWithContacts, auto_enriched: autoEnrichedCount
             }
           });
@@ -1488,7 +1488,7 @@ app.post("/enrich", async (c) => {
       company_location: company.address
     };
 
-    const result = await enrichLeadWithFindymail(input);
+    const result = await enrichLeadWithIcypeas(input);
 
     // Cache successful results
     if (result.success) {
@@ -1554,7 +1554,7 @@ app.post("/enrich-batch", async (c) => {
           company_website_url: company.website,
           company_location: company.address,
         };
-        const result = await enrichLeadWithFindymail(input);
+        const result = await enrichLeadWithIcypeas(input);
         if (result.success) {
           await kv.set(cacheKey, { ...result, enriched_at: new Date().toISOString() });
         }
@@ -2155,10 +2155,10 @@ app.post("/people-search", async (c) => {
 
     const SERPAPI_API_KEY = getSerpSearchKey();
     const HUNTER_API_KEY = "";
-    const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+    const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
     
     console.log(`[LEAD ENGINE] People search: "${jobTitles.join(', ')}" in "${location}" (User: ${user.email})`);
-    console.log(`[LEAD ENGINE] API Keys: SerpApi=${!!SERPAPI_API_KEY}, Hunter=${!!HUNTER_API_KEY}, Findymail=${!!FINDYMAIL_API_KEY}`);
+    console.log(`[LEAD ENGINE] API Keys: SerpApi=${!!SERPAPI_API_KEY}, Hunter=${!!HUNTER_API_KEY}, Icypeas=${!!ICYPEAS_API_KEY}`);
 
     let targetCompanies: RawCompany[] = [];
 

@@ -20,7 +20,7 @@ import {
   scrapeLinkedWebsitesForEmails as scrapeWebsites,
   hunterDomainSearch,
   hunterEmailFinder,
-  findymailEmailSearch,
+  icypeasCreatorEmailSearch,
   serpApiEmailFallback,
   cleanCreatorName,
   type SocialPlatform,
@@ -1011,16 +1011,16 @@ async function enrichChannel(
     }
   }
 
-  // ── Source 7: Findymail email search (name + domain) ──
+  // ── Source 7: Icypeas email search (name + domain) ──
   if (hunterDomain && nameForLookup && Object.keys(emailSourceMap).length === 0) {
     try {
-      const findymailResult = await findymailEmailSearch(nameForLookup, hunterDomain);
-      for (const e of findymailResult.emails) {
-        if (!emailSourceMap[e]) emailSourceMap[e] = "findymail";
+      const icypeasResult = await icypeasCreatorEmailSearch(nameForLookup, hunterDomain);
+      for (const e of icypeasResult.emails) {
+        if (!emailSourceMap[e]) emailSourceMap[e] = "icypeas";
       }
-      if (findymailResult.emails.length > 0) sourcesUsed.push("findymail");
+      if (icypeasResult.emails.length > 0) sourcesUsed.push("icypeas");
     } catch (err: any) {
-      console.warn(`[CREATOR-FINDER] Findymail error for ${channelId}: ${err.message}`);
+      console.warn(`[CREATOR-FINDER] Icypeas error for ${channelId}: ${err.message}`);
     }
   }
 

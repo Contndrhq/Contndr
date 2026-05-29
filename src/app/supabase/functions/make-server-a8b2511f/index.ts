@@ -12098,7 +12098,7 @@ app.post("/make-server-a8b2511f/companies/bulk-delete", async (c) => {
 // POST /companies/:id/find-decision-makers
 // Orchestrates the same two-step flow CompanySearch uses for bulk decision makers:
 //   1. POST /company-search/find-people   → LinkedIn SerpAPI + CRM + Hunter domain-search
-//   2. POST /company-search/enrich-people-email → Hunter/Findymail email enrichment
+//   2. POST /company-search/enrich-people-email → Hunter/Icypeas email enrichment
 // Saves results back to company KV via individual kv.set() (no mset/statement-timeout risk).
 app.post("/make-server-a8b2511f/companies/:id/find-decision-makers", async (c) => {
   const companyId = c.req.param("id");
@@ -12152,7 +12152,7 @@ app.post("/make-server-a8b2511f/companies/:id/find-decision-makers", async (c) =
       console.warn(`[COMPANY DM] find-people error: ${fpErr.message}`);
     }
 
-    // ── Step 2: enrich-people-email — Hunter/Findymail for people missing email ──
+    // ── Step 2: enrich-people-email — Hunter/Icypeas for people missing email ──
     if (people.length > 0 && domain) {
       const needEmail = people.filter((p: any) => !emailMap[p.id]);
       if (needEmail.length > 0) {
@@ -16746,7 +16746,7 @@ app.post("/make-server-a8b2511f/maintenance/cleanup", async (c) => {
 // API DIAGNOSTICS & DATA CLEANUP ENDPOINTS
 // ═════���═════════════════════════════════════════════════════════════════════
 
-// GET /api-diagnostics - Full API diagnostics for Hunter.io, Findymail, SerpAPI
+// GET /api-diagnostics - Full API diagnostics for Hunter.io, Icypeas, SerpAPI
 app.get("/make-server-a8b2511f/api-diagnostics", async (c) => {
   try {
     // This endpoint doesn't require authentication since it's checking system-level API keys
@@ -17523,13 +17523,13 @@ app.post("/make-server-a8b2511f/settings/stripe-config", async (c) => {
   }
 });
 
-// GET /settings/findymail-status - Check if Findymail is configured
-app.get("/make-server-a8b2511f/settings/findymail-status", async (c) => {
+// GET /settings/icypeas-status - Check if Icypeas is configured
+app.get("/make-server-a8b2511f/settings/icypeas-status", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
     
-    // Check if FINDYMAIL_API_KEY exists in environment
-    const apiKey = Deno.env.get('FINDYMAIL_API_KEY');
+    // Check if ICYPEAS_API_KEY exists in environment
+    const apiKey = Deno.env.get('ICYPEAS_API_KEY');
     const configured = !!apiKey && apiKey.length > 0;
     
     return c.json({ configured });
@@ -17537,8 +17537,23 @@ app.get("/make-server-a8b2511f/settings/findymail-status", async (c) => {
     if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
-    console.error('Error checking Findymail status:', error);
+    console.error('Error checking Icypeas status:', error);
     return c.json({ configured: false, error: error.message }, 500);
+  }
+});
+
+// Backward-compatible route for older frontend builds; returns Icypeas status.
+app.get("/make-server-a8b2511f/settings/findymail-status", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const apiKey = Deno.env.get('ICYPEAS_API_KEY');
+    return c.json({ configured: !!apiKey && apiKey.length > 0, provider: "icypeas" });
+  } catch (error) {
+    if (error.message.includes('Authentication failed') || error.message.includes('Session expired')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    console.error('Error checking Icypeas status:', error);
+    return c.json({ configured: false, provider: "icypeas", error: error.message }, 500);
   }
 });
 

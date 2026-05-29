@@ -13,6 +13,7 @@ import { getTeamMemberIds } from "./team.tsx";
 import { secEdgarLookup, openCorporatesLookup, enhancedWebsiteScrape, detectTechStack } from "./gov-enrichment.tsx";
 import { generateAI } from "./ai-provider.tsx";
 import { verifyMailboxDeliverability } from "./email-verify.tsx";
+import { icypeasEmailSearch } from "./icypeas.tsx";
 
 const app = new Hono();
 app.use("*", cors());
@@ -2733,7 +2734,7 @@ function isTrustedEmailSource(source?: string, confidence?: string): boolean {
   if (!cleanSource) return false;
   if (cleanSource.includes("pattern") || cleanSource.includes("guess")) return false;
   if (cleanSource === "contndr_website") return confidence !== "low";
-  return ["crm", "crm_verified", "hunter", "findymail", "website", "domain", "manual"].some(s => cleanSource.includes(s));
+  return ["crm", "crm_verified", "hunter", "icypeas", "website", "domain", "manual"].some(s => cleanSource.includes(s));
 }
 
 function trustedEmailResults(results: Record<string, { email: string; source: string; confidence: string }>) {
@@ -3295,7 +3296,7 @@ app.post("/find-people", async (c) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// Enrich People Emails — Hunter.io → Findymail pipeline
+// Enrich People Emails — Icypeas + first-party fallback pipeline
 // Takes decision makers found via LinkedIn and finds verified emails
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -3439,8 +3440,8 @@ app.post("/enrich-people-email", async (c) => {
     }
 
     const HUNTER_API_KEY = "";
-    const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-    if (!HUNTER_API_KEY && !FINDYMAIL_API_KEY) {
+    const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
+    if (!HUNTER_API_KEY && !ICYPEAS_API_KEY) {
       console.log("[EMAIL ENRICH] No external providers configured — using Contndr fallback enrichment only");
     }
 
@@ -3545,25 +3546,18 @@ app.post("/enrich-people-email", async (c) => {
       console.log(`[EMAIL ENRICH] Hunter.io found ${Object.keys(results).length} emails`);
     }
 
-    // Phase 2: Findymail
-    if (FINDYMAIL_API_KEY && pending.size > 0) {
-      console.log(`[EMAIL ENRICH] Phase 2: Findymail for ${pending.size} remaining`);
+    // Phase 2: Icypeas
+    if (ICYPEAS_API_KEY && pending.size > 0) {
+      console.log(`[EMAIL ENRICH] Phase 2: Icypeas for ${pending.size} remaining`);
       const entries = [...pending.entries()];
-      let findymailFound = 0;
+      let icypeasFound = 0;
       for (let i = 0; i < entries.length; i += 5) {
         const batch = entries.slice(i, i + 5);
         const br = await Promise.allSettled(
           batch.map(async ([id, { first_name, last_name }]) => {
             try {
-              const r = await fetch("https://app.findymail.com/api/search/name", {
-                method: "POST",
-                headers: { Authorization: `Bearer ${FINDYMAIL_API_KEY}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ first_name, last_name: last_name || "", domain: cleanDomain }),
-                signal: AbortSignal.timeout(8000),
-              });
-              if (!r.ok) return null;
-              const d = await r.json();
-              if (d.email) return { id, email: d.email, source: "findymail", confidence: "high" };
+              const result = await icypeasEmailSearch(first_name, last_name || "", cleanDomain);
+              if (result?.email) return { id, email: result.email, source: "icypeas", confidence: "high" };
               return null;
             } catch { return null; }
           })
@@ -3577,12 +3571,12 @@ app.post("/enrich-people-email", async (c) => {
               poolStoreEmail(personNames.first_name, personNames.last_name, cleanDomain, r.value.email, r.value.source, r.value.confidence);
             }
             pending.delete(r.value.id);
-            findymailFound++;
+            icypeasFound++;
           }
         }
         if (i + 5 < entries.length) await new Promise((r) => setTimeout(r, 400));
       }
-      console.log(`[EMAIL ENRICH] Findymail found ${findymailFound} additional emails`);
+      console.log(`[EMAIL ENRICH] Icypeas found ${icypeasFound} additional emails`);
     }
 
     // Phase 3a: First-party website scrape. This catches obvious personal emails

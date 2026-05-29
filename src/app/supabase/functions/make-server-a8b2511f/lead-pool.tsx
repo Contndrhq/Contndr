@@ -3,7 +3,7 @@
  *
  * Stores every enriched lead from Smart Discovery searches in a shared pool.
  * On subsequent searches, the pool is queried FIRST to surface known leads
- * before burning external API credits (Apollo, Hunter, Findymail).
+ * before burning external API credits (Apollo, Hunter, Icypeas).
  *
  * KV Schema:
  *   dp:{email_lower}                      → full ApolloLead-format object + metadata

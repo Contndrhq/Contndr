@@ -2,7 +2,7 @@
 // Deep Prospecting Engine — SerpAPI-powered Multi-Source Crawler
 // Finds leads by crawling LinkedIn, Crunchbase, company pages via Google
 // NO Apollo dependency — uses SerpAPI + Google + LinkedIn + directories.
-// Enrichment: Hunter.io → Findymail → Pattern Guessing → Email Verification
+// Enrichment: Icypeas → Email Verification
 //
 // QUALITY GATE:
 // - Main People Finder results must have a usable person email.
@@ -19,6 +19,7 @@ import { searchPool, saveToPool, getPoolStats, hydrateLeadsFromExistingContacts,
 // This file uses its own local isCleanPersonName() and inferSeniority() instead.
 import { enrichPhoneNumbers, verifyPhoneNumbers, type DeepPhoneLead } from "./phone-enrichment.tsx";
 import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
+import { icypeasEmailSearch } from "./icypeas.tsx";
 
 const app = new Hono();
 // CORS is handled by the parent Hono app in index.tsx — no duplicate middleware needed.
@@ -1763,7 +1764,7 @@ app.post("/search-stream", async (c) => {
     }
 
     const HUNTER_KEY = "";
-    const FINDYMAIL_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+    const ICYPEAS_KEY = Deno.env.get("ICYPEAS_API_KEY");
     const TELNYX_KEY = Deno.env.get("TELNYX_API_KEY");
 
     console.log(`[DEEP PROSPECT] Starting for ${user.email}: titles=${JSON.stringify(person_titles)}, locations=${JSON.stringify(organization_locations)}, industries=${JSON.stringify(organization_industries)}, max=${max_results}, db_only=${db_only}, force_external=${force_external}, bypass_cache=${bypass_cache}, preferred_industries=${JSON.stringify(preferred_industries)}`);
@@ -2105,7 +2106,7 @@ app.post("/search-stream", async (c) => {
           }
 
           // Trim to what we need — enrich ALL parsed candidates to maximize email yield.
-          // The enrichment APIs (Hunter, Findymail) are the bottleneck, not parsing.
+          // The enrichment APIs are the bottleneck, not parsing.
           // For small requests, enrich everything we found; for large, cap reasonably.
           const enrichmentCap = Math.min(
             allParsed.length,
@@ -2416,7 +2417,7 @@ app.post("/search-stream", async (c) => {
           }
 
           // ══════════════════════════════════════════════════════════════
-          // PHASE 4: Email Enrichment — local patterns → Hunter → Findymail
+          // PHASE 4: Email Enrichment — verified provider search
           // ══════════════════════════════════════════════════════════════
           const leadsWithDomain = leads.filter(l => l.organization.website_url);
           const leadsNoDomain = leads.filter(l => !l.organization.website_url);
@@ -2572,10 +2573,10 @@ app.post("/search-stream", async (c) => {
             send("phase", { phase: 5, name: "Finding email addresses", status: "complete" });
           }
 
-          // ── Phase 4c: Findymail for leads still missing email ──
-          let findymailFound = 0;
+          // ── Phase 4c: Icypeas for leads still missing email ──
+          let icypeasFound = 0;
 
-          if (FINDYMAIL_KEY && !isCancelled) {
+          if (ICYPEAS_KEY && !isCancelled) {
             const stillNoEmail = leads.filter(l => !l.email && l.organization.website_url);
             if (stillNoEmail.length > 0) {
               send("phase", { phase: 6, name: `Advanced email search (${stillNoEmail.length})`, status: "processing" });
@@ -2590,15 +2591,8 @@ app.post("/search-stream", async (c) => {
                     const domain = lead.organization.website_url.replace(/^https?:\/\//, "").replace(/\/.*/, "").replace(/^www\./, "");
                     if (!domain) return null;
                     try {
-                      const r = await fetch("https://app.findymail.com/api/search/name", {
-                        method: "POST",
-                        headers: { Authorization: `Bearer ${FINDYMAIL_KEY}`, "Content-Type": "application/json" },
-                        body: JSON.stringify({ first_name: lead.first_name, last_name: lead.last_name, domain }),
-                        signal: AbortSignal.timeout(8000),
-                      });
-                      if (!r.ok) return null;
-                      const d = await r.json();
-                      if (d.email) return { id: lead.id, email: d.email, status: "verified" };
+                      const result = await icypeasEmailSearch(lead.first_name, lead.last_name || "", domain);
+                      if (result?.email) return { id: lead.id, email: result.email, status: "verified" };
                       return null;
                     } catch { return null; }
                   })
@@ -2606,7 +2600,7 @@ app.post("/search-stream", async (c) => {
 
                 for (const r of br) {
                   if (r.status === "fulfilled" && r.value) {
-                    findymailFound++;
+                    icypeasFound++;
                     const lead = leads.find(l => l.id === r.value!.id);
                     if (lead) {
                       lead.email = r.value.email;
@@ -2624,7 +2618,7 @@ app.post("/search-stream", async (c) => {
                 if (i + FB < stillNoEmail.length) await sleep(50);
               }
 
-              console.log(`[DEEP PROSPECT] Findymail found ${findymailFound} emails`);
+              console.log(`[DEEP PROSPECT] Icypeas found ${icypeasFound} emails`);
               send("phase", { phase: 6, name: "Advanced email search", status: "complete" });
             }
           }
@@ -3256,7 +3250,7 @@ app.post("/search-stream", async (c) => {
           const enrichmentSources = {
             crm_existing: crmHydrated,
             hunter: hunterFound,
-            findymail: findymailFound,
+            icypeas: icypeasFound,
             web_sources: 0,
             phone_enrich: phoneEnrichFound + deepPhoneFound,
             hunter_phone: hunterPhoneFound,
@@ -3384,7 +3378,7 @@ function buildStats(people: any[], enrichmentSources?: any) {
 // within Edge Function timeout (~50s budget):
 //   Phase A: SerpAPI LinkedIn scrape (sequential — must complete first)
 //   Phase B: PARALLEL — Crunchbase enrichment + website discovery
-//   Phase C: PARALLEL — Hunter email + Hunter domain-search + Findymail
+//   Phase C: PARALLEL — provider email + domain enrichment
 //   Phase D: Deep phone discovery (only if still missing + time budget)
 //   Phase E: Email pattern guessing (last resort)
 // ══════════════════════════════════════════════════════════════════════════
@@ -3411,7 +3405,7 @@ app.post("/enrich-linkedin", async (c) => {
     const SERPAPI_KEY = getSerpSearchKey();
     if (!SERPAPI_KEY) return c.json({ error: "Discovery engine not configured" }, 500);
     const HUNTER_KEY = "";
-    const FINDYMAIL_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+    const ICYPEAS_KEY = Deno.env.get("ICYPEAS_API_KEY");
 
     // ══════════════════════════════════════════════════════════════
     // PHASE A: SerpAPI Google scrape — name/title/company (~3s)
@@ -3686,7 +3680,7 @@ app.post("/enrich-linkedin", async (c) => {
     sanitizeDeepLead(lead);
 
     // ══════════════════════════════════════════════════════════════
-    // PHASE C: PARALLEL — Hunter email + domain-search + Findymail (~5s)
+    // PHASE C: PARALLEL — provider email + domain enrichment (~5s)
     // ══════════════════════════════════════════════════════════════
     if (websiteDomain) {
       console.log(`[LINKEDIN ENRICH] Phase C — Parallel email + domain: ${websiteDomain}`);
@@ -3712,21 +3706,14 @@ app.post("/enrich-linkedin", async (c) => {
         } catch { return null; }
       })() : Promise.resolve(null);
 
-      const findymailP = (FINDYMAIL_KEY && lead.first_name && lead.last_name) ? (async () => {
+      const icypeasP = (ICYPEAS_KEY && lead.first_name && lead.last_name) ? (async () => {
         try {
-          const r = await fetch("https://app.findymail.com/api/search/name", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${FINDYMAIL_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ first_name: lead.first_name, last_name: lead.last_name, domain: websiteDomain }),
-            signal: AbortSignal.timeout(6000),
-          });
-          if (!r.ok) return null;
-          const d = await r.json();
-          return d.email ? { email: d.email } : null;
+          const result = await icypeasEmailSearch(lead.first_name, lead.last_name || "", websiteDomain);
+          return result?.email ? { email: result.email } : null;
         } catch { return null; }
       })() : Promise.resolve(null);
 
-      const [heR, hdR, fmR] = await Promise.allSettled([hunterEmailP, hunterDomainP, findymailP]);
+      const [heR, hdR, ipR] = await Promise.allSettled([hunterEmailP, hunterDomainP, icypeasP]);
 
       // Apply Hunter email-finder (includes structured person data)
       const he = heR.status === "fulfilled" ? heR.value : null;
@@ -3763,13 +3750,13 @@ app.post("/enrich-linkedin", async (c) => {
         }
       }
 
-      // Apply Findymail (fallback)
+      // Apply Icypeas (fallback)
       if (!lead.email) {
-        const fm = fmR.status === "fulfilled" ? fmR.value : null;
-        if (fm?.email) {
-          lead.email = fm.email;
+        const ip = ipR.status === "fulfilled" ? ipR.value : null;
+        if (ip?.email) {
+          lead.email = ip.email;
           lead.email_status = "verified";
-          console.log(`[LINKEDIN ENRICH] Findymail email: ${lead.email}`);
+          console.log(`[LINKEDIN ENRICH] Icypeas email: ${lead.email}`);
         }
       }
 
@@ -3894,7 +3881,7 @@ app.post("/enrich-linkedin", async (c) => {
     // ══════════════════════════════════════════════════════════════
     // PHASE D: Deep phone discovery — SKIPPED in Quick Add path.
     // Phone enrichment adds 10-15s and is not needed for the
-    // AddLeadModal enrichment use case. Hunter/Findymail direct
+    // AddLeadModal enrichment use case. Provider-direct enrichment.
     // phone from Phase C is sufficient.
     // ══════════════════════════════════════════════════════════════
     console.log(`[LINKEDIN ENRICH] Phase D skipped (Quick Add path — phone from Phase C only)`);
@@ -3902,7 +3889,7 @@ app.post("/enrich-linkedin", async (c) => {
     // ══════════════════════════════════════════════════════════════
     // PHASE E: DISABLED — No pattern guessing
     // Fabricating emails from name+domain patterns causes bounces.
-    // Only real emails from Hunter.io / Findymail are kept.
+    // Only real provider-returned emails are kept.
     // ══════════════════════════════════════════════════════════════
 
     // ══════════════════════════════════════════════════════════════
@@ -3981,7 +3968,7 @@ app.post("/enrich-linkedin", async (c) => {
 
 // ── POST /reveal-preview — Re-enrich preview leads that lacked email ──
 // Accepts leads with name + company + title and re-attempts email discovery
-// via Hunter.io → Findymail → Pattern Guessing pipeline.
+// via Icypeas + verification pipeline.
 app.post("/reveal-preview", async (c) => {
   try {
     const body = await c.req.json();
@@ -3996,11 +3983,11 @@ app.post("/reveal-preview", async (c) => {
     console.log(`[DEEP PROSPECT REVEAL] Enriching ${batch.length} preview leads`);
 
     const HUNTER_API_KEY = "";
-    const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+    const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
 
     const enriched: any[] = [];
     let hunterFound = 0;
-    let findymailFound = 0;
+    let icypeasFound = 0;
     let patternFound = 0;
 
     for (const lead of batch) {
@@ -4042,33 +4029,18 @@ app.post("/reveal-preview", async (c) => {
         }
       }
 
-      // ── Stage 2: Findymail ──
-      if (!foundEmail && FINDYMAIL_API_KEY) {
+      // ── Stage 2: Icypeas ──
+      if (!foundEmail && ICYPEAS_API_KEY) {
         try {
-          const r = await fetch("https://app.findymail.com/api/search/name", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${FINDYMAIL_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              first_name: firstName,
-              last_name: lastName,
-              domain: domain,
-            }),
-            signal: AbortSignal.timeout(10000),
-          });
-          if (r.ok) {
-            const d = await r.json();
-            if (d.email) {
-              foundEmail = d.email;
-              emailStatus = "verified";
-              findymailFound++;
-              console.log(`[REVEAL] Findymail found email for ${firstName} ${lastName}: ${foundEmail}`);
-            }
+          const result = await icypeasEmailSearch(firstName, lastName, domain);
+          if (result?.email) {
+            foundEmail = result.email;
+            emailStatus = "verified";
+            icypeasFound++;
+            console.log(`[REVEAL] Icypeas found email for ${firstName} ${lastName}: ${foundEmail}`);
           }
         } catch (e: any) {
-          console.warn(`[REVEAL] Findymail error for ${firstName} ${lastName}: ${e.message}`);
+          console.warn(`[REVEAL] Icypeas error for ${firstName} ${lastName}: ${e.message}`);
         }
       }
 
@@ -4120,7 +4092,7 @@ app.post("/reveal-preview", async (c) => {
     }
 
     const withEmail = enriched.filter((l: any) => l.email).length;
-    console.log(`[DEEP PROSPECT REVEAL] Complete: ${enriched.length} leads processed, ${withEmail} with email (hunter=${hunterFound}, findymail=${findymailFound}, pattern=${patternFound})`);
+    console.log(`[DEEP PROSPECT REVEAL] Complete: ${enriched.length} leads processed, ${withEmail} with email (hunter=${hunterFound}, icypeas=${icypeasFound}, pattern=${patternFound})`);
 
     return c.json({
       success: true,
@@ -4129,7 +4101,7 @@ app.post("/reveal-preview", async (c) => {
         total: enriched.length,
         with_email: withEmail,
         verified: enriched.filter((l: any) => l.email_status === "verified").length,
-        sources: { hunter: hunterFound, findymail: findymailFound, pattern: patternFound },
+        sources: { hunter: hunterFound, icypeas: icypeasFound, pattern: patternFound },
       },
     });
   } catch (error: any) {

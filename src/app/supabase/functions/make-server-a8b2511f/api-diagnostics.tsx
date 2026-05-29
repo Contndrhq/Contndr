@@ -1,7 +1,8 @@
 // API Diagnostics Tool for Contndr
-// Tests Findymail and Serper connectivity and functionality
+// Tests Icypeas and Serper connectivity and functionality
 
 import { runSerpDiagnostics } from "./serp-adapter.tsx";
+import { testIcypeas } from "./icypeas.tsx";
 
 interface ApiTestResult {
   service: string;
@@ -21,49 +22,40 @@ interface DiagnosticReport {
 }
 
 /**
- * Hunter.io is intentionally disabled. Email enrichment should use Findymail
+ * Hunter.io is intentionally disabled. Email enrichment should use Icypeas
  * plus the mailbox verification gate.
  */
 async function testHunterIO(): Promise<ApiTestResult> {
   return {
     service: "Hunter.io",
     status: "not_configured",
-    message: "Disabled by Contndr configuration; Findymail is the active enrichment provider"
+    message: "Disabled by Contndr configuration; Icypeas is the active enrichment provider"
   };
 }
 
 /**
- * Test Findymail API connectivity and functionality
+ * Test Icypeas API connectivity and functionality
  */
-async function testFindymail(): Promise<ApiTestResult> {
-  const apiKey = Deno.env.get("FINDYMAIL_API_KEY");
+async function testIcypeasProvider(): Promise<ApiTestResult> {
+  const apiKey = Deno.env.get("ICYPEAS_API_KEY");
   
   if (!apiKey) {
     return {
-      service: "Findymail",
+      service: "Icypeas",
       status: "not_configured",
-      message: "API key not configured in environment variables"
+      message: "ICYPEAS_API_KEY not configured in environment variables"
     };
   }
 
   const startTime = Date.now();
   
   try {
-    // Test email verification endpoint
-    const testEmail = "test@example.com";
-    const response = await fetch(
-      `https://app.findymail.com/api/verify/single?email=${encodeURIComponent(testEmail)}`,
-      {
-        method: "GET",
-        headers: { "Authorization": `Bearer ${apiKey}` }
-      }
-    );
-    
+    const result = await testIcypeas();
     const responseTime = Date.now() - startTime;
     
-    if (response.status === 402) {
+    if (result.status === 402) {
       return {
-        service: "Findymail",
+        service: "Icypeas",
         status: "error",
         message: "API key has exhausted all credits (HTTP 402 Payment Required)",
         credits_remaining: 0,
@@ -71,52 +63,50 @@ async function testFindymail(): Promise<ApiTestResult> {
       };
     }
 
-    if (response.status === 429) {
+    if (result.status === 429) {
       return {
-        service: "Findymail",
+        service: "Icypeas",
         status: "warning",
         message: "Rate limit exceeded. Wait before making more requests.",
         response_time_ms: responseTime,
-        rate_limit: response.headers.get("X-RateLimit-Remaining") || "Unknown"
+        rate_limit: "Unknown"
       };
     }
 
-    if (response.status === 403) {
+    if (result.status === 401 || result.status === 403) {
       return {
-        service: "Findymail",
+        service: "Icypeas",
         status: "error",
-        message: "API key is invalid or does not have permission (HTTP 403 Forbidden)",
+        message: `API key is invalid or does not have permission (HTTP ${result.status})`,
         response_time_ms: responseTime
       };
     }
 
-    if (!response.ok) {
+    if (!result.ok) {
       return {
-        service: "Findymail",
+        service: "Icypeas",
         status: "error",
-        message: `API returned HTTP ${response.status}: ${response.statusText}`,
+        message: result.status ? `API returned HTTP ${result.status}` : `Connection failed: ${result.error || "unknown error"}`,
         response_time_ms: responseTime,
-        details: await response.text()
+        details: result.data
       };
     }
 
-    const data = await response.json();
-    
     // Test was successful - the API is working
     return {
-      service: "Findymail",
+      service: "Icypeas",
       status: "success",
       message: "✅ Fully functional (verification endpoint responding)",
       response_time_ms: responseTime,
       details: {
-        testResult: data,
-        note: "Cannot determine exact credit balance via API. Monitor usage in Findymail dashboard."
+        testResult: result.data,
+        note: "Cannot determine exact credit balance via API. Monitor usage in Icypeas dashboard."
       }
     };
 
   } catch (error) {
     return {
-      service: "Findymail",
+      service: "Icypeas",
       status: "error",
       message: `Connection failed: ${(error as Error).message}`,
       response_time_ms: Date.now() - startTime
@@ -168,13 +158,13 @@ async function testSerpAPI(): Promise<ApiTestResult> {
 export async function runFullDiagnostics(): Promise<DiagnosticReport> {
   console.log('[DIAGNOSTICS] Starting API diagnostics...');
   
-  const [hunterResult, findymailResult, serpApiResult] = await Promise.all([
+  const [hunterResult, icypeasResult, serpApiResult] = await Promise.all([
     testHunterIO(),
-    testFindymail(),
+    testIcypeasProvider(),
     testSerpAPI()
   ]);
 
-  const results = [hunterResult, findymailResult, serpApiResult];
+  const results = [hunterResult, icypeasResult, serpApiResult];
   
   // Determine overall health status
   const hasErrors = results.some(r => r.status === 'error');
@@ -209,11 +199,11 @@ export async function runFullDiagnostics(): Promise<DiagnosticReport> {
   }
 
   // Check if at least one enrichment provider is working
-  const enrichmentProviders = [findymailResult];
+  const enrichmentProviders = [icypeasResult];
   const hasWorkingEnrichmentProvider = enrichmentProviders.some(r => r.status === 'success');
   
   if (!hasWorkingEnrichmentProvider) {
-    recommendations.push('⚠️ CRITICAL: Findymail is not working. Email enrichment will fail.');
+    recommendations.push('⚠️ CRITICAL: Icypeas is not working. Email enrichment will fail.');
   }
 
   if (recommendations.length === 0) {

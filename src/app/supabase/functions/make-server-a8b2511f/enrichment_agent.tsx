@@ -1,7 +1,7 @@
 // Contndr Lead Enrichment Agent v3.0
 // Production-grade email enrichment: every email MUST be verified before delivery.
 // Zero-tolerance for bounces. If it can't be verified, it's not returned as a contact.
-// Email enrichment: Findymail first, then MX/pattern verification as a guarded fallback.
+// Email enrichment: Icypeas first, then MX/pattern verification as a guarded fallback.
 
 export interface EnrichmentInput {
   company_name: string;
@@ -54,6 +54,7 @@ export interface EnrichmentOutput {
 // Routes SerpAPI requests through Serper.dev (~10× cheaper) when
 // SERPER_API_KEY is set; falls back to SerpAPI transparently otherwise.
 import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
+import { icypeasDomainSearch, icypeasEmailSearch, icypeasVerifyEmail } from "./icypeas.tsx";
 
 // ── Role tiers (expanded) ───────────────────────────────────────────────
 const TIER_1_ROLES = [
@@ -143,12 +144,12 @@ const PROVIDER_COOLDOWN_MS = {
   403: 15 * 60 * 1000,        // forbidden/temp ban — medium (15m)
 } as const;
 
-const providerCooldowns: Record<'findymail' | 'hunter', number> = {
-  findymail: 0,
+const providerCooldowns: Record<'icypeas' | 'hunter', number> = {
+  icypeas: 0,
   hunter: 0,
 };
 
-function markProviderExhausted(provider: 'findymail' | 'hunter', status: number) {
+function markProviderExhausted(provider: 'icypeas' | 'hunter', status: number) {
   const ms = (PROVIDER_COOLDOWN_MS as Record<number, number>)[status];
   if (!ms) return;
   const wasInCooldown = providerCooldowns[provider] > Date.now();
@@ -160,23 +161,23 @@ function markProviderExhausted(provider: 'findymail' | 'hunter', status: number)
   }
 }
 
-function markFindymailExhausted(status: number) {
-  markProviderExhausted('findymail', status);
+function markIcypeasExhausted(status: number) {
+  markProviderExhausted('icypeas', status);
 }
 
 function markHunterExhausted(status: number) {
   markProviderExhausted('hunter', status);
 }
 
-function isExhausted(provider: 'findymail' | 'hunter'): boolean {
+function isExhausted(provider: 'icypeas' | 'hunter'): boolean {
   return providerCooldowns[provider] > Date.now();
 }
 
-function getAvailableProviders(): ('findymail' | 'hunter')[] {
-  const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+function getAvailableProviders(): ('icypeas' | 'hunter')[] {
+  const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
   const HUNTER_API_KEY = "";
-  const providers: ('findymail' | 'hunter')[] = [];
-  if (FINDYMAIL_API_KEY && !isExhausted('findymail')) providers.push('findymail');
+  const providers: ('icypeas' | 'hunter')[] = [];
+  if (ICYPEAS_API_KEY && !isExhausted('icypeas')) providers.push('icypeas');
   if (HUNTER_API_KEY && !isExhausted('hunter')) providers.push('hunter');
   return providers;
 }
@@ -186,7 +187,7 @@ function getAvailableProviders(): ('findymail' | 'hunter')[] {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Hunter.io email verification (alternative to Findymail verify).
+ * Hunter.io email verification (alternative to Icypeas verify).
  */
 async function hunterVerifyEmail(email: string, apiKey: string): Promise<VerificationResult> {
   try {
@@ -230,7 +231,7 @@ async function hunterVerifyEmail(email: string, apiKey: string): Promise<Verific
 }
 
 /**
- * Hunter.io email finder (alternative to Findymail search/mail).
+ * Hunter.io email finder (alternative to Icypeas search/mail).
  */
 async function hunterFindEmail(
   firstName: string, lastName: string, domain: string, apiKey: string
@@ -266,7 +267,7 @@ async function hunterFindEmail(
 }
 
 /**
- * Hunter.io domain search (alternative to Findymail domain search).
+ * Hunter.io domain search (alternative to Icypeas domain search).
  * Returns contacts at a given domain with names, titles, and emails.
  */
 async function hunterDomainSearch(domain: string, apiKey: string, limit = 20): Promise<{
@@ -316,7 +317,7 @@ async function hunterDomainSearch(domain: string, apiKey: string, limit = 20): P
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// UNIFIED VERIFICATION — Findymail is the active provider
+// UNIFIED VERIFICATION — Icypeas is the active provider
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function verifyEmailMultiProvider(email: string): Promise<VerificationResult> {
@@ -331,7 +332,7 @@ async function verifyEmailMultiProvider(email: string): Promise<VerificationResu
     return cached.result;
   }
 
-  const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+  const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
   const HUNTER_API_KEY = "";
 
   // Hunter.io is intentionally disabled. Keep this branch unreachable unless
@@ -339,12 +340,12 @@ async function verifyEmailMultiProvider(email: string): Promise<VerificationResu
   if (HUNTER_API_KEY && !isExhausted("hunter")) {
     const result = await hunterVerifyEmail(email, HUNTER_API_KEY);
     if (result.status !== 'unknown') return result;
-    // If Hunter returned 'unknown' (error), try Findymail
+    // If Hunter returned 'unknown' (error), try Icypeas
   }
 
-  // Fallback to Findymail
-  if (FINDYMAIL_API_KEY && !isExhausted("findymail")) {
-    const result = await verifyEmailStrict(email, FINDYMAIL_API_KEY);
+  // Fallback to Icypeas
+  if (ICYPEAS_API_KEY && !isExhausted("icypeas")) {
+    const result = await verifyEmailStrict(email, ICYPEAS_API_KEY);
     if (result.status !== 'unknown') return result;
   }
 
@@ -352,7 +353,7 @@ async function verifyEmailMultiProvider(email: string): Promise<VerificationResu
 }
 
 /**
- * Unified email finder — tries Findymail finder, then pattern+verify.
+ * Unified email finder — tries Icypeas finder, then pattern+verify.
  */
 async function findVerifiedEmailMultiProvider(
   fullName: string,
@@ -362,7 +363,7 @@ async function findVerifiedEmailMultiProvider(
   const firstName = nameParts[0];
   const lastName = nameParts.slice(1).join(" ");
 
-  const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+  const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
   const HUNTER_API_KEY = "";
 
   // ── Strategy 1: Hunter.io email finder (disabled) ──
@@ -377,34 +378,20 @@ async function findVerifiedEmailMultiProvider(
     }
   }
 
-  // ── Strategy 1: Findymail email finder ──
-  if (FINDYMAIL_API_KEY && !isExhausted("findymail") && firstName && lastName) {
+  // ── Strategy 1: Icypeas email finder ──
+  if (ICYPEAS_API_KEY && !isExhausted("icypeas") && firstName && lastName) {
     try {
-      const params = new URLSearchParams({
-        first_name: firstName,
-        last_name: lastName,
-        domain: domain
-      });
-      const response = await fetch(`https://app.findymail.com/api/search/mail?${params}`, {
-        method: "GET",
-        headers: { "Authorization": `Bearer ${FINDYMAIL_API_KEY}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const foundEmail = data.email || data.result?.email;
-        if (foundEmail) {
-          const verification = await verifyEmailMultiProvider(foundEmail);
-          if (verification.deliverable) {
-            console.log(`[FIND] Findymail finder → verified: ${foundEmail}`);
-            return { email: foundEmail, status: verification.status, patternsTriedCount: 0, source: 'findymail_finder' };
-          }
+      const result = await icypeasEmailSearch(firstName, lastName, domain);
+      const foundEmail = result?.email;
+      if (foundEmail) {
+        const verification = await verifyEmailMultiProvider(foundEmail);
+        if (verification.deliverable) {
+          console.log(`[FIND] Icypeas finder → verified: ${foundEmail}`);
+          return { email: foundEmail, status: verification.status, patternsTriedCount: 0, source: 'icypeas_finder' };
         }
-      } else {
-        markFindymailExhausted(response.status);
       }
     } catch (error) {
-      console.warn(`[FIND] Findymail finder error: ${(error as Error).message}`);
+      console.warn(`[FIND] Icypeas finder error: ${(error as Error).message}`);
     }
   }
 
@@ -441,7 +428,7 @@ async function findVerifiedEmailMultiProvider(
 }
 
 /**
- * Verify a single email through Findymail's verification API.
+ * Verify a single email through Icypeas' verification API.
  * This is the ONLY source of truth for whether an email is deliverable.
  */
 async function verifyEmailStrict(email: string, apiKey: string): Promise<VerificationResult> {
@@ -457,42 +444,9 @@ async function verifyEmailStrict(email: string, apiKey: string): Promise<Verific
   }
 
   try {
-    const response = await fetch(
-      `https://app.findymail.com/api/verify/single?email=${encodeURIComponent(email)}`,
-      {
-        method: "GET",
-        headers: { "Authorization": `Bearer ${apiKey}` }
-      }
-    );
-
-    if (!response.ok) {
-      markFindymailExhausted(response.status);
-      console.warn(`[VERIFY] Findymail API returned ${response.status} for ${email}`);
-      return { email, status: 'unknown', deliverable: false };
-    }
-
-    const data = await response.json();
-    const rawStatus = (data.status || data.result || data.email_status || '').toLowerCase();
-
-    let result: VerificationResult;
-
-    if (rawStatus === 'valid' || rawStatus === 'verified' || rawStatus === 'deliverable') {
-      result = { email, status: 'valid', deliverable: true };
-      console.log(`[VERIFY] VALID: ${email}`);
-    } else if (rawStatus === 'catch_all' || rawStatus === 'catch-all' || rawStatus === 'accept_all' || rawStatus === 'accept-all') {
-      // Catch-all domains accept everything at SMTP level but may silently discard
-      // We allow these but with a lower confidence score
-      result = { email, status: 'catch_all', deliverable: true };
-      console.log(`[VERIFY] CATCH-ALL: ${email} (domain accepts all, delivery uncertain)`);
-    } else if (rawStatus === 'risky') {
-      // Risky means it might bounce - only include with warning
-      result = { email, status: 'risky', deliverable: false };
-      console.log(`[VERIFY] RISKY: ${email} (may bounce)`);
-    } else {
-      // invalid, bounced, unknown, undeliverable, etc.
-      result = { email, status: 'invalid', deliverable: false };
-      console.log(`[VERIFY] INVALID: ${email} (status: ${rawStatus})`);
-    }
+    const result = await icypeasVerifyEmail(email);
+    if (result.deliverable) console.log(`[VERIFY] ${result.status.toUpperCase()}: ${email}`);
+    else console.log(`[VERIFY] ${result.status.toUpperCase()}: ${email} - excluded`);
 
     // Cache the result
     verificationCache.set(email.toLowerCase(), { result, timestamp: Date.now() });
@@ -590,44 +544,30 @@ async function findVerifiedEmail(
   domain: string,
   apiKey: string
 ): Promise<{ email: string; status: VerificationResult['status']; patternsTriedCount: number } | null> {
-  // First, try Findymail's email finder API (most reliable)
+  // First, try Icypeas' email finder API.
   const nameParts = fullName.split(/\s+/);
   const firstName = nameParts[0];
   const lastName = nameParts.slice(1).join(" ");
 
   if (firstName && lastName) {
     try {
-      const params = new URLSearchParams({
-        first_name: firstName,
-        last_name: lastName,
-        domain: domain
-      });
+      const result = await icypeasEmailSearch(firstName, lastName, domain);
+      const foundEmail = result?.email;
 
-      const response = await fetch(`https://app.findymail.com/api/search/mail?${params}`, {
-        method: "GET",
-        headers: { "Authorization": `Bearer ${apiKey}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const foundEmail = data.email || data.result?.email;
-
-        if (foundEmail) {
-          // Even Findymail's finder result gets verified
-          const verification = await verifyEmailStrict(foundEmail, apiKey);
-          if (verification.deliverable) {
-            console.log(`[VERIFY] Findymail finder found verified email: ${foundEmail}`);
-            return { email: foundEmail, status: verification.status, patternsTriedCount: 0 };
-          }
-          console.log(`[VERIFY] Findymail finder email ${foundEmail} failed verification (${verification.status})`);
+      if (foundEmail) {
+        const verification = await verifyEmailStrict(foundEmail, apiKey);
+        if (verification.deliverable) {
+          console.log(`[VERIFY] Icypeas finder found verified email: ${foundEmail}`);
+          return { email: foundEmail, status: verification.status, patternsTriedCount: 0 };
         }
+        console.log(`[VERIFY] Icypeas finder email ${foundEmail} failed verification (${verification.status})`);
       }
     } catch (error) {
-      console.warn(`[VERIFY] Findymail email finder failed for ${fullName}: ${(error as Error).message}`);
+      console.warn(`[VERIFY] Icypeas email finder failed for ${fullName}: ${(error as Error).message}`);
     }
   }
 
-  // Findymail finder didn't work, try email pattern generation + verification
+  // Provider finder didn't work, try email pattern generation + verification
   const patterns = generateEmailPatterns(fullName, domain);
   console.log(`[VERIFY] Trying ${patterns.length} email patterns for ${fullName}@${domain}`);
 
@@ -665,8 +605,8 @@ async function findVerifiedEmail(
 // MAIN ENRICHMENT FUNCTION
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<EnrichmentOutput> {
-  const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+export async function enrichLeadWithIcypeas(input: EnrichmentInput): Promise<EnrichmentOutput> {
+  const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
   const HUNTER_API_KEY = "";
 
   const providers = getAvailableProviders();
@@ -684,12 +624,12 @@ export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<E
     };
   }
 
-  if (!FINDYMAIL_API_KEY && !HUNTER_API_KEY) {
+  if (!ICYPEAS_API_KEY && !HUNTER_API_KEY) {
     return {
       success: false,
       company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
       status: "needs_review",
-      reason: "NO_ENRICHMENT_API_KEYS — set FINDYMAIL_API_KEY",
+      reason: "NO_ENRICHMENT_API_KEYS — set ICYPEAS_API_KEY",
       decision_makers: [],
       excluded_emails_found: []
     };
@@ -713,16 +653,16 @@ export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<E
   // 2) Company intelligence in parallel
   const companyIntel = await searchCompanyIntelligence(input);
 
-  // 3) Domain search — Findymail is the active provider
+  // 3) Domain search — Icypeas is the active provider
   let domainSearchResult: EnrichmentOutput | null = null;
 
   if (HUNTER_API_KEY && !isExhausted("hunter")) {
     domainSearchResult = await tryHunterDomainSearchEnrich(input, HUNTER_API_KEY);
   }
 
-  if (!domainSearchResult?.decision_makers?.length && FINDYMAIL_API_KEY && !isExhausted("findymail")) {
-    console.log(`[ENRICH] Trying Findymail domain search...`);
-    domainSearchResult = await tryFindymailDomainSearch(input, FINDYMAIL_API_KEY);
+  if (!domainSearchResult?.decision_makers?.length && ICYPEAS_API_KEY && !isExhausted("icypeas")) {
+    console.log(`[ENRICH] Trying Icypeas domain search...`);
+    domainSearchResult = await tryIcypeasDomainSearch(input, ICYPEAS_API_KEY);
   }
 
   // 4) Apollo.io via SerpAPI — uses multi-provider email finding
@@ -766,7 +706,7 @@ export async function enrichLeadWithFindymail(input: EnrichmentInput): Promise<E
 
   const verifiedCount = withLinkedIn.filter(dm => dm.verification_status === 'verified').length;
   const catchAllCount = withLinkedIn.filter(dm => dm.verification_status === 'catch_all').length;
-  const providerNote = isExhausted("findymail") ? ' (Findymail exhausted)' : '';
+  const providerNote = isExhausted("icypeas") ? ' (Icypeas exhausted)' : '';
 
   const verificationSummary = {
     total_candidates: totalCandidates,
@@ -941,33 +881,16 @@ async function searchCompanyRevenue(companyName: string, domain: string, apiKey:
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FINDYMAIL DOMAIN SEARCH (Fallback) - WITH STRICT VERIFICATION
+// ICYPEAS DOMAIN SEARCH (Fallback) - WITH STRICT VERIFICATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function tryFindymailDomainSearch(input: EnrichmentInput, apiKey: string): Promise<EnrichmentOutput | null> {
+async function tryIcypeasDomainSearch(input: EnrichmentInput, apiKey: string): Promise<EnrichmentOutput | null> {
   try {
-    console.log(`[ENRICH] Findymail domain search for ${input.company_domain}...`);
+    console.log(`[ENRICH] Icypeas domain search for ${input.company_domain}...`);
 
-    const params = new URLSearchParams();
-    params.append("domain", input.company_domain);
-    params.append("limit", "20");
+    const contacts = await icypeasDomainSearch(input.company_domain);
 
-    const response = await fetch(`https://app.findymail.com/api/domain/search?${params.toString()}`, {
-      method: "GET",
-      headers: { "Authorization": `Bearer ${apiKey}` }
-    });
-
-    if (!response.ok) {
-      markFindymailExhausted(response.status);
-      const errorText = await response.text();
-      console.warn(`[ENRICH] Findymail API returned ${response.status}: ${errorText}`);
-      return null;
-    }
-
-    const data = await response.json();
-    const contacts = data.contacts || data.emails || [];
-
-    console.log(`[ENRICH] Findymail returned ${contacts.length} contacts for ${input.company_domain}`);
+    console.log(`[ENRICH] Icypeas returned ${contacts.length} contacts for ${input.company_domain}`);
 
     if (contacts.length === 0) return null;
 
@@ -1004,7 +927,7 @@ async function tryFindymailDomainSearch(input: EnrichmentInput, apiKey: string):
           linkedin_url: contact.linkedin_url || contact.linkedin || contact.li_url || contact.social_linkedin || contact.linkedin_profile || undefined,
           verification_status: 'unverifiable', // Will be updated after verification
           confidence_score: 0, // Will be set based on verification
-          source: "findymail",
+          source: "icypeas",
           why_selected: roleTier < 99 ? `Tier ${roleTier} role match: ${title}` : "Personal contact at company"
         },
         roleTier,
@@ -1017,7 +940,7 @@ async function tryFindymailDomainSearch(input: EnrichmentInput, apiKey: string):
 
     // Take top 6 candidates and verify their emails
     const topCandidates = candidates.slice(0, 6);
-    console.log(`[ENRICH] Verifying ${topCandidates.length} candidate emails from Findymail...`);
+    console.log(`[ENRICH] Verifying ${topCandidates.length} candidate emails from Icypeas...`);
 
     const verifiedDMs: DecisionMaker[] = [];
 
@@ -1060,7 +983,7 @@ async function tryFindymailDomainSearch(input: EnrichmentInput, apiKey: string):
       success: verifiedDMs.length > 0,
       company: { name: input.company_name, domain: input.company_domain, website: input.company_website_url || "" },
       status: verifiedDMs.length > 0 ? "enriched" : "needs_review",
-      reason: verifiedDMs.length === 0 ? "findymail_contacts_failed_verification" : undefined,
+      reason: verifiedDMs.length === 0 ? "icypeas_contacts_failed_verification" : undefined,
       decision_makers: verifiedDMs,
       excluded_emails_found: excludedEmails.slice(0, 5),
       notes: verifiedDMs.length === 0
@@ -1076,7 +999,7 @@ async function tryFindymailDomainSearch(input: EnrichmentInput, apiKey: string):
     };
 
   } catch (error) {
-    console.warn("[ENRICH] Findymail domain search failed:", (error as Error).message);
+    console.warn("[ENRICH] Icypeas domain search failed:", (error as Error).message);
     return null;
   }
 }
@@ -1085,7 +1008,7 @@ async function tryFindymailDomainSearch(input: EnrichmentInput, apiKey: string):
 // APOLLO via SERPAPI (Fallback 1) - WITH STRICT VERIFICATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function findDecisionMakerViaSerpApi(input: EnrichmentInput, findymailApiKey: string): Promise<EnrichmentOutput | null> {
+async function findDecisionMakerViaSerpApi(input: EnrichmentInput, icypeasApiKey: string): Promise<EnrichmentOutput | null> {
   const SERPAPI_API_KEY = getSerpSearchKey();
   if (!SERPAPI_API_KEY) return null;
 
@@ -1161,7 +1084,7 @@ async function findDecisionMakerViaSerpApi(input: EnrichmentInput, findymailApiK
     // Try to find verified emails for top candidates
     for (const candidate of uniqueCandidates.slice(0, 5)) {
       totalCandidates++;
-      const emailResult = await findVerifiedEmail(candidate.name, input.company_domain, findymailApiKey);
+      const emailResult = await findVerifiedEmail(candidate.name, input.company_domain, icypeasApiKey);
 
       if (emailResult) {
         verifiedDMs.push({
@@ -1171,8 +1094,8 @@ async function findDecisionMakerViaSerpApi(input: EnrichmentInput, findymailApiK
           linkedin_url: candidate.linkedinUrl,
           verification_status: emailResult.status === 'catch_all' ? 'catch_all' : 'verified',
           confidence_score: emailResult.status === 'valid' ? 90 : 65,
-          source: "apollo_serpapi+findymail_verified",
-          why_selected: `Tier ${candidate.roleTier} match from Apollo, email verified via Findymail`,
+          source: "apollo_serpapi+icypeas_verified",
+          why_selected: `Tier ${candidate.roleTier} match from Apollo, email verified via Icypeas`,
           email_patterns_tried: emailResult.patternsTriedCount,
         });
         console.log(`  [OK] ${candidate.name}: ${emailResult.email} (${emailResult.status})`);
@@ -1191,7 +1114,7 @@ async function findDecisionMakerViaSerpApi(input: EnrichmentInput, findymailApiK
       status: "enriched",
       decision_makers: verifiedDMs,
       excluded_emails_found: [],
-      notes: `Found via Apollo.io, all emails verified through Findymail.`,
+      notes: `Found via Apollo.io, all emails verified through Icypeas.`,
       verification_summary: {
         total_candidates: totalCandidates,
         verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,
@@ -1211,7 +1134,7 @@ async function findDecisionMakerViaSerpApi(input: EnrichmentInput, findymailApiK
 // LINKEDIN via SERPAPI (Fallback 2) - WITH STRICT VERIFICATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function findDecisionMakerViaLinkedIn(input: EnrichmentInput, findymailApiKey: string): Promise<EnrichmentOutput | null> {
+async function findDecisionMakerViaLinkedIn(input: EnrichmentInput, icypeasApiKey: string): Promise<EnrichmentOutput | null> {
   const SERPAPI_API_KEY = getSerpSearchKey();
   if (!SERPAPI_API_KEY) return null;
 
@@ -1285,7 +1208,7 @@ async function findDecisionMakerViaLinkedIn(input: EnrichmentInput, findymailApi
 
     for (const candidate of uniqueCandidates.slice(0, 4)) {
       totalCandidates++;
-      const emailResult = await findVerifiedEmail(candidate.name, input.company_domain, findymailApiKey);
+      const emailResult = await findVerifiedEmail(candidate.name, input.company_domain, icypeasApiKey);
 
       if (emailResult) {
         verifiedDMs.push({
@@ -1295,8 +1218,8 @@ async function findDecisionMakerViaLinkedIn(input: EnrichmentInput, findymailApi
           linkedin_url: candidate.linkedinUrl,
           verification_status: emailResult.status === 'catch_all' ? 'catch_all' : 'verified',
           confidence_score: emailResult.status === 'valid' ? 88 : 62,
-          source: "linkedin_serpapi+findymail_verified",
-          why_selected: `Tier ${candidate.roleTier} match from LinkedIn, email verified via Findymail`,
+          source: "linkedin_serpapi+icypeas_verified",
+          why_selected: `Tier ${candidate.roleTier} match from LinkedIn, email verified via Icypeas`,
           email_patterns_tried: emailResult.patternsTriedCount,
         });
       }
@@ -1312,7 +1235,7 @@ async function findDecisionMakerViaLinkedIn(input: EnrichmentInput, findymailApi
       status: "enriched",
       decision_makers: verifiedDMs,
       excluded_emails_found: [],
-      notes: `Found via LinkedIn, all emails verified through Findymail.`,
+      notes: `Found via LinkedIn, all emails verified through Icypeas.`,
       verification_summary: {
         total_candidates: totalCandidates,
         verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,
@@ -1416,7 +1339,7 @@ function deduplicateByName(dms: DecisionMaker[]): DecisionMaker[] {
 
 // ── Quick Contact Discovery (for search-time decision maker surfacing) ──
 /**
- * Lightweight contact discovery: Findymail → Hunter.io fallback.
+ * Lightweight contact discovery: Icypeas → Hunter.io fallback.
  * Returns contacts with names and titles WITHOUT email verification.
  * Used during search to surface decision makers before full enrichment.
  */
@@ -1429,43 +1352,32 @@ export async function quickDiscoverContacts(domain: string): Promise<{
 }[]> {
   type QuickContact = { full_name: string; title: string; email?: string; linkedin_url?: string; role_tier: number };
 
-  // ── Try Findymail first ──
-  const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
-  if (FINDYMAIL_API_KEY && !isExhausted("findymail")) {
+  // ── Try Icypeas first ──
+  const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
+  if (ICYPEAS_API_KEY && !isExhausted("icypeas")) {
     try {
-      const params = new URLSearchParams({ domain, limit: "10" });
-      const response = await fetch(
-        `https://app.findymail.com/api/domain/search?${params}`,
-        { headers: { "Authorization": `Bearer ${FINDYMAIL_API_KEY}` } }
-      );
+      const contacts = await icypeasDomainSearch(domain);
+      const results: QuickContact[] = contacts
+        .filter((c: any) => {
+          const name = c.full_name || c.name || `${c.first_name || ""} ${c.last_name || ""}`.trim();
+          const email = c.email || "";
+          return name && name.length >= 3 && name !== "Unknown" &&
+                 (!email || !isExcludedEmail(email)) && isValidPersonName(name);
+        })
+        .map((c: any) => {
+          const name = c.full_name || c.name || `${c.first_name || ""} ${c.last_name || ""}`.trim();
+          const title = c.position || c.title || c.job_title || "Unknown";
+          return {
+            full_name: name, title,
+            email: c.email || undefined,
+            linkedin_url: c.linkedin_url || c.linkedin || c.li_url || c.social_linkedin || undefined,
+            role_tier: getRoleTier(title)
+          };
+        })
+        .sort((a: QuickContact, b: QuickContact) => a.role_tier - b.role_tier)
+        .slice(0, 8);
 
-      if (response.ok) {
-        const data = await response.json();
-        const contacts = data.contacts || data.emails || [];
-        const results: QuickContact[] = contacts
-          .filter((c: any) => {
-            const name = c.full_name || c.name || `${c.first_name || ""} ${c.last_name || ""}`.trim();
-            const email = c.email || "";
-            return name && name.length >= 3 && name !== "Unknown" &&
-                   (!email || !isExcludedEmail(email)) && isValidPersonName(name);
-          })
-          .map((c: any) => {
-            const name = c.full_name || c.name || `${c.first_name || ""} ${c.last_name || ""}`.trim();
-            const title = c.position || c.title || c.job_title || "Unknown";
-            return {
-              full_name: name, title,
-              email: c.email || undefined,
-              linkedin_url: c.linkedin_url || c.linkedin || c.li_url || c.social_linkedin || undefined,
-              role_tier: getRoleTier(title)
-            };
-          })
-          .sort((a: QuickContact, b: QuickContact) => a.role_tier - b.role_tier)
-          .slice(0, 8);
-
-        if (results.length > 0) return results;
-      } else {
-        markFindymailExhausted(response.status);
-      }
+      if (results.length > 0) return results;
     } catch { /* fall through to Hunter */ }
   }
 
@@ -1491,7 +1403,7 @@ export async function quickDiscoverContacts(domain: string): Promise<{
   }
 
   // ── Fallback to SerpAPI LinkedIn scrape ──
-  // This is the ONLY contact source that works without a Findymail/
+  // This is the ONLY contact source that works without a Icypeas/
   // Hunter key (or when both are rate-limited). It scrapes Google for
   // public LinkedIn profile snippets associated with the company domain
   // and parses out name + title. No emails (those come from a separate
@@ -1610,7 +1522,7 @@ async function discoverContactsViaLinkedInScrape(domain: string): Promise<{
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// HUNTER.IO DOMAIN SEARCH ENRICHMENT (parallel to Findymail domain search)
+// HUNTER.IO DOMAIN SEARCH ENRICHMENT (parallel to Icypeas domain search)
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function tryHunterDomainSearchEnrich(input: EnrichmentInput, hunterApiKey: string): Promise<EnrichmentOutput | null> {
@@ -1812,7 +1724,7 @@ async function findDecisionMakerViaSerpApiMulti(input: EnrichmentInput): Promise
       status: "enriched",
       decision_makers: verifiedDMs,
       excluded_emails_found: [],
-      notes: `Found via Apollo.io, emails verified through Findymail and mailbox verification.`,
+      notes: `Found via Apollo.io, emails verified through Icypeas and mailbox verification.`,
       verification_summary: {
         total_candidates: totalCandidates,
         verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,
@@ -1921,7 +1833,7 @@ async function findDecisionMakerViaLinkedInMulti(input: EnrichmentInput): Promis
       status: "enriched",
       decision_makers: verifiedDMs,
       excluded_emails_found: [],
-      notes: `Found via LinkedIn, emails verified through Findymail and mailbox verification.`,
+      notes: `Found via LinkedIn, emails verified through Icypeas and mailbox verification.`,
       verification_summary: {
         total_candidates: totalCandidates,
         verified: verifiedDMs.filter(dm => dm.verification_status === 'verified').length,

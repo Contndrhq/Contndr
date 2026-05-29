@@ -13,6 +13,7 @@ import { getUserSubscriptionStatus } from "./contndr-billing.tsx";
 import { verifyEmailBatch, checkMxRecords, type EmailVerification } from "./email-verify.tsx";
 import { searchPool, saveToPool, getPoolStats, hydrateLeadsFromExistingContacts, type PoolLead, type SearchCriteria } from "./lead-pool.tsx";
 import { getLeadLimitForPlan } from "./plan-entitlements.ts";
+import { icypeasEmailSearch } from "./icypeas.tsx";
 
 async function checkLeadLimitApollo(user: any, supabase: any, additionalCount: number) {
   const sub = await getUserSubscriptionStatus(user);
@@ -727,22 +728,22 @@ function filterEmailQualifiedPeople<T extends any>(people: T[], context: string)
 // Pipeline:
 //   Phase 1 — Apollo reveal ALL leads → gets full names, emails, phones, LinkedIn, org data
 //   Phase 2 — For leads where Apollo returned no email, try Hunter.io (also grabs phone if returned)
-//   Phase 3 — For leads where Hunter also failed, try Findymail
+//   Phase 3 — For leads where Hunter also failed, try Icypeas
 //   Phase 3.5 — DISABLED (pattern guessing removed — only real emails allowed)
 //   Phase 4 — For leads still missing phone, Hunter.io domain-search + org phone fallback
 //   Phase 5 — DIY email verification: MX records, disposable detection, role-based flagging
 //
 // This maximizes coverage: Apollo handles most emails + phones,
-// Hunter/Findymail fill email gaps, and strict MX verification protects deliverability.
+// Icypeas fills email gaps, and strict MX verification protects deliverability.
 // No emails are fabricated — only real verified emails from API sources are used.
 async function hybridEnrichPeople(
   allRawPeople: any[],
   userId: string,
   send: (event: string, data: any) => void,
   isCancelledFn: () => boolean,
-): Promise<{ people: ApolloLead[]; hunterFound: number; findymailFound: number; apolloRevealCount: number; phoneEnrichFound: number; hunterPhoneFound: number; patternGuessed: number; verified: number; verifiedValid: number; verifiedRisky: number; verifiedInvalid: number; creditsExhausted: boolean }> {
+): Promise<{ people: ApolloLead[]; hunterFound: number; icypeasFound: number; apolloRevealCount: number; phoneEnrichFound: number; hunterPhoneFound: number; patternGuessed: number; verified: number; verifiedValid: number; verifiedRisky: number; verifiedInvalid: number; creditsExhausted: boolean }> {
   const HUNTER_API_KEY = "";
-  const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
+  const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
   const sessionId = `enrich_${Date.now()}_${userId}`;
 
   // ── Phase 1: Apollo reveal ALL leads ──
@@ -929,14 +930,14 @@ async function hybridEnrichPeople(
     else send("activity", { message: `Hunter.io scan complete — no matches found`, type: "info" });
   }
 
-  // ── Phase 3: Findymail for remaining leads without email ──
-  let findymailFound = 0;
-  if (FINDYMAIL_API_KEY && !isCancelledFn()) {
+  // ── Phase 3: Icypeas for remaining leads without email ──
+  let icypeasFound = 0;
+  if (ICYPEAS_API_KEY && !isCancelledFn()) {
     const stillNoEmail = [...revealedMap.entries()].filter(([, l]) => !l.email && l.organization?.website_url && l.first_name);
     if (stillNoEmail.length > 0) {
       send("phase", { phase: 6, name: `Deep email search (${stillNoEmail.length} leads)`, status: "processing" });
-      send("activity", { message: `Querying Findymail for ${stillNoEmail.length} leads still missing email...`, type: "info" });
-      console.log(`[ENRICH] Phase 3: Findymail for ${stillNoEmail.length} leads still missing email`);
+      send("activity", { message: `Querying Icypeas for ${stillNoEmail.length} leads still missing email...`, type: "info" });
+      console.log(`[ENRICH] Phase 3: Icypeas for ${stillNoEmail.length} leads still missing email`);
       const FB = 5;
       for (let i = 0; i < stillNoEmail.length; i += FB) {
         if (isCancelledFn()) break;
@@ -946,40 +947,33 @@ async function hybridEnrichPeople(
             const domain = lead.organization.website_url.replace(/^https?:\/\//, '').replace(/\/.*/, '').replace(/^www\./, '');
             if (!domain) return null;
             try {
-              const r = await fetch('https://app.findymail.com/api/search/name', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${FINDYMAIL_API_KEY}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ first_name: lead.first_name, last_name: lead.last_name || '', domain }),
-                signal: AbortSignal.timeout(8000),
-              });
-              if (!r.ok) return null;
-              const d = await r.json();
-              if (d.email) return { id, email: d.email, status: 'verified', source: 'findymail' };
+              const result = await icypeasEmailSearch(lead.first_name, lead.last_name || '', domain);
+              if (result?.email) return { id, email: result.email, status: 'verified', source: 'icypeas' };
               return null;
             } catch { return null; }
           })
         );
         for (const r of br) {
           if (r.status === 'fulfilled' && r.value) {
-            findymailFound++;
+            icypeasFound++;
             const lead = revealedMap.get(r.value.id);
             if (lead) {
               lead.email = r.value.email;
               lead.email_status = r.value.status;
-              (lead as any)._enrichment_source = 'findymail';
+              (lead as any)._enrichment_source = 'icypeas';
             }
           }
         }
         if (i + FB < stillNoEmail.length) await sleep(400);
       }
-      console.log(`[ENRICH] Findymail found ${findymailFound} additional emails`);
-      if (findymailFound > 0) send("activity", { message: `Findymail discovered ${findymailFound} additional email addresses`, type: "success" });
+      console.log(`[ENRICH] Icypeas found ${icypeasFound} additional emails`);
+      if (icypeasFound > 0) send("activity", { message: `Icypeas discovered ${icypeasFound} additional email addresses`, type: "success" });
     }
   }
 
   // ── Phase 3.5: DISABLED — No pattern guessing ──
   // Pattern guessing (fabricating emails from firstname@domain.com patterns) has been
-  // permanently removed. Only real verified emails from Hunter.io and Findymail are kept.
+  // permanently removed. Only real verified emails from providers are kept.
   // Fabricated emails cause bounces and damage sender reputation.
   let patternGuessed = 0;
 
@@ -1141,9 +1135,9 @@ async function hybridEnrichPeople(
 
   const finalWithEmail = enrichedPeople.filter(l => !!l.email).length;
   const finalWithPhone = enrichedPeople.filter(l => l.phone_numbers?.length > 0).length;
-  console.log(`[ENRICH] FINAL: ${enrichedPeople.length} leads, ${finalWithEmail} emails (Apollo: ${finalWithEmail - hunterFound - findymailFound - patternGuessed}, Hunter: ${hunterFound}, Findymail: ${findymailFound}, Pattern: ${patternGuessed}), ${finalWithPhone} phones (Hunter email-finder: ${hunterPhoneFound}, Phone enrichment: ${phoneEnrichFound}), Verification: ${verifiedValid} valid / ${verifiedRisky} risky / ${verifiedInvalid} invalid`);
+  console.log(`[ENRICH] FINAL: ${enrichedPeople.length} leads, ${finalWithEmail} emails (Apollo: ${finalWithEmail - hunterFound - icypeasFound - patternGuessed}, Hunter: ${hunterFound}, Icypeas: ${icypeasFound}, Pattern: ${patternGuessed}), ${finalWithPhone} phones (Hunter email-finder: ${hunterPhoneFound}, Phone enrichment: ${phoneEnrichFound}), Verification: ${verifiedValid} valid / ${verifiedRisky} risky / ${verifiedInvalid} invalid`);
 
-  return { people: enrichedPeople, hunterFound, findymailFound, apolloRevealCount, phoneEnrichFound, hunterPhoneFound, patternGuessed, verified, verifiedValid, verifiedRisky, verifiedInvalid, creditsExhausted };
+  return { people: enrichedPeople, hunterFound, icypeasFound, apolloRevealCount, phoneEnrichFound, hunterPhoneFound, patternGuessed, verified, verifiedValid, verifiedRisky, verifiedInvalid, creditsExhausted };
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1327,7 +1321,7 @@ app.post("/search-stream", async (c) => {
             send("phase", { phase: 3, name: "CRM dedup check", status: "complete" });
 
             let cachedEnriched: ApolloLead[];
-            let cachedSources = { hunter: 0, findymail: 0, apollo_reveal: 0 };
+            let cachedSources = { hunter: 0, icypeas: 0, apollo_reveal: 0 };
 
             if (isEnrichedCache) {
               // Already enriched — return directly (no credit burn)
@@ -1339,7 +1333,7 @@ app.post("/search-stream", async (c) => {
               send("phase", { phase: 4, name: "Enriching contacts", status: "processing" });
               const enrichResult = await hybridEnrichPeople(cached.people, user.id, send, () => isCancelled);
               cachedEnriched = filterEmailQualifiedPeople(enrichResult.people, "legacy cache enrichment");
-              cachedSources = { hunter: enrichResult.hunterFound, findymail: enrichResult.findymailFound, apollo_reveal: enrichResult.apolloRevealCount, phone_enrich: enrichResult.phoneEnrichFound, hunter_phone: enrichResult.hunterPhoneFound, pattern_guessed: enrichResult.patternGuessed, verified: enrichResult.verified, verified_valid: enrichResult.verifiedValid, verified_risky: enrichResult.verifiedRisky, verified_invalid: enrichResult.verifiedInvalid };
+              cachedSources = { hunter: enrichResult.hunterFound, icypeas: enrichResult.icypeasFound, apollo_reveal: enrichResult.apolloRevealCount, phone_enrich: enrichResult.phoneEnrichFound, hunter_phone: enrichResult.hunterPhoneFound, pattern_guessed: enrichResult.patternGuessed, verified: enrichResult.verified, verified_valid: enrichResult.verifiedValid, verified_risky: enrichResult.verifiedRisky, verified_invalid: enrichResult.verifiedInvalid };
               // Upgrade cache to enriched format so next hit is free
               setCachedSearch(cacheKey, cachedEnriched, cached.params || {}, cachedSources).catch(() => {});
             }
@@ -1438,7 +1432,7 @@ app.post("/search-stream", async (c) => {
               with_linkedin: poolResults.filter(p => p.linkedin_url).length,
               unique_companies: new Set(poolResults.map(p => p.organization?.name).filter(Boolean)).size,
               seniority_breakdown: {} as Record<string, number>,
-              enrichment_sources: { pool_kv: poolKvMatches, pool_db: poolDbMatches, apollo_reveal: 0, hunter: 0, findymail: 0 },
+              enrichment_sources: { pool_kv: poolKvMatches, pool_db: poolDbMatches, apollo_reveal: 0, hunter: 0, icypeas: 0 },
             };
             for (const p of poolResults) { const s = (p as any).seniority || "unknown"; poolStats.seniority_breakdown[s] = (poolStats.seniority_breakdown[s] || 0) + 1; }
 
@@ -1644,14 +1638,14 @@ app.post("/search-stream", async (c) => {
           console.log(`[APOLLO SSE] Trimmed ${allRawPeople.length} raw leads to ${trimmedPeople.length} (externalNeeded=${externalNeeded}, deduped ${allRawPeople.length - dedupedRaw.length} pool duplicates)`);
 
           // ── Phase 4: Hybrid enrichment ──
-          // Apollo reveal all leads first (preview data is too limited), then Hunter/Findymail fill email gaps.
+          // Apollo reveal all leads first (preview data is too limited), then provider enrichment fills email gaps.
           send("phase", { phase: 4, name: "Enriching contacts", status: "processing" });
           send("activity", { message: `Starting multi-source enrichment for ${trimmedPeople.length} contacts...`, type: "info" });
 
           const enrichResult = await hybridEnrichPeople(trimmedPeople, user.id, send, () => isCancelled);
           const enrichedPeople = filterEmailQualifiedPeople(enrichResult.people, "external enrichment");
           const apolloCreditsExhausted = enrichResult.creditsExhausted;
-          const enrichmentSources = { hunter: enrichResult.hunterFound, findymail: enrichResult.findymailFound, apollo_reveal: enrichResult.apolloRevealCount, phone_enrich: enrichResult.phoneEnrichFound, hunter_phone: enrichResult.hunterPhoneFound, pattern_guessed: enrichResult.patternGuessed, verified: enrichResult.verified, verified_valid: enrichResult.verifiedValid, verified_risky: enrichResult.verifiedRisky, verified_invalid: enrichResult.verifiedInvalid };
+          const enrichmentSources = { hunter: enrichResult.hunterFound, icypeas: enrichResult.icypeasFound, apollo_reveal: enrichResult.apolloRevealCount, phone_enrich: enrichResult.phoneEnrichFound, hunter_phone: enrichResult.hunterPhoneFound, pattern_guessed: enrichResult.patternGuessed, verified: enrichResult.verified, verified_valid: enrichResult.verifiedValid, verified_risky: enrichResult.verifiedRisky, verified_invalid: enrichResult.verifiedInvalid };
 
           // ── Save enriched leads to the global discovery pool ──
           // This builds our local database so future searches can reuse them
