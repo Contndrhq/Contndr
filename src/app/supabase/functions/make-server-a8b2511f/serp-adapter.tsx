@@ -258,3 +258,92 @@ export function serpAdapterStatus(): { provider: 'serper' | 'serpapi'; reason?: 
   if (Deno.env.get('SERPER_API_KEY')) return { provider: 'serper' };
   return { provider: 'serpapi', reason: 'SERPER_API_KEY not set' };
 }
+
+/**
+ * Live end-to-end test of the adapter. Used by /admin/serp-diag so the
+ * user can verify Serper is actually being hit (and not silently
+ * falling back to SerpAPI). Runs three probes:
+ *
+ *   1) Web search via Serper directly
+ *   2) Web search via the adapter (serpFetch) using a SerpAPI URL
+ *   3) Maps search via the adapter
+ *
+ * Returns every step's success/error so we can pinpoint exactly where
+ * the chain breaks.
+ */
+export async function runSerpDiagnostics(): Promise<any> {
+  const out: any = {
+    SERPER_API_KEY_set: !!Deno.env.get('SERPER_API_KEY'),
+    SERPAPI_API_KEY_set: !!(Deno.env.get('SERPAPI_API_KEY') || Deno.env.get('SERP_API_KEY')),
+    probes: {},
+  };
+
+  // 1) Direct Serper call — verifies key + network + payload shape
+  if (out.SERPER_API_KEY_set) {
+    try {
+      const r = await fetch(`${SERPER_BASE}/search`, {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': Deno.env.get('SERPER_API_KEY')!,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ q: 'contndr', num: 3 }),
+      });
+      const txt = await r.text();
+      let json: any = null;
+      try { json = JSON.parse(txt); } catch {}
+      out.probes.serper_direct = {
+        ok: r.ok,
+        status: r.status,
+        organic_count: Array.isArray(json?.organic) ? json.organic.length : 0,
+        error: r.ok ? null : (json?.message || txt.slice(0, 200)),
+      };
+    } catch (e: any) {
+      out.probes.serper_direct = { ok: false, error: e?.message };
+    }
+  } else {
+    out.probes.serper_direct = { skipped: true, reason: 'SERPER_API_KEY not set' };
+  }
+
+  // 2) Adapter web search — verifies translation
+  try {
+    const url = `https://serpapi.com/search?engine=google&q=contndr&num=3&api_key=${Deno.env.get('SERPAPI_API_KEY') || ''}`;
+    const r = await serpFetch(url);
+    const json = await r.json();
+    out.probes.adapter_web = {
+      ok: r.ok,
+      status: r.status,
+      source: json?.search_metadata?.source || 'unknown',
+      organic_results_count: Array.isArray(json?.organic_results) ? json.organic_results.length : 0,
+      first_title: json?.organic_results?.[0]?.title || null,
+    };
+  } catch (e: any) {
+    out.probes.adapter_web = { ok: false, error: e?.message };
+  }
+
+  // 3) Adapter maps search
+  try {
+    const url = `https://serpapi.com/search?engine=google_maps&q=coffee+shop+miami&type=search&api_key=${Deno.env.get('SERPAPI_API_KEY') || ''}`;
+    const r = await serpFetch(url);
+    const json = await r.json();
+    out.probes.adapter_maps = {
+      ok: r.ok,
+      status: r.status,
+      source: json?.search_metadata?.source || 'unknown',
+      local_results_count: Array.isArray(json?.local_results) ? json.local_results.length : 0,
+      first_title: json?.local_results?.[0]?.title || null,
+    };
+  } catch (e: any) {
+    out.probes.adapter_maps = { ok: false, error: e?.message };
+  }
+
+  out.verdict = (() => {
+    if (!out.SERPER_API_KEY_set) return 'SERPER_API_KEY not configured — adapter falling back to SerpAPI';
+    if (!out.probes.serper_direct?.ok) return `Serper rejected the request: ${out.probes.serper_direct?.error || out.probes.serper_direct?.status}`;
+    if (out.probes.adapter_web?.source !== 'serper') return 'Adapter did not route to Serper (check logs)';
+    if (out.probes.adapter_web?.organic_results_count === 0) return 'Serper returned no organic results (translation issue)';
+    return 'Adapter working — Serper is the active provider';
+  })();
+
+  return out;
+}

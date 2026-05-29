@@ -3421,6 +3421,23 @@ app.post("/make-server-a8b2511f/admin/users/delete", async (c) => {
   }
 });
 
+// GET /admin/serp-diag — Live end-to-end test of the SerpAPI→Serper
+// adapter. Returns whether the SERPER_API_KEY is set, the result of a
+// direct Serper call, and the result of the adapter going through both
+// a web search and a maps search. Pinpoints exactly where the chain
+// breaks if leads aren't pulling.
+app.get("/make-server-a8b2511f/admin/serp-diag", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(user.email)) return c.json({ error: 'Unauthorized' }, 403);
+    const { runSerpDiagnostics } = await import('./serp-adapter.tsx');
+    const result = await runSerpDiagnostics();
+    return c.json(result);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // POST /admin/users/charge-custom — Bill the card on file for an arbitrary
 // dollar amount (admin-set). Used when the prorated subscription preview
 // doesn't fit what we actually want to charge — e.g. one-off setup fee,
