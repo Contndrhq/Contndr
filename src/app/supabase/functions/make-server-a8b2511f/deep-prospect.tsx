@@ -898,15 +898,25 @@ async function filterMailboxSafePeople<T extends DeepLead>(
         reason: mailbox.reason,
       } as any;
 
-      if (mailbox.safe_to_send) {
-        lead.email = mailbox.email;
-        lead.email_status = "verified";
-        filtered.push(lead);
-      } else {
+      // Only DROP when the verifier CONFIRMS the mailbox is undeliverable.
+      // Anything else (risky / catch-all / unknown / accept-all) keeps the
+      // lead — most corporate domains block SMTP probing for anti-spam,
+      // which makes mailbox verifiers return "risky"/"unknown" by default.
+      // Treating those as dead was nuking ~all leads from real companies
+      // and causing the "leads appear then disappear" UI bug.
+      const confirmedDead = mailbox.deliverability === 'undeliverable';
+      if (confirmedDead) {
         dropped++;
-        lead.email = "";
-        lead.email_status = mailbox.deliverability === "undeliverable" ? "invalid" : "risky";
+        lead.email = '';
+        lead.email_status = 'invalid';
         if (options.keepCallablePhoneFallback && hasCallablePhone(lead)) filtered.push(lead);
+      } else {
+        // Keep the email — mark "verified" only when truly safe, else
+        // "risky" so the UI can show a warning but the user still
+        // sees the lead and can choose what to do.
+        lead.email = mailbox.email || email;
+        lead.email_status = mailbox.safe_to_send ? 'verified' : 'risky';
+        filtered.push(lead);
       }
 
       if (options.limit && filtered.length >= options.limit) break;
