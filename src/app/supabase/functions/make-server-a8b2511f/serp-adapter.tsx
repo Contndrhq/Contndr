@@ -40,6 +40,10 @@ const SERPER_PATH_BY_ENGINE: Record<string, string | null> = {
 
 const SERPER_BASE = 'https://google.serper.dev';
 
+export function getSerpSearchKey(): string {
+  return Deno.env.get('SERPAPI_API_KEY') || Deno.env.get('SERPER_API_KEY') || '';
+}
+
 /**
  * Drop-in replacement for `fetch(serpapiUrl)`. Returns a Response so
  * callers can keep `.json()` / `.ok` / `.status` unchanged.

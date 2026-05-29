@@ -8,6 +8,7 @@
 //   const url = await fetchLinkedInPhoto("https://linkedin.com/in/john-doe", apiKey);
 
 import * as kv from "./kv-retry.tsx";
+import { serpFetch } from "./serp-adapter.tsx";
 
 // ── Config ───────────────────────────────────────────────────────────
 const CACHE_PREFIX = "linkedin:avatar:";
@@ -163,7 +164,7 @@ export async function fetchHeadshotByName(
   });
 
   try {
-    const res = await fetch(`${SERPAPI_BASE}?${params.toString()}`, {
+    const res = await serpFetch(`${SERPAPI_BASE}?${params.toString()}`, {
       signal: AbortSignal.timeout(10000),
     });
 
@@ -332,7 +333,7 @@ async function searchGoogleWebForLinkedInPhoto(
     hl: "en",
   });
 
-  const res = await fetch(`${SERPAPI_BASE}?${params.toString()}`, {
+  const res = await serpFetch(`${SERPAPI_BASE}?${params.toString()}`, {
     signal: AbortSignal.timeout(10000),
   });
 
@@ -429,7 +430,7 @@ async function searchGoogleImagesForLinkedInPhoto(
   });
 
   try {
-    const res = await fetch(`${SERPAPI_BASE}?${params.toString()}`, {
+    const res = await serpFetch(`${SERPAPI_BASE}?${params.toString()}`, {
       signal: AbortSignal.timeout(10000),
     });
 

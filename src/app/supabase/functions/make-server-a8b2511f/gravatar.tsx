@@ -23,6 +23,7 @@ import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
 import { fetchLinkedInPhoto, fetchHeadshotByName } from "./linkedin-avatar.tsx";
+import { getSerpSearchKey } from "./serp-adapter.tsx";
 import {
   ensureBucket,
   cacheExternalAvatar,
@@ -215,7 +216,7 @@ app.post("/batch", async (c) => {
     // Ensure storage bucket exists
     await ensureBucket();
 
-    const serpApiKey = Deno.env.get("SERPAPI_API_KEY") || "";
+    const serpApiKey = getSerpSearchKey() || "";
 
     // Normalise & deduplicate. Accept either real emails or synthetic
     // `linkedin:<slug>` cache keys — the latter are used by the frontend
@@ -351,7 +352,7 @@ app.post("/batch", async (c) => {
       linkedinPending += Math.max(0, withNameNoLinkedin.length - MAX_NAME_LOOKUPS_PER_BATCH);
 
     } else if (!serpApiKey) {
-      console.log("[AVATAR] SERPAPI_API_KEY not configured - caching null for all");
+      console.log("[AVATAR] SERPER_API_KEY not configured - caching null for all");
       for (const { email, hash } of uncached) {
         avatarResults[email] = null;
         confidenceResults[email] = 0;
@@ -385,7 +386,7 @@ app.post("/batch", async (c) => {
 
 // ── GET /status ──────────────────────────────────────────────────────
 app.get("/status", (c) => {
-  const hasSerpApi = !!Deno.env.get("SERPAPI_API_KEY");
+  const hasSerpApi = !!getSerpSearchKey();
   return c.json({
     ok: true,
     strategy: "serpapi_linkedin + supabase_storage",
@@ -428,9 +429,9 @@ app.post("/refresh-all", async (c) => {
 
     const userId = user.id;
     const userEmail = user.email || "unknown";
-    const serpApiKey = Deno.env.get("SERPAPI_API_KEY") || "";
+    const serpApiKey = getSerpSearchKey() || "";
     if (!serpApiKey) {
-      return c.json({ error: "SERPAPI_API_KEY not configured" }, 500);
+      return c.json({ error: "SERPER_API_KEY not configured" }, 500);
     }
 
     await ensureBucket();
@@ -595,9 +596,9 @@ app.post("/backfill", async (c) => {
     }
 
     const userId = user.id;
-    const serpApiKey = Deno.env.get("SERPAPI_API_KEY") || "";
+    const serpApiKey = getSerpSearchKey() || "";
     if (!serpApiKey) {
-      return c.json({ error: "SERPAPI_API_KEY not configured" }, 500);
+      return c.json({ error: "SERPER_API_KEY not configured" }, 500);
     }
 
     await ensureBucket();

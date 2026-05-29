@@ -2,6 +2,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
 import { sendEmail as sharedSendEmail } from "./email-sender.tsx";
+import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL') ?? '',
@@ -27,9 +28,9 @@ interface AutomationRule {
  * Discover leads using SerpAPI
  */
 export async function discoverLeads(query: string, location: string, limit: number = 50) {
-  const serpApiKey = Deno.env.get('SERPAPI_API_KEY');
+  const serpApiKey = getSerpSearchKey();
   if (!serpApiKey) {
-    throw new Error('SERPAPI_API_KEY not configured');
+    throw new Error('SERPER_API_KEY not configured');
   }
 
   const searchQuery = `${query} in ${location}`;
@@ -53,7 +54,7 @@ export async function discoverLeads(query: string, location: string, limit: numb
       start: start.toString(),
     });
 
-    const response = await fetch(`https://serpapi.com/search?${params}`);
+    const response = await serpFetch(`https://serpapi.com/search?${params}`);
     
     if (!response.ok) {
       if (allLeads.length > 0) break;

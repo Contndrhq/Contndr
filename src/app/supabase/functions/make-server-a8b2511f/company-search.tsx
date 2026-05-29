@@ -6,7 +6,7 @@
 
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
-import { serpFetch } from "./serp-adapter.tsx";
+import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
 import { getTeamMemberIds } from "./team.tsx";
@@ -148,8 +148,8 @@ async function serpGoogleMaps(
   start = 0,
   num = 20
 ): Promise<{ results: any[]; total?: number }> {
-  const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
-  if (!SERPAPI_KEY) throw new Error("SERPAPI_API_KEY not configured");
+  const SERPAPI_KEY = getSerpSearchKey();
+  if (!SERPAPI_KEY) throw new Error("SERPER_API_KEY not configured");
 
   const params = new URLSearchParams({
     engine: "google_maps",
@@ -197,7 +197,7 @@ async function serpGoogleSearch(
   location?: string,
   num = 20
 ): Promise<any[]> {
-  const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_KEY = getSerpSearchKey();
   if (!SERPAPI_KEY) return [];
 
   const params = new URLSearchParams({
@@ -236,7 +236,7 @@ async function knowledgeGraphLookup(
   companyName: string,
   location?: string
 ): Promise<CompanyResult[]> {
-  const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_KEY = getSerpSearchKey();
   if (!SERPAPI_KEY || !companyName.trim()) return [];
 
   const locSuffix = location ? ` ${location}` : "";
@@ -528,7 +528,7 @@ async function batchLinkedInEnrich(
   companies: CompanyResult[]
 ): Promise<Map<string, { employees?: string; revenue?: string; industry?: string; founded?: string }>> {
   const enrichMap = new Map<string, { employees?: string; revenue?: string; industry?: string; founded?: string }>();
-  const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_KEY = getSerpSearchKey();
   if (!SERPAPI_KEY || companies.length === 0) return enrichMap;
 
   // Build a query to find LinkedIn pages for multiple companies at once
@@ -648,7 +648,7 @@ async function deepEnrichCompany(
   team_members?: { name: string; title: string; email?: string; linkedin?: string }[];
   data_sources?: string[];
 }> {
-  const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_KEY = getSerpSearchKey();
   if (!SERPAPI_KEY) return {};
 
   try {
@@ -1741,7 +1741,7 @@ app.post("/search", async (c) => {
     // under different names, organic results can surface the properties page
     if (allCompanies.length === 0 && q_organization_name && page === 1) {
       console.log(`[COMPANY SEARCH] Still 0 results — trying organic search for "${q_organization_name}" locations...`);
-      const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
+      const SERPAPI_KEY = getSerpSearchKey();
       if (SERPAPI_KEY) {
         try {
           const locPart = location ? ` ${location}` : "";
@@ -2093,9 +2093,9 @@ app.post("/search-by-building", async (c) => {
 
     console.log(`[BUILDING SEARCH] Searching for company behind: "${building_name}" in ${location || "any location"}`);
 
-    const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
+    const SERPAPI_KEY = getSerpSearchKey();
     if (!SERPAPI_KEY) {
-      return c.json({ error: "SERPAPI_API_KEY not configured" }, 500);
+      return c.json({ error: "SERPER_API_KEY not configured" }, 500);
     }
 
     // Strategy: Run multiple searches in parallel to find property owners, developers, managers
@@ -2966,9 +2966,9 @@ app.post("/find-people", async (c) => {
       }
     } catch {}
 
-    const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
+    const SERPAPI_KEY = getSerpSearchKey();
     if (!SERPAPI_KEY) {
-      return c.json({ error: "SERPAPI_API_KEY not configured" }, 500);
+      return c.json({ error: "SERPER_API_KEY not configured" }, 500);
     }
 
     const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
@@ -4285,7 +4285,7 @@ async function fetchClearbit(domain: string): Promise<BrandRecord | null> {
 async function fetchSerpApiCompanyLogo(domain: string, companyName?: string): Promise<BrandRecord | null> {
   // Block social/directory domains
   if (SOCIAL_BRAND_DOMAINS.has(rootDomain(domain))) return null;
-  const serpApiKey = Deno.env.get("SERPAPI_API_KEY");
+  const serpApiKey = getSerpSearchKey();
   if (!serpApiKey) return null;
   if (!domain || domain.length < 4) return null;
 

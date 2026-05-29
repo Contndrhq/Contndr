@@ -18,6 +18,7 @@ import { Hono } from "npm:hono";
 import * as kv from "./kv-retry.tsx";
 import { authGetUser } from "./auth-helpers.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -336,13 +337,13 @@ async function fetchSocialProfile(
   // (same approach as LinkedIn/Facebook — extract metrics from Google SERP snippets)
   if (html.length < 200) {
     console.log(`[SOCIAL-TRACKER] Direct + ScraperAPI failed for ${platform}/@${handle}, trying SerpAPI Google search fallback...`);
-    const serpApiKey = Deno.env.get("SERPAPI_API_KEY");
+    const serpApiKey = getSerpSearchKey();
     if (serpApiKey) {
       try {
         // Primary search: the profile URL itself
         const searchQuery = profileUrl;
         const serpUrl = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(searchQuery)}&api_key=${serpApiKey}&num=5&gl=us&hl=en`;
-        const serpRes = await fetch(serpUrl);
+        const serpRes = await serpFetch(serpUrl);
         if (serpRes.ok) {
           const serpData = await serpRes.json();
           console.log(`[SOCIAL-TRACKER] SerpAPI returned ${serpData.organic_results?.length || 0} organic results for ${platform}/@${handle}`);
@@ -454,7 +455,7 @@ async function fetchSocialProfile(
               console.log(`[SOCIAL-TRACKER] Trying secondary SerpAPI search for IG @${handle} posts/following...`);
               const secondaryQuery = `"${handle}" site:instagram.com`;
               const serpUrl2 = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(secondaryQuery)}&api_key=${serpApiKey}&num=3&gl=us&hl=en`;
-              const serpRes2 = await fetch(serpUrl2);
+              const serpRes2 = await serpFetch(serpUrl2);
               if (serpRes2.ok) {
                 const serpData2 = await serpRes2.json();
                 for (const r of (serpData2.organic_results || [])) {
@@ -481,7 +482,7 @@ async function fetchSocialProfile(
                 ? `"${handle}" instagram posts followers`
                 : `"${handle}" tiktok videos followers`;
               const serpUrl3 = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(statQuery)}&api_key=${serpApiKey}&num=5&gl=us&hl=en`;
-              const serpRes3 = await fetch(serpUrl3);
+              const serpRes3 = await serpFetch(serpUrl3);
               if (serpRes3.ok) {
                 const serpData3 = await serpRes3.json();
                 for (const r of (serpData3.organic_results || [])) {
@@ -707,7 +708,7 @@ async function fetchGenericSocialProfile(
   avatarUrl: string;
 }> {
   const profileUrl = ensureProtocol(url);
-  const serpApiKey = Deno.env.get("SERPAPI_API_KEY");
+  const serpApiKey = getSerpSearchKey();
 
   if (!serpApiKey) {
     throw new Error(`SerpAPI key not configured. Cannot fetch ${platform} profile data.`);
@@ -729,7 +730,7 @@ async function fetchGenericSocialProfile(
   let posts = 0;
 
   try {
-    const res = await fetch(serpUrl);
+    const res = await serpFetch(serpUrl);
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       console.log(`[SOCIAL-TRACKER] SerpAPI request failed (${res.status}): ${errText.slice(0, 300)}`);
@@ -861,7 +862,7 @@ async function fetchGenericSocialProfile(
         ? `site:twitter.com/${handle} OR site:x.com/${handle}`
         : `site:facebook.com/${handle}`;
       const urlSearchUrl = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(siteQuery)}&api_key=${serpApiKey}&num=3&gl=us&hl=en`;
-      const res2 = await fetch(urlSearchUrl);
+      const res2 = await serpFetch(urlSearchUrl);
       if (res2.ok) {
         const data2 = await res2.json();
         const results2 = data2.organic_results || [];
@@ -894,7 +895,7 @@ async function fetchGenericSocialProfile(
           : `"${displayName}" facebook posts`;
         console.log(`[SOCIAL-TRACKER] Trying secondary SerpAPI search for ${platform}/@${handle} posts: ${postQuery}`);
         const serpUrl2 = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(postQuery)}&api_key=${serpApiKey}&num=5&gl=us&hl=en`;
-        const serpRes2 = await fetch(serpUrl2);
+        const serpRes2 = await serpFetch(serpUrl2);
         if (serpRes2.ok) {
           const serpData2 = await serpRes2.json();
           for (const r of (serpData2.organic_results || [])) {

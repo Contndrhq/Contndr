@@ -6,6 +6,8 @@
 //   3. Enhanced Website Scraping — team pages, tech stack, careers/growth
 // ══════════════════════════════════════════════════════════════════════════
 
+import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
+
 // ── SEC EDGAR: Public company data ──────────────────────────────────────
 // Uses the EDGAR full-text search API + company tickers file
 // Returns: executives, revenue, subsidiaries, CIK, SIC industry
@@ -188,7 +190,7 @@ interface OpenCorpData {
 export async function openCorporatesLookup(companyName: string, jurisdiction?: string): Promise<OpenCorpData> {
   if (!companyName || companyName.length < 2) return {};
 
-  const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_KEY = getSerpSearchKey();
   if (!SERPAPI_KEY) return {};
 
   try {
@@ -203,7 +205,7 @@ export async function openCorporatesLookup(companyName: string, jurisdiction?: s
       num: "5",
     });
 
-    const res = await fetch(`https://serpapi.com/search?${params}`, {
+    const res = await serpFetch(`https://serpapi.com/search?${params}`, {
       signal: AbortSignal.timeout(8000),
     });
 

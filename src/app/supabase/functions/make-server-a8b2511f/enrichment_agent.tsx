@@ -53,7 +53,7 @@ export interface EnrichmentOutput {
 
 // Routes SerpAPI requests through Serper.dev (~10× cheaper) when
 // SERPER_API_KEY is set; falls back to SerpAPI transparently otherwise.
-import { serpFetch } from "./serp-adapter.tsx";
+import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
 
 // ── Role tiers (expanded) ───────────────────────────────────────────────
 const TIER_1_ROLES = [
@@ -822,7 +822,7 @@ function mergeCompanyIntel(result: EnrichmentOutput, intel: CompanyIntel): Enric
 }
 
 async function searchCompanyIntelligence(input: EnrichmentInput): Promise<CompanyIntel> {
-  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_API_KEY = getSerpSearchKey();
   if (!SERPAPI_API_KEY) return {};
 
   const intel: CompanyIntel = {};
@@ -1086,7 +1086,7 @@ async function tryFindymailDomainSearch(input: EnrichmentInput, apiKey: string):
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function findDecisionMakerViaSerpApi(input: EnrichmentInput, findymailApiKey: string): Promise<EnrichmentOutput | null> {
-  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_API_KEY = getSerpSearchKey();
   if (!SERPAPI_API_KEY) return null;
 
   console.log(`[ENRICH] Searching Apollo.io via SerpAPI for: ${input.company_name} (${input.company_domain})`);
@@ -1212,7 +1212,7 @@ async function findDecisionMakerViaSerpApi(input: EnrichmentInput, findymailApiK
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function findDecisionMakerViaLinkedIn(input: EnrichmentInput, findymailApiKey: string): Promise<EnrichmentOutput | null> {
-  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_API_KEY = getSerpSearchKey();
   if (!SERPAPI_API_KEY) return null;
 
   console.log(`[ENRICH] Searching LinkedIn via SerpAPI for: ${input.company_name}`);
@@ -1330,7 +1330,7 @@ async function findDecisionMakerViaLinkedIn(input: EnrichmentInput, findymailApi
 
 // ── Backfill LinkedIn URLs ──────────────────────────────────────────────
 async function backfillLinkedInUrls(dms: DecisionMaker[], companyName: string): Promise<DecisionMaker[]> {
-  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_API_KEY = getSerpSearchKey();
   if (!SERPAPI_API_KEY) return dms;
 
   const results: DecisionMaker[] = [];
@@ -1524,7 +1524,7 @@ async function discoverContactsViaLinkedInScrape(domain: string): Promise<{
   linkedin_url?: string;
   role_tier: number;
 }[]> {
-  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_API_KEY = getSerpSearchKey();
   if (!SERPAPI_API_KEY) return [];
 
   // Derive a search query: prefer the bare domain stem (e.g. "acme"
@@ -1718,7 +1718,7 @@ async function tryHunterDomainSearchEnrich(input: EnrichmentInput, hunterApiKey:
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function findDecisionMakerViaSerpApiMulti(input: EnrichmentInput): Promise<EnrichmentOutput | null> {
-  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_API_KEY = getSerpSearchKey();
   if (!SERPAPI_API_KEY) return null;
 
   console.log(`[ENRICH-MULTI] Searching Apollo.io via SerpAPI for: ${input.company_name} (${input.company_domain})`);
@@ -1832,7 +1832,7 @@ async function findDecisionMakerViaSerpApiMulti(input: EnrichmentInput): Promise
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function findDecisionMakerViaLinkedInMulti(input: EnrichmentInput): Promise<EnrichmentOutput | null> {
-  const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+  const SERPAPI_API_KEY = getSerpSearchKey();
   if (!SERPAPI_API_KEY) return null;
 
   console.log(`[ENRICH-MULTI] Searching LinkedIn via SerpAPI for: ${input.company_name}`);

@@ -2,6 +2,8 @@
 // Discovery via SerpAPI Google search, profile scraping, email extraction
 // v3: Full multi-source email enrichment pipeline + Hunter email finder + SerpAPI fallback
 
+import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
+
 export type SocialPlatform = "instagram" | "tiktok" | "x";
 
 export interface DiscoveredProfile {
@@ -35,7 +37,7 @@ export interface FetchedProfile {
   posts_analyzed?: number;
 }
 
-const SERPAPI_API_KEY = () => Deno.env.get("SERPAPI_API_KEY") || "";
+const SERPAPI_API_KEY = () => getSerpSearchKey();
 const HUNTER_API_KEY = () => Deno.env.get("HUNTER_API_KEY") || "";
 const FINDYMAIL_API_KEY = () => Deno.env.get("FINDYMAIL_API_KEY") || "";
 
@@ -121,7 +123,7 @@ export async function discoverProfiles(
         num: String(Math.min(maxResults * 3, 40)),
       });
 
-      const res = await fetch(`https://serpapi.com/search?${params.toString()}`, {
+      const res = await serpFetch(`https://serpapi.com/search?${params.toString()}`, {
         signal: AbortSignal.timeout(15000),
       });
 
@@ -1147,7 +1149,7 @@ export async function serpApiEmailFallback(displayName: string, handle: string):
         num: "5",
       });
 
-      const res = await fetch(`https://serpapi.com/search?${params.toString()}`, {
+      const res = await serpFetch(`https://serpapi.com/search?${params.toString()}`, {
         signal: AbortSignal.timeout(10000),
       });
 

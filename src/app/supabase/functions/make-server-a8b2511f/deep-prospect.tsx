@@ -18,6 +18,7 @@ import { searchPool, saveToPool, getPoolStats, hydrateLeadsFromExistingContacts,
 // Note: isValidPersonName & getRoleTier exist in enrichment_agent.tsx but are unused here.
 // This file uses its own local isCleanPersonName() and inferSeniority() instead.
 import { enrichPhoneNumbers, verifyPhoneNumbers, type DeepPhoneLead } from "./phone-enrichment.tsx";
+import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
 
 const app = new Hono();
 // CORS is handled by the parent Hono app in index.tsx — no duplicate middleware needed.
@@ -236,7 +237,7 @@ async function serpSearch(query: string, apiKey: string, num: number, offset: nu
       start: String(offset),
     });
 
-    const response = await fetch(`https://serpapi.com/search?${params}`, {
+    const response = await serpFetch(`https://serpapi.com/search?${params}`, {
       signal: AbortSignal.timeout(15000),
     });
 
@@ -1473,7 +1474,7 @@ async function enrichCompanyData(
       num: "3",
     });
 
-    const cbResponse = await fetch(`https://serpapi.com/search?${cbParams}`, {
+    const cbResponse = await serpFetch(`https://serpapi.com/search?${cbParams}`, {
       signal: AbortSignal.timeout(10000),
     });
 
@@ -1581,7 +1582,7 @@ async function enrichCompanyData(
       num: "5",
     });
 
-    const gResponse = await fetch(`https://serpapi.com/search?${gParams}`, {
+    const gResponse = await serpFetch(`https://serpapi.com/search?${gParams}`, {
       signal: AbortSignal.timeout(10000),
     });
 
@@ -1660,7 +1661,7 @@ async function discoverCompanyWebsite(
       num: "5",
     });
 
-    const response = await fetch(`https://serpapi.com/search?${params}`, {
+    const response = await serpFetch(`https://serpapi.com/search?${params}`, {
       signal: AbortSignal.timeout(5000),
     });
 
@@ -1756,9 +1757,9 @@ app.post("/search-stream", async (c) => {
       bypass_cache = false,
     } = body;
 
-    const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
+    const SERPAPI_KEY = getSerpSearchKey();
     if (!SERPAPI_KEY && !db_only) {
-      return c.json({ error: "SERPAPI_API_KEY not configured" }, 500);
+      return c.json({ error: "SERPER_API_KEY not configured" }, 500);
     }
 
     const HUNTER_KEY = Deno.env.get("HUNTER_API_KEY");
@@ -3335,7 +3336,7 @@ app.post("/ping", (c) => c.json({ ok: true, module: "deep-prospect", ts: Date.no
 
 // ── GET /status — check discovery engine availability ──
 app.get("/status", async (c) => {
-  const key = Deno.env.get("SERPAPI_API_KEY");
+  const key = getSerpSearchKey();
   return c.json({
     available: !!key,
     provider: "discovery_engine",
@@ -3407,7 +3408,7 @@ app.post("/enrich-linkedin", async (c) => {
 
     console.log(`[LINKEDIN ENRICH] User ${user.id} enriching: ${normalizedUrl}`);
 
-    const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
+    const SERPAPI_KEY = getSerpSearchKey();
     if (!SERPAPI_KEY) return c.json({ error: "Discovery engine not configured" }, 500);
     const HUNTER_KEY = Deno.env.get("HUNTER_API_KEY");
     const FINDYMAIL_KEY = Deno.env.get("FINDYMAIL_API_KEY");
@@ -3417,7 +3418,7 @@ app.post("/enrich-linkedin", async (c) => {
     // ══════════════════════════════════════════════════════════════
     const query = `site:linkedin.com/in/${username}`;
     console.log(`[LINKEDIN ENRICH] Phase A — SerpAPI: "${query}"`);
-    const serpResponse = await fetch(`https://serpapi.com/search?${new URLSearchParams({
+    const serpResponse = await serpFetch(`https://serpapi.com/search?${new URLSearchParams({
       engine: "google", q: query, api_key: SERPAPI_KEY, num: "5",
     })}`, { signal: AbortSignal.timeout(5000) });
 
@@ -3445,7 +3446,7 @@ app.post("/enrich-linkedin", async (c) => {
     if (!parsed) {
       console.log(`[LINKEDIN ENRICH] No results, trying broader search`);
       try {
-        const broadResp = await fetch(`https://serpapi.com/search?${new URLSearchParams({
+        const broadResp = await serpFetch(`https://serpapi.com/search?${new URLSearchParams({
           engine: "google", q: `"${username}" linkedin`, api_key: SERPAPI_KEY, num: "5",
         })}`, { signal: AbortSignal.timeout(4000) });
         if (broadResp.ok) {
@@ -3501,7 +3502,7 @@ app.post("/enrich-linkedin", async (c) => {
         console.log(`[LINKEDIN ENRICH] Attempting direct company search fallback for: "${companyName}"`);
         try {
           const fallbackQuery = `"${companyName}" official website`;
-          const fallbackResp = await fetch(`https://serpapi.com/search?${new URLSearchParams({
+          const fallbackResp = await serpFetch(`https://serpapi.com/search?${new URLSearchParams({
             engine: "google", q: fallbackQuery, api_key: SERPAPI_KEY, num: "3",
           })}`, { signal: AbortSignal.timeout(3500) });
           
@@ -3535,7 +3536,7 @@ app.post("/enrich-linkedin", async (c) => {
           const personQuery = parsed.title
             ? `"${parsed.first_name} ${parsed.last_name}" "${parsed.title}" company`
             : `"${parsed.first_name} ${parsed.last_name}" linkedin company`;
-          const personResp = await fetch(`https://serpapi.com/search?${new URLSearchParams({
+          const personResp = await serpFetch(`https://serpapi.com/search?${new URLSearchParams({
             engine: "google", q: personQuery, api_key: SERPAPI_KEY, num: "5",
           })}`, { signal: AbortSignal.timeout(4000) });
 

@@ -12,6 +12,8 @@
 // search waiting for timeouts on a service the account doesn't use.
 // ══════════════════════════════════════════════════════════════════════════
 
+import { serpFetch } from "./serp-adapter.tsx";
+
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Phone number extraction & validation ────────────────────────────────
@@ -227,7 +229,7 @@ async function searchPressReleases(
       num: '10',
     });
 
-    const response = await fetch(`https://serpapi.com/search?${params}`, {
+    const response = await serpFetch(`https://serpapi.com/search?${params}`, {
       signal: AbortSignal.timeout(10000),
     });
 
@@ -422,7 +424,7 @@ async function searchPublicRecords(
       num: '8',
     });
 
-    const response = await fetch(`https://serpapi.com/search?${params}`, {
+    const response = await serpFetch(`https://serpapi.com/search?${params}`, {
       signal: AbortSignal.timeout(10000),
     });
 

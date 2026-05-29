@@ -1,6 +1,6 @@
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
-import { serpFetch } from "./serp-adapter.tsx";
+import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { enrichLeadWithFindymail, EnrichmentInput, quickDiscoverContacts, getRoleTier, isValidPersonName } from "./enrichment_agent.tsx";
 import * as kv from "./kv-retry.tsx";
@@ -433,7 +433,7 @@ app.post("/search", async (c) => {
       return c.json({ error: "Industry and location are required" }, 400);
     }
 
-    const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+    const SERPAPI_API_KEY = getSerpSearchKey();
     if (!SERPAPI_API_KEY) {
       return c.json({ error: "Server configuration error: Search API key missing" }, 500);
     }
@@ -923,9 +923,9 @@ app.post("/search-stream", async (c) => {
       return c.json({ error: "Industry and location are required" }, 400);
     }
 
-    const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+    const SERPAPI_API_KEY = getSerpSearchKey();
     if (!SERPAPI_API_KEY) {
-      console.error(`[LEAD ENGINE SSE] SERPAPI_API_KEY not configured`);
+      console.error(`[LEAD ENGINE SSE] SERPER_API_KEY not configured`);
       return c.json({ error: "Server configuration error: Search API key missing" }, 500);
     }
     const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
@@ -2153,7 +2153,7 @@ app.post("/people-search", async (c) => {
       return c.json({ error: "Location and Industry (or Company list) are required" }, 400);
     }
 
-    const SERPAPI_API_KEY = Deno.env.get("SERPAPI_API_KEY");
+    const SERPAPI_API_KEY = getSerpSearchKey();
     const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY");
     const FINDYMAIL_API_KEY = Deno.env.get("FINDYMAIL_API_KEY");
     

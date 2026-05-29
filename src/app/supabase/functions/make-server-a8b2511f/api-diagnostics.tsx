@@ -1,6 +1,8 @@
 // API Diagnostics Tool for Contndr
 // Tests Hunter.io, Findymail, and SerpAPI connectivity and functionality
 
+import { runSerpDiagnostics } from "./serp-adapter.tsx";
+
 interface ApiTestResult {
   service: string;
   status: 'success' | 'error' | 'warning' | 'not_configured';
@@ -211,90 +213,33 @@ async function testFindymail(): Promise<ApiTestResult> {
  * Test SerpAPI connectivity and functionality
  */
 async function testSerpAPI(): Promise<ApiTestResult> {
-  const apiKey = Deno.env.get("SERPAPI_API_KEY");
-  
-  if (!apiKey) {
-    return {
-      service: "SerpAPI",
-      status: "not_configured",
-      message: "API key not configured in environment variables"
-    };
-  }
-
   const startTime = Date.now();
   
   try {
-    // Test with a simple account info query
-    const response = await fetch(
-      `https://serpapi.com/account?api_key=${apiKey}`
-    );
-    
+    const diag = await runSerpDiagnostics();
     const responseTime = Date.now() - startTime;
-    
-    if (!response.ok) {
-      return {
-        service: "SerpAPI",
-        status: "error",
-        message: `API returned HTTP ${response.status}: ${response.statusText}`,
-        response_time_ms: responseTime,
-        details: await response.text()
-      };
-    }
 
-    const data = await response.json();
-    
-    // Check account info
-    const searchesRemaining = data.total_searches_left || 0;
-    const planType = data.plan || data.account_type || "Unknown";
-    
-    if (searchesRemaining === 0) {
+    if (!diag.SERPER_API_KEY_set && !diag.SERPAPI_API_KEY_set) {
       return {
-        service: "SerpAPI",
-        status: "error",
-        message: "API key has exhausted all credits",
-        credits_remaining: 0,
+        service: "Serper",
+        status: "not_configured",
+        message: "SERPER_API_KEY not configured in environment variables",
         response_time_ms: responseTime,
-        details: data
-      };
-    }
-
-    // Perform a test search to ensure full functionality
-    const testQuery = "test query";
-    const searchResponse = await fetch(
-      `https://serpapi.com/search?engine=google&q=${encodeURIComponent(testQuery)}&api_key=${apiKey}&num=1`
-    );
-
-    if (!searchResponse.ok) {
-      return {
-        service: "SerpAPI",
-        status: "warning",
-        message: "Account info accessible but search endpoint failed",
-        credits_remaining: searchesRemaining,
-        response_time_ms: responseTime,
-        details: { error: await searchResponse.text() }
+        details: diag,
       };
     }
 
     return {
-      service: "SerpAPI",
-      status: "success",
-      message: `✅ Fully functional with ${searchesRemaining.toLocaleString()} searches remaining`,
-      credits_remaining: searchesRemaining,
-      rate_limit: planType,
+      service: "Serper",
+      status: diag.verdict?.startsWith("Adapter working") ? "success" : "warning",
+      message: diag.verdict || "Serper diagnostics completed",
       response_time_ms: responseTime,
-      details: {
-        accountEmail: data.account_email,
-        planType,
-        totalSearchesLeft: searchesRemaining,
-        lastHourSearchesLeft: data.last_hour_searches_left,
-        planSearchesLeft: data.plan_searches_left,
-        extraCredits: data.extra_credits
-      }
+      details: diag,
     };
 
   } catch (error) {
     return {
-      service: "SerpAPI",
+      service: "Serper",
       status: "error",
       message: `Connection failed: ${(error as Error).message}`,
       response_time_ms: Date.now() - startTime

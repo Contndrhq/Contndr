@@ -13,6 +13,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
 import { getUserSubscriptionStatus } from "./contndr-billing.tsx";
 import { checkMxRecords, verifyEmail } from "./email-verify.tsx";
+import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
 import {
   discoverProfiles as discoverSocialProfiles,
   enrichSocialProfile,
@@ -287,7 +288,7 @@ function formatSubscribers(count: number): string {
 // Discovers YouTube channels via Google search, scrapes channel pages for metadata.
 // ══════════════════════════════════════════════════════════════════════════
 
-const SERPAPI_KEY = () => Deno.env.get("SERPAPI_API_KEY") || "";
+const SERPAPI_KEY = () => getSerpSearchKey();
 
 async function youtubeSearchViaSerpApi(
   keyword: string,
@@ -318,7 +319,7 @@ async function youtubeSearchViaSerpApi(
         num: String(Math.min(maxResults * 2, 40)),
       });
 
-      const res = await fetch(`https://serpapi.com/search?${params.toString()}`, {
+      const res = await serpFetch(`https://serpapi.com/search?${params.toString()}`, {
         signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) {
@@ -1938,7 +1939,7 @@ app.post("/run", async (c) => {
       return c.json({ error: "YouTube API key not configured. Please add YOUTUBE_API_KEY in settings." }, 500);
     }
     const socialPlatforms = platforms.filter(p => p !== "youtube") as SocialPlatform[];
-    if (socialPlatforms.length > 0 && !Deno.env.get("SERPAPI_API_KEY")) {
+    if (socialPlatforms.length > 0 && !getSerpSearchKey()) {
       return c.json({ error: "SerpAPI key not configured. Required for Instagram, TikTok, and X discovery." }, 500);
     }
 
