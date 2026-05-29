@@ -72,9 +72,11 @@ export async function serpFetch(serpapiUrl: string, init?: RequestInit): Promise
   const q = url.searchParams.get('q');
   if (q) body.q = q;
 
-  // Pagination — SerpAPI uses `num` + `start`; Serper uses `num` + `page`
+  // Pagination — SerpAPI uses `num` + `start`; Serper uses `num` + `page`.
+  // Serper is stricter than SerpAPI on some endpoints; 10 is the safest
+  // portable page size and avoids 400s on advanced Google queries.
   const num = parseInt(url.searchParams.get('num') || '', 10);
-  if (Number.isFinite(num) && num > 0) body.num = Math.min(num, 100);
+  if (Number.isFinite(num) && num > 0) body.num = Math.min(num, 10);
   const start = parseInt(url.searchParams.get('start') || '', 10);
   if (Number.isFinite(start) && start > 0 && body.num) {
     body.page = Math.floor(start / (body.num || 10)) + 1;
@@ -96,19 +98,45 @@ export async function serpFetch(serpapiUrl: string, init?: RequestInit): Promise
   }
 
   try {
-    const res = await fetch(`${SERPER_BASE}${serperPath}`, {
-      method: 'POST',
-      headers: {
-        'X-API-KEY': serperKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
+    const res = await postSerper(serperPath, serperKey, body);
+
+    if (!res.ok && res.status === 400) {
+      const errText = await res.text().catch(() => "");
+      console.warn(`[SERP-ADAPTER] Serper 400 for ${engine}: ${errText.slice(0, 240)}; retrying minimal payload`);
+
+      const minimalBody: Record<string, any> = {};
+      if (q) minimalBody.q = q;
+      if (gl) minimalBody.gl = gl;
+      if (hl) minimalBody.hl = hl;
+
+      const retry = await postSerper(serperPath, serperKey, minimalBody);
+      if (retry.ok) {
+        const serperJson = await retry.json();
+        const translated = translateSerperToSerpApi(serperJson, engine);
+        return new Response(JSON.stringify(translated), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const retryText = await retry.text().catch(() => "");
+      console.warn(`[SERP-ADAPTER] Serper retry failed ${retry.status}: ${retryText.slice(0, 240)}`);
+      return new Response(retryText || errText || "Serper request failed", {
+        status: retry.status,
+        statusText: retry.statusText,
+      });
+    }
 
     if (!res.ok) {
-      // Serper failed — fall back to SerpAPI so the call doesn't die
-      console.warn(`[SERP-ADAPTER] Serper ${res.status}, falling back to SerpAPI`);
-      return realSerpApi(serpapiUrl, init);
+      const errText = await res.text().catch(() => "");
+      console.warn(`[SERP-ADAPTER] Serper ${res.status}: ${errText.slice(0, 240)}`);
+      if (Deno.env.get("SERPER_ALLOW_SERPAPI_FALLBACK") === "true") {
+        return realSerpApi(serpapiUrl, init);
+      }
+      return new Response(errText || "Serper request failed", {
+        status: res.status,
+        statusText: res.statusText,
+      });
     }
 
     const serperJson = await res.json();
@@ -118,9 +146,23 @@ export async function serpFetch(serpapiUrl: string, init?: RequestInit): Promise
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e: any) {
-    console.warn(`[SERP-ADAPTER] Serper threw, falling back to SerpAPI: ${e?.message}`);
-    return realSerpApi(serpapiUrl, init);
+    console.warn(`[SERP-ADAPTER] Serper threw: ${e?.message}`);
+    if (Deno.env.get("SERPER_ALLOW_SERPAPI_FALLBACK") === "true") {
+      return realSerpApi(serpapiUrl, init);
+    }
+    return new Response(e?.message || "Serper request failed", { status: 502 });
   }
+}
+
+function postSerper(path: string, apiKey: string, body: Record<string, any>): Promise<Response> {
+  return fetch(`${SERPER_BASE}${path}`, {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
 }
 
 function realSerpApi(serpapiUrl: string, init?: RequestInit): Promise<Response> {
