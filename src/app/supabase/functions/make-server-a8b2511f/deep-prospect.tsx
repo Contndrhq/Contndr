@@ -20,6 +20,7 @@ import { searchPool, saveToPool, getPoolStats, hydrateLeadsFromExistingContacts,
 import { enrichPhoneNumbers, verifyPhoneNumbers, type DeepPhoneLead } from "./phone-enrichment.tsx";
 import { getSerpSearchKey, serpFetch } from "./serp-adapter.tsx";
 import { icypeasEmailSearch } from "./icypeas.tsx";
+import { applyLocaleParams, expandLocalizedSearchTerms, expandLocalizedTitleTerms } from "./search-localization.tsx";
 
 const app = new Hono();
 // CORS is handled by the parent Hono app in index.tsx — no duplicate middleware needed.
@@ -114,18 +115,18 @@ function compactLocationTerms(locations: string[]): string[] {
 
 function isLocalBusinessIndustry(industry?: string): boolean {
   const value = (industry || "").toLowerCase();
-  return /\b(restaurant|restaurants|food|beverage|hospitality|bar|bars|cafe|coffee|bakery|catering|retail|salon|spa|clinic|dental|fitness|gym|local service)\b/.test(value);
+  return /\b(restaurant|restaurants|restaurante|restaurantes|gastronom|food|beverage|hospitality|hospitalidad|hotelaria|bar|bars|cafe|coffee|bakery|catering|retail|varejo|retalho|salon|sal[oó]n|sal[aã]o|spa|clinic|cl[ií]nica|dental|dentista|fitness|gym|academia|gimnasio|local service)\b/i.test(value);
 }
 
 function expandedIndustryTerms(industry: string): string[] {
   const value = (industry || "").toLowerCase();
   if (/\brestaurants?\b/.test(value)) {
-    return ["restaurant", "restaurants", "restaurant owner", "restaurateur", "hospitality", "food & beverage", "chef owner"];
+    return [...new Set([...expandLocalizedSearchTerms(industry), "restaurant owner", "restaurateur", "hospitality", "food & beverage", "chef owner"])];
   }
   if (/\b(food|beverage|hospitality)\b/.test(value)) {
-    return ["hospitality", "food & beverage", "restaurant", "owner"];
+    return [...new Set([...expandLocalizedSearchTerms(industry), "hospitality", "food & beverage", "restaurant", "owner"])];
   }
-  return [industry].filter(Boolean);
+  return expandLocalizedSearchTerms(industry);
 }
 
 // Build search queries for SerpAPI from user filters
@@ -141,7 +142,7 @@ function buildSerpQueries(params: {
   const { person_titles, organization_locations, person_seniorities, q_keywords, organization_industries } = params;
 
   // Build LinkedIn-focused queries with titles + locations + industries
-  const titles = person_titles?.length ? person_titles : ["CEO", "VP", "Director", "Manager"];
+  const titles = expandLocalizedTitleTerms(person_titles, person_seniorities, 12);
   const locations = organization_locations?.length ? organization_locations : ["United States"];
   const industries = organization_industries?.length ? organization_industries.slice(0, 3) : [];
   const localBusinessSearch = industries.some(isLocalBusinessIndustry);
@@ -151,7 +152,7 @@ function buildSerpQueries(params: {
   // Local businesses rarely expose founder emails from broad LinkedIn queries.
   // Start with owner/restaurateur patterns that map to real operators.
   if (localBusinessSearch) {
-    const ownerTitles = ["Owner", "Founder", "CEO", "President", "Managing Partner"];
+    const ownerTitles = expandLocalizedTitleTerms(["Owner", "Founder", "CEO", "President", "Managing Partner"], person_seniorities, 12);
     for (const location of locationTerms.slice(0, 3)) {
       for (const term of industryTerms.slice(0, 5)) {
         queries.push(`site:linkedin.com/in \"${term}\" \"${location}\"`);
@@ -189,9 +190,12 @@ function buildSerpQueries(params: {
 
   // Strategy 3: Keyword + location queries
   if (q_keywords) {
-    queries.push(`site:linkedin.com/in \"${q_keywords}\" \"${locations[0] || ""}\"`.trim());
+    const keywordTerms = expandLocalizedSearchTerms(q_keywords, 6);
+    for (const keyword of keywordTerms.slice(0, 4)) {
+      queries.push(`site:linkedin.com/in \"${keyword}\" \"${locations[0] || ""}\"`.trim());
+    }
     if (industries.length > 0) {
-      queries.push(`site:linkedin.com/in \"${q_keywords}\" \"${industries[0]}\"`);
+      queries.push(`site:linkedin.com/in \"${keywordTerms[0] || q_keywords}\" \"${industryTerms[0] || industries[0]}\"`);
     }
   }
 
@@ -205,7 +209,9 @@ function buildSerpQueries(params: {
     }
   }
   if (q_keywords) {
-    queries.push(`site:crunchbase.com/person \"${q_keywords}\"`);
+    for (const keyword of expandLocalizedSearchTerms(q_keywords, 4)) {
+      queries.push(`site:crunchbase.com/person \"${keyword}\"`);
+    }
   }
 
   // Strategy 5: Seniority keyword queries for varied job titles in same seniority band
@@ -237,6 +243,7 @@ async function serpSearch(query: string, apiKey: string, num: number, offset: nu
       num: String(num),
       start: String(offset),
     });
+    applyLocaleParams(params, query);
 
     const response = await serpFetch(`https://serpapi.com/search?${params}`, {
       signal: AbortSignal.timeout(15000),
@@ -605,16 +612,16 @@ interface ParsedPerson {
 function inferSeniority(title: string): string {
   if (!title) return "";
   const t = title.toLowerCase();
-  if (/\b(owner|proprietor)\b/.test(t)) return "owner";
-  if (/\b(founder|co-?founder)\b/.test(t)) return "founder";
+  if (/\b(owner|proprietor|propietario|dueñ[oa]|propriet[aá]rio|dono|s[oó]cio propriet[aá]rio)\b/.test(t)) return "owner";
+  if (/\b(founder|co-?founder|fundador|fundadora|cofundador|cofundadora|s[oó]cio fundador)\b/.test(t)) return "founder";
   if (/\b(ceo|cfo|cto|coo|cmo|cro|cpo|cio|chro|cso|cdo)\b/.test(t)) return "c_suite";
   if (/\bchief\s/.test(t)) return "c_suite";
-  if (/\bpresident\b/.test(t) && !/vice[\s-]?president/.test(t)) return "c_suite";
-  if (/\bpartner\b/.test(t)) return "partner";
-  if (/\b(vp|vice[\s-]?president|svp|evp|avp)\b/.test(t)) return "vp";
-  if (/\bhead\s+(of\s+)?/.test(t)) return "head";
-  if (/\b(director|managing\s+director)\b/.test(t)) return "director";
-  if (/\b(manager|general\s+manager)\b/.test(t)) return "manager";
+  if (/\b(president|presidente|director general|diretor geral|administrador)\b/.test(t) && !/vice[\s-]?president/.test(t)) return "c_suite";
+  if (/\b(partner|socio|s[oó]cio|s[oó]cia|parceiro)\b/.test(t)) return "partner";
+  if (/\b(vp|vice[\s-]?president|vicepresidente|vice presidente|svp|evp|avp)\b/.test(t)) return "vp";
+  if (/\b(head\s+(of\s+)?|jefe de|responsable de|chefe de|l[ií]der de)\b/.test(t)) return "head";
+  if (/\b(director|diretor|directeur|direttore|managing\s+director)\b/.test(t)) return "director";
+  if (/\b(manager|general\s+manager|gerente|gerente general|gerente geral|responsable)\b/.test(t)) return "manager";
   if (/\b(senior|sr\.?|principal|lead)\b/.test(t)) return "senior";
   if (/\b(junior|jr\.?|associate|assistant|intern|trainee|entry)\b/.test(t)) return "entry";
   return ""; // Never return "unknown" — empty means genuinely unresolvable

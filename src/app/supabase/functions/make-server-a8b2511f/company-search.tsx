@@ -14,6 +14,7 @@ import { secEdgarLookup, openCorporatesLookup, enhancedWebsiteScrape, detectTech
 import { generateAI } from "./ai-provider.tsx";
 import { verifyMailboxDeliverability } from "./email-verify.tsx";
 import { icypeasDomainSearch, icypeasEmailSearch } from "./icypeas.tsx";
+import { applyLocaleParams, expandLocalizedSearchTerms } from "./search-localization.tsx";
 
 const app = new Hono();
 app.use("*", cors());
@@ -166,6 +167,7 @@ async function serpGoogleMaps(
   if (location) {
     params.set("q", `${query} ${location}`);
   }
+  applyLocaleParams(params, location);
 
   console.log(`[COMPANY SEARCH] SerpAPI Google Maps: q="${params.get("q")}", location="${location || 'none'}", start=${start}`);
 
@@ -211,6 +213,7 @@ async function serpGoogleSearch(
   if (location) {
     params.set("location", location);
   }
+  applyLocaleParams(params, location);
 
   console.log(`[COMPANY SEARCH] SerpAPI Google fallback: q="${query}"`);
 
@@ -1110,11 +1113,12 @@ function buildSearchQuery(params: {
     // Fallback 1: just the company name (broader)
     fallbackQueries.push(name);
     // Fallback 2: just keywords (broadest, location-only filtering)
-    fallbackQueries.push(keywords);
+    fallbackQueries.push(...expandLocalizedSearchTerms(keywords));
   } else if (name) {
     query = name;
   } else if (keywords) {
     query = keywords;
+    fallbackQueries.push(...expandLocalizedSearchTerms(keywords).filter(term => term !== keywords));
   } else {
     query = "businesses";
   }
@@ -2688,11 +2692,11 @@ function isDecisionMakerTitle(title: string): boolean {
   const decisionMakerPatterns = [
     /\b(ceo|chief executive|chief operating|chief technology|chief financial|chief marketing|chief product|chief revenue|chief innovation|chief strategy|chief data|chief information|chief legal|chief compliance|chief people|chief human|chief administrative|chief commercial|chief customer|chief sales|chief growth|chief security|chief design|chief engineering|chief science|chief medical|chief clinical|chief nursing|chief academic|chief content|chief creative|chief digital|chief analytics)\b/i,
     /\b(coo|cto|cfo|cmo|cpo|cro|cio|cdo|cso|cco|clo|cvo|cao|cxo|cno|cgo|cto|ciso|chro|cgmo|cbo)\b/i,
-    /\b(founder|co-founder|cofounder|owner|co-owner|coowner)\b/i,
-    /\b(president|vice president|vp|svp|evp|avp|senior vice president|executive vice president|assistant vice president)\b/i,
-    /\b(partner|managing partner|senior partner|general partner|equity partner)\b/i,
-    /\b(director|senior director|executive director|managing director|board director|associate director)\b/i,
-    /\b(head of|general manager|regional manager|country manager|national manager|global manager)\b/i,
+    /\b(founder|co-founder|cofounder|fundador|fundadora|cofundador|cofundadora|owner|co-owner|coowner|propietario|dueñ[oa]|propriet[aá]rio|dono|s[oó]cio propriet[aá]rio)\b/i,
+    /\b(president|presidente|director general|diretor geral|administrador|vice president|vicepresidente|vice presidente|vp|svp|evp|avp|senior vice president|executive vice president|assistant vice president)\b/i,
+    /\b(partner|managing partner|senior partner|general partner|equity partner|socio|s[oó]cio|parceiro|s[oó]cio diretor)\b/i,
+    /\b(director|diretor|directeur|direttore|senior director|executive director|managing director|board director|associate director)\b/i,
+    /\b(head of|jefe de|responsable de|chefe de|l[ií]der de|general manager|gerente general|gerente geral|regional manager|country manager|national manager|global manager)\b/i,
     /\b(principal|senior principal)\b/i,
   ];
   
