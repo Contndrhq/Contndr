@@ -13,7 +13,7 @@ import { getTeamMemberIds } from "./team.tsx";
 import { secEdgarLookup, openCorporatesLookup, enhancedWebsiteScrape, detectTechStack } from "./gov-enrichment.tsx";
 import { generateAI } from "./ai-provider.tsx";
 import { verifyMailboxDeliverability } from "./email-verify.tsx";
-import { icypeasEmailSearch } from "./icypeas.tsx";
+import { icypeasDomainSearch, icypeasEmailSearch } from "./icypeas.tsx";
 
 const app = new Hono();
 app.use("*", cors());
@@ -3388,6 +3388,40 @@ function emailMatchesPerson(email: string, firstName: string, lastName: string):
   return variants.has(local);
 }
 
+function normalizeEmailEnrichName(value: string): string {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function normalizeLinkedInUrl(value?: string): string {
+  return (value || "")
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/$/, "")
+    .trim();
+}
+
+function icypeasContactMatchesPerson(contact: any, person: EmailEnrichInput, firstName: string, lastName: string): boolean {
+  const contactLinkedIn = normalizeLinkedInUrl(contact.linkedin_url);
+  const personLinkedIn = normalizeLinkedInUrl(person.linkedin_url);
+  if (contactLinkedIn && personLinkedIn && contactLinkedIn === personLinkedIn) return true;
+
+  const personFull = normalizeEmailEnrichName(person.name);
+  const contactFull = normalizeEmailEnrichName(contact.full_name || [contact.first_name, contact.last_name].filter(Boolean).join(" "));
+  if (personFull && contactFull && personFull === contactFull) return true;
+
+  const contactFirst = normalizeEmailEnrichName(contact.first_name || "").replace(/\s+/g, "");
+  const contactLast = normalizeEmailEnrichName(contact.last_name || "").replace(/\s+/g, "");
+  const first = normalizeEmailEnrichName(firstName).replace(/\s+/g, "");
+  const last = normalizeEmailEnrichName(lastName).replace(/\s+/g, "");
+  return Boolean(first && last && contactFirst === first && contactLast === last);
+}
+
 app.post("/enrich-people-email", async (c) => {
   try {
     const { user } = await getAuthenticatedUser(c);
@@ -3448,6 +3482,7 @@ app.post("/enrich-people-email", async (c) => {
     console.log(`[EMAIL ENRICH] Starting for ${people.length} people at "${cleanDomain}"`);
     const results: Record<string, { email: string; source: string; confidence: string }> = {};
     const pending = new Map<string, { first_name: string; last_name: string }>();
+    const peopleById = new Map(people.map((person) => [person.id, person]));
 
     // Phase -1: Check per-person pool intelligence (7-day TTL, shared across all users)
     // This runs BEFORE CRM check because pool data is the cheapest (zero API cost)
@@ -3546,9 +3581,40 @@ app.post("/enrich-people-email", async (c) => {
       console.log(`[EMAIL ENRICH] Hunter.io found ${Object.keys(results).length} emails`);
     }
 
-    // Phase 2: Icypeas
+    // Phase 2a: Icypeas domain search. Company Finder often has a valid domain
+    // but imperfect names; domain search lets Icypeas return known contacts first,
+    // then we attach emails only when there is a strong person match.
     if (ICYPEAS_API_KEY && pending.size > 0) {
-      console.log(`[EMAIL ENRICH] Phase 2: Icypeas for ${pending.size} remaining`);
+      try {
+        console.log(`[EMAIL ENRICH] Phase 2a: Icypeas domain search for "${cleanDomain}" (${pending.size} pending)`);
+        const contacts = await icypeasDomainSearch(cleanDomain);
+        console.log(`[EMAIL ENRICH] Icypeas domain search returned ${contacts.length} contact(s) for "${cleanDomain}"`);
+        const usedEmails = new Set(Object.values(results).map((result) => result.email.toLowerCase()));
+        let domainFound = 0;
+        for (const [id, names] of [...pending.entries()]) {
+          const person = peopleById.get(id);
+          if (!person) continue;
+          const match = contacts.find((contact) => {
+            const email = (contact.email || "").toLowerCase();
+            return email && !usedEmails.has(email) && icypeasContactMatchesPerson(contact, person, names.first_name, names.last_name);
+          });
+          if (!match?.email) continue;
+          results[id] = { email: match.email, source: "icypeas_domain", confidence: "high" };
+          usedEmails.add(match.email.toLowerCase());
+          poolStoreEmail(names.first_name, names.last_name, cleanDomain, match.email, "icypeas_domain", "high");
+          pending.delete(id);
+          domainFound++;
+          console.log(`[EMAIL ENRICH] Icypeas domain matched ${person.name} → ${match.email}`);
+        }
+        console.log(`[EMAIL ENRICH] Icypeas domain matched ${domainFound} email(s)`);
+      } catch (icypeasDomainErr: any) {
+        console.warn(`[EMAIL ENRICH] Icypeas domain search failed for "${cleanDomain}": ${icypeasDomainErr.message}`);
+      }
+    }
+
+    // Phase 2b: Icypeas exact person search
+    if (ICYPEAS_API_KEY && pending.size > 0) {
+      console.log(`[EMAIL ENRICH] Phase 2b: Icypeas exact person search for ${pending.size} remaining`);
       const entries = [...pending.entries()];
       let icypeasFound = 0;
       for (let i = 0; i < entries.length; i += 5) {
@@ -3559,7 +3625,10 @@ app.post("/enrich-people-email", async (c) => {
               const result = await icypeasEmailSearch(first_name, last_name || "", cleanDomain);
               if (result?.email) return { id, email: result.email, source: "icypeas", confidence: "high" };
               return null;
-            } catch { return null; }
+            } catch (icypeasPersonErr: any) {
+              console.warn(`[EMAIL ENRICH] Icypeas person search failed for ${first_name} ${last_name} @ ${cleanDomain}: ${icypeasPersonErr.message}`);
+              return null;
+            }
           })
         );
         for (const r of br) {
