@@ -14182,7 +14182,7 @@ app.post("/make-server-a8b2511f/campaigns/:id/send-batch", async (c) => {
               .eq('campaign_id', campaignId)
               .eq('lead_id', lead.id)
               .eq('sequence_number', 1)
-              .in('status', ['queued', 'sent', 'delivered', 'opened']);
+              .in('status', ['queued', 'sent', 'delivered', 'opened', 'clicked']);
 
             if ((existingCount ?? 0) > 0) {
               console.warn(`[SEND-BATCH] ⏭️ Skipping lead ${lead.id} (${lead.email}) — sequence #1 already exists (cross-isolate dedup guard)`);

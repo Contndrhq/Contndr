@@ -344,7 +344,7 @@ export async function getFollowUpsDueCount(userId: string): Promise<{
           .select('id', { count: 'estimated', head: true })
           .eq('user_id', userId)
           .eq('campaign_id', campaign.id)
-          .in('status', ['sent', 'delivered', 'opened'])
+          .in('status', ['sent', 'delivered', 'opened', 'clicked'])
           .lt('sequence_number', maxAttempts)
           .lt('created_at', cutoff);
 

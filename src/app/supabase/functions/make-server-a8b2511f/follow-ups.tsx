@@ -9,6 +9,9 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
 
+const FOLLOW_UP_ELIGIBLE_EMAIL_STATUSES = ['sent', 'delivered', 'opened', 'clicked'];
+const FOLLOW_UP_EXISTING_EMAIL_STATUSES = ['queued', 'sent', 'delivered', 'opened', 'clicked'];
+
 interface FollowUpConfig {
   enabled: boolean;
   maxAttempts: number;
@@ -417,14 +420,34 @@ export async function processFollowUpsForCampaign(campaignId: string, userId: st
       .select('*')
       .eq('campaign_id', campaignId)
       .eq('user_id', userId) // Defense-in-depth: scope to user
-      .in('status', ['sent', 'delivered', 'opened']);
+      .in('status', FOLLOW_UP_ELIGIBLE_EMAIL_STATUSES);
 
     if (emailsError) {
       console.error('[FOLLOW-UP] Error fetching emails:', emailsError);
       return { success: false, error: 'Failed to fetch emails' };
     }
 
-    console.log(`[FOLLOW-UP] Found ${emails?.length || 0} emails in sent/delivered/opened status`);
+    console.log(`[FOLLOW-UP] Found ${emails?.length || 0} emails in sent/delivered/opened/clicked status`);
+
+    if (!emails || emails.length === 0) {
+      const { data: statusRows, error: statusError } = await supabase
+        .from('emails')
+        .select('status')
+        .eq('campaign_id', campaignId)
+        .eq('user_id', userId)
+        .limit(500);
+
+      if (statusError) {
+        console.warn('[FOLLOW-UP] Could not inspect campaign email statuses:', statusError.message);
+      } else {
+        const statusCounts = (statusRows || []).reduce((counts: Record<string, number>, row: any) => {
+          const status = row?.status || 'unknown';
+          counts[status] = (counts[status] || 0) + 1;
+          return counts;
+        }, {});
+        console.log(`[FOLLOW-UP] Campaign email status distribution: ${JSON.stringify(statusCounts)}`);
+      }
+    }
 
     // ── CRITICAL: Deduplicate by lead_id — keep only the LATEST email per lead ──
     // Without this, a lead with emails at sequence_numbers 1, 2, 3 (all 'opened')
@@ -474,7 +497,7 @@ export async function processFollowUpsForCampaign(campaignId: string, userId: st
             .eq('lead_id', email.lead_id)
             .eq('user_id', userId)
             .eq('sequence_number', nextSeq)
-            .in('status', ['queued', 'sent', 'delivered', 'opened']);
+            .in('status', FOLLOW_UP_EXISTING_EMAIL_STATUSES);
 
           if ((existingCount ?? 0) > 0) {
             console.log(`[FOLLOW-UP] ⏭️ Skipping lead ${email.lead_id} — follow-up seq #${nextSeq} already exists (concurrent send guard)`);
