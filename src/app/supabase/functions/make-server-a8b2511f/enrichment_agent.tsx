@@ -1377,30 +1377,16 @@ export async function quickDiscoverContacts(domain: string): Promise<{
         .sort((a: QuickContact, b: QuickContact) => a.role_tier - b.role_tier)
         .slice(0, 8);
 
-      // ── Backfill missing emails via Icypeas Email Finder ──
-      // Domain search often returns names + titles without emails.
-      // Without this step every result row would show 'No email found'
-      // and Hunter was the only thing closing the gap (now disabled).
-      // We fan out per-person email lookups in parallel for any
-      // contact that came back without an email.
-      const missing = initial.filter(c => !c.email);
-      if (missing.length > 0) {
-        await Promise.all(missing.map(async (c) => {
-          if (isExhausted("icypeas")) return;
-          try {
-            const parts = c.full_name.trim().split(/\s+/);
-            const firstName = parts[0] || "";
-            const lastName = parts.slice(1).join(" ") || "";
-            if (!firstName || !lastName) return;
-            const res = await icypeasEmailSearch(firstName, lastName, domain);
-            const found = (res?.email || res?.emails?.[0] || "") as string;
-            if (found && !isExcludedEmail(found)) {
-              c.email = found.toLowerCase();
-            }
-          } catch { /* per-contact failures are non-fatal */ }
-        }));
-      }
-
+      // NOTE: Per-contact Icypeas Email Finder backfill used to run
+      // here, but it pushed the request over Supabase's CPU-time limit
+      // (10s hard cap) and the WHOLE pipeline died with 'CPU Time
+      // exceeded' — leads showed up then vanished.
+      //
+      // Email backfill is now exposed as a separate, on-demand
+      // endpoint (POST /enrich/email-find) that the frontend's "Retry"
+      // button under each "No email found" row calls one at a time.
+      // Same provider, no batch fan-out, fits inside the per-request
+      // budget.
       if (initial.length > 0) return initial;
     } catch { /* fall through to Hunter */ }
   }

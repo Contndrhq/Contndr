@@ -3421,6 +3421,35 @@ app.post("/make-server-a8b2511f/admin/users/delete", async (c) => {
   }
 });
 
+// POST /enrich/email-find — On-demand single-person email lookup.
+// The frontend's "Retry" button under each 'No email found' row hits
+// this for ONE person at a time, so the per-request CPU budget can't
+// blow up the way it did when we tried to fan out parallel calls
+// inline in the main search pipeline.
+//
+// Body: { first_name, last_name, domain }
+// Returns: { email: string | null, source: 'icypeas' | null, status: 'verified' | 'risky' | 'unknown' }
+app.post("/make-server-a8b2511f/enrich/email-find", async (c) => {
+  try {
+    await getAuthenticatedUser(c);                    // any logged-in user
+    const { first_name, last_name, domain } = await c.req.json();
+    if (!first_name || !last_name || !domain) {
+      return c.json({ error: 'first_name, last_name, domain required' }, 400);
+    }
+    const { icypeasEmailSearch } = await import('./icypeas.tsx');
+    const ICYPEAS_API_KEY = Deno.env.get('ICYPEAS_API_KEY');
+    if (!ICYPEAS_API_KEY) {
+      return c.json({ email: null, source: null, status: 'unknown', reason: 'icypeas_not_configured' });
+    }
+    const res: any = await icypeasEmailSearch(first_name, last_name, domain).catch(() => null);
+    const email = (res?.email || res?.emails?.[0] || '').toLowerCase() || null;
+    const status = res?.verified ? 'verified' : email ? 'risky' : 'unknown';
+    return c.json({ email, source: email ? 'icypeas' : null, status });
+  } catch (error: any) {
+    return c.json({ email: null, source: null, status: 'unknown', error: error.message }, 200);
+  }
+});
+
 // GET /admin/serp-diag — Live end-to-end test of the SerpAPI→Serper
 // adapter. Returns whether the SERPER_API_KEY is set, the result of a
 // direct Serper call, and the result of the adapter going through both
