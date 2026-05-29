@@ -51,6 +51,10 @@ export interface EnrichmentOutput {
   };
 }
 
+// Routes SerpAPI requests through Serper.dev (~10× cheaper) when
+// SERPER_API_KEY is set; falls back to SerpAPI transparently otherwise.
+import { serpFetch } from "./serp-adapter.tsx";
+
 // ── Role tiers (expanded) ───────────────────────────────────────────────
 const TIER_1_ROLES = [
   "owner", "founder", "co-founder", "cofounder", "ceo", "chief executive",
@@ -851,7 +855,7 @@ async function searchCompanyLinkedIn(companyName: string, domain: string, apiKey
     const query = `site:linkedin.com/company "${companyName}" OR site:linkedin.com/company "${domain.replace(/\.\w+$/, '')}"`;
     const params = new URLSearchParams({ engine: "google", q: query, api_key: apiKey, num: "5" });
 
-    const response = await fetch(`https://serpapi.com/search?${params}`);
+    const response = await serpFetch(`https://serpapi.com/search?${params}`);
     if (!response.ok) return null;
 
     const data = await response.json();
@@ -874,7 +878,7 @@ async function searchCompanyRevenue(companyName: string, domain: string, apiKey:
     const query = `"${companyName}" "${domain}" (revenue OR "annual revenue" OR "estimated revenue" OR employees OR "company size")`;
     const params = new URLSearchParams({ engine: "google", q: query, api_key: apiKey, num: "10" });
 
-    const response = await fetch(`https://serpapi.com/search?${params}`);
+    const response = await serpFetch(`https://serpapi.com/search?${params}`);
     if (!response.ok) return null;
 
     const data = await response.json();
@@ -1095,7 +1099,7 @@ async function findDecisionMakerViaSerpApi(input: EnrichmentInput, findymailApiK
   });
 
   try {
-    const response = await fetch(`https://serpapi.com/search?${params}`);
+    const response = await serpFetch(`https://serpapi.com/search?${params}`);
     if (!response.ok) throw new Error(`SerpAPI returned ${response.status}`);
 
     const data = await response.json();
@@ -1220,7 +1224,7 @@ async function findDecisionMakerViaLinkedIn(input: EnrichmentInput, findymailApi
   });
 
   try {
-    const response = await fetch(`https://serpapi.com/search?${params}`);
+    const response = await serpFetch(`https://serpapi.com/search?${params}`);
     if (!response.ok) throw new Error(`SerpAPI returned ${response.status}`);
 
     const data = await response.json();
@@ -1341,7 +1345,7 @@ async function backfillLinkedInUrls(dms: DecisionMaker[], companyName: string): 
       const query = `site:linkedin.com/in "${dm.full_name}" "${companyName}"`;
       const params = new URLSearchParams({ engine: "google", q: query, api_key: SERPAPI_API_KEY, num: "3" });
 
-      const response = await fetch(`https://serpapi.com/search?${params}`);
+      const response = await serpFetch(`https://serpapi.com/search?${params}`);
       if (!response.ok) {
         results.push(dm);
         continue;
@@ -1536,7 +1540,7 @@ async function discoverContactsViaLinkedInScrape(domain: string): Promise<{
       api_key: SERPAPI_API_KEY,
       num: '20',
     });
-    const resp = await fetch(`https://serpapi.com/search?${params}`);
+    const resp = await serpFetch(`https://serpapi.com/search?${params}`);
     if (!resp.ok) return [];
     const data = await resp.json();
     const results: any[] = data.organic_results || [];
@@ -1727,7 +1731,7 @@ async function findDecisionMakerViaSerpApiMulti(input: EnrichmentInput): Promise
   });
 
   try {
-    const response = await fetch(`https://serpapi.com/search?${params}`);
+    const response = await serpFetch(`https://serpapi.com/search?${params}`);
     if (!response.ok) throw new Error(`SerpAPI returned ${response.status}`);
 
     const data = await response.json();
@@ -1840,7 +1844,7 @@ async function findDecisionMakerViaLinkedInMulti(input: EnrichmentInput): Promis
   });
 
   try {
-    const response = await fetch(`https://serpapi.com/search?${params}`);
+    const response = await serpFetch(`https://serpapi.com/search?${params}`);
     if (!response.ok) throw new Error(`SerpAPI returned ${response.status}`);
 
     const data = await response.json();

@@ -1,0 +1,260 @@
+/**
+ * SerpAPI → Serper.dev adapter.
+ *
+ * Serper is ~10× cheaper than SerpAPI ($0.30/1k vs $5/1k for Google search)
+ * and returns identical data, but uses a different URL + response shape.
+ *
+ * This adapter accepts a SerpAPI URL (the existing call shape used across
+ * the codebase) and:
+ *
+ *   1) Routes Google* engines through Serper if SERPER_API_KEY is set
+ *   2) Translates the Serper response back to the SerpAPI shape callers
+ *      already parse — so adoption is one-line per call site
+ *   3) Falls back to real SerpAPI when the engine isn't supported by
+ *      Serper or the key isn't configured
+ *
+ * Drop-in usage:
+ *   const r = await serpFetch('https://serpapi.com/search?engine=google&q=foo');
+ *   const data = await r.json();
+ *   // `data.organic_results`, `data.local_results`, etc. — same shape as SerpAPI
+ */
+
+// Map SerpAPI's `engine` query param to Serper's path. null = not supported,
+// fall through to SerpAPI.
+const SERPER_PATH_BY_ENGINE: Record<string, string | null> = {
+  google: '/search',
+  google_search: '/search',
+  google_maps: '/maps',
+  google_news: '/news',
+  google_images: '/images',
+  google_scholar: '/scholar',
+  google_jobs: '/jobs',
+  google_places: '/places',
+  // Engines Serper doesn't cover → fall back to real SerpAPI
+  bing: null,
+  yahoo: null,
+  duckduckgo: null,
+  baidu: null,
+  yandex: null,
+};
+
+const SERPER_BASE = 'https://google.serper.dev';
+
+/**
+ * Drop-in replacement for `fetch(serpapiUrl)`. Returns a Response so
+ * callers can keep `.json()` / `.ok` / `.status` unchanged.
+ */
+export async function serpFetch(serpapiUrl: string, init?: RequestInit): Promise<Response> {
+  const serperKey = Deno.env.get('SERPER_API_KEY');
+  if (!serperKey) return realSerpApi(serpapiUrl, init);
+
+  let url: URL;
+  try { url = new URL(serpapiUrl); } catch { return realSerpApi(serpapiUrl, init); }
+  if (!url.hostname.includes('serpapi.com')) return fetch(serpapiUrl, init);
+
+  const engine = (url.searchParams.get('engine') || 'google').toLowerCase();
+  const serperPath = SERPER_PATH_BY_ENGINE[engine];
+  if (serperPath === null) {
+    // Engine not supported by Serper — pass through
+    return realSerpApi(serpapiUrl, init);
+  }
+  if (serperPath === undefined) {
+    // Unknown engine — be safe, pass through
+    return realSerpApi(serpapiUrl, init);
+  }
+
+  // Build Serper request body from SerpAPI query params
+  const body: Record<string, any> = {};
+  const q = url.searchParams.get('q');
+  if (q) body.q = q;
+
+  // Pagination — SerpAPI uses `num` + `start`; Serper uses `num` + `page`
+  const num = parseInt(url.searchParams.get('num') || '', 10);
+  if (Number.isFinite(num) && num > 0) body.num = Math.min(num, 100);
+  const start = parseInt(url.searchParams.get('start') || '', 10);
+  if (Number.isFinite(start) && start > 0 && body.num) {
+    body.page = Math.floor(start / (body.num || 10)) + 1;
+  }
+
+  // Geo / language — common params SerpAPI callers set
+  const gl = url.searchParams.get('gl');
+  if (gl) body.gl = gl;
+  const hl = url.searchParams.get('hl');
+  if (hl) body.hl = hl;
+  const location = url.searchParams.get('location');
+  if (location) body.location = location;
+
+  // Maps-specific
+  if (engine === 'google_maps' || engine === 'google_places') {
+    const ll = url.searchParams.get('ll');
+    if (ll) body.ll = ll;
+    // SerpAPI uses `type=search` for maps queries; Serper infers from path
+  }
+
+  try {
+    const res = await fetch(`${SERPER_BASE}${serperPath}`, {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': serperKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      // Serper failed — fall back to SerpAPI so the call doesn't die
+      console.warn(`[SERP-ADAPTER] Serper ${res.status}, falling back to SerpAPI`);
+      return realSerpApi(serpapiUrl, init);
+    }
+
+    const serperJson = await res.json();
+    const translated = translateSerperToSerpApi(serperJson, engine);
+    return new Response(JSON.stringify(translated), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (e: any) {
+    console.warn(`[SERP-ADAPTER] Serper threw, falling back to SerpAPI: ${e?.message}`);
+    return realSerpApi(serpapiUrl, init);
+  }
+}
+
+function realSerpApi(serpapiUrl: string, init?: RequestInit): Promise<Response> {
+  // Just pass through to the original URL — SerpAPI key already embedded
+  return fetch(serpapiUrl, init);
+}
+
+/**
+ * Translate Serper's response into the SerpAPI shape the rest of the
+ * codebase already parses. Conservative — keeps the original Serper
+ * fields under `_serper` for debugging and only maps the well-known ones.
+ */
+function translateSerperToSerpApi(serper: any, engine: string): any {
+  const out: any = {
+    search_metadata: { status: 'Success', engine, source: 'serper' },
+    _serper: serper,  // raw payload for debugging
+  };
+
+  // ── Web search ──
+  if (Array.isArray(serper.organic)) {
+    out.organic_results = serper.organic.map((r: any, i: number) => ({
+      position: r.position ?? i + 1,
+      title: r.title,
+      link: r.link,
+      displayed_link: r.displayed_link || r.link,
+      snippet: r.snippet,
+      snippet_highlighted_words: r.snippet_highlighted_words,
+      sitelinks: r.sitelinks,
+      date: r.date,
+      attributes: r.attributes,
+    }));
+  }
+
+  if (Array.isArray(serper.peopleAlsoAsk)) {
+    out.related_questions = serper.peopleAlsoAsk.map((q: any) => ({
+      question: q.question,
+      snippet: q.snippet,
+      title: q.title,
+      link: q.link,
+    }));
+  }
+
+  if (serper.knowledgeGraph) {
+    const kg = serper.knowledgeGraph;
+    out.knowledge_graph = {
+      title: kg.title,
+      type: kg.type,
+      description: kg.description,
+      website: kg.website,
+      image: kg.imageUrl,
+      attributes: kg.attributes,
+    };
+  }
+
+  // ── Maps / Places ──
+  if (Array.isArray(serper.places)) {
+    out.local_results = serper.places.map((p: any) => ({
+      position: p.position,
+      title: p.title,
+      place_id: p.placeId || p.cid,
+      data_id: p.fid,
+      data_cid: p.cid,
+      reviews_link: p.reviewsLink,
+      photos_link: p.photosLink,
+      gps_coordinates: p.latitude && p.longitude ? { latitude: p.latitude, longitude: p.longitude } : undefined,
+      rating: p.rating,
+      reviews: p.ratingCount,
+      type: p.type,
+      types: p.types,
+      address: p.address,
+      phone: p.phoneNumber,
+      website: p.website,
+      hours: p.openingHours,
+      thumbnail: p.thumbnailUrl,
+    }));
+    // SerpAPI also exposes `places_results` in some maps responses — alias for callers
+    out.places_results = out.local_results;
+  }
+
+  // ── News ──
+  if (Array.isArray(serper.news)) {
+    out.news_results = serper.news.map((n: any, i: number) => ({
+      position: i + 1,
+      title: n.title,
+      link: n.link,
+      snippet: n.snippet,
+      source: n.source,
+      date: n.date,
+      thumbnail: n.imageUrl,
+    }));
+  }
+
+  // ── Images ──
+  if (Array.isArray(serper.images)) {
+    out.images_results = serper.images.map((img: any, i: number) => ({
+      position: i + 1,
+      thumbnail: img.thumbnailUrl,
+      original: img.imageUrl,
+      title: img.title,
+      link: img.link,
+      source: img.source,
+      source_name: img.source,
+    }));
+  }
+
+  // ── Scholar ──
+  if (Array.isArray(serper.organic) && engine === 'google_scholar') {
+    out.organic_results = serper.organic.map((r: any, i: number) => ({
+      position: i + 1,
+      title: r.title,
+      link: r.link,
+      publication_info: { summary: r.publicationInfo },
+      snippet: r.snippet,
+      cited_by: r.citedBy,
+    }));
+  }
+
+  // ── Jobs ──
+  if (Array.isArray(serper.jobs)) {
+    out.jobs_results = serper.jobs.map((j: any, i: number) => ({
+      position: i + 1,
+      title: j.title,
+      company_name: j.company,
+      location: j.location,
+      via: j.via,
+      thumbnail: j.thumbnail,
+      description: j.description,
+    }));
+  }
+
+  return out;
+}
+
+/**
+ * Diagnostic helper — admin/health endpoint can call this to confirm
+ * the adapter is routing to Serper (and not silently falling back).
+ */
+export function serpAdapterStatus(): { provider: 'serper' | 'serpapi'; reason?: string } {
+  if (Deno.env.get('SERPER_API_KEY')) return { provider: 'serper' };
+  return { provider: 'serpapi', reason: 'SERPER_API_KEY not set' };
+}

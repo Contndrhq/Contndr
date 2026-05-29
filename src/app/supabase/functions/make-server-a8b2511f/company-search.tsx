@@ -6,6 +6,7 @@
 
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
+import { serpFetch } from "./serp-adapter.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
 import { getTeamMemberIds } from "./team.tsx";
@@ -167,7 +168,7 @@ async function serpGoogleMaps(
 
   console.log(`[COMPANY SEARCH] SerpAPI Google Maps: q="${params.get("q")}", location="${location || 'none'}", start=${start}`);
 
-  const response = await fetch(`https://serpapi.com/search?${params}`, {
+  const response = await serpFetch(`https://serpapi.com/search?${params}`, {
     signal: AbortSignal.timeout(12000),
   });
 
@@ -213,7 +214,7 @@ async function serpGoogleSearch(
   console.log(`[COMPANY SEARCH] SerpAPI Google fallback: q="${query}"`);
 
   try {
-    const response = await fetch(`https://serpapi.com/search?${params}`, {
+    const response = await serpFetch(`https://serpapi.com/search?${params}`, {
       signal: AbortSignal.timeout(15000),
     });
 
@@ -247,7 +248,7 @@ async function knowledgeGraphLookup(
   });
 
   try {
-    const res = await fetch(`https://serpapi.com/search?${params}`, {
+    const res = await serpFetch(`https://serpapi.com/search?${params}`, {
       signal: AbortSignal.timeout(12000),
     });
     if (!res.ok) return [];
@@ -549,7 +550,7 @@ async function batchLinkedInEnrich(
         num: "10",
       });
 
-      const response = await fetch(`https://serpapi.com/search?${params}`, {
+      const response = await serpFetch(`https://serpapi.com/search?${params}`, {
         signal: AbortSignal.timeout(12000),
       });
 
@@ -676,7 +677,7 @@ async function deepEnrichCompany(
 
     const [serpResult, hunterResult, secResult, ocResult, webResult] = await Promise.allSettled([
       // 1. SerpAPI knowledge graph + organic results
-      fetch(`https://serpapi.com/search?${serpParams}`, { signal: AbortSignal.timeout(6000) })
+      serpFetch(`https://serpapi.com/search?${serpParams}`, { signal: AbortSignal.timeout(6000) })
         .then(r => r.ok ? r.json() : null),
       // 2. Hunter.io domain search
       (cleanDomain && HUNTER_API_KEY)
@@ -854,7 +855,7 @@ async function deepEnrichCompany(
       try {
         const cbQuery = `"${companyName}" (site:crunchbase.com OR site:bloomberg.com OR site:zoominfo.com) employees revenue founded`;
         const cbParams = new URLSearchParams({ engine: "google", q: cbQuery, api_key: SERPAPI_KEY, num: "5" });
-        const cbResponse = await fetch(`https://serpapi.com/search?${cbParams}`, { signal: AbortSignal.timeout(4000) });
+        const cbResponse = await serpFetch(`https://serpapi.com/search?${cbParams}`, { signal: AbortSignal.timeout(4000) });
         if (cbResponse.ok) {
           const cbData = await cbResponse.json();
           for (const r of (cbData.organic_results || []).slice(0, 5)) {
@@ -1754,7 +1755,7 @@ app.post("/search", async (c) => {
           });
           if (location) orgParams.set("location", location);
           
-          const orgRes = await fetch(`https://serpapi.com/search?${orgParams}`, {
+          const orgRes = await serpFetch(`https://serpapi.com/search?${orgParams}`, {
             signal: AbortSignal.timeout(10000),
           });
           
@@ -2118,7 +2119,7 @@ app.post("/search-by-building", async (c) => {
           num: "10",
         });
         
-        const res = await fetch(`https://serpapi.com/search?${params}`, {
+        const res = await serpFetch(`https://serpapi.com/search?${params}`, {
           signal: AbortSignal.timeout(10000),
         });
         
@@ -2994,8 +2995,8 @@ app.post("/find-people", async (c) => {
       try {
         // Run both queries in parallel: broad name match + precise "at Company" phrasing
         const [broadRes, preciseRes] = await Promise.allSettled([
-          fetch(`https://serpapi.com/search?${new URLSearchParams({ engine: "google", q: query, api_key: SERPAPI_KEY, num: "20" })}`, { signal: AbortSignal.timeout(20000) }),
-          fetch(`https://serpapi.com/search?${new URLSearchParams({ engine: "google", q: preciseQuery, api_key: SERPAPI_KEY, num: "15" })}`, { signal: AbortSignal.timeout(18000) }),
+          serpFetch(`https://serpapi.com/search?${new URLSearchParams({ engine: "google", q: query, api_key: SERPAPI_KEY, num: "20" })}`, { signal: AbortSignal.timeout(20000) }),
+          serpFetch(`https://serpapi.com/search?${new URLSearchParams({ engine: "google", q: preciseQuery, api_key: SERPAPI_KEY, num: "15" })}`, { signal: AbortSignal.timeout(18000) }),
         ]);
 
         const results: PersonResult[] = [];
@@ -3037,7 +3038,7 @@ app.post("/find-people", async (c) => {
           const fallbackQuery = `site:linkedin.com/in "${domain}" ${titleKeywords}${effectiveLocation ? ` "${effectiveLocation}"` : ""}`;
           const fallbackParams = new URLSearchParams({ engine: "google", q: fallbackQuery, api_key: SERPAPI_KEY, num: "15" });
           try {
-            const fallbackRes = await fetch(`https://serpapi.com/search?${fallbackParams}`, { signal: AbortSignal.timeout(15000) });
+            const fallbackRes = await serpFetch(`https://serpapi.com/search?${fallbackParams}`, { signal: AbortSignal.timeout(15000) });
             if (fallbackRes.ok) {
               const fallbackData = await fallbackRes.json();
               for (const r of (fallbackData.organic_results || [])) {
@@ -3115,7 +3116,7 @@ app.post("/find-people", async (c) => {
         // Search Crunchbase, Bloomberg, company about pages for leadership info
         const profileQuery = `"${company_name}" (CEO OR founder OR "leadership team" OR "management team" OR "executive team") -site:linkedin.com`;
         const params = new URLSearchParams({ engine: "google", q: profileQuery, api_key: SERPAPI_KEY, num: "10" });
-        const response = await fetch(`https://serpapi.com/search?${params}`, { signal: AbortSignal.timeout(15000) });
+        const response = await serpFetch(`https://serpapi.com/search?${params}`, { signal: AbortSignal.timeout(15000) });
         if (!response.ok) return [];
         const data = await response.json();
         const organic = data.organic_results || [];
@@ -4302,7 +4303,7 @@ async function fetchSerpApiCompanyLogo(domain: string, companyName?: string): Pr
   });
 
   try {
-    const res = await fetch(`https://serpapi.com/search.json?${params.toString()}`, {
+    const res = await serpFetch(`https://serpapi.com/search.json?${params.toString()}`, {
       signal: AbortSignal.timeout(10000),
     });
 

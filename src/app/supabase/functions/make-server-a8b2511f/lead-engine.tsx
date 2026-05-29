@@ -1,5 +1,6 @@
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
+import { serpFetch } from "./serp-adapter.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { enrichLeadWithFindymail, EnrichmentInput, quickDiscoverContacts, getRoleTier, isValidPersonName } from "./enrichment_agent.tsx";
 import * as kv from "./kv-retry.tsx";
@@ -198,7 +199,7 @@ async function searchPeopleViaApollo(
 
     console.log(`[LEAD ENGINE] Apollo people search for top ${Math.min(companies.length, 8)} domains...`);
 
-    const response = await fetch(`https://serpapi.com/search?${params}`);
+    const response = await serpFetch(`https://serpapi.com/search?${params}`);
     if (!response.ok) return [];
 
     const data = await response.json();
@@ -267,7 +268,7 @@ async function searchPeopleViaLinkedIn(
 
     console.log(`[LEAD ENGINE] LinkedIn people search for top ${Math.min(companies.length, 6)} companies...`);
 
-    const response = await fetch(`https://serpapi.com/search?${params}`);
+    const response = await serpFetch(`https://serpapi.com/search?${params}`);
     if (!response.ok) return [];
 
     const data = await response.json();
@@ -466,7 +467,7 @@ app.post("/search", async (c) => {
         type: "search",
         start: (page * 20).toString(),
       });
-      return fetch(`https://serpapi.com/search?${params}`)
+      return serpFetch(`https://serpapi.com/search?${params}`)
         .then(async (response) => {
           if (!response.ok) {
             console.warn(`[LEAD ENGINE] Maps page ${page + 1} failed: ${response.statusText}`);
@@ -534,7 +535,7 @@ app.post("/search", async (c) => {
         });
 
         console.log(`[LEAD ENGINE] Supplementary organic search...`);
-        const organicResponse = await fetch(`https://serpapi.com/search?${organicParams}`);
+        const organicResponse = await serpFetch(`https://serpapi.com/search?${organicParams}`);
 
         if (organicResponse.ok) {
           const organicData = await organicResponse.json();
@@ -992,7 +993,7 @@ app.post("/search-stream", async (c) => {
               engine: "google_maps", q: query, api_key: SERPAPI_API_KEY,
               type: "search", start: (page * 20).toString(),
             });
-            return fetch(`https://serpapi.com/search?${params}`)
+            return serpFetch(`https://serpapi.com/search?${params}`)
               .then(async (response) => {
                 if (!response.ok) return { page, results: [] as any[] };
                 const data = await response.json();
@@ -1048,7 +1049,7 @@ app.post("/search-stream", async (c) => {
                 engine: "google", q: organicQuery, api_key: SERPAPI_API_KEY, num: "20"
               });
 
-              const organicResponse = await fetch(`https://serpapi.com/search?${organicParams}`);
+              const organicResponse = await serpFetch(`https://serpapi.com/search?${organicParams}`);
               if (organicResponse.ok) {
                 const organicData = await organicResponse.json();
                 const organicResults = organicData.organic_results || [];
@@ -2180,7 +2181,7 @@ app.post("/people-search", async (c) => {
         start: "0"
       });
 
-      const response = await fetch(`https://serpapi.com/search?${params}`);
+      const response = await serpFetch(`https://serpapi.com/search?${params}`);
       if (response.ok) {
         const data = await response.json();
         const results = data.local_results || [];
