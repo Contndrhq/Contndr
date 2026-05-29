@@ -175,7 +175,7 @@ function isExhausted(provider: 'icypeas' | 'hunter'): boolean {
 
 function getAvailableProviders(): ('icypeas' | 'hunter')[] {
   const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY") || Deno.env.get("HUNTERIO_API_KEY") || "";
+  const HUNTER_API_KEY = "";
   const providers: ('icypeas' | 'hunter')[] = [];
   if (ICYPEAS_API_KEY && !isExhausted('icypeas')) providers.push('icypeas');
   if (HUNTER_API_KEY && !isExhausted('hunter')) providers.push('hunter');
@@ -333,7 +333,7 @@ async function verifyEmailMultiProvider(email: string): Promise<VerificationResu
   }
 
   const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY") || Deno.env.get("HUNTERIO_API_KEY") || "";
+  const HUNTER_API_KEY = "";
 
   // Hunter.io is intentionally disabled. Keep this branch unreachable unless
   // we explicitly re-enable it later.
@@ -364,7 +364,7 @@ async function findVerifiedEmailMultiProvider(
   const lastName = nameParts.slice(1).join(" ");
 
   const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY") || Deno.env.get("HUNTERIO_API_KEY") || "";
+  const HUNTER_API_KEY = "";
 
   // ── Strategy 1: Hunter.io email finder (disabled) ──
   if (HUNTER_API_KEY && !isExhausted("hunter") && firstName && lastName) {
@@ -607,7 +607,7 @@ async function findVerifiedEmail(
 
 export async function enrichLeadWithIcypeas(input: EnrichmentInput): Promise<EnrichmentOutput> {
   const ICYPEAS_API_KEY = Deno.env.get("ICYPEAS_API_KEY");
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY") || Deno.env.get("HUNTERIO_API_KEY") || "";
+  const HUNTER_API_KEY = "";
 
   const providers = getAvailableProviders();
   console.log(`[ENRICH] Available providers: ${providers.length > 0 ? providers.join(', ') : 'NONE'}`);
@@ -1382,7 +1382,7 @@ export async function quickDiscoverContacts(domain: string): Promise<{
   }
 
   // ── Fallback to Hunter.io ──
-  const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY") || Deno.env.get("HUNTERIO_API_KEY") || "";
+  const HUNTER_API_KEY = "";
   if (HUNTER_API_KEY && !isExhausted("hunter")) {
     try {
       const hunterResult = await hunterDomainSearch(domain, HUNTER_API_KEY, 10);
