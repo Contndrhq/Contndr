@@ -1152,7 +1152,7 @@ export function AdminDashboard() {
   const [showOnlyAtRisk, setShowOnlyAtRisk] = useState(false);
   // Cohort filter for the Active Users tab. Defaults to "subscribers" so the
   // big list of waitlist/never-paid noise is hidden until an admin asks for it.
-  const [userCohort, setUserCohort] = useState<'subscribers' | 'team' | 'trial' | 'churned' | 'waitlist' | 'all'>('subscribers');
+  const [userCohort, setUserCohort] = useState<'subscribers' | 'team' | 'comped' | 'trial' | 'churned' | 'waitlist' | 'all'>('subscribers');
 
   // Lead tracking
   const [totalLeads, setTotalLeads] = useState(0);
@@ -1668,25 +1668,30 @@ export function AdminDashboard() {
 
   // Categorize a user into a single cohort bucket. Mirrors the planLabel
   // resolver in the row renderer so the filter chips match the row badges.
-  function userCohortOf(user: User): 'subscribers' | 'team' | 'trial' | 'churned' | 'waitlist' | 'none' {
+  function userCohortOf(user: User): 'subscribers' | 'team' | 'comped' | 'trial' | 'churned' | 'waitlist' | 'none' {
     const rawPlan = String(user.subscription?.plan || '').toLowerCase();
     const rawStatus = String(user.subscription?.status || '').toLowerCase();
+    const hasStripeSub = Boolean(user.subscription?.stripe_sub_id);
     // Team members ride on an owner's seat — they don't pay, so they don't
     // belong in the Subscribers bucket even though they have a plan attached.
     if (user.subscription?.isTeamMember) return 'team';
+    // Whitelisted (admin-bypass) and unlinked accounts have a plan label but
+    // no Stripe revenue attached. Keep them out of Subscribers — they're comped.
+    const isComped = user.subscription?.isWhitelisted || (rawPlan && rawPlan !== 'none' && rawPlan !== 'waitlist' && rawStatus === 'active' && !hasStripeSub);
+    if (isComped) return 'comped';
     const paidStatuses = new Set(['active', 'past_due', 'unpaid', 'paused']);
-    if (rawPlan && rawPlan !== 'none' && rawPlan !== 'waitlist' && paidStatuses.has(rawStatus)) return 'subscribers';
+    if (rawPlan && rawPlan !== 'none' && rawPlan !== 'waitlist' && paidStatuses.has(rawStatus) && hasStripeSub) return 'subscribers';
     if (rawStatus === 'trialing') return 'trial';
     if (rawStatus === 'canceled' || rawStatus === 'cancelled' || rawStatus === 'incomplete' || rawStatus === 'incomplete_expired') return 'churned';
     if (rawStatus === 'pending' || rawPlan === 'waitlist') return 'waitlist';
-    // Has a paid plan name but no recognized status — treat as subscriber (legacy)
-    if (rawPlan && rawPlan !== 'none' && rawPlan !== 'waitlist') return 'subscribers';
+    // Has a paid plan name + Stripe sub but no recognized status — treat as subscriber (legacy)
+    if (rawPlan && rawPlan !== 'none' && rawPlan !== 'waitlist' && hasStripeSub) return 'subscribers';
     return 'none';
   }
 
   const cohortCounts = users.reduce(
     (acc, u) => { const c = userCohortOf(u); acc[c] = (acc[c] || 0) + 1; return acc; },
-    { subscribers: 0, team: 0, trial: 0, churned: 0, waitlist: 0, none: 0 } as Record<string, number>,
+    { subscribers: 0, team: 0, comped: 0, trial: 0, churned: 0, waitlist: 0, none: 0 } as Record<string, number>,
   );
 
   const filteredUsers = users.filter(user => {
@@ -2129,6 +2134,7 @@ export function AdminDashboard() {
                     { id: 'subscribers', label: 'Subscribers', count: cohortCounts.subscribers },
                     { id: 'trial', label: 'Trial', count: cohortCounts.trial },
                     { id: 'team', label: 'Team seats', count: cohortCounts.team },
+                    { id: 'comped', label: 'Comped', count: cohortCounts.comped },
                     { id: 'churned', label: 'Churned', count: cohortCounts.churned },
                     { id: 'waitlist', label: 'Waitlist', count: cohortCounts.waitlist },
                     { id: 'all', label: 'All', count: users.length },
