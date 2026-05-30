@@ -3772,7 +3772,8 @@ app.post("/make-server-a8b2511f/admin/users/plan", async (c) => {
       return c.json({ error: 'Unauthorized' }, 403);
     }
     
-    const { userId, userEmail, plan, charge, interval } = await c.req.json();
+    const body = await c.req.json();
+    const { userId, userEmail, plan, charge, interval } = body;
     if (!userId || !plan) return c.json({ error: "User ID and plan required" }, 400);
     if (!['growth', 'scale', 'enterprise'].includes(plan)) {
       return c.json({ error: "Invalid plan. Use growth, scale, or enterprise." }, 400);
