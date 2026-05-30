@@ -1150,6 +1150,9 @@ export function AdminDashboard() {
   const [inspectingUserId, setInspectingUserId] = useState<string | null>(null);
   const [detailUser, setDetailUser] = useState<User | null>(null);
   const [showOnlyAtRisk, setShowOnlyAtRisk] = useState(false);
+  // Cohort filter for the Active Users tab. Defaults to "subscribers" so the
+  // big list of waitlist/never-paid noise is hidden until an admin asks for it.
+  const [userCohort, setUserCohort] = useState<'subscribers' | 'trial' | 'churned' | 'waitlist' | 'all'>('subscribers');
 
   // Lead tracking
   const [totalLeads, setTotalLeads] = useState(0);
@@ -1662,8 +1665,32 @@ export function AdminDashboard() {
   );
 
   const atRiskUsers = users.filter((u) => u.billing?.at_risk);
+
+  // Categorize a user into a single cohort bucket. Mirrors the planLabel
+  // resolver in the row renderer so the filter chips match the row badges.
+  function userCohortOf(user: User): 'subscribers' | 'trial' | 'churned' | 'waitlist' | 'none' {
+    const rawPlan = String(user.subscription?.plan || '').toLowerCase();
+    const rawStatus = String(user.subscription?.status || '').toLowerCase();
+    const paidStatuses = new Set(['active', 'past_due', 'unpaid', 'paused']);
+    if (rawPlan && rawPlan !== 'none' && rawPlan !== 'waitlist' && paidStatuses.has(rawStatus)) return 'subscribers';
+    if (rawStatus === 'trialing') return 'trial';
+    if (rawStatus === 'canceled' || rawStatus === 'cancelled' || rawStatus === 'incomplete' || rawStatus === 'incomplete_expired') return 'churned';
+    if (rawStatus === 'pending' || rawPlan === 'waitlist') return 'waitlist';
+    // Has a paid plan name but no recognized status — treat as subscriber (legacy)
+    if (rawPlan && rawPlan !== 'none' && rawPlan !== 'waitlist') return 'subscribers';
+    return 'none';
+  }
+
+  const cohortCounts = users.reduce(
+    (acc, u) => { const c = userCohortOf(u); acc[c] = (acc[c] || 0) + 1; return acc; },
+    { subscribers: 0, trial: 0, churned: 0, waitlist: 0, none: 0 } as Record<string, number>,
+  );
+
   const filteredUsers = users.filter(user => {
     if (showOnlyAtRisk && !user.billing?.at_risk) return false;
+    if (userCohort !== 'all') {
+      if (userCohortOf(user) !== userCohort) return false;
+    }
     return (
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.user_metadata?.name?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -2092,6 +2119,32 @@ export function AdminDashboard() {
                       </p>
                     )}
                   </button>
+                </div>
+                {/* Cohort filter — default to Subscribers so waitlist/none noise stays hidden */}
+                <div className="mb-3 flex items-center gap-1.5 flex-wrap">
+                  {([
+                    { id: 'subscribers', label: 'Subscribers', count: cohortCounts.subscribers },
+                    { id: 'trial', label: 'Trial', count: cohortCounts.trial },
+                    { id: 'churned', label: 'Churned', count: cohortCounts.churned },
+                    { id: 'waitlist', label: 'Waitlist', count: cohortCounts.waitlist },
+                    { id: 'all', label: 'All', count: users.length },
+                  ] as const).map(chip => {
+                    const active = userCohort === chip.id;
+                    return (
+                      <button
+                        key={chip.id}
+                        onClick={() => setUserCohort(chip.id)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                          active
+                            ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 border-zinc-900 dark:border-zinc-100'
+                            : 'bg-white dark:bg-black text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900'
+                        }`}
+                      >
+                        <span>{chip.label}</span>
+                        <span className={`tabular-nums text-[10px] ${active ? 'opacity-70' : 'text-zinc-400 dark:text-zinc-600'}`}>{chip.count}</span>
+                      </button>
+                    );
+                  })}
                 </div>
                 {showOnlyAtRisk && atRiskUsers.length > 0 && (
                   <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
