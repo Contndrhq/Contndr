@@ -1152,7 +1152,7 @@ export function AdminDashboard() {
   const [showOnlyAtRisk, setShowOnlyAtRisk] = useState(false);
   // Cohort filter for the Active Users tab. Defaults to "subscribers" so the
   // big list of waitlist/never-paid noise is hidden until an admin asks for it.
-  const [userCohort, setUserCohort] = useState<'subscribers' | 'trial' | 'churned' | 'waitlist' | 'all'>('subscribers');
+  const [userCohort, setUserCohort] = useState<'subscribers' | 'team' | 'trial' | 'churned' | 'waitlist' | 'all'>('subscribers');
 
   // Lead tracking
   const [totalLeads, setTotalLeads] = useState(0);
@@ -1668,9 +1668,12 @@ export function AdminDashboard() {
 
   // Categorize a user into a single cohort bucket. Mirrors the planLabel
   // resolver in the row renderer so the filter chips match the row badges.
-  function userCohortOf(user: User): 'subscribers' | 'trial' | 'churned' | 'waitlist' | 'none' {
+  function userCohortOf(user: User): 'subscribers' | 'team' | 'trial' | 'churned' | 'waitlist' | 'none' {
     const rawPlan = String(user.subscription?.plan || '').toLowerCase();
     const rawStatus = String(user.subscription?.status || '').toLowerCase();
+    // Team members ride on an owner's seat — they don't pay, so they don't
+    // belong in the Subscribers bucket even though they have a plan attached.
+    if (user.subscription?.isTeamMember) return 'team';
     const paidStatuses = new Set(['active', 'past_due', 'unpaid', 'paused']);
     if (rawPlan && rawPlan !== 'none' && rawPlan !== 'waitlist' && paidStatuses.has(rawStatus)) return 'subscribers';
     if (rawStatus === 'trialing') return 'trial';
@@ -1683,7 +1686,7 @@ export function AdminDashboard() {
 
   const cohortCounts = users.reduce(
     (acc, u) => { const c = userCohortOf(u); acc[c] = (acc[c] || 0) + 1; return acc; },
-    { subscribers: 0, trial: 0, churned: 0, waitlist: 0, none: 0 } as Record<string, number>,
+    { subscribers: 0, team: 0, trial: 0, churned: 0, waitlist: 0, none: 0 } as Record<string, number>,
   );
 
   const filteredUsers = users.filter(user => {
@@ -2125,6 +2128,7 @@ export function AdminDashboard() {
                   {([
                     { id: 'subscribers', label: 'Subscribers', count: cohortCounts.subscribers },
                     { id: 'trial', label: 'Trial', count: cohortCounts.trial },
+                    { id: 'team', label: 'Team seats', count: cohortCounts.team },
                     { id: 'churned', label: 'Churned', count: cohortCounts.churned },
                     { id: 'waitlist', label: 'Waitlist', count: cohortCounts.waitlist },
                     { id: 'all', label: 'All', count: users.length },
