@@ -1653,6 +1653,15 @@ function AppContent() {
         const isStaleToken = error.message?.includes('Refresh Token Not Found') ||
                              error.message?.includes('Invalid Refresh Token');
         if (isStaleToken) {
+          // Race-recovery: another concurrent caller (the Supabase auto-refresh,
+          // or a sibling fetch) may have just rotated the refresh token. Wait
+          // a beat and re-check before signing the user out.
+          await new Promise(r => setTimeout(r, 750));
+          const { data: recheck } = await supabase.auth.getSession();
+          if (recheck.session?.access_token) {
+            console.log('[AUTH] Periodic check raced with another refresh — session is valid, no sign-out');
+            return;
+          }
           console.log('[AUTH] Periodic check: stale session detected, clearing...');
           silentSignOutRef.current = true;
           await supabase.auth.signOut({ scope: 'local' });

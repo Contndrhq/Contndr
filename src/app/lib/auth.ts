@@ -38,11 +38,25 @@ async function refreshSessionOnce(): Promise<string | null> {
                              refreshError.message?.includes('Auth session missing');
 
         if (isStaleToken) {
+          // RACE-RECOVERY: a "Refresh Token Not Found" can mean either
+          //   (a) the refresh token is genuinely stale → sign out, OR
+          //   (b) another concurrent caller (e.g. Supabase's internal
+          //       autoRefreshToken, or a sibling tab) already rotated the
+          //       token, so the rotated value is sitting in storage right
+          //       now and a fresh getSession() will return a valid token.
+          // Check (b) first before nuking the session.
+          try {
+            const { data: recheck } = await supabase.auth.getSession();
+            if (recheck.session?.access_token) {
+              console.log('[AUTH] Refresh raced with another caller — recovered token from storage');
+              return recheck.session.access_token;
+            }
+          } catch {}
+
           console.log('[AUTH] Refresh token invalid or expired, clearing local session...');
           await supabase.auth.signOut({ scope: 'local' });
-          // Dispatch event to notify app that session is invalid
-          window.dispatchEvent(new CustomEvent('auth:session-expired', { 
-            detail: { reason: 'Token refresh failed: ' + refreshError.message } 
+          window.dispatchEvent(new CustomEvent('auth:session-expired', {
+            detail: { reason: 'Token refresh failed: ' + refreshError.message }
           }));
         } else {
           console.warn('[AUTH] Error refreshing session:', refreshError.message);
@@ -128,13 +142,18 @@ export async function getAuthToken(): Promise<string | null> {
       return null;
     }
     
-    // Check if session is expired or close to expiring (within 10 minutes for more aggressive refresh)
-    // Always refresh if we don't have expires_at or if the token is expired/expiring
+    // Only manually refresh when the token is ACTUALLY expired or expiring
+    // within 30 seconds. Supabase's `autoRefreshToken: true` already handles
+    // proactive refresh well before expiry; if we also refresh aggressively
+    // here (e.g. 10 min ahead), the two refresh loops race each other and
+    // rotate the refresh token concurrently — whichever call wins leaves
+    // the other with "Refresh Token Not Found" → user gets signed out. The
+    // 30s buffer is small enough to never race autoRefresh, large enough
+    // to cover the round-trip of the request we're about to make.
     const shouldRefresh = !data.session.expires_at || (() => {
-      const expiresAt = data.session.expires_at * 1000; // Convert to milliseconds
+      const expiresAt = data.session.expires_at * 1000;
       const now = Date.now();
-      // Refresh if already expired OR expiring within 10 minutes (increased from 5)
-      return expiresAt < now + 600000;
+      return expiresAt < now + 30000;
     })();
     
     if (shouldRefresh) {
