@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Sun, Moon, Monitor, Check, Bell, BellOff, Layout, Columns3, Eye, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+import { CheckboxToggle } from './CheckboxToggle';
 
 type ThemeOption = 'light' | 'dark' | 'system';
 type DensityOption = 'comfortable' | 'compact';
@@ -373,46 +374,5 @@ export function PreferencesSettings() {
 
 /* ── Premium Toggle Switch ── */
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  // Inline styles override WKWebView's native button appearance which
-  // otherwise breaks the pill shape on iOS app builds.
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex items-center shrink-0 ${
-        checked ? 'bg-zinc-900 dark:bg-white' : 'bg-zinc-200 dark:bg-white/[0.12]'
-      }`}
-      style={{
-        width: 44,
-        height: 24,
-        borderRadius: 9999,
-        border: 0,
-        padding: 0,
-        cursor: 'pointer',
-        transition: 'background-color 200ms ease',
-        WebkitAppearance: 'none',
-        appearance: 'none',
-        WebkitTapHighlightColor: 'transparent',
-        outline: 'none',
-        boxShadow: 'none',
-        flexShrink: 0,
-      }}
-    >
-      <span
-        aria-hidden
-        style={{
-          display: 'block',
-          width: 18,
-          height: 18,
-          borderRadius: 9999,
-          backgroundColor: '#fff',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-          transform: `translateX(${checked ? 23 : 3}px)`,
-          transition: 'transform 200ms ease',
-        }}
-      />
-    </button>
-  );
+  return <CheckboxToggle checked={checked} onChange={onChange} />;
 }
