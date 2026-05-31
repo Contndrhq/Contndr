@@ -1002,9 +1002,14 @@ export function UserDetailSheet({
           )}
         </div>
 
-        {/* Actions footer */}
-        <div className="flex-shrink-0 border-t border-zinc-200 dark:border-white/10 px-4 sm:px-6 py-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {/* Actions footer — 3-col grid on mobile with icon-over-label so all 9
+            actions stay visible in ~3 short rows instead of a giant 5-row block.
+            Safe-area padding so the last row clears the iPhone home indicator. */}
+        <div
+          className="flex-shrink-0 border-t border-zinc-200 dark:border-white/10 px-3 sm:px-6 py-2 sm:py-3"
+          style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+        >
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
             <ActionBtn
               onClick={sendApprovalEmail}
               icon={sendingApproval ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
@@ -1132,7 +1137,9 @@ function KV({
 function ActionBtn({
   children, icon, onClick, variant,
 }: { children: React.ReactNode; icon?: React.ReactNode; onClick: () => void; variant?: 'amber' | 'danger' | 'primary' }) {
-  const base = 'px-2.5 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap';
+  // Mobile: icon stacked over a tiny label (compact, fits 3-up). Desktop:
+  // icon + label inline (the original pill look).
+  const base = 'rounded-lg font-medium flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap text-[10px] sm:text-xs px-2 py-2 sm:px-2.5 sm:py-2';
   const cls = variant === 'danger'
     ? 'bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20'
     : variant === 'amber'
@@ -1142,7 +1149,7 @@ function ActionBtn({
     : 'bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-white/10';
   return (
     <button onClick={onClick} className={`${base} ${cls}`}>
-      {icon}{children}
+      {icon}<span className="truncate">{children}</span>
     </button>
   );
 }
