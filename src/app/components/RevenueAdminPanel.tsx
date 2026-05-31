@@ -159,34 +159,34 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
                   <card.icon className="w-3.5 h-3.5 text-gray-400 dark:text-zinc-600" />
                   <span className="text-[10px] text-gray-500 dark:text-zinc-500 font-medium uppercase tracking-wider">{card.label}</span>
                 </div>
-                <p className={`text-2xl font-bold ${card.accent ? 'text-[#1ED4A7]' : 'text-gray-900 dark:text-white'}`}>{card.value}</p>
+                <p className={`text-xl sm:text-2xl font-bold tabular-nums truncate ${card.accent ? 'text-[#1ED4A7]' : 'text-gray-900 dark:text-white'}`}>{card.value}</p>
                 <p className="text-[10px] text-gray-400 dark:text-zinc-600 mt-1">{card.sub}</p>
               </div>
             ))}
           </div>
 
-          {/* Plan breakdown cards */}
-          <div className="grid grid-cols-3 gap-3 flex-shrink-0">
+          {/* Plan breakdown cards — stack vertically on mobile so dollar amounts have room */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-shrink-0">
             {(['growth', 'scale', 'enterprise'] as const).map(plan => {
               const pb = summary.plan_breakdown?.[plan] || { count: 0, mrr: 0 };
               const price = plan === 'growth' ? 499 : plan === 'scale' ? 999 : 2500;
               return (
                 <div key={plan} className="bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 rounded-xl p-3.5 shadow-sm dark:shadow-none">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border capitalize bg-gray-100 text-gray-700 border-gray-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800 flex-shrink-0">
                       {plan}
                     </span>
-                    <span className="text-[10px] text-gray-400 dark:text-zinc-600 font-mono">
+                    <span className="text-[10px] text-gray-400 dark:text-zinc-600 font-mono truncate">
                       list ${price}/mo
                     </span>
                   </div>
-                  <div className="flex items-end justify-between">
-                    <div>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">{pb.count || 0}</p>
+                  <div className="flex items-end justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">{pb.count || 0}</p>
                       <p className="text-[10px] text-gray-400 dark:text-zinc-600">subscribers</p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">${(pb.mrr || 0).toLocaleString()}</p>
+                    <div className="text-right min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white tabular-nums truncate">${(pb.mrr || 0).toLocaleString()}</p>
                       <p className="text-[10px] text-gray-400 dark:text-zinc-600">MRR</p>
                     </div>
                   </div>
@@ -203,7 +203,7 @@ export function RevenueAdminPanel({ searchTerm }: { searchTerm: string }) {
           <div className="text-[10px] text-gray-500 dark:text-zinc-500 font-mono uppercase tracking-wider">
             All Subscribers
           </div>
-          <div className="flex items-center gap-2 overflow-x-auto">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-0.5 p-0.5 bg-gray-100 dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
               {(['all', 'active', 'canceled'] as const).map(f => (
                 <button

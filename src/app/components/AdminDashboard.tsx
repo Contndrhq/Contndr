@@ -99,11 +99,15 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
   const isGrowthOrEnterprise = planLabel === 'growth' || planLabel === 'enterprise';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4" onClick={onClose}>
       <div
-        className="bg-white dark:bg-black rounded-2xl border border-zinc-200 dark:border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden"
+        className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full sm:max-w-lg max-h-[90vh] sm:max-h-[85vh] flex flex-col overflow-hidden modal-as-bottom-sheet sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Mobile drag handle */}
+        <div className="sm:hidden flex justify-center pt-2 pb-1 shrink-0">
+          <div className="w-9 h-1 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+        </div>
         {/* Header */}
         <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -121,7 +125,7 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-5 h-5 text-zinc-600 animate-spin" />
@@ -2827,8 +2831,8 @@ export function AdminDashboard() {
 
       {/* Inspect KV Data Modal */}
       {inspectingUserId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-black p-6 rounded-2xl border border-gray-200 dark:border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-lg relative overflow-hidden max-h-[80vh] flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-black p-4 sm:p-6 sm:rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-2xl w-full sm:max-w-lg relative overflow-hidden max-h-[90vh] sm:max-h-[80vh] flex flex-col modal-as-bottom-sheet">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
                 <Eye className="w-5 h-5 text-zinc-500" /> Inspect User KV
