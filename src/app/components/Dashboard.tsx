@@ -137,12 +137,15 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
   const [loading, setLoading] = useState(isDemoMode ? false : !snapshot);
   const [upcomingFollowUps, setUpcomingFollowUps] = useState<any[]>(isDemoMode ? DEMO_FOLLOW_UPS : (snapshot?.upcomingFollowUps ?? []));
   const [refreshing, setRefreshing] = useState(false);
-  // Today panel is the home screen — the existing detailed dashboard lives
-  // behind a toggle and is hidden by default to stop competing for attention.
-  // Persist the user's choice so power-users who want the full view always
-  // see it without re-toggling on every visit.
+  // The full dashboard is shown by default — Today sits above it as a
+  // compact strip of urgent signals. Users can collapse the historical
+  // metrics if they want a focus-only view, and we persist that choice.
   const [showFullDashboard, setShowFullDashboard] = useState<boolean>(() => {
-    try { return localStorage.getItem('contndr:dashboard:showFull') === '1'; } catch { return false; }
+    try {
+      const saved = localStorage.getItem('contndr:dashboard:showFull');
+      // Default to expanded; only honor a saved "0" (user explicitly collapsed it)
+      return saved === '0' ? false : true;
+    } catch { return true; }
   });
   useEffect(() => {
     try { localStorage.setItem('contndr:dashboard:showFull', showFullDashboard ? '1' : '0'); } catch {}
@@ -619,22 +622,25 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
       {/* Scrollable Content */}
       <div className="px-4 py-3 sm:px-6 sm:py-6 bg-transparent pb-[calc(env(safe-area-inset-bottom,20px)+20px)] sm:pb-6 flex-1 min-h-0 flex flex-col gap-3 sm:gap-6">
         {/* ─── TODAY PANEL ─────────────────────────────────────────────
-           The 3-5 things that matter right now. Lives at the very top so
-           the user sees what to ACT on before any historical chart. The
-           rest of the dashboard collapses below a toggle so it doesn't
-           compete for attention but stays one click away. */}
+           The 3-5 things that matter right now — live visitors, replies,
+           missed calls, etc. Sits above the historical dashboard so the
+           user sees what to ACT on first. The full dashboard renders
+           below by default; the "Focus mode" toggle hides it for users
+           who only want the live signals. */}
         <TodayPanel onNavigate={onNavigate} />
 
-        <button
-          type="button"
-          onClick={() => setShowFullDashboard(v => !v)}
-          className="self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-[12.5px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-          aria-expanded={showFullDashboard}
-        >
-          <BarChart3 className="w-3.5 h-3.5" />
-          {showFullDashboard ? 'Hide detailed dashboard' : 'Show detailed dashboard'}
-          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showFullDashboard ? 'rotate-180' : ''}`} />
-        </button>
+        {!showFullDashboard && (
+          <button
+            type="button"
+            onClick={() => setShowFullDashboard(true)}
+            className="self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-[12.5px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            aria-expanded={showFullDashboard}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            Show full dashboard
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+        )}
 
         {showFullDashboard && (
         <>
@@ -753,6 +759,17 @@ export function Dashboard({ onNavigate, subscriptionStatus, onUpgrade }: Dashboa
                <DashboardEngagementHeatmap brandFilter={selectedBrand} dateRange={dateRange} />
             </div>
           </div>
+
+          {/* Focus-mode opt-out — collapses the full dashboard so only the
+              Today panel renders. Persists across sessions. */}
+          <button
+            type="button"
+            onClick={() => setShowFullDashboard(false)}
+            className="self-start mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-medium text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
+          >
+            <ChevronDown className="w-3.5 h-3.5 rotate-180" />
+            Hide full dashboard (focus mode)
+          </button>
         </>
         )}
         </div>
@@ -777,11 +794,15 @@ function getPresetDateRange(days: number): DashboardDateRange {
   const end = new Date();
   const start = new Date(end);
   start.setDate(end.getDate() - days);
+  // days=0 means "today only" — same start and end
   return { start: getLocalDateString(start), end: getLocalDateString(end) };
 }
 
 function formatDashboardDateRange(range: DashboardDateRange) {
   if (isAllTimeRange(range)) return 'All time';
+  const today = getLocalDateString(new Date());
+  // "Today" preset → human label so the chip doesn't just show today's date
+  if (range.start === today && range.end === today) return 'Today';
   const start = new Date(`${range.start}T12:00:00`);
   const end = new Date(`${range.end}T12:00:00`);
   const month = new Intl.DateTimeFormat(undefined, { month: 'short' });
@@ -864,12 +885,13 @@ function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRan
         <ChevronDown className="w-3.5 h-3.5 text-zinc-500 transition-transform group-open:rotate-180" />
       </summary>
       <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-72 rounded-2xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-zinc-950 shadow-xl p-3">
-        <div className="grid grid-cols-4 gap-2 mb-3">
+        <div className="grid grid-cols-5 gap-2 mb-3">
           {[
-            { label: 'All', range: getDefaultDashboardDateRange() },
+            { label: 'Today', range: getPresetDateRange(0) },
             { label: '7D', range: getPresetDateRange(7) },
             { label: '30D', range: getPresetDateRange(30) },
             { label: '90D', range: getPresetDateRange(90) },
+            { label: 'All', range: getDefaultDashboardDateRange() },
           ].map((preset) => {
             const active = isActivePreset(preset.range);
             return (
