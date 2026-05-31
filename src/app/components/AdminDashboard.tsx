@@ -2655,13 +2655,20 @@ export function AdminDashboard() {
       {/* Change Plan Modal */}
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-black p-6 rounded-t-2xl sm:rounded-2xl border-t sm:border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-sm relative overflow-y-auto max-h-[92vh] pb-[max(env(safe-area-inset-bottom),24px)]">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-bold text-white">Change Plan</h3>
-              <button onClick={() => setEditingUser(null)} className="text-zinc-400 hover:text-white transition-colors">
+          <div className="bg-white dark:bg-black rounded-t-2xl sm:rounded-2xl border-t sm:border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-sm relative flex flex-col max-h-[92vh] overflow-hidden">
+            {/* Mobile drag handle */}
+            <div className="sm:hidden flex justify-center pt-2 pb-1 shrink-0">
+              <div className="w-9 h-1 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+            </div>
+            {/* Sticky header — never scrolls so the title is always visible */}
+            <div className="flex items-center justify-between px-6 pt-4 sm:pt-6 pb-3 shrink-0 border-b border-zinc-200 dark:border-zinc-800">
+              <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Change Plan</h3>
+              <button onClick={() => setEditingUser(null)} className="text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
+            {/* Scrollable body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 1.5rem)' }}>
 
             <div className="mb-6">
               <p className="text-sm text-zinc-400 mb-4">
@@ -2801,6 +2808,7 @@ export function AdminDashboard() {
                   </div>
                 </div>
               </button>
+            </div>
             </div>
           </div>
         </div>
