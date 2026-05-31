@@ -24,9 +24,10 @@ import { AdminPanelErrorBoundary } from './AdminPanelErrorBoundary';
 import { AdminCallsPanel } from './AdminCallsPanel';
 import { AuditLogPanel } from './AuditLogPanel';
 import { confirmAsync } from './ConfirmDialog';
+import { SheetHeader } from './ui/sheet-header';
 
 // ─── Admin Credit Management Modal ──────────────────────────────────
-function AdminCreditModal({ user, onClose }: { user: { id: string; email: string; user_metadata: any; subscription: any }; onClose: () => void }) {
+function AdminCreditModal({ user, onClose, onBack }: { user: { id: string; email: string; user_metadata: any; subscription: any }; onClose: () => void; onBack?: () => void }) {
   const [loading, setLoading] = useState(true);
   const [credits, setCredits] = useState<any>(null);
   const [log, setLog] = useState<any[]>([]);
@@ -99,30 +100,17 @@ function AdminCreditModal({ user, onClose }: { user: { id: string; email: string
   const isGrowthOrEnterprise = planLabel === 'growth' || planLabel === 'enterprise';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4" onClick={onClose}>
       <div
         className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full sm:max-w-lg max-h-[90vh] sm:max-h-[85vh] flex flex-col overflow-hidden modal-as-bottom-sheet sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Mobile drag handle */}
-        <div className="sm:hidden flex justify-center pt-2 pb-1 shrink-0">
-          <div className="w-9 h-1 rounded-full bg-zinc-300 dark:bg-zinc-700" />
-        </div>
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
-              <Zap className="w-4 h-4 text-amber-400" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">AI Credits</h3>
-              <p className="text-[11px] text-zinc-500 truncate">{user.user_metadata?.name || user.email}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        <SheetHeader
+          eyebrow="AI Credits"
+          title={user.user_metadata?.name || user.email}
+          onBack={onBack}
+          onClose={onClose}
+        />
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -2654,19 +2642,14 @@ export function AdminDashboard() {
 
       {/* Change Plan Modal */}
       {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-black rounded-t-2xl sm:rounded-2xl border-t sm:border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-sm relative flex flex-col max-h-[92vh] overflow-hidden">
-            {/* Mobile drag handle */}
-            <div className="sm:hidden flex justify-center pt-2 pb-1 shrink-0">
-              <div className="w-9 h-1 rounded-full bg-zinc-300 dark:bg-zinc-700" />
-            </div>
-            {/* Sticky header — never scrolls so the title is always visible */}
-            <div className="flex items-center justify-between px-6 pt-4 sm:pt-6 pb-3 shrink-0 border-b border-zinc-200 dark:border-zinc-800">
-              <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Change Plan</h3>
-              <button onClick={() => setEditingUser(null)} className="text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+            <SheetHeader
+              eyebrow="Change Plan"
+              title={editingUser.email}
+              onBack={detailUser?.id === editingUser.id ? () => setEditingUser(null) : undefined}
+              onClose={() => setEditingUser(null)}
+            />
             {/* Scrollable body */}
             <div className="flex-1 overflow-y-auto px-6 py-5" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 1.5rem)' }}>
 
@@ -2814,20 +2797,17 @@ export function AdminDashboard() {
         </div>
       )}
 
-      {/* Admin Credit Modal */}
-      {creditUser && (
-        <AdminCreditModal user={creditUser} onClose={() => setCreditUser(null)} />
-      )}
-
-      {/* User Detail Sheet (enterprise view) */}
+      {/* User Detail Sheet (enterprise view) — render BEFORE child overlays so
+          child z-[60] stacks over this z-50 cleanly. Child overlays no longer
+          close detailUser so the user can return to it via the back chevron. */}
       {detailUser && (
         <UserDetailSheet
           userId={detailUser.id}
           userEmail={detailUser.email}
           onClose={() => setDetailUser(null)}
-          onEditPlan={() => { setEditingUser(detailUser); setDetailUser(null); }}
-          onManageCredits={() => { setCreditUser(detailUser); setDetailUser(null); }}
-          onInspectKv={() => { handleInspectUser(detailUser.id); setDetailUser(null); }}
+          onEditPlan={() => { setEditingUser(detailUser); }}
+          onManageCredits={() => { setCreditUser(detailUser); }}
+          onInspectKv={() => { handleInspectUser(detailUser.id); }}
           onPromoteAdmin={() => { handlePromoteAdmin(detailUser.id); }}
           onRevoke={detailUser.subscription?.status === 'active' && detailUser.subscription?.plan
             ? () => { handleRevokeSubscription(detailUser.id, detailUser.email, detailUser.subscription!.plan); }
@@ -2837,23 +2817,32 @@ export function AdminDashboard() {
         />
       )}
 
+      {/* Admin Credit Modal — renders on top of UserDetailSheet when launched
+          from it. Back chevron returns to the sheet; X closes everything. */}
+      {creditUser && (
+        <AdminCreditModal
+          user={creditUser}
+          onClose={() => setCreditUser(null)}
+          onBack={detailUser?.id === creditUser.id ? () => setCreditUser(null) : undefined}
+        />
+      )}
+
       {/* Inspect KV Data Modal */}
       {inspectingUserId && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-black p-4 sm:p-6 sm:rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-2xl w-full sm:max-w-lg relative overflow-hidden max-h-[90vh] sm:max-h-[80vh] flex flex-col modal-as-bottom-sheet">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <Eye className="w-5 h-5 text-zinc-500" /> Inspect User KV
-              </h3>
-              <button onClick={() => { setInspectingUserId(null); setInspectData(null); }} className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-black sm:rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-2xl w-full sm:max-w-lg relative overflow-hidden max-h-[90vh] sm:max-h-[80vh] flex flex-col modal-as-bottom-sheet">
+            <SheetHeader
+              eyebrow="Inspect KV"
+              title={inspectData?.user?.email || 'User KV'}
+              onBack={detailUser?.id === inspectingUserId ? () => { setInspectingUserId(null); setInspectData(null); } : undefined}
+              onClose={() => { setInspectingUserId(null); setInspectData(null); }}
+            />
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 1rem)' }}>
             <div className="text-[10px] font-mono text-gray-500 dark:text-zinc-500 mb-3 break-all">
               {inspectingUserId}
             </div>
             {inspectData ? (
-              <div className="overflow-auto flex-1 space-y-3">
+              <div className="space-y-3">
                 {Object.entries(inspectData).filter(([k]) => k !== 'userId').map(([key, value]) => (
                   <div key={key} className="bg-gray-50 dark:bg-zinc-950 rounded-xl border border-gray-200 dark:border-zinc-200 dark:border-zinc-800 p-3">
                     <div className="text-[10px] font-mono font-bold text-gray-700 dark:text-zinc-300 mb-1.5 uppercase tracking-wider">{key}</div>
@@ -2872,6 +2861,7 @@ export function AdminDashboard() {
                 <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading KV data...
               </div>
             )}
+            </div>
           </div>
         </div>
       )}

@@ -435,9 +435,9 @@ export function TrackingSettings() {
 
       {/* ─── Add Website Modal ──────────────────────────── */}
       {showAddForm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center sm:p-4">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-[2px]" onClick={() => setShowAddForm(false)} />
-          <div className="relative w-full max-w-sm bg-white dark:bg-[#0A0A0A] rounded-xl shadow-xl border border-zinc-200 dark:border-zinc-800">
+          <div className="relative w-full sm:max-w-sm bg-white dark:bg-[#0A0A0A] rounded-t-2xl sm:rounded-xl shadow-xl border-t sm:border border-zinc-200 dark:border-zinc-800" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
             <div className="flex items-center justify-between px-5 pt-5">
               <h3 className="text-[15px] font-semibold text-zinc-900 dark:text-white">{t('tracking.addWebsite')}</h3>
               <button onClick={() => setShowAddForm(false)} className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors rounded-md">

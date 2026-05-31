@@ -46,7 +46,7 @@ export function OAuthResultModal({
   return (
     <AnimatePresence>
       <div
-        className="fixed inset-0 z-[100] flex items-center justify-center"
+        className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center"
         onClick={onClose}
       >
         {/* Backdrop */}
@@ -65,7 +65,8 @@ export function OAuthResultModal({
           exit={{ opacity: 0, scale: 0.92, y: 12 }}
           transition={{ type: 'spring', damping: 26, stiffness: 300 }}
           onClick={(e) => e.stopPropagation()}
-          className="relative bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl p-8 max-w-sm w-full mx-4 text-center overflow-hidden"
+          className="relative bg-white dark:bg-zinc-900 rounded-t-2xl sm:rounded-2xl border-t sm:border border-zinc-200 dark:border-white/10 shadow-2xl p-8 sm:max-w-sm w-full sm:mx-4 text-center overflow-hidden"
+          style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 2rem)' }}
         >
           {/* Close button */}
           <button

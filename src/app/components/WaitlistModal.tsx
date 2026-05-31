@@ -112,7 +112,7 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6">
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-4 md:p-6">
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -126,7 +126,8 @@ export function WaitlistModal({ isOpen, onClose, onSkipToDemo }: WaitlistModalPr
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-        className="relative w-full max-w-lg max-h-[calc(100dvh-2rem)] bg-[#080808] border border-white/10 rounded-3xl shadow-2xl overflow-y-auto"
+        className="relative w-full sm:max-w-lg max-h-[92vh] sm:max-h-[calc(100dvh-2rem)] bg-[#080808] border-t sm:border border-white/10 rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-y-auto"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {/* Close Button */}
         <button

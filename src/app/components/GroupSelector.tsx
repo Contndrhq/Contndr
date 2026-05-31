@@ -78,12 +78,12 @@ export function GroupSelector({ onClose, selectedLeadIds, onSuccess }: GroupSele
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 animate-fade-in">
-      <div 
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-6 animate-fade-in">
+      <div
         className="absolute inset-0 bg-black/20 dark:bg-black/60 backdrop-blur-heavy"
         onClick={onClose}
       />
-      <div className="relative w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-xl animate-scale-in border border-[var(--border)]">
+      <div className="relative w-full sm:max-w-md bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-xl shadow-xl animate-scale-in border-t sm:border border-[var(--border)] max-h-[90vh] flex flex-col" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-[var(--border)]">
           <div className="flex items-center gap-3">

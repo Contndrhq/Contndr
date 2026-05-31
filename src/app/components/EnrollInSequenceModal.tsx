@@ -88,12 +88,16 @@ export function EnrollInSequenceModal({ leadIds, leadEmails, onClose, onEnrolled
   const activeSequences = sequences.filter(s => s.status === 'active' || s.status === 'paused' || s.status === 'draft');
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal */}
-      <div className="relative bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col">
+      {/* Modal — bottom-sheet on mobile, centered card on desktop */}
+      <div className="relative bg-white dark:bg-zinc-900 rounded-t-2xl sm:rounded-2xl border-t sm:border border-zinc-200 dark:border-white/10 shadow-2xl w-full sm:max-w-lg sm:mx-4 max-h-[90vh] sm:max-h-[80vh] flex flex-col" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        {/* Mobile drag handle */}
+        <div className="sm:hidden flex justify-center pt-2 pb-1 shrink-0">
+          <div className="w-9 h-1 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+        </div>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 dark:border-white/5">
           <div>

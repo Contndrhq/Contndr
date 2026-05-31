@@ -183,8 +183,8 @@ export function AICreditsPanel({ compact = false }: { compact?: boolean }) {
 
         {/* Inline packs modal */}
         {showPacks && (
-          <div className="fixed inset-0 z-50 bg-black/40 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowPacks(false)}>
-            <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 sm:p-6 max-w-md w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 z-50 bg-black/40 dark:bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onClick={() => setShowPacks(false)}>
+            <div className="bg-white dark:bg-zinc-950 border-t sm:border border-zinc-200 dark:border-zinc-800 rounded-t-2xl sm:rounded-xl p-5 sm:p-6 sm:max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 1.5rem)' }} onClick={e => e.stopPropagation()}>
               <h3 className="text-base font-bold text-zinc-900 dark:text-white mb-5 flex items-center gap-2">
                 <ShoppingCart className="w-4 h-4 text-[#1ED4A7]" />
                 {t('aiCalls.credits.buyCreditPacks')}

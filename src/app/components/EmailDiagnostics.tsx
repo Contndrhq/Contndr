@@ -575,8 +575,8 @@ export function EmailDiagnostics() {
       </div>
       {/* Test Email Modal */}
       {showTestModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl max-w-md w-full overflow-hidden animate-scale-in border border-gray-200 dark:border-gray-800">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-xl shadow-2xl sm:max-w-md w-full overflow-hidden animate-scale-in border-t sm:border border-gray-200 dark:border-gray-800 max-h-[90vh] flex flex-col" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Send Test Email</h3>
               <button 
