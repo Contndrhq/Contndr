@@ -691,9 +691,10 @@ function ToggleSwitch({ checked, disabled, onChange }: {
   disabled?: boolean;
   onChange: (checked: boolean) => void;
 }) {
-  // Use inline styles for the moving thumb's position so production
-  // Tailwind purges can't strip the arbitrary translate values that
-  // previously made the thumb collapse into a solid pill on mobile.
+  // WKWebView applies native iOS button styling (rounded corners, background,
+  // shadow, tap highlight) that overrides our custom pill shape — making the
+  // toggle look like a giant circle. We zero those out explicitly with inline
+  // styles so the appearance is identical in browser and webview.
   return (
     <button
       type="button"
@@ -701,22 +702,38 @@ function ToggleSwitch({ checked, disabled, onChange }: {
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex items-center rounded-full transition-colors duration-200 ease-in-out shrink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
+      className={`relative inline-flex items-center shrink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
         checked
           ? 'bg-zinc-900 dark:bg-white'
           : 'bg-zinc-200 dark:bg-zinc-800'
       }`}
-      style={{ width: 44, height: 24 }}
+      style={{
+        width: 44,
+        height: 24,
+        borderRadius: 9999,
+        border: 0,
+        padding: 0,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        transition: 'background-color 200ms ease',
+        WebkitAppearance: 'none',
+        appearance: 'none',
+        WebkitTapHighlightColor: 'transparent',
+        outline: 'none',
+        boxShadow: 'none',
+        flexShrink: 0,
+      }}
     >
       <span
         aria-hidden
-        className={`block rounded-full transition-transform duration-200 ease-in-out shadow-sm ${
-          checked ? 'bg-white dark:bg-zinc-900' : 'bg-white dark:bg-zinc-400'
-        }`}
         style={{
+          display: 'block',
           width: 18,
           height: 18,
+          borderRadius: 9999,
+          backgroundColor: '#fff',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
           transform: `translateX(${checked ? 23 : 3}px)`,
+          transition: 'transform 200ms ease',
         }}
       />
     </button>

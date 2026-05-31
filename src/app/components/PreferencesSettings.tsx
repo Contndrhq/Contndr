@@ -373,24 +373,45 @@ export function PreferencesSettings() {
 
 /* ── Premium Toggle Switch ── */
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  // Inline styles override WKWebView's native button appearance which
+  // otherwise breaks the pill shape on iOS app builds.
   return (
     <button
+      type="button"
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out shrink-0 ${
-        checked
-          ? 'bg-zinc-900 dark:bg-white'
-          : 'bg-zinc-200 dark:bg-white/[0.12]'
+      className={`relative inline-flex items-center shrink-0 ${
+        checked ? 'bg-zinc-900 dark:bg-white' : 'bg-zinc-200 dark:bg-white/[0.12]'
       }`}
+      style={{
+        width: 44,
+        height: 24,
+        borderRadius: 9999,
+        border: 0,
+        padding: 0,
+        cursor: 'pointer',
+        transition: 'background-color 200ms ease',
+        WebkitAppearance: 'none',
+        appearance: 'none',
+        WebkitTapHighlightColor: 'transparent',
+        outline: 'none',
+        boxShadow: 'none',
+        flexShrink: 0,
+      }}
     >
       <span
-        className={`inline-block h-4.5 w-4.5 transform rounded-full transition-all duration-200 ease-in-out shadow-sm ${
-          checked
-            ? 'translate-x-[22px] bg-white dark:bg-zinc-900'
-            : 'translate-x-[3px] bg-white dark:bg-zinc-400'
-        }`}
-        style={{ width: 18, height: 18 }}
+        aria-hidden
+        style={{
+          display: 'block',
+          width: 18,
+          height: 18,
+          borderRadius: 9999,
+          backgroundColor: '#fff',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+          transform: `translateX(${checked ? 23 : 3}px)`,
+          transition: 'transform 200ms ease',
+        }}
       />
     </button>
   );
