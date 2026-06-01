@@ -70,6 +70,12 @@ export async function handleBounceAutoDelete(
   leadId: string,
   userId: string,
   resendId: string,
+  /**
+   * Raw Resend bounce payload. We persist the diagnostic fields so admins
+   * can later answer "why did these 10 bounce?" without re-checking Resend.
+   * Passing null is safe — older callers won't break.
+   */
+  bouncePayload?: any,
 ) {
   // Snapshot lead info for admin audit log
   const { data: leadRow } = await supabaseAdmin
@@ -77,6 +83,15 @@ export async function handleBounceAutoDelete(
     .select('email, first_name, last_name, company, contact_name, business_name')
     .eq('id', leadId)
     .single();
+
+  const bounce = bouncePayload?.data?.bounce || bouncePayload?.bounce || {};
+  const bounceMeta = {
+    type: bounce?.type || null,
+    sub_type: bounce?.subType || bounce?.sub_type || null,
+    message: bounce?.message || bounce?.diagnostic || bouncePayload?.data?.message || null,
+    diagnostic_code: bounce?.diagnostic_code || bounce?.diagnosticCode || null,
+    smtp_response: bounce?.smtp_response || bounce?.smtpResponse || null,
+  };
 
   const bounceLogKey = `bounce:${leadId}:${Date.now()}`;
   await kv.set(bounceLogKey, JSON.stringify({
@@ -88,6 +103,9 @@ export async function handleBounceAutoDelete(
     company: leadRow?.business_name || leadRow?.company || '',
     bounced_at: new Date().toISOString(),
     auto_deleted: false,
+    // Capture the actual SMTP reason so admins can diagnose patterns
+    // ("bad list", "domain block", "mailbox full", etc.) from KV alone.
+    ...bounceMeta,
   }));
 
   // Mark lead as bounced in the DB (instead of deleting)

@@ -1551,6 +1551,17 @@ export function CampaignsView({ onCreateCampaign }: CampaignsViewProps) {
                                     <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono truncate">{contact.leadEmail || '—'}</span>
                                   </div>
 
+                                  {/* Bounce reason — only for entries captured after the
+                                      webhook fix. Older bounces won't have this field. */}
+                                  {(contact.bounceMessage || contact.bounceDiagnostic || contact.bounceSubType) && (
+                                    <div className="mt-1.5 px-2 py-1 rounded-md bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-600 dark:text-rose-300">
+                                      <span className="font-semibold uppercase tracking-wider text-[9px] mr-1.5">
+                                        {contact.bounceType || 'bounce'}{contact.bounceSubType ? ` · ${contact.bounceSubType}` : ''}
+                                      </span>
+                                      <span className="break-words">{contact.bounceMessage || contact.bounceDiagnostic}</span>
+                                    </div>
+                                  )}
+
                                   {/* Row 3: Company + Title */}
                                   {(contact.leadCompany || contact.leadTitle) && (
                                     <div className="flex items-center gap-3 mt-1 flex-wrap">

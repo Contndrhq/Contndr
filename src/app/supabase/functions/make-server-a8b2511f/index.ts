@@ -15912,6 +15912,28 @@ app.get("/make-server-a8b2511f/campaigns/:id/bounced", async (c) => {
       }
     }
 
+    // Look up the bounce-reason audit log for each lead so the drill-down
+    // can surface "why" — type/subType/SMTP diagnostic captured from the
+    // Resend webhook payload at bounce time.
+    const bounceReasonByLead: Record<string, any> = {};
+    if (leadIds.length > 0) {
+      try {
+        const bounceRows = await kv.getByPrefix('bounce:') as any[];
+        for (const row of bounceRows || []) {
+          const data = typeof row === 'string' ? (() => { try { return JSON.parse(row); } catch { return null; } })() : row;
+          if (!data?.lead_id) continue;
+          if (!leadIds.includes(data.lead_id)) continue;
+          const existing = bounceReasonByLead[data.lead_id];
+          // Keep the most recent entry per lead
+          if (!existing || new Date(data.bounced_at) > new Date(existing.bounced_at)) {
+            bounceReasonByLead[data.lead_id] = data;
+          }
+        }
+      } catch (err) {
+        console.warn('[CAMPAIGNS] Could not load bounce reasons:', err);
+      }
+    }
+
     const enriched = (bouncedEmails || []).map((email: any) => {
       const lead = leadsMap[email.lead_id] || {};
       // leads table uses contact_name (not first_name/last_name) and linkedin/person_linkedin_url (not linkedin_url)
@@ -15924,6 +15946,7 @@ app.get("/make-server-a8b2511f/campaigns/:id/bounced", async (c) => {
       // every bounce shows AT LEAST the email it was sent to.
       const fallbackEmail = lead.email || email.to_email || '';
       const fallbackName = contactName || lead.business_name || (fallbackEmail ? fallbackEmail.split('@')[0] : '') || 'Unknown';
+      const bounceMeta = bounceReasonByLead[email.lead_id];
       return {
         id: email.id,
         leadId: email.lead_id,
@@ -15942,6 +15965,12 @@ app.get("/make-server-a8b2511f/campaigns/:id/bounced", async (c) => {
         sentAt: email.sent_at,
         bouncedAt: email.created_at,
         leadExists: !!leadsMap[email.lead_id],
+        // Surface the actual reason so the admin can tell at a glance
+        // whether it's bad data, reputation, or transient infra.
+        bounceType: bounceMeta?.type || null,
+        bounceSubType: bounceMeta?.sub_type || null,
+        bounceMessage: bounceMeta?.message || null,
+        bounceDiagnostic: bounceMeta?.diagnostic_code || bounceMeta?.smtp_response || null,
       };
     });
 
@@ -16249,7 +16278,9 @@ app.post("/make-server-a8b2511f/webhook/resend", async (c) => {
               .eq('resend_id', resendId)
               .single();
            if (emailData?.lead_id) {
-             await handleBounceAutoDelete(supabaseAdmin, emailData.lead_id, emailData.user_id, resendId);
+             // Pass the raw Resend payload so the bounce reason (type, subType,
+             // SMTP diagnostic) gets persisted alongside the audit log.
+             await handleBounceAutoDelete(supabaseAdmin, emailData.lead_id, emailData.user_id, resendId, payload);
            }
          } else {
            console.log(`[WEBHOOK] Soft/unknown bounce for ${resendId} (class=${bounceClass}) — logged but NOT suppressing.`);
