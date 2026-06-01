@@ -289,17 +289,33 @@ export function LeadImporter({ onClose, onImportComplete }: LeadImporterProps) {
           : s
       ));
       
-      setSuccess(`Successfully imported ${importData.total} leads!`);
-      
+      // Build a success message that surfaces both how many landed AND how
+      // many were dropped because the emails would have bounced. Silent skips
+      // were the old failure mode: users saw "imported 500" but the CSV had
+      // 700 rows because 200 silently bounced — now they know up front.
+      const parts: string[] = [`Successfully imported ${importData.total} leads`];
+      if (importData.duplicates > 0) {
+        parts.push(`${importData.duplicates} duplicate${importData.duplicates === 1 ? '' : 's'} skipped`);
+      }
+      if (importData.verification_skipped > 0) {
+        parts.push(`${importData.verification_skipped} skipped: emails would bounce (saving your sending reputation)`);
+      }
+      if (importData.verification_risky > 0) {
+        parts.push(`${importData.verification_risky} flagged as risky (role-based or weak signal — review before sending)`);
+      }
+      setSuccess(parts.join('. ') + '.');
+
       // Call the callback if provided
       if (onImportComplete) {
         onImportComplete();
       }
 
-      // Auto-close after 2 seconds on success
+      // Auto-close after 4s so the user has time to read the verification
+      // summary if it's long. Plain successes still feel fast.
+      const closeDelay = (importData.verification_skipped > 0 || importData.verification_risky > 0) ? 4000 : 2000;
       setTimeout(() => {
         onClose();
-      }, 2000);
+      }, closeDelay);
 
     } catch (err: any) {
       console.error('Error importing leads:', err);

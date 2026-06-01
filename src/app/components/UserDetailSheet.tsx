@@ -468,6 +468,62 @@ export function UserDetailSheet({
 
   const [sendingLoginLink, setSendingLoginLink] = useState(false);
   const [cleaningBounces, setCleaningBounces] = useState(false);
+  const [scanningRisk, setScanningRisk] = useState(false);
+  const [riskReport, setRiskReport] = useState<any>(null);
+  const [purgingRisk, setPurgingRisk] = useState(false);
+
+  const scanEmailRisk = async () => {
+    if (scanningRisk) return;
+    setScanningRisk(true);
+    try {
+      const r = await authenticatedFetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/${userId}/email-risk-scan`,
+        { method: 'POST' },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      setRiskReport(j);
+    } catch (e: any) {
+      toast.error(e?.message || 'Scan failed');
+    } finally {
+      setScanningRisk(false);
+    }
+  };
+
+  const purgeRiskyLeads = async (categories: ('invalid_syntax' | 'no_mx' | 'disposable')[]) => {
+    if (!riskReport || purgingRisk) return;
+    const ids = categories.flatMap(cat => riskReport.ids?.[cat] || []);
+    if (ids.length === 0) {
+      toast.info('Nothing to delete in this category');
+      return;
+    }
+    setPurgingRisk(true);
+    try {
+      const headers = await getAuthHeaders();
+      // Reuse the existing bulk-delete endpoint
+      const BATCH = 200;
+      let deleted = 0;
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const batch = ids.slice(i, i + BATCH);
+        const r = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/leads/bulk-delete`,
+          { method: 'POST', headers, body: JSON.stringify({ lead_ids: batch }) },
+        );
+        if (r.ok) {
+          const j = await r.json();
+          deleted += (j.results?.deleted || batch.length);
+        }
+      }
+      toast.success(`Deleted ${deleted} leads with bad emails`);
+      setRiskReport(null);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to delete leads');
+    } finally {
+      setPurgingRisk(false);
+    }
+  };
+
 
   const cleanBouncedLeads = async () => {
     if (cleaningBounces) return;
@@ -1061,6 +1117,12 @@ export function UserDetailSheet({
             >
               {cleaningBounces ? 'Cleaning…' : 'Clean bounces'}
             </ActionBtn>
+            <ActionBtn
+              onClick={scanEmailRisk}
+              icon={scanningRisk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+            >
+              {scanningRisk ? 'Scanning…' : 'Scan emails'}
+            </ActionBtn>
             {onPromoteAdmin && (
               <ActionBtn onClick={onPromoteAdmin} icon={<Crown className="w-3.5 h-3.5" />}>Promote</ActionBtn>
             )}
@@ -1071,6 +1133,131 @@ export function UserDetailSheet({
               <ActionBtn onClick={onDelete} icon={<X className="w-3.5 h-3.5" />} variant="danger">Delete</ActionBtn>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Email risk scan result modal — appears on top of the user sheet */}
+      {riskReport && (
+        <EmailRiskReportModal
+          report={riskReport}
+          purging={purgingRisk}
+          onPurge={purgeRiskyLeads}
+          onClose={() => setRiskReport(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function EmailRiskReportModal({
+  report,
+  purging,
+  onPurge,
+  onClose,
+}: {
+  report: any;
+  purging: boolean;
+  onPurge: (categories: ('invalid_syntax' | 'no_mx' | 'disposable')[]) => void;
+  onClose: () => void;
+}) {
+  const cats: Array<{ id: 'invalid_syntax' | 'no_mx' | 'disposable' | 'role_based' | 'risky' | 'already_bounced'; label: string; desc: string; danger?: boolean }> = [
+    { id: 'invalid_syntax', label: 'Invalid syntax', desc: 'Email address is malformed — will bounce immediately', danger: true },
+    { id: 'no_mx', label: 'No MX records', desc: 'Domain cannot receive mail — will bounce', danger: true },
+    { id: 'disposable', label: 'Disposable', desc: 'Throwaway domain (Mailinator etc.) — will bounce or be ignored', danger: true },
+    { id: 'role_based', label: 'Role-based', desc: 'info@, sales@, support@ — low engagement, often filtered' },
+    { id: 'risky', label: 'Risky / unknown', desc: 'MX is valid but signal is weak — may bounce' },
+    { id: 'already_bounced', label: 'Already bounced', desc: 'Marked as bounced from a prior send' },
+  ];
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full sm:max-w-xl max-h-[90vh] sm:max-h-[85vh] flex flex-col overflow-hidden modal-as-bottom-sheet sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sm:hidden flex justify-center pt-2 pb-1 shrink-0">
+          <div className="w-9 h-1 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+        </div>
+        <div className="px-4 sm:px-6 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-zinc-500">Email risk scan</div>
+            <div className="text-base font-semibold text-zinc-900 dark:text-white">{report.total} leads scanned</div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Headline tiles */}
+        <div className="px-4 sm:px-6 py-4 grid grid-cols-3 gap-2 shrink-0">
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-semibold">Valid</div>
+            <div className="text-xl font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">{report.valid || 0}</div>
+          </div>
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-semibold">Risky</div>
+            <div className="text-xl font-bold text-amber-700 dark:text-amber-300 tabular-nums">{report.risky || 0}</div>
+          </div>
+          <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-rose-700 dark:text-rose-400 font-semibold">Will bounce</div>
+            <div className="text-xl font-bold text-rose-700 dark:text-rose-300 tabular-nums">{report.will_bounce || 0}</div>
+          </div>
+        </div>
+
+        {/* Per-category breakdown */}
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-4">
+          <div className="space-y-2">
+            {cats.map(cat => {
+              const data = report.breakdown?.[cat.id];
+              const count = data?.count || 0;
+              if (count === 0) return null;
+              return (
+                <details key={cat.id} className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden group">
+                  <summary className="cursor-pointer px-3 py-2.5 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-950 transition-colors">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-zinc-900 dark:text-white flex items-center gap-2">
+                        {cat.label}
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${cat.danger ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400'}`}>
+                          {count}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-zinc-500 mt-0.5 truncate">{cat.desc}</div>
+                    </div>
+                    <ChevronDown className="w-4 h-4 text-zinc-400 group-open:rotate-180 transition-transform shrink-0 ml-2" />
+                  </summary>
+                  <div className="border-t border-zinc-200 dark:border-zinc-800 max-h-48 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-900">
+                    {(data.sample || []).slice(0, 30).map((e: any) => (
+                      <div key={e.id} className="px-3 py-1.5 text-xs flex items-center gap-2">
+                        <span className="font-mono text-zinc-700 dark:text-zinc-300 truncate flex-1">{e.email}</span>
+                        {e.name && <span className="text-zinc-500 truncate max-w-[140px]">{e.name}</span>}
+                      </div>
+                    ))}
+                    {count > 30 && (
+                      <div className="px-3 py-1.5 text-[11px] text-zinc-500 italic">+ {count - 30} more</div>
+                    )}
+                  </div>
+                </details>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Sticky footer — bulk-delete the three "will bounce" categories */}
+        <div className="px-4 sm:px-6 pt-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] border-t border-zinc-200 dark:border-zinc-800 shrink-0">
+          <button
+            onClick={() => onPurge(['invalid_syntax', 'no_mx', 'disposable'])}
+            disabled={purging || report.will_bounce === 0}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {purging ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertCircle className="w-4 h-4" />}
+            {purging
+              ? 'Deleting…'
+              : report.will_bounce === 0
+                ? 'No bad emails to delete'
+                : `Delete ${report.will_bounce} guaranteed-bounce lead${report.will_bounce === 1 ? '' : 's'}`}
+          </button>
+          <p className="text-[10.5px] text-zinc-500 mt-2 text-center">
+            Removes invalid syntax + no-MX + disposable. Role-based and risky stay (they may still convert).
+          </p>
         </div>
       </div>
     </div>

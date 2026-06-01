@@ -10,6 +10,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
 import { recordAuditEvent } from "./audit-log.tsx";
 import { handleBounceAutoDelete, getBouncedLeads, purgeBouncedLeads, markLeadBouncedByEmail, classifyBounce } from "./bounce-handler.tsx";
+import { verifyEmail as localVerifyEmail } from "./email-verify.tsx";
 import { checkDuplicatesAndFilter } from "./duplicate-check.tsx";
 // follow-ups.tsx — lazy-loaded on demand (transitively bundled via campaign-worker.tsx)
 import { processAutomationRule } from "./automation.tsx";
@@ -4607,6 +4608,116 @@ app.post("/make-server-a8b2511f/admin/users/:userId/delete-bounced", async (c) =
     return c.json({ success: true, deleted, sample_reasons: sampleReasons });
   } catch (error: any) {
     console.error('[ADMIN] delete-bounced error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /admin/users/:userId/email-risk-scan - Predict which leads will bounce
+//
+// Runs the local (free, DNS-only) email verifier across every lead in this
+// user's CRM that has an email. Catches the obvious problems without spending
+// a verification credit:
+//   - invalid syntax       → will bounce
+//   - disposable domain    → will bounce
+//   - no MX records        → will bounce
+//   - role-based (info@…)  → likely to be ignored / spam-foldered
+//   - free provider in B2B → low value
+//
+// Returns categorized counts + a sample of emails per category so the admin
+// can decide what to delete. A follow-up call to /delete-bounced or a new
+// bulk-delete by id handles the cleanup.
+app.post("/make-server-a8b2511f/admin/users/:userId/email-risk-scan", async (c) => {
+  try {
+    const { user: admin } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email)) return c.json({ error: 'Unauthorized' }, 403);
+
+    const userId = c.req.param('userId');
+    const supabaseAdmin = getSupabaseAdmin();
+
+    // Pull every lead with an email. We cap at 5k to keep the function
+    // execution under the CPU budget; users with more leads can run the
+    // scan in pages later if needed.
+    const { data: rows, error } = await supabaseAdmin
+      .from('leads')
+      .select('id, email, contact_name, business_name, bounced')
+      .eq('user_id', userId)
+      .not('email', 'is', null)
+      .neq('email', '')
+      .limit(5000);
+    if (error) return c.json({ error: error.message }, 500);
+
+    const buckets = {
+      already_bounced: [] as any[],
+      invalid_syntax: [] as any[],
+      no_mx: [] as any[],
+      disposable: [] as any[],
+      role_based: [] as any[],
+      risky: [] as any[],
+      valid: [] as any[],
+    };
+
+    // Run with bounded concurrency so we don't open too many DoH sockets at
+    // once. 8 is a safe ceiling for Deno Edge Functions.
+    const CONCURRENCY = 8;
+    const queue = (rows || []).slice();
+    async function worker() {
+      while (queue.length) {
+        const row = queue.shift();
+        if (!row) return;
+        try {
+          if (row.bounced) {
+            buckets.already_bounced.push({ id: row.id, email: row.email, name: row.contact_name || row.business_name });
+            continue;
+          }
+          const v = await localVerifyEmail(row.email);
+          const entry = { id: row.id, email: row.email, name: row.contact_name || row.business_name, score: v.score };
+          if (v.flags.includes('invalid_syntax')) buckets.invalid_syntax.push(entry);
+          else if (v.flags.includes('no_mx_records')) buckets.no_mx.push(entry);
+          else if (v.is_disposable) buckets.disposable.push(entry);
+          else if (v.is_role_based) buckets.role_based.push(entry);
+          else if (v.status === 'risky' || v.status === 'invalid' || v.status === 'unknown') buckets.risky.push(entry);
+          else buckets.valid.push(entry);
+        } catch {
+          // network blips → treat as unknown, not invalid (don't false-positive)
+          buckets.risky.push({ id: row.id, email: row.email, name: row.contact_name || row.business_name, score: 0 });
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+
+    const total = (rows || []).length;
+    // Each bucket's sample is capped at 50 for UI display; full IDs stay
+    // available in the buckets themselves so the admin can call
+    // /leads/bulk-delete with the full set.
+    const summary = {
+      total,
+      already_bounced: buckets.already_bounced.length,
+      will_bounce: buckets.invalid_syntax.length + buckets.no_mx.length + buckets.disposable.length,
+      risky: buckets.risky.length + buckets.role_based.length,
+      valid: buckets.valid.length,
+      breakdown: {
+        invalid_syntax: { count: buckets.invalid_syntax.length, sample: buckets.invalid_syntax.slice(0, 50) },
+        no_mx: { count: buckets.no_mx.length, sample: buckets.no_mx.slice(0, 50) },
+        disposable: { count: buckets.disposable.length, sample: buckets.disposable.slice(0, 50) },
+        role_based: { count: buckets.role_based.length, sample: buckets.role_based.slice(0, 50) },
+        risky: { count: buckets.risky.length, sample: buckets.risky.slice(0, 50) },
+        already_bounced: { count: buckets.already_bounced.length, sample: buckets.already_bounced.slice(0, 50) },
+      },
+      // Full id lists per bucket so the UI can offer "delete all invalid"
+      // without a second scan. Capped at 1k per bucket as a sanity guard.
+      ids: {
+        invalid_syntax: buckets.invalid_syntax.slice(0, 1000).map(e => e.id),
+        no_mx: buckets.no_mx.slice(0, 1000).map(e => e.id),
+        disposable: buckets.disposable.slice(0, 1000).map(e => e.id),
+        role_based: buckets.role_based.slice(0, 1000).map(e => e.id),
+        risky: buckets.risky.slice(0, 1000).map(e => e.id),
+      },
+    };
+
+    console.log(`[ADMIN] email-risk-scan for ${userId}: total=${total} will_bounce=${summary.will_bounce} risky=${summary.risky}`);
+    return c.json({ success: true, ...summary });
+  } catch (error: any) {
+    console.error('[ADMIN] email-risk-scan error:', error);
     return c.json({ error: error.message }, 500);
   }
 });
@@ -11787,7 +11898,12 @@ app.post("/make-server-a8b2511f/crm/leads/create", async (c) => {
 app.post("/make-server-a8b2511f/leads/import", async (c) => {
   let _importLockUser: string | null = null;
   try {
-    const { leads, org_id } = await c.req.json();
+    const body = await c.req.json();
+    const { leads, org_id } = body;
+    // Default ON — skip rows whose email is provably bad (invalid syntax,
+    // no MX, disposable domain). Callers can pass verify_emails=false to
+    // restore the previous behavior (e.g. when re-importing a known list).
+    const verifyEmails = body.verify_emails !== false;
 
     if (!leads || !Array.isArray(leads)) {
       return c.json({ error: "Invalid leads data" }, 400);
@@ -11836,12 +11952,12 @@ app.post("/make-server-a8b2511f/leads/import", async (c) => {
 
     // **DUPLICATE DETECTION**
     const { newLeads, duplicates, details } = await checkDuplicatesAndFilter(leadsToProcess, user.id);
-    
+
     if (newLeads.length === 0) {
       console.log('⚠️  No new leads to import (all were duplicates)');
-      return c.json({ 
-        success: true, 
-        leads: [], 
+      return c.json({
+        success: true,
+        leads: [],
         imported: 0,
         total: 0,
         duplicates,
@@ -11851,9 +11967,86 @@ app.post("/make-server-a8b2511f/leads/import", async (c) => {
       });
     }
 
+    // **EMAIL PRE-FLIGHT VERIFICATION** — protects sending reputation by
+    // dropping rows whose email is provably bad (invalid syntax, no MX,
+    // disposable). Local-only check; no per-row API cost. Risky rows
+    // (role-based, free providers) pass through but get tagged with
+    // email_status='risky' so the user can filter or skip them at send time.
+    let verificationSkipped = 0;
+    let verificationRisky = 0;
+    const verificationSkippedSamples: Array<{ email: string; reason: string }> = [];
+    let verifiedNewLeads = newLeads;
+    if (verifyEmails) {
+      const verified: any[] = [];
+      const CONCURRENCY = 8;
+      let cursor = 0;
+      async function worker() {
+        while (cursor < newLeads.length) {
+          const idx = cursor++;
+          const lead = newLeads[idx];
+          if (!lead?.email) {
+            verified.push(lead); // No email to verify — keep as-is
+            continue;
+          }
+          try {
+            const v = await localVerifyEmail(lead.email);
+            const willBounce =
+              v.flags.includes('invalid_syntax') ||
+              v.flags.includes('no_mx_records') ||
+              v.is_disposable;
+            if (willBounce) {
+              verificationSkipped++;
+              if (verificationSkippedSamples.length < 25) {
+                verificationSkippedSamples.push({
+                  email: lead.email,
+                  reason: v.flags.includes('invalid_syntax')
+                    ? 'invalid_syntax'
+                    : v.flags.includes('no_mx_records')
+                      ? 'no_mx'
+                      : 'disposable',
+                });
+              }
+              continue; // DROP — don't insert
+            }
+            if (v.status === 'risky' || v.is_role_based) {
+              verificationRisky++;
+              verified.push({ ...lead, email_status: 'risky' });
+            } else {
+              verified.push(lead);
+            }
+          } catch {
+            // Network blip → keep the lead, don't false-positive
+            verified.push(lead);
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+      verifiedNewLeads = verified;
+      console.log(`[LEAD IMPORT] Email pre-flight: ${verificationSkipped} dropped (will bounce), ${verificationRisky} tagged risky, ${verified.length} kept`);
+    }
+
+    if (verifiedNewLeads.length === 0) {
+      // Every lead was either a duplicate or had an undeliverable email
+      return c.json({
+        success: true,
+        leads: [],
+        imported: 0,
+        total: 0,
+        duplicates,
+        duplicateDetails: details,
+        verification_skipped: verificationSkipped,
+        verification_risky: 0,
+        verification_skipped_samples: verificationSkippedSamples,
+        message: verificationSkipped > 0
+          ? `${verificationSkipped} lead${verificationSkipped === 1 ? '' : 's'} skipped: emails would bounce. ${duplicates} duplicate${duplicates === 1 ? '' : 's'} skipped.`
+          : `All ${duplicates} leads were duplicates and skipped`,
+        ...(trimmedCount > 0 ? { trimmed: trimmedCount, limitWarning: `${trimmedCount} leads were not processed due to plan limits` } : {}),
+      });
+    }
+
     // Map all possible Apollo CSV fields to database columns
     // Only include fields that actually have values to avoid schema errors
-    const leadsWithOrg = newLeads.map(lead => {
+    const leadsWithOrg = verifiedNewLeads.map(lead => {
       const filteredLead: any = {
         user_id: user.id,
       };
@@ -11987,7 +12180,7 @@ app.post("/make-server-a8b2511f/leads/import", async (c) => {
       return c.json({ error: "Failed to import leads", details: error.message }, 500);
     }
 
-    console.log(`✅ Imported ${data.length} new leads (skipped ${duplicates} duplicates${trimmedCount > 0 ? `, trimmed ${trimmedCount} due to plan limit` : ''})`);
+    console.log(`✅ Imported ${data.length} new leads (skipped ${duplicates} duplicates${verificationSkipped > 0 ? `, ${verificationSkipped} skipped as undeliverable` : ''}${trimmedCount > 0 ? `, trimmed ${trimmedCount} due to plan limit` : ''})`);
     return c.json({
       success: true,
       leads: data,
@@ -11995,6 +12188,9 @@ app.post("/make-server-a8b2511f/leads/import", async (c) => {
       total: data.length,
       duplicates,
       duplicateDetails: details,
+      verification_skipped: verificationSkipped,
+      verification_risky: verificationRisky,
+      verification_skipped_samples: verificationSkippedSamples,
       ...(trimmedCount > 0 ? { trimmed: trimmedCount, limitWarning: `${trimmedCount} leads were not processed due to plan limits. Upgrade your plan to import more.` } : {}),
     });
 
