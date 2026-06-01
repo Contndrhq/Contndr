@@ -15198,7 +15198,12 @@ INSTEAD: open with a SPECIFIC observation about the prospect. Pitch ONE concrete
           const errMsg = emailResult.error || '';
           const isConfirmedUndeliverable = /\bMailbox undeliverable\b/i.test(errMsg);
           const isBounceError = isConfirmedUndeliverable || looksLikeRecipientBounce(errMsg);
-          const emailStatus = isBounceError ? 'bounced' : 'failed';
+          // Anti-double-touch + suppression skips are NOT failures — the
+          // recipient was deliberately not contacted. Tag them with a
+          // distinct status so the campaign Failed/Bounced counters stay
+          // accurate and the drill-down doesn't surface them as problems.
+          const isIntentionalSkip = errMsg.startsWith('throttled:') || errMsg.includes('Email suppressed:');
+          const emailStatus = isBounceError ? 'bounced' : isIntentionalSkip ? 'skipped' : 'failed';
           
           // ── Transient failure detection: queue for retry instead of marking as permanently failed ──
           const sendClassification = classifyFailure(errMsg);
@@ -15272,6 +15277,12 @@ INSTEAD: open with a SPECIFIC observation about the prospect. Pitch ONE concrete
           // Gracefully handle domain verification errors (common in demo/setup)
           if (emailResult.error && (emailResult.error.includes('Domain not verified') || emailResult.error.includes('not a valid') || emailResult.error.includes('domain is not verified'))) {
             console.warn(`[SEND-BATCH] Skipped lead ${lead.id} due to domain config:`, emailResult.error);
+          } else if (emailResult.error && (emailResult.error.startsWith('throttled:') || emailResult.error.includes('Email suppressed:'))) {
+            // Anti-double-touch + suppression are intentional skips, not
+            // errors. Log at info level so they don't pollute error
+            // dashboards or the "Failed" counter the way real send
+            // failures (auth issues, provider 5xx) should.
+            console.log(`[SEND-BATCH] Skipped lead ${lead.id}:`, emailResult.error);
           } else {
             console.error(`[SEND-BATCH] Failed to send email to lead ${lead.id}:`, emailResult.error);
           }
@@ -16009,7 +16020,8 @@ app.get("/make-server-a8b2511f/campaigns/:id/status", async (c) => {
       { count: opened },
       { count: clicked },
       { count: bounced },
-      { count: failed }
+      { count: failed },
+      { count: skipped }
     ] = await Promise.all([
       // sequence_number=1 only — follow-up emails (seq≥2) must NOT inflate campaign lead counters
       supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1),
@@ -16018,7 +16030,11 @@ app.get("/make-server-a8b2511f/campaigns/:id/status", async (c) => {
       supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).in('status', ['opened', 'clicked']),
       supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).eq('status', 'clicked'),
       supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).in('status', ['bounced', 'complained']),
-      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).eq('status', 'failed')
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).eq('status', 'failed'),
+      // Anti-double-touch and suppression skips — counted separately so
+      // they don't inflate Failed/Bounced. Users still see "10 skipped"
+      // and can dig in to understand why.
+      supabase.from('emails').select('*', { count: 'estimated', head: true }).eq('campaign_id', campaignId).eq('sequence_number', 1).eq('status', 'skipped')
     ]);
 
     // Lightweight fallback: cross-reference email_events for opened/clicked
@@ -16059,7 +16075,8 @@ app.get("/make-server-a8b2511f/campaigns/:id/status", async (c) => {
       opened: Math.max(opened || 0, eventsOpened),
       clicked: Math.max(clicked || 0, eventsClicked),
       bounced: (bounced || 0) + (failed || 0),
-      failed: failed || 0
+      failed: failed || 0,
+      skipped: skipped || 0,
     };
 
     console.log(`[CAMPAIGNS] Stats for ${campaignId}: status-based opened=${opened||0} clicked=${clicked||0}, events-based opened=${eventsOpened} clicked=${eventsClicked}, final opened=${dbStats.opened} clicked=${dbStats.clicked}`);
@@ -16121,6 +16138,10 @@ app.get("/make-server-a8b2511f/campaigns/:id/status", async (c) => {
         opened: dbStats.opened,
         clicked: dbStats.clicked,
         bounced: dbStats.bounced,
+        // Intentional skips (anti-double-touch + suppression) — surfaces
+        // separately so admins can see why 10 emails weren't sent without
+        // confusing them with hard failures.
+        skipped: dbStats.skipped,
         replied: replyStats.replied,
         positive_replies: replyStats.positive,
         meetings_booked: replyStats.meetings
