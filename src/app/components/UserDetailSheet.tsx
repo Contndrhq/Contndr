@@ -467,6 +467,40 @@ export function UserDetailSheet({
   };
 
   const [sendingLoginLink, setSendingLoginLink] = useState(false);
+  const [cleaningBounces, setCleaningBounces] = useState(false);
+
+  const cleanBouncedLeads = async () => {
+    if (cleaningBounces) return;
+    setCleaningBounces(true);
+    try {
+      const r = await authenticatedFetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/${userId}/delete-bounced`,
+        { method: 'POST' },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const sample = (j.sample_reasons || []) as Array<{ email: string; type?: string; sub_type?: string; message?: string }>;
+      // Show a digestible summary so the admin can tell at a glance
+      // what the bounce reasons were (bad list vs. infra vs. reputation).
+      const topReasons = sample.slice(0, 3).map(s => {
+        const reason = s.message || s.sub_type || s.type || 'unknown';
+        return `${s.email}: ${reason}`;
+      });
+      toast.success(
+        j.deleted === 0
+          ? 'No bounced leads to clean'
+          : `Cleaned ${j.deleted} bounced lead${j.deleted === 1 ? '' : 's'}`,
+        topReasons.length ? { description: topReasons.join('\n') } : undefined,
+      );
+      // Force a refresh so the user detail row no longer shows stale counts
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to clean bounced leads');
+    } finally {
+      setCleaningBounces(false);
+    }
+  };
+
   const sendLoginLink = async () => {
     setSendingLoginLink(true);
     try {
@@ -1021,6 +1055,12 @@ export function UserDetailSheet({
             <ActionBtn onClick={sendLoginLink} icon={sendingLoginLink ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}>Login link</ActionBtn>
             <ActionBtn onClick={onManageCredits} icon={<Zap className="w-3.5 h-3.5" />}>Credits</ActionBtn>
             <ActionBtn onClick={onInspectKv} icon={<Database className="w-3.5 h-3.5" />}>Inspect KV</ActionBtn>
+            <ActionBtn
+              onClick={cleanBouncedLeads}
+              icon={cleaningBounces ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertCircle className="w-3.5 h-3.5" />}
+            >
+              {cleaningBounces ? 'Cleaning…' : 'Clean bounces'}
+            </ActionBtn>
             {onPromoteAdmin && (
               <ActionBtn onClick={onPromoteAdmin} icon={<Crown className="w-3.5 h-3.5" />}>Promote</ActionBtn>
             )}

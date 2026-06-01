@@ -4534,6 +4534,83 @@ app.get("/make-server-a8b2511f/admin/bounced-leads", async (c) => {
   }
 });
 
+// POST /admin/users/:userId/delete-bounced - Per-user bounce cleanup
+// Lets an admin run "delete all bounced leads" for a specific account
+// (e.g. when investigating "why is mark@... seeing 30% bounce rate").
+// Returns the count + a sample of the email reasons so the admin can
+// tell at a glance whether it was bad-list vs. domain-rep issues.
+app.post("/make-server-a8b2511f/admin/users/:userId/delete-bounced", async (c) => {
+  try {
+    const { user: admin } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email)) return c.json({ error: 'Unauthorized' }, 403);
+
+    const userId = c.req.param('userId');
+    const supabaseAdmin = getSupabaseAdmin();
+
+    // 1. Find all bounced leads for this user
+    const { data: bouncedRows, error: fetchErr } = await supabaseAdmin
+      .from('leads')
+      .select('id, email, contact_name, business_name')
+      .eq('user_id', userId)
+      .eq('bounced', true);
+    if (fetchErr) return c.json({ error: fetchErr.message }, 500);
+
+    const leadIds = (bouncedRows || []).map((l: any) => l.id);
+    if (leadIds.length === 0) {
+      return c.json({ success: true, deleted: 0, sample_reasons: [] });
+    }
+
+    // 2. Collect the most recent reason per email for visibility
+    let sampleReasons: any[] = [];
+    try {
+      const bounceLogs = await kv.getByPrefix('bounce:') as any[];
+      const byLead: Record<string, any> = {};
+      for (const row of bounceLogs || []) {
+        const data = typeof row === 'string' ? (() => { try { return JSON.parse(row); } catch { return null; } })() : row;
+        if (!data?.lead_id || !leadIds.includes(data.lead_id)) continue;
+        const prev = byLead[data.lead_id];
+        if (!prev || new Date(data.bounced_at) > new Date(prev.bounced_at)) {
+          byLead[data.lead_id] = data;
+        }
+      }
+      sampleReasons = Object.values(byLead).slice(0, 25).map((d: any) => ({
+        email: d.email,
+        type: d.type,
+        sub_type: d.sub_type,
+        message: d.message || d.diagnostic_code,
+        bounced_at: d.bounced_at,
+      }));
+    } catch (err) {
+      console.warn('[ADMIN] Could not load bounce reasons sample:', err);
+    }
+
+    // 3. Delete the leads in batches
+    const BATCH = 200;
+    let deleted = 0;
+    for (let i = 0; i < leadIds.length; i += BATCH) {
+      const batch = leadIds.slice(i, i + BATCH);
+      const { error: delErr } = await supabaseAdmin
+        .from('leads')
+        .delete()
+        .in('id', batch);
+      if (!delErr) deleted += batch.length;
+    }
+
+    await recordAuditEvent(c, {
+      action: 'admin.user.delete_bounced',
+      resource: 'user',
+      resourceId: userId,
+      metadata: { deleted, sample: sampleReasons.slice(0, 5) },
+    });
+
+    console.log(`[ADMIN] Deleted ${deleted} bounced leads for user ${userId}`);
+    return c.json({ success: true, deleted, sample_reasons: sampleReasons });
+  } catch (error: any) {
+    console.error('[ADMIN] delete-bounced error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // DELETE /admin/bounced-leads/purge - Purge all bounce logs and force-delete remaining bounced leads (Admin Only)
 app.delete("/make-server-a8b2511f/admin/bounced-leads/purge", async (c) => {
   try {
@@ -15848,18 +15925,21 @@ app.get("/make-server-a8b2511f/campaigns/:id/bounced", async (c) => {
     const { user, supabase } = await getAuthenticatedUser(c);
     const campaignId = c.req.param('id');
 
-    // Pass 1: emails for this campaign with status='bounced'.
-    // We pull `to_email` too so we can render the recipient even when
-    // the lead row was deleted (orphan email) or has empty contact_name.
+    // Pass 1: any email for this campaign that ended in a delivery-failure
+    // status. The campaign STATS counter adds bounced + complained + failed
+    // together for the headline "Bounced" number, so the drill-down has to
+    // pull the same set or the section appears empty when the failures
+    // were tagged 'failed' (Resend reject before delivery) instead of
+    // 'bounced' (Resend bounced after delivery).
     let bouncedEmails: any[] = [];
     {
       const { data, error } = await supabase
         .from('emails')
         .select('id, lead_id, to_email, subject, text_body, sent_at, created_at, status')
         .eq('campaign_id', campaignId)
-        .eq('status', 'bounced')
+        .in('status', ['bounced', 'complained', 'failed'])
         .order('created_at', { ascending: false })
-        .limit(200);
+        .limit(500);
       if (error) {
         console.error('[CAMPAIGNS] Error fetching bounced emails:', error);
         return c.json({ error: error.message }, 500);
