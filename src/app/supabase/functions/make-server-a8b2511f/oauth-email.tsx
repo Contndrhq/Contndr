@@ -202,6 +202,11 @@ export async function refreshOutlookToken(refreshToken: string) {
         client_id: Deno.env.get("MICROSOFT_CLIENT_ID") ?? "",
         client_secret: Deno.env.get("MICROSOFT_CLIENT_SECRET") ?? "",
         grant_type: "refresh_token",
+        // Microsoft only returns a rotated refresh_token when offline_access
+        // is requested. Scope must match what was granted at initial auth
+        // time or Microsoft can omit refresh_token, leaving us with a
+        // dead token on the next refresh cycle.
+        scope: "https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/User.Read offline_access",
       }),
     },
   );
@@ -209,7 +214,14 @@ export async function refreshOutlookToken(refreshToken: string) {
     const err = await res.text();
     throw new Error(`Outlook token refresh failed: ${err}`);
   }
-  return (await res.json()) as { access_token: string; expires_in: number };
+  // Microsoft rotates the refresh token on every refresh. We MUST persist
+  // the new one — using the old refresh token a second time gets a 401
+  // and the user appears logged out even though the UI shows "Connected".
+  return (await res.json()) as {
+    access_token: string;
+    expires_in: number;
+    refresh_token?: string;
+  };
 }
 
 export async function getOutlookUserInfo(
@@ -328,6 +340,12 @@ export async function getValidOutlookToken(
       const refreshed = await refreshOutlookToken(tokens.refresh_token);
       tokens.access_token = refreshed.access_token;
       tokens.expires_at = Date.now() + refreshed.expires_in * 1000;
+      // CRITICAL: Microsoft rotates the refresh_token. Persist the new one
+      // or the next refresh attempt 1 hour from now will use a dead token
+      // and the user gets the "Outlook not connected" error.
+      if (refreshed.refresh_token) {
+        tokens.refresh_token = refreshed.refresh_token;
+      }
       await kv.set(kvOutlookTokensKey(userId), await encryptJson(tokens));
     } catch (err) {
       console.error("[OAUTH] Outlook token refresh failed:", err);
