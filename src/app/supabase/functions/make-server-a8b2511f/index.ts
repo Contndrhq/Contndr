@@ -4706,16 +4706,19 @@ app.post("/make-server-a8b2511f/admin/users/:userId/email-risk-scan", async (c) 
     await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
     const processedThisPage = (rows || []).length;
-    // The client accumulates these buckets across pages. We return the full
-    // page worth of entries (id + email + name) so the client can build
-    // both samples (for display) and the full id list (for bulk delete).
+    // PostgREST caps .range() at 1000 by default regardless of the limit
+    // we ask for, so "fewer rows than requested" is NOT a reliable end
+    // signal. The only safe termination is "page returned 0 rows" —
+    // PostgREST's estimated count isn't trustworthy either (can be off by
+    // an order of magnitude on large tables).
+    const next_offset: number | null = processedThisPage === 0
+      ? null
+      : offset + processedThisPage;
     const pageResult = {
       offset,
       limit,
       processed: processedThisPage,
-      // null when we've reached the end (page came back shorter than the
-      // requested limit). Otherwise, the offset for the next call.
-      next_offset: processedThisPage < limit ? null : offset + processedThisPage,
+      next_offset,
       total: totalCount, // only present on offset=0
       buckets: {
         invalid_syntax: buckets.invalid_syntax,
