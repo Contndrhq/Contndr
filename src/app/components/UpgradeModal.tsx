@@ -390,7 +390,7 @@ export function UpgradeModal({ isOpen, onClose, currentPlan, forced = false, use
           <motion.div className="fixed inset-0 bg-black/80 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
 
           <div className="fixed inset-0 overflow-y-auto pt-safe sm:pt-0" data-no-mobile-fix>
-            <div className="flex min-h-full items-start sm:items-center justify-center p-4 sm:p-6 pb-[max(env(safe-area-inset-bottom),24px)] text-center">
+            <div className="flex min-h-full items-start sm:items-center justify-center p-2 sm:p-6 pb-[max(env(safe-area-inset-bottom),12px)] text-center">
               <motion.div
                 className="w-full max-w-5xl transform overflow-hidden rounded-2xl sm:rounded-[2rem] bg-[#0A0A0A] p-5 sm:p-8 text-left align-middle shadow-2xl transition-all border border-white/10 relative flex flex-col mt-4 sm:mt-0 mb-[max(env(safe-area-inset-bottom),16px)] sm:mb-0"
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -423,29 +423,29 @@ export function UpgradeModal({ isOpen, onClose, currentPlan, forced = false, use
                   </div>
                 ) : (
                   <>
-                    <div className="text-center mb-5 mt-4 px-10 sm:px-12">
+                    <div className="text-center mb-3 sm:mb-5 mt-2 sm:mt-4 px-4 sm:px-12">
                       {forced ? (
                         <>
-                          <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tighter mb-2">
+                          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-white tracking-tighter mb-1.5 sm:mb-2">
                             {t('upgradeModal.chooseYourPlan')}
                           </h2>
                           {recommendation ? (
-                            <p className="text-sm text-gray-400 mb-1">
+                            <p className="text-xs sm:text-sm text-gray-400 mb-1">
                               {t('upgradeModal.pickedBasedOnProfile', { reasons: recommendation.reasons.join(' & ').toLowerCase() })}
                             </p>
                           ) : (
-                            <p className="text-sm text-gray-400 mb-4">
+                            <p className="text-xs sm:text-sm text-gray-400 mb-4">
                               {t('upgradeModal.notChargedUntilActivated')}
                             </p>
                           )}
                         </>
                       ) : (
                         <>
-                          <h2 className="text-3xl md:text-4xl font-bold text-white tracking-tighter mb-2">
+                          <h2 className="text-xl sm:text-3xl md:text-4xl font-bold text-white tracking-tighter mb-1.5 sm:mb-2">
                             {t('upgradeModal.upgradeWorkspace')}
                           </h2>
                           {recommendation ? (
-                            <p className="text-base text-gray-400 mb-1"
+                            <p className="text-xs sm:text-base text-gray-400 mb-1"
                               dangerouslySetInnerHTML={{
                                 __html: t('upgradeModal.basedOnRecommend', {
                                   reasons: recommendation.reasons.join(' & ').toLowerCase(),
@@ -454,7 +454,7 @@ export function UpgradeModal({ isOpen, onClose, currentPlan, forced = false, use
                               }}
                             />
                           ) : (
-                            <p className="text-base text-gray-400 mb-4">
+                            <p className="text-xs sm:text-base text-gray-400 mb-4">
                               {t('upgradeModal.unlockPotential')}
                             </p>
                           )}
@@ -462,20 +462,20 @@ export function UpgradeModal({ isOpen, onClose, currentPlan, forced = false, use
                       )}
 
                       {/* Interval Toggle */}
-                      <div className="inline-flex items-center p-1 bg-white/5 rounded-full border border-white/10 mt-3">
+                      <div className="inline-flex items-center p-1 bg-white/5 rounded-full border border-white/10 mt-2 sm:mt-3">
                         <button
                           onClick={() => setInterval('monthly')}
-                          className={`px-6 py-2 rounded-full text-sm font-bold transition-all ${
+                          className={`px-4 sm:px-6 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold transition-all ${
                             interval === 'monthly' ? 'bg-white text-black shadow-lg' : 'text-gray-400 hover:text-white'
                           }`}
                         >{t('upgradeModal.monthly')}</button>
                         <button
                           onClick={() => setInterval('yearly')}
-                          className={`px-6 py-2 rounded-full text-sm font-bold transition-all flex items-center gap-2 ${
+                          className={`px-4 sm:px-6 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 sm:gap-2 ${
                             interval === 'yearly' ? 'bg-white text-black shadow-lg' : 'text-gray-400 hover:text-white'
                           }`}
                         >
-                          {t('upgradeModal.yearly')} <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide ${interval === 'yearly' ? 'bg-emerald-600 text-white' : 'bg-white/10 text-emerald-400'}`}>{t('upgradeModal.save20')}</span>
+                          {t('upgradeModal.yearly')} <span className={`text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded font-bold uppercase tracking-wide ${interval === 'yearly' ? 'bg-emerald-600 text-white' : 'bg-white/10 text-emerald-400'}`}>{t('upgradeModal.save20')}</span>
                         </button>
                       </div>
 
@@ -483,7 +483,7 @@ export function UpgradeModal({ isOpen, onClose, currentPlan, forced = false, use
                     </div>
 
                     {/* Plan Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 px-4 md:px-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 px-2 sm:px-4 md:px-6">
                       {plans.map((plan) => {
                         const rec = isRecommended(plan.key);
                         const isCurrent = currentPlan === plan.key;
@@ -496,7 +496,7 @@ export function UpgradeModal({ isOpen, onClose, currentPlan, forced = false, use
                         return (
                           <div
                             key={plan.key}
-                            className={`relative px-5 py-5 md:px-6 md:py-6 rounded-2xl transition-all flex flex-col ${
+                            className={`relative px-4 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6 rounded-2xl transition-all flex flex-col text-left ${
                               elevated
                                 ? 'bg-white text-black shadow-[0_0_60px_-20px_rgba(255,255,255,0.08)]'
                                 : isCurrent
@@ -516,19 +516,19 @@ export function UpgradeModal({ isOpen, onClose, currentPlan, forced = false, use
                               </div>
                             )}
 
-                            <h3 className={`text-lg font-semibold mb-2 ${elevated ? '!text-black' : 'text-white'}`}>
+                            <h3 className={`text-base sm:text-lg font-semibold mb-1.5 sm:mb-2 ${elevated ? '!text-black' : 'text-white'}`}>
                               {plan.name}
                             </h3>
 
-                            <div className="flex flex-col mb-4">
+                            <div className="flex flex-col mb-3 sm:mb-4">
                               <div className="flex items-baseline gap-1">
-                                <span className={`text-3xl font-bold ${elevated ? '!text-black' : 'text-white'}`}>
+                                <span className={`text-2xl sm:text-3xl font-bold tabular-nums ${elevated ? '!text-black' : 'text-white'}`}>
                                   {interval === 'yearly' ? plan.pricing.formattedYearlyMonthly : plan.pricing.formattedMonthly}
                                 </span>
-                                <span className="text-base text-zinc-500 font-normal">{t('upgradeModal.mo')}</span>
+                                <span className="text-sm sm:text-base text-zinc-500 font-normal">{t('upgradeModal.mo')}</span>
                               </div>
                               {interval === 'yearly' && (
-                                <span className="text-xs text-zinc-500 mt-0.5">{t('upgradeModal.billedYearly', { amount: plan.pricing.formattedYearlyBilled })}</span>
+                                <span className="text-[11px] sm:text-xs text-zinc-500 mt-0.5">{t('upgradeModal.billedYearly', { amount: plan.pricing.formattedYearlyBilled })}</span>
                               )}
                             </div>
 
@@ -547,9 +547,9 @@ export function UpgradeModal({ isOpen, onClose, currentPlan, forced = false, use
                               </div>
                             )}
 
-                            <ul className="space-y-2.5 mb-5 flex-1">
+                            <ul className="space-y-1.5 sm:space-y-2.5 mb-4 sm:mb-5 flex-1">
                               {plan.features.map((feature, idx) => (
-                                <li key={idx} className={`flex items-start gap-2.5 text-[13px] ${elevated ? 'text-zinc-600' : 'text-zinc-300'}`}>
+                                <li key={idx} className={`flex items-start gap-2 sm:gap-2.5 text-[12px] sm:text-[13px] leading-snug ${elevated ? 'text-zinc-600' : 'text-zinc-300'}`}>
                                   <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${elevated ? '!text-black' : 'text-emerald-400/70'}`} />
                                   <span>{feature}</span>
                                 </li>
@@ -559,7 +559,7 @@ export function UpgradeModal({ isOpen, onClose, currentPlan, forced = false, use
                             <button
                               onClick={() => handleUpgrade(plan.key)}
                               disabled={loading !== null || isCurrent}
-                              className={`w-full py-3 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 mt-auto ${
+                              className={`w-full py-2.5 sm:py-3 rounded-xl text-[13px] sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 mt-auto ${
                                 isCurrent
                                   ? elevated ? 'bg-black/10 text-zinc-400 cursor-default' : 'bg-white/10 text-zinc-400 cursor-default'
                                   : elevated
