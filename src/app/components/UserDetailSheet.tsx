@@ -33,6 +33,7 @@ import {
   ExternalLink,
   FileText,
   AlertCircle,
+  ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirmAsync } from './ConfirmDialog';
