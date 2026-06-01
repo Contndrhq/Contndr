@@ -4634,16 +4634,36 @@ app.post("/make-server-a8b2511f/admin/users/:userId/email-risk-scan", async (c) 
     const userId = c.req.param('userId');
     const supabaseAdmin = getSupabaseAdmin();
 
-    // Pull every lead with an email. We cap at 5k to keep the function
-    // execution under the CPU budget; users with more leads can run the
-    // scan in pages later if needed.
+    // Paginated scan. Each request processes ONE page of leads so the
+    // function stays well under the per-invocation CPU/wall-time budget.
+    // The client loops pages until next_offset comes back null. With a
+    // page size of 1500 and concurrency 8, one page takes ~20-40s
+    // depending on how many distinct domains need DoH MX lookups.
+    const url = new URL(c.req.url);
+    const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+    const limit = Math.min(2000, Math.max(100, parseInt(url.searchParams.get('limit') || '1500', 10) || 1500));
+
+    // Total count for progress reporting — only computed on the first
+    // page request so subsequent pages stay fast.
+    let totalCount: number | undefined = undefined;
+    if (offset === 0) {
+      const { count } = await supabaseAdmin
+        .from('leads')
+        .select('id', { count: 'estimated', head: true })
+        .eq('user_id', userId)
+        .not('email', 'is', null)
+        .neq('email', '');
+      totalCount = count || 0;
+    }
+
     const { data: rows, error } = await supabaseAdmin
       .from('leads')
       .select('id, email, contact_name, business_name, bounced')
       .eq('user_id', userId)
       .not('email', 'is', null)
       .neq('email', '')
-      .limit(5000);
+      .order('id', { ascending: true }) // stable ordering so paging is deterministic
+      .range(offset, offset + limit - 1);
     if (error) return c.json({ error: error.message }, 500);
 
     const buckets = {
@@ -4685,37 +4705,31 @@ app.post("/make-server-a8b2511f/admin/users/:userId/email-risk-scan", async (c) 
     }
     await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
-    const total = (rows || []).length;
-    // Each bucket's sample is capped at 50 for UI display; full IDs stay
-    // available in the buckets themselves so the admin can call
-    // /leads/bulk-delete with the full set.
-    const summary = {
-      total,
-      already_bounced: buckets.already_bounced.length,
-      will_bounce: buckets.invalid_syntax.length + buckets.no_mx.length + buckets.disposable.length,
-      risky: buckets.risky.length + buckets.role_based.length,
-      valid: buckets.valid.length,
-      breakdown: {
-        invalid_syntax: { count: buckets.invalid_syntax.length, sample: buckets.invalid_syntax.slice(0, 50) },
-        no_mx: { count: buckets.no_mx.length, sample: buckets.no_mx.slice(0, 50) },
-        disposable: { count: buckets.disposable.length, sample: buckets.disposable.slice(0, 50) },
-        role_based: { count: buckets.role_based.length, sample: buckets.role_based.slice(0, 50) },
-        risky: { count: buckets.risky.length, sample: buckets.risky.slice(0, 50) },
-        already_bounced: { count: buckets.already_bounced.length, sample: buckets.already_bounced.slice(0, 50) },
-      },
-      // Full id lists per bucket so the UI can offer "delete all invalid"
-      // without a second scan. Capped at 1k per bucket as a sanity guard.
-      ids: {
-        invalid_syntax: buckets.invalid_syntax.slice(0, 1000).map(e => e.id),
-        no_mx: buckets.no_mx.slice(0, 1000).map(e => e.id),
-        disposable: buckets.disposable.slice(0, 1000).map(e => e.id),
-        role_based: buckets.role_based.slice(0, 1000).map(e => e.id),
-        risky: buckets.risky.slice(0, 1000).map(e => e.id),
+    const processedThisPage = (rows || []).length;
+    // The client accumulates these buckets across pages. We return the full
+    // page worth of entries (id + email + name) so the client can build
+    // both samples (for display) and the full id list (for bulk delete).
+    const pageResult = {
+      offset,
+      limit,
+      processed: processedThisPage,
+      // null when we've reached the end (page came back shorter than the
+      // requested limit). Otherwise, the offset for the next call.
+      next_offset: processedThisPage < limit ? null : offset + processedThisPage,
+      total: totalCount, // only present on offset=0
+      buckets: {
+        invalid_syntax: buckets.invalid_syntax,
+        no_mx: buckets.no_mx,
+        disposable: buckets.disposable,
+        role_based: buckets.role_based,
+        risky: buckets.risky,
+        valid_count: buckets.valid.length, // valid is huge; just the count
+        already_bounced: buckets.already_bounced,
       },
     };
 
-    console.log(`[ADMIN] email-risk-scan for ${userId}: total=${total} will_bounce=${summary.will_bounce} risky=${summary.risky}`);
-    return c.json({ success: true, ...summary });
+    console.log(`[ADMIN] email-risk-scan page for ${userId}: offset=${offset} processed=${processedThisPage} next=${pageResult.next_offset}`);
+    return c.json({ success: true, ...pageResult });
   } catch (error: any) {
     console.error('[ADMIN] email-risk-scan error:', error);
     return c.json({ error: error.message }, 500);

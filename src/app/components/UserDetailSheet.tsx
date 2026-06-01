@@ -12,7 +12,7 @@
  *   - Quick actions: edit plan, manage credits, revoke, inspect KV, delete
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   X,
@@ -470,25 +470,94 @@ export function UserDetailSheet({
   const [sendingLoginLink, setSendingLoginLink] = useState(false);
   const [cleaningBounces, setCleaningBounces] = useState(false);
   const [scanningRisk, setScanningRisk] = useState(false);
+  const [scanProgress, setScanProgress] = useState<{ processed: number; total?: number } | null>(null);
   const [riskReport, setRiskReport] = useState<any>(null);
   const [purgingRisk, setPurgingRisk] = useState(false);
+  const scanAbortRef = useRef(false);
 
   const scanEmailRisk = async () => {
     if (scanningRisk) return;
     setScanningRisk(true);
+    setScanProgress({ processed: 0 });
+    scanAbortRef.current = false;
+
+    // Accumulators across pages
+    const all: Record<string, any[]> = {
+      invalid_syntax: [],
+      no_mx: [],
+      disposable: [],
+      role_based: [],
+      risky: [],
+      already_bounced: [],
+    };
+    let validCount = 0;
+    let total: number | undefined;
+    let offset = 0;
+    const pageSize = 1500;
+
     try {
-      const r = await authenticatedFetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/${userId}/email-risk-scan`,
-        { method: 'POST' },
-      );
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      setRiskReport(j);
+      // Loop pages until next_offset comes back null. Worst case for 150k
+      // leads at 1500/page = 100 round-trips; each ~20-40s server-side.
+      // We show progress as we go so the admin can watch it advance.
+      while (!scanAbortRef.current) {
+        const r = await authenticatedFetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-a8b2511f/admin/users/${userId}/email-risk-scan?offset=${offset}&limit=${pageSize}`,
+          { method: 'POST' },
+        );
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        if (typeof j.total === 'number') total = j.total;
+        for (const key of Object.keys(all)) {
+          if (Array.isArray(j.buckets?.[key])) all[key].push(...j.buckets[key]);
+        }
+        validCount += (j.buckets?.valid_count || 0);
+        offset = j.next_offset ?? offset + j.processed;
+        setScanProgress({ processed: offset, total });
+        if (j.next_offset == null) break;
+      }
+
+      if (scanAbortRef.current) {
+        toast.info('Scan canceled');
+        return;
+      }
+
+      // Build the report shape the modal expects (counts + samples + ids)
+      const sample = (arr: any[]) => arr.slice(0, 50);
+      const ids = (arr: any[]) => arr.map(e => e.id).filter(Boolean);
+      const will_bounce = all.invalid_syntax.length + all.no_mx.length + all.disposable.length;
+      const risky_count = all.risky.length + all.role_based.length;
+
+      setRiskReport({
+        total: offset, // total processed
+        valid: validCount,
+        risky: risky_count,
+        will_bounce,
+        breakdown: {
+          invalid_syntax: { count: all.invalid_syntax.length, sample: sample(all.invalid_syntax) },
+          no_mx: { count: all.no_mx.length, sample: sample(all.no_mx) },
+          disposable: { count: all.disposable.length, sample: sample(all.disposable) },
+          role_based: { count: all.role_based.length, sample: sample(all.role_based) },
+          risky: { count: all.risky.length, sample: sample(all.risky) },
+          already_bounced: { count: all.already_bounced.length, sample: sample(all.already_bounced) },
+        },
+        ids: {
+          invalid_syntax: ids(all.invalid_syntax),
+          no_mx: ids(all.no_mx),
+          disposable: ids(all.disposable),
+          role_based: ids(all.role_based),
+          risky: ids(all.risky),
+        },
+      });
     } catch (e: any) {
       toast.error(e?.message || 'Scan failed');
     } finally {
       setScanningRisk(false);
+      setScanProgress(null);
     }
+  };
+
+  const cancelScan = () => {
+    scanAbortRef.current = true;
   };
 
   const purgeRiskyLeads = async (categories: ('invalid_syntax' | 'no_mx' | 'disposable')[]) => {
@@ -1136,6 +1205,42 @@ export function UserDetailSheet({
           </div>
         </div>
       </div>
+
+      {/* Email risk scan progress — paginated walk through the whole CRM.
+          Shown while scanning so the admin can see it advancing through
+          a 150k-lead list without thinking the page froze. */}
+      {scanningRisk && scanProgress && (
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4">
+          <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full sm:max-w-sm sm:rounded-2xl modal-as-bottom-sheet p-5 sm:p-6" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 1.25rem)' }}>
+            <div className="text-[11px] uppercase tracking-wider text-zinc-500 mb-1">Email risk scan</div>
+            <div className="text-base font-semibold text-zinc-900 dark:text-white mb-3">
+              Scanning {scanProgress.processed.toLocaleString()}
+              {scanProgress.total ? ` / ${scanProgress.total.toLocaleString()}` : ''} leads…
+            </div>
+            {scanProgress.total ? (
+              <div className="h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 transition-all duration-300"
+                  style={{ width: `${Math.min(100, (scanProgress.processed / scanProgress.total) * 100).toFixed(1)}%` }}
+                />
+              </div>
+            ) : (
+              <div className="h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
+                <div className="h-full w-1/3 bg-emerald-500 animate-pulse" />
+              </div>
+            )}
+            <p className="text-[11px] text-zinc-500 mt-3 leading-relaxed">
+              Each page checks ~1,500 emails against DNS for MX records, disposable lists, and syntax. Large lists may take several minutes — you can cancel any time.
+            </p>
+            <button
+              onClick={cancelScan}
+              className="mt-4 w-full px-3 py-2 rounded-lg text-sm font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+            >
+              Cancel scan
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Email risk scan result modal — appears on top of the user sheet */}
       {riskReport && (
