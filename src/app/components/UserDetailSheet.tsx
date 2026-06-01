@@ -38,7 +38,7 @@ import {
 import { toast } from 'sonner';
 import { confirmAsync } from './ConfirmDialog';
 import { projectId } from '../utils/supabase/info';
-import { authenticatedFetch } from '../lib/auth';
+import { authenticatedFetch, getAuthHeaders } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 
 interface UserDetailSheetProps {
