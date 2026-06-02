@@ -149,18 +149,54 @@ const lazyRetry = (importFn: () => Promise<any>, componentName: string, retries 
       })
       .catch((error) => {
         // Check if this is a chunk loading error
-        const isChunkError = error.name === 'ChunkLoadError' || 
+        const isChunkError = error.name === 'ChunkLoadError' ||
                              error.message?.includes('Failed to fetch dynamically imported module') ||
                              error.message?.includes('Importing a module script failed');
-        
+
+        // Stale-deploy chunk error: the user's already-loaded index.js
+        // references chunk hashes that no longer exist on the CDN, so
+        // the import request returns Vercel's 404 HTML page instead of
+        // JS. The browser then complains "'text/html' is not a valid
+        // JavaScript MIME type". Retrying won't help — the chunks are
+        // GONE. We need a hard reload to fetch the current index.js.
+        const isStaleDeploy = error.message?.includes("'text/html' is not a valid JavaScript MIME type") ||
+                              error.message?.includes('text/html is not a valid JavaScript MIME type') ||
+                              error.message?.includes('Expected a JavaScript module script');
+
         console.error(`[LAZY LOAD] Error loading ${componentName}:`, {
           errorName: error.name,
           errorMessage: error.message,
           isChunkError,
+          isStaleDeploy,
           retriesLeft: retries,
           stack: error.stack,
         });
-        
+
+        if (isStaleDeploy) {
+          // Reload exactly once per session — sessionStorage flag prevents
+          // an infinite reload loop in the (very unlikely) case the fresh
+          // bundle still fails the same way.
+          const RELOAD_KEY = 'contndr:stale-deploy-reload';
+          try {
+            if (!sessionStorage.getItem(RELOAD_KEY)) {
+              sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+              console.warn('[LAZY LOAD] Stale deploy detected — hard-reloading to fetch fresh bundle');
+              // location.reload(true) is deprecated; modern browsers honor
+              // the default reload as a non-cached fetch when triggered
+              // programmatically right after a chunk-MIME failure.
+              window.location.reload();
+              return; // Don't resolve/reject — page is about to unload
+            }
+            console.error('[LAZY LOAD] Stale-deploy reload already attempted this session; not looping. User must hard-refresh.');
+          } catch {
+            // sessionStorage blocked (private mode, etc.) — best effort: reload anyway
+            window.location.reload();
+            return;
+          }
+          reject(error);
+          return;
+        }
+
         if (retries > 0 && isChunkError) {
           console.warn(`[LAZY LOAD] Retrying ${componentName} (${retries} attempts left)...`);
           // Longer delay to allow for any network/bundler issues to clear
