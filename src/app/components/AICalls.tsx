@@ -40,6 +40,7 @@ import { AIAgentConfig } from './AIAgentConfig';
 import { AICreditsPanel } from './AICreditsPanel';
 import { ElevenLabsUsagePanel } from './ElevenLabsUsagePanel';
 import { useCanAccessAdmin } from '../hooks/useUserRole';
+import { CoachingPanel } from './CoachingPanel';
 
 interface ActiveCall {
   id: string;
@@ -424,6 +425,9 @@ export function AICalls({
           </div>
         </div>
       )}
+
+      {/* Conversation Intelligence — coaching insights from past calls */}
+      <CoachingPanel />
 
       {/* Campaigns List */}
       <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">

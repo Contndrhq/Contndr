@@ -5050,6 +5050,25 @@ app.get("/make-server-a8b2511f/admin/users/:userId/billing/export", async (c) =>
   }
 });
 
+// ─── Conversation Intelligence (coaching insights) ───────────────────
+// GET /coaching/insights?days=7 — cross-call aggregation: top objections,
+// win/loss patterns, AI quality scores, high-intent unbooked follow-ups.
+// User-scoped (not admin) so reps can coach themselves.
+app.get("/make-server-a8b2511f/coaching/insights", async (c) => {
+  try {
+    const { user } = await getAuthenticatedUser(c);
+    const days = Math.min(180, Math.max(1, parseInt(c.req.query('days') || '30', 10) || 30));
+    const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+    const coaching = await import("./coaching.tsx");
+    const calls = await coaching.loadCallsForUser(user.id, sinceMs);
+    const insights = coaching.computeCoachingInsights(calls, days);
+    return c.json({ success: true, ...insights });
+  } catch (error: any) {
+    console.error('[COACHING] insights error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // DELETE /admin/bounced-leads/purge - Purge all bounce logs and force-delete remaining bounced leads (Admin Only)
 app.delete("/make-server-a8b2511f/admin/bounced-leads/purge", async (c) => {
   try {
