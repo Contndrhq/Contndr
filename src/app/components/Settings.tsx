@@ -15,6 +15,7 @@ import ApiDiagnostics from './ApiDiagnostics';
 import DemoDataManager from './DemoDataManager';
 import LeadScoringManager from './LeadScoringManager';
 import { TrackingTab } from './TrackingTab';
+import { ProductsSettings } from './ProductsSettings';
 import { PreferencesSettings } from './PreferencesSettings';
 import { TelegramSettings } from './TelegramSettings';
 import { MetaSettings } from './MetaSettings';
@@ -25,7 +26,7 @@ import { useTranslation } from 'react-i18next';
 // ─── Admin UIDs (supplement email-based checks) ─────────────────────
 const ADMIN_UIDS = ['004b2df9-3e3f-48ec-acfd-5374ab55b09f'];
 
-type SettingsTab = 'profile' | 'preferences' | 'signature' | 'email' | 'integrations' | 'channels' | 'tracking' | 'knowledge-base' | 'team' | 'affiliate' | 'billing' | 'diagnostics' | 'demo' | 'lead-scoring' | 'compliance' | 'agent-mode';
+type SettingsTab = 'profile' | 'preferences' | 'signature' | 'email' | 'integrations' | 'channels' | 'tracking' | 'knowledge-base' | 'team' | 'affiliate' | 'billing' | 'diagnostics' | 'demo' | 'lead-scoring' | 'compliance' | 'agent-mode' | 'products';
 
 export function Settings() {
   const { t } = useTranslation();
@@ -103,6 +104,7 @@ export function Settings() {
     { id: 'integrations', label: t('settings.integrations', 'Integrations') },
     { id: 'channels', label: t('settings.channels', 'Channels') },
     { id: 'tracking', label: t('settings.tracking', 'Tracking') },
+    { id: 'products', label: t('settings.products', 'Products') },
     { id: 'knowledge-base', label: t('settings.aiBrain', 'AI Brain') },
     { id: 'team', label: t('settings.team', 'Team') },
     ...(showAffiliateTab ? [{ id: 'affiliate' as SettingsTab, label: t('settings.affiliate', 'Affiliate') }] : []),
@@ -176,6 +178,8 @@ export function Settings() {
         )}
 
         {activeTab === 'tracking' && <TrackingTab />}
+
+        {activeTab === 'products' && <ProductsSettings />}
 
         {activeTab === 'team' && <TeamSettings />}
         

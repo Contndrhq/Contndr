@@ -11,6 +11,7 @@ import * as kv from "./kv-retry.tsx";
 import { recordAuditEvent } from "./audit-log.tsx";
 import { handleBounceAutoDelete, getBouncedLeads, purgeBouncedLeads, markLeadBouncedByEmail, classifyBounce } from "./bounce-handler.tsx";
 import { verifyEmail as localVerifyEmail } from "./email-verify.tsx";
+import { registerProductsRoutes } from "./products.tsx";
 import { checkDuplicatesAndFilter } from "./duplicate-check.tsx";
 // follow-ups.tsx — lazy-loaded on demand (transitively bundled via campaign-worker.tsx)
 import { processAutomationRule } from "./automation.tsx";
@@ -25682,6 +25683,9 @@ app.post("/make-server-a8b2511f/admin/cleanup-duplicate-followups", async (c) =>
     return c.json({ error: err.message }, 500);
   }
 });
+
+// ─── Products module — what the user sells, used by pipeline auto-routing
+registerProductsRoutes(app, getAuthenticatedUser);
 
 Deno.serve({
   // Prevent "connection closed before message completed" from crashing the worker
