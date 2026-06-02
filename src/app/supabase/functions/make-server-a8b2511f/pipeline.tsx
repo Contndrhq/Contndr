@@ -1,6 +1,7 @@
 import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv-retry.tsx";
+import { getProducts, rankProductsForLead } from "./products.tsx";
 
 const app = new Hono();
 
@@ -157,6 +158,43 @@ export const STAGE_LABELS: Record<string, string> = {
   closed_lost: "Closed Lost",
 };
 
+/**
+ * Map a free-text stage label (entered by the user in the Products
+ * settings UI) to a canonical pipeline stage ID. Tries an exact ID
+ * match first, then a label match, then a relaxed substring match.
+ * Returns null if there's no recognizable mapping — caller should
+ * fall back to the trigger rule's default target stage.
+ */
+export function resolveStageInput(input?: string): string | null {
+  if (!input) return null;
+  const raw = String(input).trim().toLowerCase();
+  if (!raw) return null;
+  // Exact canonical ID
+  if (raw in STAGE_LABELS) return raw;
+  // Exact label match (case-insensitive)
+  for (const [id, label] of Object.entries(STAGE_LABELS)) {
+    if (label.toLowerCase() === raw) return id;
+  }
+  // Relaxed: substring match (e.g. "demo" → "meeting_booked",
+  // "qualified" → "engaged", "proposal" → "proposal_sent")
+  const aliases: Record<string, string> = {
+    'demo': 'meeting_booked',
+    'meeting': 'meeting_booked',
+    'qualified': 'engaged',
+    'proposal': 'proposal_sent',
+    'negotiate': 'negotiation',
+    'won': 'closed_won',
+    'lost': 'closed_lost',
+    'lead': 'prospect_identified',
+    'new': 'prospect_identified',
+    'contact': 'contacted',
+  };
+  for (const [needle, stage] of Object.entries(aliases)) {
+    if (raw.includes(needle)) return stage;
+  }
+  return null;
+}
+
 const STAGE_INDEX: Record<string, number> = {
   prospect_identified: 0,
   contacted: 1,
@@ -227,6 +265,12 @@ export interface PipelineDeal {
   notes: string;
   category: string;
   lead_id?: string;
+  // Product the auto-matcher associated with this deal. Used by the
+  // pipeline UI to show "Matched: Scale plan" chips, and (Phase 3) to
+  // drive AI script personalization.
+  matched_product_id?: string;
+  matched_product_name?: string;
+  matched_product_score?: number;
   is_recurring?: boolean;
   recurring_interval?: "month" | "year";
   created_at: string;
@@ -380,18 +424,68 @@ export async function firePipelineTrigger(event: TriggerEvent): Promise<void> {
       }
 
       if (leadToUse) {
-        const targetStage = rule.target;
+        // Phase 2 of products work: score this lead against everything
+        // the user sells. If the top match's score is positive, use the
+        // product's target stage (overrides the generic rule.target) and
+        // pre-fill the deal value from the product's price so forecasts
+        // are accurate from day one.
+        let targetStage = rule.target;
+        let dealValue = 0;
+        let matchedProductId: string | undefined;
+        let matchedProductName: string | undefined;
+        let matchedProductScore: number | undefined;
+        let isRecurring = false;
+        let recurringInterval: 'month' | 'year' | undefined;
+
+        try {
+          const products = await getProducts(user_id);
+          if (products.length > 0) {
+            const ranked = rankProductsForLead(products, {
+              num_employees: leadToUse.num_employees ?? leadToUse.estimated_num_employees,
+              industry: leadToUse.industry || leadToUse.category,
+              estimated_monthly_lead_volume: leadToUse.estimated_monthly_lead_volume,
+            });
+            const top = ranked[0];
+            if (top && top.score > 0) {
+              matchedProductId = top.product.id;
+              matchedProductName = top.product.name;
+              matchedProductScore = top.score;
+              dealValue = top.product.price_cents / 100;
+              if (top.product.interval === 'monthly') {
+                isRecurring = true;
+                recurringInterval = 'month';
+              } else if (top.product.interval === 'yearly') {
+                isRecurring = true;
+                recurringInterval = 'year';
+              }
+              const mappedStage = resolveStageInput(top.product.target_pipeline_stage);
+              if (mappedStage) targetStage = mappedStage;
+              console.log(`[PIPELINE TRIGGER] Matched lead ${leadToUse.id} → product "${top.product.name}" (score=${top.score}, $${dealValue}/${top.product.interval}, stage=${targetStage})`);
+            }
+          }
+        } catch (matchErr) {
+          // Don't block deal creation on a matcher failure
+          console.warn(`[PIPELINE TRIGGER] Product matcher failed (non-fatal):`, matchErr);
+        }
+
         const newDeal: PipelineDeal = {
           id: crypto.randomUUID(),
           contact_name: leadToUse.contact_name || "",
           business_name: leadToUse.business_name || "",
           email: leadToUse.email || email || "",
           stage: targetStage,
-          value: 0,
+          value: dealValue,
           currency: "USD",
-          notes: `Auto-created from ${event_type}`,
+          notes: matchedProductName
+            ? `Auto-created from ${event_type} · matched product "${matchedProductName}"`
+            : `Auto-created from ${event_type}`,
           category: leadToUse.category || "",
           lead_id: leadToUse.id,
+          is_recurring: isRecurring,
+          recurring_interval: recurringInterval,
+          matched_product_id: matchedProductId,
+          matched_product_name: matchedProductName,
+          matched_product_score: matchedProductScore,
           created_at: now,
           updated_at: now,
           stage_history: [{ stage: targetStage, entered_at: now, trigger: event_type }],

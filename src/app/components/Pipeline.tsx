@@ -219,6 +219,15 @@ function DealCard({ deal, onEdit, onDelete, onDragStart, onAction, integrations 
             {riskBadge(deal.ai_risk_level)}
           </div>
         )}
+        {/* Matched product chip — shows when the auto-matcher picked this
+            product. Lets users see at a glance why the deal got its
+            stage + value without digging into notes. */}
+        {(deal as any).matched_product_name && (
+          <div className="mb-1.5 sm:mb-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 max-w-full">
+            <Sparkles className="w-2.5 h-2.5 shrink-0" />
+            <span className="truncate">Matched: {(deal as any).matched_product_name}</span>
+          </div>
+        )}
         {deal.ai_next_action && (
           <div className="mb-1.5 sm:mb-2 flex items-start gap-1.5 text-[10px] text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-800/50 rounded-md px-2 py-1.5">
             <Sparkles className="w-3 h-3 text-zinc-400 dark:text-zinc-500 shrink-0 mt-0.5" />
