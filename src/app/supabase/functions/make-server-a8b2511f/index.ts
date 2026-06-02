@@ -4740,6 +4740,316 @@ app.post("/make-server-a8b2511f/admin/users/:userId/email-risk-scan", async (c) 
   }
 });
 
+// ─── Billing Records / Compliance — paper trail for every Stripe event ───
+//
+// GET    /admin/users/:userId/billing            → invoices + payments + refunds + disputes + notes + contracts + manual charges
+// POST   /admin/users/:userId/billing/sync       → backfill from Stripe API
+// POST   /admin/users/:userId/billing/notes      → add an admin note
+// DELETE /admin/users/:userId/billing/notes/:noteId
+// GET    /admin/users/:userId/billing/export     → compliance JSON bundle
+
+app.get("/make-server-a8b2511f/admin/users/:userId/billing", async (c) => {
+  try {
+    const { user: admin } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    const br = await import("./billing-records.tsx");
+    const [invoices, payments, refunds, disputes, notes, contracts, manualCharges] = await Promise.all([
+      br.getInvoices(userId),
+      br.getPayments(userId),
+      br.getRefunds(userId),
+      br.getDisputes(userId),
+      br.getNotes(userId),
+      br.getContracts(userId),
+      br.getManualCharges(userId),
+    ]);
+    return c.json({ success: true, invoices, payments, refunds, disputes, notes, contracts, manual_charges: manualCharges });
+  } catch (error: any) {
+    console.error('[ADMIN] billing get error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+app.post("/make-server-a8b2511f/admin/users/:userId/billing/sync", async (c) => {
+  try {
+    const { user: admin } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    const customerId = await kv.get(`stripe_customer:${userId}`);
+    if (!customerId) {
+      return c.json({ error: 'No Stripe customer linked to this user yet — they need to start checkout once first.' }, 400);
+    }
+    const br = await import("./billing-records.tsx");
+    const counts = await br.backfillBillingFromStripe(userId, String(customerId));
+    await recordAuditEvent(c, {
+      action: 'admin.billing.sync',
+      resource: 'user',
+      resourceId: userId,
+      metadata: counts,
+    });
+    return c.json({ success: true, ...counts });
+  } catch (error: any) {
+    console.error('[ADMIN] billing sync error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+app.post("/make-server-a8b2511f/admin/users/:userId/billing/notes", async (c) => {
+  try {
+    const { user: admin } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    const body = await c.req.json();
+    if (!body.body || !String(body.body).trim()) {
+      return c.json({ error: 'Note body is required' }, 400);
+    }
+    const br = await import("./billing-records.tsx");
+    const note = await br.addNote(
+      userId,
+      body.body,
+      body.category,
+      { email: admin.email, id: admin.id },
+    );
+    await recordAuditEvent(c, {
+      action: 'admin.billing.note.add',
+      resource: 'user',
+      resourceId: userId,
+      metadata: { note_id: note.id, category: note.category },
+    });
+    return c.json({ success: true, note });
+  } catch (error: any) {
+    console.error('[ADMIN] billing note add error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+app.delete("/make-server-a8b2511f/admin/users/:userId/billing/notes/:noteId", async (c) => {
+  try {
+    const { user: admin } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    const noteId = c.req.param('noteId');
+    const br = await import("./billing-records.tsx");
+    const ok = await br.deleteNote(userId, noteId);
+    if (!ok) return c.json({ error: 'Note not found' }, 404);
+    await recordAuditEvent(c, {
+      action: 'admin.billing.note.delete',
+      resource: 'user',
+      resourceId: userId,
+      metadata: { note_id: noteId },
+    });
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('[ADMIN] billing note delete error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ─── Contracts / Documents — private files attached to a customer ────
+const CONTRACTS_BUCKET = 'contracts';
+
+async function ensureContractsBucket(): Promise<void> {
+  try {
+    const admin = getSupabaseAdmin();
+    // Idempotent — creating an existing bucket throws but is safe to ignore
+    await admin.storage.createBucket(CONTRACTS_BUCKET, { public: false }).catch(() => {});
+  } catch {}
+}
+
+// POST /admin/users/:userId/contracts — upload a contract / SOW / bank statement
+app.post("/make-server-a8b2511f/admin/users/:userId/contracts", async (c) => {
+  try {
+    const { user: admin } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    await ensureContractsBucket();
+
+    const form = await c.req.formData();
+    const file = form.get('file');
+    if (!file || !(file instanceof File)) return c.json({ error: 'file is required' }, 400);
+    const category = String(form.get('category') || 'other');
+    const notes = form.get('notes') ? String(form.get('notes')).slice(0, 500) : undefined;
+
+    // Cap individual contract uploads at 20 MB — contracts/SOWs are
+    // PDFs/Word docs, not video. Larger files are almost certainly wrong.
+    const MAX_BYTES = 20 * 1024 * 1024;
+    if (file.size > MAX_BYTES) {
+      return c.json({ error: `File too large (max ${Math.round(MAX_BYTES / 1024 / 1024)}MB)` }, 400);
+    }
+
+    const safeName = file.name.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 100);
+    const storagePath = `${userId}/${crypto.randomUUID()}-${safeName}`;
+    const adminClient = getSupabaseAdmin();
+    const { error: upErr } = await adminClient.storage.from(CONTRACTS_BUCKET).upload(storagePath, file, {
+      contentType: file.type || 'application/octet-stream',
+      cacheControl: '3600',
+      upsert: false,
+    });
+    if (upErr) {
+      console.error('[ADMIN] contract upload failed:', upErr);
+      return c.json({ error: upErr.message }, 500);
+    }
+
+    const br = await import("./billing-records.tsx");
+    const metadata: any = {
+      id: `ctr_${crypto.randomUUID()}`,
+      user_id: userId,
+      filename: safeName,
+      storage_path: storagePath,
+      size_bytes: file.size,
+      mime_type: file.type || 'application/octet-stream',
+      category: ['contract', 'sow', 'bank_statement', 'approval_email', 'custom_invoice', 'receipt', 'other'].includes(category) ? category : 'other',
+      notes,
+      uploaded_by_email: admin.email,
+      uploaded_at: new Date().toISOString(),
+    };
+    const existing = await br.getContracts(userId);
+    existing.unshift(metadata);
+    await kv.set(br.contractsKey(userId), existing.slice(0, 200));
+
+    await recordAuditEvent(c, {
+      action: 'admin.billing.contract.upload',
+      resource: 'user',
+      resourceId: userId,
+      metadata: { filename: safeName, size: file.size, category: metadata.category },
+    });
+
+    return c.json({ success: true, contract: metadata });
+  } catch (error: any) {
+    console.error('[ADMIN] contract upload error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /admin/users/:userId/contracts/:contractId/download → signed URL (10 min)
+app.get("/make-server-a8b2511f/admin/users/:userId/contracts/:contractId/download", async (c) => {
+  try {
+    const { user: admin } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    const contractId = c.req.param('contractId');
+    const br = await import("./billing-records.tsx");
+    const all = await br.getContracts(userId);
+    const ctr = all.find(x => x.id === contractId);
+    if (!ctr) return c.json({ error: 'Contract not found' }, 404);
+    const adminClient = getSupabaseAdmin();
+    const { data, error } = await adminClient.storage.from(CONTRACTS_BUCKET).createSignedUrl(ctr.storage_path, 600);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ success: true, url: data?.signedUrl, expires_in_seconds: 600, contract: ctr });
+  } catch (error: any) {
+    console.error('[ADMIN] contract download error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// DELETE /admin/users/:userId/contracts/:contractId
+app.delete("/make-server-a8b2511f/admin/users/:userId/contracts/:contractId", async (c) => {
+  try {
+    const { user: admin } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    const contractId = c.req.param('contractId');
+    const br = await import("./billing-records.tsx");
+    const all = await br.getContracts(userId);
+    const ctr = all.find(x => x.id === contractId);
+    if (!ctr) return c.json({ error: 'Contract not found' }, 404);
+    const adminClient = getSupabaseAdmin();
+    await adminClient.storage.from(CONTRACTS_BUCKET).remove([ctr.storage_path]).catch(() => {});
+    await kv.set(br.contractsKey(userId), all.filter(x => x.id !== contractId));
+    await recordAuditEvent(c, {
+      action: 'admin.billing.contract.delete',
+      resource: 'user',
+      resourceId: userId,
+      metadata: { filename: ctr.filename, category: ctr.category },
+    });
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('[ADMIN] contract delete error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET /admin/users/:userId/billing/export — full compliance bundle (Phase 4)
+app.get("/make-server-a8b2511f/admin/users/:userId/billing/export", async (c) => {
+  try {
+    const { user: admin } = await getAuthenticatedUser(c);
+    if (!isAdminEmail(admin.email)) return c.json({ error: 'Unauthorized' }, 403);
+    const userId = c.req.param('userId');
+    const supabaseAdmin = getSupabaseAdmin();
+    const { data: target } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const br = await import("./billing-records.tsx");
+    const [invoices, payments, refunds, disputes, notes, contracts, manualCharges] = await Promise.all([
+      br.getInvoices(userId),
+      br.getPayments(userId),
+      br.getRefunds(userId),
+      br.getDisputes(userId),
+      br.getNotes(userId),
+      br.getContracts(userId),
+      br.getManualCharges(userId),
+    ]);
+    const subscription = await kv.get(`contndr_sub:${userId}`).catch(() => null);
+    const customerId = await kv.get(`stripe_customer:${userId}`).catch(() => null);
+
+    // Generate signed URLs (10-min lifetime) for each contract so the
+    // recipient of the export package can actually open the files.
+    const contractsWithUrls = await Promise.all(contracts.map(async (ctr) => {
+      try {
+        const { data } = await supabaseAdmin.storage.from(CONTRACTS_BUCKET).createSignedUrl(ctr.storage_path, 600);
+        return { ...ctr, signed_url: data?.signedUrl, signed_url_expires_in_seconds: 600 };
+      } catch {
+        return { ...ctr, signed_url: null };
+      }
+    }));
+
+    const bundle = {
+      generated_at: new Date().toISOString(),
+      generated_by: admin.email,
+      contndr_user_id: userId,
+      customer: {
+        email: target?.user?.email,
+        full_name: (target?.user?.user_metadata as any)?.name,
+        phone: target?.user?.phone,
+        joined_at: target?.user?.created_at,
+        last_sign_in_at: target?.user?.last_sign_in_at,
+        stripe_customer_id: customerId,
+      },
+      current_subscription: subscription,
+      invoices,
+      payments,
+      refunds,
+      disputes,
+      manual_charges: manualCharges,
+      admin_notes: notes,
+      contracts: contractsWithUrls,
+      _disclaimer: 'Contract URLs are signed for 10 minutes from generation time. Re-export to refresh.',
+    };
+
+    await recordAuditEvent(c, {
+      action: 'admin.billing.export',
+      resource: 'user',
+      resourceId: userId,
+      metadata: {
+        invoices: invoices.length,
+        payments: payments.length,
+        contracts: contracts.length,
+      },
+    });
+
+    const filename = `contndr-billing-export-${target?.user?.email || userId}-${new Date().toISOString().slice(0, 10)}.json`;
+    return new Response(JSON.stringify(bundle, null, 2), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        // Allow the browser to read the Content-Disposition header from JS
+        'Access-Control-Expose-Headers': 'Content-Disposition',
+      },
+    });
+  } catch (error: any) {
+    console.error('[ADMIN] billing export error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // DELETE /admin/bounced-leads/purge - Purge all bounce logs and force-delete remaining bounced leads (Admin Only)
 app.delete("/make-server-a8b2511f/admin/bounced-leads/purge", async (c) => {
   try {

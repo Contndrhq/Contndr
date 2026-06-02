@@ -39,6 +39,7 @@ import { toast } from 'sonner';
 import { confirmAsync } from './ConfirmDialog';
 import { projectId } from '../utils/supabase/info';
 import { authenticatedFetch, getAuthHeaders } from '../lib/auth';
+import { BillingComplianceTab } from './BillingComplianceTab';
 import { supabase } from '../lib/supabase';
 
 interface UserDetailSheetProps {
@@ -1154,6 +1155,11 @@ export function UserDetailSheet({
                 {data.team_link && (
                   <KV label="Team link" value={<span className="text-[11px] font-mono">{JSON.stringify(data.team_link).slice(0, 80)}</span>} />
                 )}
+              </Section>
+
+              {/* Billing & Compliance — invoices/payments/contracts/notes/export */}
+              <Section title="Billing & Compliance">
+                <BillingComplianceTab userId={userId} userEmail={userEmail} />
               </Section>
 
               {/* Timeline */}

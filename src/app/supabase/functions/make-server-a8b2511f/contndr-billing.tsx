@@ -720,6 +720,17 @@ export async function handleStripeWebhook(req: Request) {
 
   console.log(`Processing Stripe event: ${event.type} (${event.id})`);
 
+  // Mirror every billing-relevant event into local KV BEFORE the main
+  // switch runs. This is fire-and-forget — even if the main handler
+  // bails on an unknown event type, we still have a local copy of the
+  // invoice / payment / refund / dispute for compliance audits.
+  try {
+    const { mirrorStripeEvent } = await import("./billing-records.tsx");
+    await mirrorStripeEvent(event);
+  } catch (mirrorErr) {
+    console.error('[BILLING WEBHOOK] mirrorStripeEvent failed (non-fatal):', mirrorErr);
+  }
+
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object;
