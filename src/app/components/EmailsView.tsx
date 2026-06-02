@@ -1007,3 +1007,10 @@ function StatusBadge({ status }: { status: string }) {
     </span>
   );
 }
+
+// Default export for React.lazy compatibility — App.tsx loads this
+// chunk via lazy(() => import('./components/EmailsView')) which only
+// sees the default export. Named-export-only would crash the route
+// with 'Element type is invalid' when the user hits /app/emails.
+export default EmailsView;
+
