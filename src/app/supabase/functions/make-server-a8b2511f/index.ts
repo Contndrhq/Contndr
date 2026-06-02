@@ -11,7 +11,7 @@ import * as kv from "./kv-retry.tsx";
 import { recordAuditEvent } from "./audit-log.tsx";
 import { handleBounceAutoDelete, getBouncedLeads, purgeBouncedLeads, markLeadBouncedByEmail, classifyBounce } from "./bounce-handler.tsx";
 import { verifyEmail as localVerifyEmail } from "./email-verify.tsx";
-import { registerProductsRoutes } from "./products.tsx";
+import { registerProductsRoutes, getProductPromptContext } from "./products.tsx";
 import { checkDuplicatesAndFilter } from "./duplicate-check.tsx";
 // follow-ups.tsx — lazy-loaded on demand (transitively bundled via campaign-worker.tsx)
 import { processAutomationRule } from "./automation.tsx";
@@ -13170,6 +13170,20 @@ app.post("/make-server-a8b2511f/emails/generate", async (c) => {
       console.warn('[EMAIL GENERATE] Failed to load knowledge base context:', kbError);
     }
 
+    // Phase 3: pull the best-fit product for THIS lead and inject it into
+    // the system prompt so the AI anchors copy on the right tier
+    // ("given your team size, our Scale plan…") instead of generic
+    // "we have plans for every size".
+    let productContext = '';
+    try {
+      productContext = await getProductPromptContext(user.id, lead);
+      if (productContext) {
+        console.log(`[EMAIL GENERATE] Injected matched product context for lead ${lead.id || 'unknown'}: ${productContext.split('\n')[0]}`);
+      }
+    } catch (prodErr) {
+      console.warn('[EMAIL GENERATE] Product context lookup failed (non-fatal):', prodErr);
+    }
+
     // Merge writing fields: campaign-level settings take priority; KB overrides are fallback
     const effectiveTone = tone || kbWritingOverrides.tone || 'casual';
     const effectiveMaxWords = max_words || kbWritingOverrides.max_words || 75;
@@ -13537,6 +13551,13 @@ SUBJECT LINE RULES — non-negotiable:
 - Length: 3 to 8 words. Never more than 60 characters total.
 - Do NOT use exclamation marks.
 - Sound like a person writing one-off, not a marketing blast.`;
+
+    // Phase 3: append the matched-product context LAST so it takes
+    // priority over earlier template defaults — the AI weights later
+    // system instructions more heavily.
+    if (productContext) {
+      systemMessage += `\n\nMATCHED-PRODUCT GUIDANCE:\n${productContext}`;
+    }
 
     // Generate email via AI provider (OpenAI) with retries
     let aiResult;

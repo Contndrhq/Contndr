@@ -1203,6 +1203,11 @@ function buildSystemPrompt(aiConfig: any, leadContext: any, runtime?: { stage?: 
       if (leadContext.business && leadContext.business !== 'Unknown') prompt += `- Company: ${leadContext.business}\n`;
     }
 
+    // Phase 3: matched-product guidance — pitched tier + price for this prospect
+    if (leadContext?.productContext) {
+      prompt += `\n${leadContext.productContext}\n`;
+    }
+
     prompt += playbookBlock;
     prompt += `\nONE sentence. Start with a reaction. Follow the playbook stage above. Go.`;
     return prompt;
@@ -1242,6 +1247,7 @@ HARD RULES — follow exactly:
 GOAL: ${objectiveInstructions[objective] || objectiveInstructions.book_call}
 
 ${leadContext?.name && leadContext.name !== 'Unknown' ? `Prospect: ${leadContext.name}${leadContext.business && leadContext.business !== 'Unknown' ? ` at ${leadContext.business}` : ''}` : ''}
+${leadContext?.productContext ? `\n${leadContext.productContext}\n` : ''}
 ${playbookBlock}
 ONE sentence. Start with a reaction. Follow the playbook stage above. Go.`;
 }
@@ -2047,9 +2053,33 @@ app.post('/webhooks/call-status', async (c) => {
 
               // Generate AI response
               console.log(`🤖 Generating AI response for ${call.id}, turn ${turnCount}, prospect said: "${prospectSaid}"`);
+              // Phase 3: look up the best-fit product for this lead so
+              // the AI's pitch references the right tier ("given a team
+              // your size, our Scale plan…") instead of generic copy.
+              // Cached on conv to avoid re-running the matcher every turn.
+              let productCtx = conv.product_context;
+              if (productCtx == null) {
+                try {
+                  const { getProductPromptContext } = await import('./products.tsx');
+                  const userId = call.user_id || call.ai_config?.user_id;
+                  if (userId) {
+                    productCtx = await getProductPromptContext(userId, {
+                      num_employees: call.lead_num_employees ?? call.ai_config?.lead_num_employees,
+                      industry: call.lead_industry || call.ai_config?.lead_industry,
+                      estimated_monthly_lead_volume: call.lead_monthly_volume,
+                    });
+                  }
+                  productCtx = productCtx || '';
+                  conv.product_context = productCtx;
+                } catch (prodErr) {
+                  console.warn('[CALL] Product context lookup failed (non-fatal):', prodErr);
+                  conv.product_context = '';
+                }
+              }
               let systemPrompt = buildSystemPrompt(call.ai_config, {
                 name: call.lead_name || call.ai_config?.lead_name,
                 business: call.business_name || call.ai_config?.business_name,
+                productContext: productCtx,
               }, { stage, prospectSaid, matchedObjection });
               // Language mirror — if we detected the prospect speaks
               // non-English, append a language directive so GPT mirrors

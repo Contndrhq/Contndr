@@ -180,6 +180,44 @@ export function scoreProductForLead(
   return checks === 0 ? 1 : score;
 }
 
+/**
+ * Find the best-fit product for a lead and return a prompt-ready string
+ * for injection into AI email / call generators. Designed to be cheap
+ * (cached products lookup) and fail-safe (returns empty string on any
+ * error, so callers can just concat it into the prompt blindly).
+ *
+ * Caller passes the raw lead row (camelCase or snake_case both fine).
+ * Returns '' when there's no usable signal.
+ */
+export async function getProductPromptContext(
+  userId: string,
+  lead: Record<string, any>,
+): Promise<string> {
+  try {
+    const products = await getProducts(userId);
+    if (!products.length) return '';
+    const ranked = rankProductsForLead(products, {
+      num_employees: lead.num_employees ?? lead.estimated_num_employees ?? lead.numEmployees,
+      industry: lead.industry || lead.category,
+      estimated_monthly_lead_volume: lead.estimated_monthly_lead_volume ?? lead.monthly_lead_volume,
+    });
+    const top = ranked[0];
+    if (!top || top.score <= 0) return '';
+    const price = `$${(top.product.price_cents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    const intervalLabel = top.product.interval === 'monthly' ? '/mo' : top.product.interval === 'yearly' ? '/yr' : ' one-time';
+    const lines: string[] = [];
+    lines.push(`BEST-FIT PRODUCT FOR THIS PROSPECT: "${top.product.name}" (${price}${intervalLabel})`);
+    if (top.product.description) {
+      lines.push(`Description: ${top.product.description}`);
+    }
+    lines.push(`Anchor the conversation on this tier. Mention the plan name and price naturally when relevant. Don't pretend other tiers don't exist, but lead with this one — it's the best fit based on the prospect's size and volume.`);
+    return lines.join('\n');
+  } catch (err) {
+    console.warn('[PRODUCTS] getProductPromptContext failed:', err);
+    return '';
+  }
+}
+
 // ─── HTTP routes ───────────────────────────────────────────────────────────
 
 export function registerProductsRoutes(app: Hono, getUser: (c: any) => Promise<{ user: any }>) {
